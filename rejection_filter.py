@@ -4,6 +4,8 @@ from typing import Optional, Tuple
 
 import pytz
 
+from event_logger import event_logger
+
 
 class RejectionFilter:
     """Track rejection levels and filter opposing trades.
@@ -116,11 +118,29 @@ class RejectionFilter:
         # LONG continuation: previously bounced from low, now closed above high
         if self.last_rejection_level == 'LOW' and close > level_high:
             logging.info(f"📈 CONTINUATION: Bounced from low, broke high -> reinforcing LONG bias")
+
+            # Enhanced event logging: Continuation pattern detected
+            event_logger.log_rejection_detected(
+                rejection_type=f"{self.last_rejection_source}_CONTINUATION",
+                direction='LONG',
+                level=level_high,
+                current_price=close,
+                additional_info={"pattern": "Bounce_from_low_broke_high", "previous_rejection": "LOW"}
+            )
             return 'LONG'
 
         # SHORT continuation: previously rejected from high, now closed below low
         if self.last_rejection_level == 'HIGH' and close < level_low:
             logging.info(f"📉 CONTINUATION: Rejected from high, broke low -> reinforcing SHORT bias")
+
+            # Enhanced event logging: Continuation pattern detected
+            event_logger.log_rejection_detected(
+                rejection_type=f"{self.last_rejection_source}_CONTINUATION",
+                direction='SHORT',
+                level=level_low,
+                current_price=close,
+                additional_info={"pattern": "Reject_from_high_broke_low", "previous_rejection": "HIGH"}
+            )
             return 'SHORT'
 
         return None
@@ -148,10 +168,28 @@ class RejectionFilter:
             if current_bias is None:
                 # No bias yet - establish it with 1 closed candle
                 logging.info(f"🎯 REJECTION CONFIRMED (Q{current_quarter}): {label} -> {rej} bias (candle closed)")
+
+                # Enhanced event logging: Rejection detected
+                event_logger.log_rejection_detected(
+                    rejection_type=label,
+                    direction=rej,
+                    level=level_high if level_type == 'HIGH' else level_low,
+                    current_price=close,
+                    additional_info={"quarter": current_quarter, "level_type": level_type}
+                )
                 return rej
             elif rej != current_bias:
                 # Opposite rejection - flip bias with 1 closed candle
                 logging.info(f"🔁 BIAS FLIP (Q{current_quarter}): {label} {current_bias} -> {rej} (candle closed)")
+
+                # Enhanced event logging: Rejection detected (bias flip)
+                event_logger.log_rejection_detected(
+                    rejection_type=label,
+                    direction=rej,
+                    level=level_high if level_type == 'HIGH' else level_low,
+                    current_price=close,
+                    additional_info={"quarter": current_quarter, "level_type": level_type, "previous_bias": current_bias}
+                )
                 return rej
             else:
                 # Same direction - reinforce
@@ -309,6 +347,22 @@ class RejectionFilter:
         if any(blocks):
             reason = "; ".join(details)
             logging.info(f"⛔️ Trade blocked by RejectionFilter: {reason}")
+
+            # Enhanced event logging: Trade blocked by rejection
+            bias_info = {}
+            if self.prev_day_pm_bias:
+                bias_info['prev_day_pm_bias'] = self.prev_day_pm_bias
+            if self.prev_session_bias:
+                bias_info['prev_session_bias'] = self.prev_session_bias
+            if self.midnight_orb_bias:
+                bias_info['midnight_orb_bias'] = self.midnight_orb_bias
+
+            event_logger.log_rejection_block(
+                filter_name="RejectionFilter",
+                signal_side=direction,
+                reason=reason,
+                additional_info=bias_info
+            )
             return True, reason
 
         return False, ""
