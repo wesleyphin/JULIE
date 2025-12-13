@@ -29,7 +29,8 @@ CONFIG = {
     # --- ACCOUNT/CONTRACT (will be fetched dynamically) ---
     "ACCOUNT_ID": None,  # Fetched via /Account/search
     "CONTRACT_ID": None,  # Fetched via /Contract/available (e.g., "CON.F.US.ES.H25")
-    "TARGET_SYMBOL": "MESZ25",  # We want ES futures
+    "CONTRACT_ROOT": "ES",  # Symbol root used to determine current ES contract (e.g., ESZ25)
+    "TARGET_SYMBOL": None,  # Determined dynamically from date and CONTRACT_ROOT
     
     # --- API ENDPOINTS (ProjectX Gateway LIVE) ---
     # Switched from 'gateway-api-demo' to 'gateway-api'
@@ -147,6 +148,56 @@ CONFIG = {
         }
     }
 }
+
+
+# ==========================================
+# 1a. CONTRACT SYMBOL HELPERS
+# ==========================================
+CONTRACT_MONTH_CODES = {
+    1: "H",  # March
+    2: "H",  # March
+    3: "H",  # March
+    4: "M",  # June
+    5: "M",  # June
+    6: "M",  # June
+    7: "U",  # September
+    8: "U",  # September
+    9: "U",  # September
+    10: "Z",  # December
+    11: "Z",  # December
+    12: "Z",  # December
+}
+
+
+def determine_current_contract_symbol(
+    root: str = "ES",
+    tz_name: str = "US/Eastern",
+    today: Optional[datetime.date] = None,
+) -> str:
+    """Return the ES contract symbol for the current date (e.g., ESZ25)."""
+
+    tz = pytz.timezone(tz_name)
+    current_date = today or datetime.datetime.now(tz).date()
+    month_code = CONTRACT_MONTH_CODES.get(current_date.month)
+
+    if month_code is None:
+        raise ValueError(f"Unsupported month for contract mapping: {current_date.month}")
+
+    year_code = str(current_date.year % 100).zfill(2)
+    return f"{root}{month_code}{year_code}"
+
+
+def refresh_target_symbol():
+    """Update CONFIG['TARGET_SYMBOL'] based on today's date and configured root."""
+
+    CONFIG["TARGET_SYMBOL"] = determine_current_contract_symbol(
+        root=CONFIG.get("CONTRACT_ROOT", "ES"),
+        tz_name=CONFIG.get("TIMEZONE", "US/Eastern"),
+    )
+
+
+# Initialize TARGET_SYMBOL at import time
+refresh_target_symbol()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1323,25 +1374,27 @@ class ProjectXClient:
         Get available contracts using Search to find ES futures specifically.
         Endpoint: POST /api/Contract/search
         """
+        refresh_target_symbol()
+
         if not self._check_general_rate_limit():
             return self.contract_id
-        
+
         url = f"{self.base_url}/api/Contract/search"
         # We explicitly search for "ES" to ensure we get the right list
         payload = {
             "live": False,  # Set to False to find Topstep tradable contracts
-            "searchText": CONFIG.get('TARGET_SYMBOL', 'MESZ25')
+            "searchText": CONFIG.get('TARGET_SYMBOL', 'ESZ25')
         }
-        
+
         try:
             logging.info(f"🔎 Searching for contracts with symbol: {payload['searchText']}...")
             resp = self.session.post(url, json=payload)
             self._track_general_request()
             resp.raise_for_status()
             data = resp.json()
-            
+
             if 'contracts' in data and len(data['contracts']) > 0:
-                target = CONFIG.get('TARGET_SYMBOL', 'MESZ25')
+                target = CONFIG.get('TARGET_SYMBOL', 'ESZ25')
                 for contract in data['contracts']:
                     contract_id = contract.get('id', '')
                     contract_name = contract.get('name', '')
@@ -3241,6 +3294,7 @@ class DynamicEngine2Strategy(Strategy):
 # 12. MAIN EXECUTION LOOP
 # ==========================================
 def run_bot():
+    refresh_target_symbol()
     print("=" * 60)
     print("PROJECTX GATEWAY - ES FUTURES BOT (LIVE)")
     print("--- Julie Pro (Session Specialized) ---")
