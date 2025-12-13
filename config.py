@@ -1,6 +1,5 @@
 import datetime
 from typing import Optional
-
 import pytz
 
 
@@ -9,8 +8,8 @@ import pytz
 # bringing in the full bot runtime.
 CONFIG = {
     # --- CREDENTIALS ---
-    "USERNAME": "wmphin@gmail.com",
-    "API_KEY": "gFwTwuj2b6r7cK8MgkFHLkcoZHaMGQUFkDLh0aT5PgM=",
+    "USERNAME": "",
+    "API_KEY": "",
 
     # --- ACCOUNT/CONTRACT (will be fetched dynamically) ---
     "ACCOUNT_ID": None,  # Fetched via /Account/search
