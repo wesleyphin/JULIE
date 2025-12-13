@@ -29,12 +29,6 @@ logging.basicConfig(
 NY_TZ = pytz.timezone('America/New_York')
 
 # ==========================================
-# 2a. REJECTION FILTER (Trade Direction Filters)
-# ==========================================
-# Implementation moved to rejection_filter.py to keep this entrypoint focused on
-# bot orchestration.
-
-# ==========================================
 # 2b. CHOP FILTER (Consolidation Detection)
 # ==========================================
 # Import from external module with 320 thresholds and HH/HL structure validation
