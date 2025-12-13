@@ -25,6 +25,7 @@ from ict_model_strategy import ICTModelStrategy
 from ml_physics_strategy import MLPhysicsStrategy
 from dynamic_engine_strategy import DynamicEngineStrategy
 from dynamic_engine2_strategy import DynamicEngine2Strategy
+from event_logger import event_logger
 
 logging.basicConfig(
     level=logging.INFO,
@@ -575,27 +576,58 @@ class ProjectXClient:
         try:
             # Log exact details for verification
             direction_str = "UP (+)" if is_long else "DOWN (-)"
+            tp_price = current_price + tp_points if is_long else current_price - tp_points
+            sl_price = current_price - sl_points if is_long else current_price + sl_points
+
+            # Enhanced event logging: Order about to be placed
+            event_logger.log_trade_signal_generated(
+                strategy=signal.get('strategy', 'Unknown'),
+                side=signal['side'],
+                price=current_price,
+                tp_dist=tp_points,
+                sl_dist=sl_points
+            )
+
             logging.info(f"🚀 SENDING ORDER: {signal['side']} @ ~{current_price:.2f}")
             logging.info(f"   TP: {tp_points}pts ({final_tp_ticks} ticks)")
             logging.info(f"   SL: {sl_points}pts ({final_sl_ticks} ticks)")
-            
+
             resp = self.session.post(url, json=payload)
             self._track_general_request()
-            
+
             if resp.status_code == 429:
                 logging.error("🚫 Rate limited on order placement!")
+                event_logger.log_error("RATE_LIMIT", "Order placement rate limited")
                 return None
-            
+
             resp_data = resp.json()
-            
+
             if resp.status_code == 200:
                 # Check for business logic success
                 if resp_data.get('success') is False:
                      err_msg = resp_data.get('errorMessage', 'Unknown Rejection')
                      logging.error(f"❌ Order Rejected by Engine: {err_msg}")
+
+                     # Enhanced event logging: Order rejected
+                     event_logger.log_trade_order_rejected(
+                         side=signal['side'],
+                         price=current_price,
+                         error_msg=err_msg,
+                         strategy=signal.get('strategy', 'Unknown')
+                     )
                      return None
                 else:
                      logging.info(f"✅ Order Placed Successfully [{unique_order_id[:8]}]")
+
+                     # Enhanced event logging: Order placed successfully
+                     event_logger.log_trade_order_placed(
+                         order_id=unique_order_id,
+                         side=signal['side'],
+                         price=current_price,
+                         tp_price=tp_price,
+                         sl_price=sl_price,
+                         strategy=signal.get('strategy', 'Unknown')
+                     )
                      
                      # Update shadow position state
                      self._local_position = {
@@ -713,27 +745,41 @@ class ProjectXClient:
         
         try:
             logging.info(f"🔄 CLOSING POSITION: {action} {position['size']} contracts to close {position['side']} @ ~{position['avg_price']:.2f}")
+
             resp = self.session.post(url, json=payload)
             self._track_general_request()
-            
+
             if resp.status_code == 429:
                 logging.error("🚫 Rate limited on position close!")
+                event_logger.log_error("RATE_LIMIT", "Position close rate limited")
                 return False
-            
+
             resp_data = resp.json()
             if resp.status_code == 200 and resp_data.get('success', False):
                 logging.info(f"✅ Position close order submitted: {resp_data}")
-                
+
+                # Enhanced event logging: Position closed
+                # Note: We don't have the exact exit price yet, but we can estimate
+                event_logger.log_trade_closed(
+                    side=position['side'],
+                    entry_price=position['avg_price'],
+                    exit_price=position['avg_price'],  # Actual exit price not available yet
+                    pnl=0.0,  # PnL will be calculated later
+                    reason="Manual Close"
+                )
+
                 # Reset shadow position state
                 self._local_position = {'side': None, 'size': 0, 'avg_price': 0.0}
                 self._active_stop_order_id = None
-                
+
                 return True
             else:
                 logging.error(f"❌ Position close failed: {resp_data}")
+                event_logger.log_error("POSITION_CLOSE_FAILED", f"Failed to close position: {resp_data}")
                 return False
         except Exception as e:
             logging.error(f"❌ Position close exception: {e}")
+            event_logger.log_error("POSITION_CLOSE_EXCEPTION", f"Exception closing position: {e}", exception=e)
             return False
     
     def close_and_reverse(self, new_signal: Dict, current_price: float, opposite_signal_count: int) -> Tuple[bool, int]:
@@ -765,20 +811,28 @@ class ProjectXClient:
         # Signal is OPPOSITE direction - increment counter
         opposite_signal_count += 1
         logging.info(f"⚠️ OPPOSITE SIGNAL #{opposite_signal_count}/3: Current {position['side']} {position['size']} contracts, Signal: {new_signal['side']}")
-        
+
         # If we've received 3 opposite signals, close and reverse
         if opposite_signal_count >= 3:
             logging.info(f"🔄 3 OPPOSITE SIGNALS RECEIVED - Closing {position['side']} position and reversing to {new_signal['side']}")
-            
+
+            # Enhanced event logging: Close and reverse
+            event_logger.log_close_and_reverse(
+                old_side=position['side'],
+                new_side=new_signal['side'],
+                price=current_price,
+                strategy=new_signal.get('strategy', 'Unknown')
+            )
+
             # Close the existing position
             close_success = self.close_position(position)
             if not close_success:
                 logging.error("Failed to close existing position, aborting new order")
                 return False, opposite_signal_count
-            
+
             # Small delay to let the close order process
             time.sleep(0.5)
-            
+
             # Place the new order
             self.place_order(new_signal, current_price)
             return True, 0  # Reset counter after closing
@@ -1269,14 +1323,23 @@ def run_bot():
                         logging.info(f"🔒 BREAK-EVEN TRIGGER: Profit {current_profit:.2f} >= {profit_threshold:.2f}")
                         buffer = be_config.get('buffer_ticks', 1) * 0.25
                         be_price = entry_price + buffer if active_trade['side'] == 'LONG' else entry_price - buffer
-                        
+
                         # Use known size from active_trade (default to 1) and cached stop order ID
                         known_size = active_trade.get('size', 1)
                         stop_order_id = active_trade.get('stop_order_id')
-                        
+
                         if client.modify_stop_to_breakeven(be_price, active_trade['side'], known_size, stop_order_id):
                             active_trade['break_even_triggered'] = True
                             logging.info(f"✅ BREAK-EVEN SET: Stop moved to {be_price:.2f}")
+
+                            # Enhanced event logging: Breakeven adjustment
+                            old_sl = entry_price - tp_dist if active_trade['side'] == 'LONG' else entry_price + tp_dist
+                            event_logger.log_breakeven_adjustment(
+                                old_sl=old_sl,
+                                new_sl=be_price,
+                                current_price=current_price,
+                                profit_points=current_profit
+                            )
 
             currbar = new_df.iloc[-1]
             rejection_filter.update(current_time, currbar['high'], currbar['low'], currbar['close'])
@@ -1332,6 +1395,15 @@ def run_bot():
                             
                         if should_exit:
                             logging.info(f"⏰ EARLY EXIT: {strategy_name} - {exit_reason}")
+
+                            # Enhanced event logging: Early exit
+                            event_logger.log_early_exit(
+                                reason=exit_reason,
+                                bars_held=active_trade['bars_held'],
+                                current_price=current_price,
+                                entry_price=active_trade['entry_price']
+                            )
+
                             position = client.get_position()
                             if position['side'] is not None:
                                 client.close_position(position)
@@ -1357,43 +1429,89 @@ def run_bot():
                         signal = strat.on_bar(new_df)
                         if signal:
                             strategy_results['checked'].append(strat_name)
-                            
-                            # Filters
-                            if rejection_filter.should_block_trade(signal['side'])[0]: continue
-                            
+
+                            # Enhanced event logging: Strategy signal generated
+                            event_logger.log_strategy_signal(
+                                strategy_name=signal.get('strategy', strat_name),
+                                side=signal['side'],
+                                tp_dist=signal.get('tp_dist', 6.0),
+                                sl_dist=signal.get('sl_dist', 4.0),
+                                price=current_price,
+                                additional_info={"execution_type": "FAST"}
+                            )
+
+                            # Filters - Rejection Filter
+                            rej_blocked, rej_reason = rejection_filter.should_block_trade(signal['side'])
+                            if rej_blocked:
+                                event_logger.log_rejection_block("RejectionFilter", signal['side'], rej_reason or "Rejection bias")
+                                continue
+
                             # HTF FVG (Memory Based)
                             fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(signal['side'], current_price, None, None)
                             if fvg_blocked:
                                 logging.info(f"🚫 BLOCKED (HTF FVG): {fvg_reason}")
+                                event_logger.log_filter_check("HTF_FVG", signal['side'], False, fvg_reason)
                                 continue
-                            
+                            else:
+                                event_logger.log_filter_check("HTF_FVG", signal['side'], True)
+
                             # Weak Level Blocker (EQH/EQL)
                             struct_blocked, struct_reason = structure_blocker.should_block_trade(signal['side'], current_price)
                             if struct_blocked:
                                 logging.info(f"🚫 {struct_reason}")
+                                event_logger.log_filter_check("StructureBlocker", signal['side'], False, struct_reason)
                                 continue
+                            else:
+                                event_logger.log_filter_check("StructureBlocker", signal['side'], True)
 
                             # Chop
                             daily_bias = rejection_filter.prev_day_pm_bias
-                            if chop_filter.should_block_trade(signal['side'], daily_bias)[0]: continue
-                            
+                            chop_blocked, chop_reason = chop_filter.should_block_trade(signal['side'], daily_bias)
+                            if chop_blocked:
+                                event_logger.log_filter_check("ChopFilter", signal['side'], False, chop_reason)
+                                continue
+                            else:
+                                event_logger.log_filter_check("ChopFilter", signal['side'], True)
+
                             # Extension
-                            if extension_filter.should_block_trade(signal['side'])[0]: continue
-                            
+                            ext_blocked, ext_reason = extension_filter.should_block_trade(signal['side'])
+                            if ext_blocked:
+                                event_logger.log_filter_check("ExtensionFilter", signal['side'], False, ext_reason)
+                                continue
+                            else:
+                                event_logger.log_filter_check("ExtensionFilter", signal['side'], True)
+
                             # Volatility
                             should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0))
-                            if not should_trade: continue
-                            
+                            if not should_trade:
+                                event_logger.log_filter_check("VolatilityFilter", signal['side'], False, "Volatility check failed")
+                                continue
+                            else:
+                                event_logger.log_filter_check("VolatilityFilter", signal['side'], True)
+
                             if vol_adj.get('adjustment_applied', False):
                                 signal['sl_dist'] = vol_adj['sl_dist']
                                 signal['tp_dist'] = vol_adj['tp_dist']
-                            
+                                event_logger.log_trade_modified(
+                                    "VolatilityAdjustment",
+                                    signal.get('tp_dist', 6.0),
+                                    vol_adj['tp_dist'],
+                                    "Volatility regime adjustment"
+                                )
+
                             # Bank Filter (RegimeAdaptive Only)
-                            if bank_filter.should_block_trade(signal['side'])[0]: continue
-                            
+                            bank_blocked, bank_reason = bank_filter.should_block_trade(signal['side'])
+                            if bank_blocked:
+                                event_logger.log_filter_check("BankFilter", signal['side'], False, bank_reason)
+                                continue
+                            else:
+                                event_logger.log_filter_check("BankFilter", signal['side'], True)
+
                             # Execute
                             strategy_results['executed'] = strat_name
                             logging.info(f"✅ FAST EXEC: {signal['strategy']} signal")
+                            event_logger.log_strategy_execution(signal.get('strategy', strat_name), "FAST")
+
                             result = client.close_and_reverse(signal, current_price, opposite_signal_count)
                             if result[0]:
                                 active_trade = {
