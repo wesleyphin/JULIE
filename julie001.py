@@ -9,7 +9,6 @@ import joblib
 import uuid
 from abc import ABC, abstractmethod
 from typing import Dict, Optional, List, Tuple
-
 from config import CONFIG, refresh_target_symbol
 from dynamic_sltp_params import dynamic_sltp_engine, get_sltp
 from volatility_filter import volatility_filter, check_volatility, VolRegime
