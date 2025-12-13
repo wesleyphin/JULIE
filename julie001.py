@@ -1546,43 +1546,90 @@ def run_bot():
                         
                         if signal:
                             strategy_results['checked'].append(strat_name)
-                            
-                            if rejection_filter.should_block_trade(signal['side'])[0]: continue
+
+                            # Enhanced event logging: Strategy signal generated
+                            event_logger.log_strategy_signal(
+                                strategy_name=signal.get('strategy', strat_name),
+                                side=signal['side'],
+                                tp_dist=signal.get('tp_dist', 6.0),
+                                sl_dist=signal.get('sl_dist', 4.0),
+                                price=current_price,
+                                additional_info={"execution_type": "STANDARD"}
+                            )
+
+                            # Rejection Filter
+                            rej_blocked, rej_reason = rejection_filter.should_block_trade(signal['side'])
+                            if rej_blocked:
+                                event_logger.log_rejection_block("RejectionFilter", signal['side'], rej_reason or "Rejection bias")
+                                continue
                             
                             # HTF FVG (Memory Based)
                             fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(signal['side'], current_price, None, None)
                             if fvg_blocked:
                                 logging.info(f"🚫 BLOCKED (HTF FVG): {fvg_reason}")
+                                event_logger.log_filter_check("HTF_FVG", signal['side'], False, fvg_reason)
                                 continue
-                            
+                            else:
+                                event_logger.log_filter_check("HTF_FVG", signal['side'], True)
+
                             # Weak Level Blocker (EQH/EQL)
                             struct_blocked, struct_reason = structure_blocker.should_block_trade(signal['side'], current_price)
                             if struct_blocked:
                                 logging.info(f"🚫 {struct_reason}")
+                                event_logger.log_filter_check("StructureBlocker", signal['side'], False, struct_reason)
                                 continue
+                            else:
+                                event_logger.log_filter_check("StructureBlocker", signal['side'], True)
 
                             # Chop (Except DynamicEngine and DynamicEngine2)
                             if signal['strategy'] not in ["DynamicEngine", "DynamicEngine2"]:
-                                if chop_filter.should_block_trade(signal['side'], rejection_filter.prev_day_pm_bias)[0]: continue
-                            
+                                chop_blocked, chop_reason = chop_filter.should_block_trade(signal['side'], rejection_filter.prev_day_pm_bias)
+                                if chop_blocked:
+                                    event_logger.log_filter_check("ChopFilter", signal['side'], False, chop_reason)
+                                    continue
+                                else:
+                                    event_logger.log_filter_check("ChopFilter", signal['side'], True)
+
                             # Extension (Except DynamicEngine and DynamicEngine2)
                             if signal['strategy'] not in ["DynamicEngine", "DynamicEngine2"]:
-                                if extension_filter.should_block_trade(signal['side'])[0]: continue
+                                ext_blocked, ext_reason = extension_filter.should_block_trade(signal['side'])
+                                if ext_blocked:
+                                    event_logger.log_filter_check("ExtensionFilter", signal['side'], False, ext_reason)
+                                    continue
+                                else:
+                                    event_logger.log_filter_check("ExtensionFilter", signal['side'], True)
                             
                             # Volatility
                             should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0))
-                            if not should_trade: continue
-                            
+                            if not should_trade:
+                                event_logger.log_filter_check("VolatilityFilter", signal['side'], False, "Volatility check failed")
+                                continue
+                            else:
+                                event_logger.log_filter_check("VolatilityFilter", signal['side'], True)
+
                             if vol_adj.get('adjustment_applied', False):
                                 signal['sl_dist'] = vol_adj['sl_dist']
                                 signal['tp_dist'] = vol_adj['tp_dist']
-                                
+                                event_logger.log_trade_modified(
+                                    "VolatilityAdjustment",
+                                    signal.get('tp_dist', 6.0),
+                                    vol_adj['tp_dist'],
+                                    "Volatility regime adjustment"
+                                )
+
                             # Bank Filter (ML Only)
                             if strat_name == "MLPhysicsStrategy":
-                                if bank_filter.should_block_trade(signal['side'])[0]: continue
+                                bank_blocked, bank_reason = bank_filter.should_block_trade(signal['side'])
+                                if bank_blocked:
+                                    event_logger.log_filter_check("BankFilter", signal['side'], False, bank_reason)
+                                    continue
+                                else:
+                                    event_logger.log_filter_check("BankFilter", signal['side'], True)
 
                             strategy_results['executed'] = strat_name
                             logging.info(f"✅ STANDARD EXEC: {signal['strategy']} signal")
+                            event_logger.log_strategy_execution(signal.get('strategy', strat_name), "STANDARD")
+
                             result = client.close_and_reverse(signal, current_price, opposite_signal_count)
                             if result[0]:
                                 active_trade = {
@@ -1609,28 +1656,64 @@ def run_bot():
                             if pending['bar_count'] >= 1:
                                 sig = pending['signal']
                                 # Re-check filters
-                                if rejection_filter.should_block_trade(sig['side'])[0]: 
+                                rej_blocked, rej_reason = rejection_filter.should_block_trade(sig['side'])
+                                if rej_blocked:
+                                    event_logger.log_rejection_block("RejectionFilter", sig['side'], rej_reason or "Rejection bias")
                                     del pending_loose_signals[s_name]; continue
-                                
+
                                 # HTF FVG
                                 fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(sig['side'], current_price, None, None)
                                 if fvg_blocked:
                                     logging.info(f"🚫 BLOCKED (HTF FVG): {fvg_reason}")
+                                    event_logger.log_filter_check("HTF_FVG", sig['side'], False, fvg_reason)
                                     del pending_loose_signals[s_name]; continue
-                                
+                                else:
+                                    event_logger.log_filter_check("HTF_FVG", sig['side'], True)
+
                                 # === [FIX 1] UPDATED BLOCKER CHECK ===
                                 struct_blocked, struct_reason = structure_blocker.should_block_trade(sig['side'], current_price)
                                 if struct_blocked:
                                     logging.info(f"🚫 {struct_reason}")
+                                    event_logger.log_filter_check("StructureBlocker", sig['side'], False, struct_reason)
                                     del pending_loose_signals[s_name]; continue
+                                else:
+                                    event_logger.log_filter_check("StructureBlocker", sig['side'], True)
                                 # =====================================
 
-                                if chop_filter.should_block_trade(sig['side'], rejection_filter.prev_day_pm_bias)[0]: 
+                                chop_blocked, chop_reason = chop_filter.should_block_trade(sig['side'], rejection_filter.prev_day_pm_bias)
+                                if chop_blocked:
+                                    event_logger.log_filter_check("ChopFilter", sig['side'], False, chop_reason)
                                     del pending_loose_signals[s_name]; continue
-                                if extension_filter.should_block_trade(sig['side'])[0]: 
+                                else:
+                                    event_logger.log_filter_check("ChopFilter", sig['side'], True)
+
+                                ext_blocked, ext_reason = extension_filter.should_block_trade(sig['side'])
+                                if ext_blocked:
+                                    event_logger.log_filter_check("ExtensionFilter", sig['side'], False, ext_reason)
                                     del pending_loose_signals[s_name]; continue
-                                
+                                else:
+                                    event_logger.log_filter_check("ExtensionFilter", sig['side'], True)
+
+                                # Volatility
+                                should_trade, vol_adj = check_volatility(new_df, sig.get('sl_dist', 4.0), sig.get('tp_dist', 6.0))
+                                if not should_trade:
+                                    event_logger.log_filter_check("VolatilityFilter", sig['side'], False, "Volatility check failed")
+                                    del pending_loose_signals[s_name]; continue
+                                else:
+                                    event_logger.log_filter_check("VolatilityFilter", sig['side'], True)
+
+                                if vol_adj.get('adjustment_applied', False):
+                                    sig['sl_dist'] = vol_adj['sl_dist']
+                                    sig['tp_dist'] = vol_adj['tp_dist']
+                                    event_logger.log_trade_modified(
+                                        "VolatilityAdjustment",
+                                        sig.get('tp_dist', 6.0),
+                                        vol_adj['tp_dist'],
+                                        "Volatility regime adjustment"
+                                    )
+
                                 logging.info(f"✅ LOOSE EXEC: {s_name}")
+                                event_logger.log_strategy_execution(s_name, "LOOSE")
                                 result = client.close_and_reverse(sig, current_price, opposite_signal_count)
                                 if result[0]:
                                     active_trade = {
@@ -1655,19 +1738,69 @@ def run_bot():
                                     signal = strat.on_bar(new_df)
                                     s_name = strat.__class__.__name__
                                     if signal and s_name not in pending_loose_signals:
-                                        if rejection_filter.should_block_trade(signal['side'])[0]: continue
-                                        
+                                        # Enhanced event logging: Strategy signal generated
+                                        event_logger.log_strategy_signal(
+                                            strategy_name=signal.get('strategy', s_name),
+                                            side=signal['side'],
+                                            tp_dist=signal.get('tp_dist', 6.0),
+                                            sl_dist=signal.get('sl_dist', 4.0),
+                                            price=current_price,
+                                            additional_info={"execution_type": "LOOSE"}
+                                        )
+
+                                        rej_blocked, rej_reason = rejection_filter.should_block_trade(signal['side'])
+                                        if rej_blocked:
+                                            event_logger.log_rejection_block("RejectionFilter", signal['side'], rej_reason or "Rejection bias")
+                                            continue
+
                                         fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(signal['side'], current_price, None, None)
-                                        if fvg_blocked: continue
-                                        
+                                        if fvg_blocked:
+                                            event_logger.log_filter_check("HTF_FVG", signal['side'], False, fvg_reason)
+                                            continue
+                                        else:
+                                            event_logger.log_filter_check("HTF_FVG", signal['side'], True)
+
                                         # === [FIX 2] UPDATED BLOCKER CHECK ===
                                         struct_blocked, struct_reason = structure_blocker.should_block_trade(signal['side'], current_price)
-                                        if struct_blocked: continue
+                                        if struct_blocked:
+                                            event_logger.log_filter_check("StructureBlocker", signal['side'], False, struct_reason)
+                                            continue
+                                        else:
+                                            event_logger.log_filter_check("StructureBlocker", signal['side'], True)
                                         # =====================================
 
-                                        if chop_filter.should_block_trade(signal['side'], rejection_filter.prev_day_pm_bias)[0]: continue
-                                        if extension_filter.should_block_trade(signal['side'])[0]: continue
-                                        
+                                        chop_blocked, chop_reason = chop_filter.should_block_trade(signal['side'], rejection_filter.prev_day_pm_bias)
+                                        if chop_blocked:
+                                            event_logger.log_filter_check("ChopFilter", signal['side'], False, chop_reason)
+                                            continue
+                                        else:
+                                            event_logger.log_filter_check("ChopFilter", signal['side'], True)
+
+                                        ext_blocked, ext_reason = extension_filter.should_block_trade(signal['side'])
+                                        if ext_blocked:
+                                            event_logger.log_filter_check("ExtensionFilter", signal['side'], False, ext_reason)
+                                            continue
+                                        else:
+                                            event_logger.log_filter_check("ExtensionFilter", signal['side'], True)
+
+                                        # Volatility
+                                        should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0))
+                                        if not should_trade:
+                                            event_logger.log_filter_check("VolatilityFilter", signal['side'], False, "Volatility check failed")
+                                            continue
+                                        else:
+                                            event_logger.log_filter_check("VolatilityFilter", signal['side'], True)
+
+                                        if vol_adj.get('adjustment_applied', False):
+                                            signal['sl_dist'] = vol_adj['sl_dist']
+                                            signal['tp_dist'] = vol_adj['tp_dist']
+                                            event_logger.log_trade_modified(
+                                                "VolatilityAdjustment",
+                                                signal.get('tp_dist', 6.0),
+                                                vol_adj['tp_dist'],
+                                                "Volatility regime adjustment"
+                                            )
+
                                         logging.info(f"🕐 Queuing {s_name} signal")
                                         pending_loose_signals[s_name] = {'signal': signal, 'bar_count': 0}
                                 except Exception as e:
