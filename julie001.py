@@ -9,144 +9,18 @@ import joblib
 import uuid
 from abc import ABC, abstractmethod
 from typing import Dict, Optional, List, Tuple
-from collections import deque
+
+from config import CONFIG, refresh_target_symbol
 from dynamic_sltp_params import dynamic_sltp_engine, get_sltp
 from volatility_filter import volatility_filter, check_volatility, VolRegime
 from regime_strategy import RegimeAdaptiveStrategy
 from htf_fvg_filter import HTFFVGFilter
 from dynamic_signal_engine import get_signal_engine
 from dynamic_signal_engine2 import get_signal_engine as get_signal_engine2
-
-
-# ==========================================
-# 1. CONFIGURATION
-# ==========================================
-CONFIG = {
-    # --- CREDENTIALS ---
-    "USERNAME": "wmphin@gmail.com",
-    "API_KEY": "gFwTwuj2b6r7cK8MgkFHLkcoZHaMGQUFkDLh0aT5PgM=",
-    
-    # --- ACCOUNT/CONTRACT (will be fetched dynamically) ---
-    "ACCOUNT_ID": None,  # Fetched via /Account/search
-    "CONTRACT_ID": None,  # Fetched via /Contract/available (e.g., "CON.F.US.ES.H25")
-    "TARGET_SYMBOL": "MESZ25",  # We want ES futures
-    
-    # --- API ENDPOINTS (ProjectX Gateway LIVE) ---
-    # Switched from 'gateway-api-demo' to 'gateway-api'
-    "REST_BASE_URL": "https://api.topstepx.com",
-    "RTC_USER_HUB": "https://rtc.topstepx.com/hubs/user",
-    "RTC_MARKET_HUB": "https://rtc.topstepx.com/hubs/market",
-    
-    # --- SYSTEM SETTINGS ---
-    "MAX_DAILY_LOSS": 1000.0,
-    "TIMEZONE": "US/Eastern",
-    
-    # --- ML SESSION-BASED STRATEGY SETTINGS ---
-    "WINDOW_SIZE": 15,
-    
-    # --- EARLY EXIT OPTIMIZATION (from 2023-2025 backtest analysis) ---
-    # Combined early exit rules:
-    # 1. exit_if_not_green_by: Exit if not profitable within X bars
-    # 2. max_profit_crosses: Exit if price crosses profit/loss threshold X times
-    "EARLY_EXIT": {
-        "Confluence": {
-            "enabled": True,
-            "exit_if_not_green_by": 5,  # Exit if not profitable within 5 bars)
-            "max_profit_crosses": 1,     # Exit if crosses > 1
-        },
-        "ICT_Model": {
-            "enabled": True,
-            "exit_if_not_green_by": 1,   # Exit if not profitable within 1 bar
-            "max_profit_crosses": 0,     # Exit if ANY profit cross
-        },
-        "MLPhysics_ASIA": {
-            "enabled": True,
-            "exit_if_not_green_by": 30,   # Give trade room to develop
-            "max_profit_crosses": 4,      # Allow some chop
-        },
-        "MLPhysics_LONDON": {
-            "enabled": True,
-            "exit_if_not_green_by": 30,   # Give trade room to develop
-            "max_profit_crosses": 4,      # Allow some chop
-        },
-        "MLPhysics_NY_AM": {
-            "enabled": True,
-            "exit_if_not_green_by": 30,   # Give trade room to develop
-            "max_profit_crosses": 4,      # Allow some chop
-        },
-        "MLPhysics_NY_PM": {
-            "enabled": True,
-            "exit_if_not_green_by": 30,   # Give trade room to develop
-            "max_profit_crosses": 4,      # Allow some chop
-        },
-        # These strategies don't benefit from early exit (wins happen faster than losses)
-        "RegimeAdaptive": {
-        "enabled": True,
-        "exit_if_not_green_by": 30,   # If still red after 30 bars, bail
-        "max_profit_crosses": 4       # Max 2 green/red flips before we exit as chop
-    },
-        "IntradayDip": {
-            "enabled": True,
-            "exit_if_not_green_by": 30,   # Give trade room to develop
-            "max_profit_crosses": 4,      # Allow some chop
-        },
-        "DynamicEngine": {
-            "enabled": True,
-            "exit_if_not_green_by": 30,   # Give trade room to develop
-            "max_profit_crosses": 4,      # Allow some chop
-        },
-        "DynamicEngine2": {
-            "enabled": True,
-            "exit_if_not_green_by": 30,   # Give trade room to develop
-            "max_profit_crosses": 4,      # Allow some chop
-        },
-        "ORB_Long": {"enabled": False},
-    },
-    
-    # --- BREAK-EVEN LOGIC ---
-    # Move stop to entry when profit reaches X% of TP distance
-    "BREAK_EVEN": {
-        "enabled": True,
-        "trigger_pct": 0.40,  # Trigger at 40% of TP distance
-        "buffer_ticks": 1,    # Add 1 tick buffer above entry for longs (below for shorts)
-    },
-    
-    # --- SESSION DEFINITIONS (From Optimization Results) ---
-    "SESSIONS": {
-        "ASIA": {
-            # 6:00 PM - 3:00 AM ET
-            "HOURS": [18, 19, 20, 21, 22, 23, 0, 1, 2],
-            "MODEL_FILE": "model_asia.joblib",
-            "THRESHOLD": 0.65,  # Strict Entry
-            "SL": 4.0,          # Tight Stop
-            "TP": 6.0           # Moderate Target
-        },
-        "LONDON": {
-            # 3:00 AM - 8:00 AM ET
-            "HOURS": [3, 4, 5, 6, 7],
-            "MODEL_FILE": "model_london.joblib",
-            "THRESHOLD": 0.55,  # Standard Entry
-            "SL": 4.0,          # Scalper Stop
-            "TP": 4.0           # Scalper Target
-        },
-        "NY_AM": {
-            # 8:00 AM - 12:00 PM ET
-            "HOURS": [8, 9, 10, 11],
-            "MODEL_FILE": "model_ny_am.joblib",
-            "THRESHOLD": 0.55,
-            "SL": 10.0,         # Wide Stop (Breathing Room)
-            "TP": 4.0           # High Probability Target (80% WR)
-        },
-        "NY_PM": {
-            # 12:00 PM - 5:00 PM ET
-            "HOURS": [12, 13, 14, 15, 16],
-            "MODEL_FILE": "model_ny_pm.joblib",
-            "THRESHOLD": 0.55,
-            "SL": 10.0,         # Wide Stop
-            "TP": 8.0           # Trend Target (Highest PnL)
-        }
-    }
-}
+from rejection_filter import RejectionFilter
+from chop_filter import ChopFilter
+from extension_filter import ExtensionFilter
+from dynamic_structure_blocker import DynamicStructureBlocker
 
 logging.basicConfig(
     level=logging.INFO,
@@ -159,357 +33,12 @@ NY_TZ = pytz.timezone('America/New_York')
 # ==========================================
 # 2a. REJECTION FILTER (Trade Direction Filters)
 # ==========================================
-"""
-Filters trades based on rejection of key levels.
-A "rejection" = price swept a level and closed back inside = trend bias established.
-
-UPDATED: Now includes Quarterly Theory logic. Biases RESET on Quarter changes.
-
-Filters (each independent):
-- prev_day_pm: Previous day PM session (12:00-17:00 ET) high/low
-- prev_session: Previous session high/low
-- midnight_orb: Midnight ORB (00:00-00:15 ET) high/low
-
-Mode: BLOCK_OPPOSING - block trades that oppose the rejection bias
-"""
-
-class RejectionFilter:
-    """Track rejection levels and filter opposing trades.
-
-    Updated logic:
-    - 1 candle CLOSE required to establish or flip bias (candle must fully close)
-    - Continuation: If price bounces from low level then breaks high = reinforces LONG bias
-    - Continuation: If price rejects high level then breaks low = reinforces SHORT bias
-    """
-
-    def __init__(self):
-        self.reset()
-
-    def reset(self):
-        # Previous day PM (12:00-17:00 ET)
-        self.prev_day_pm_high: Optional[float] = None
-        self.prev_day_pm_low: Optional[float] = None
-        self.current_date: Optional[datetime.date] = None
-        self.current_pm_high: Optional[float] = None
-        self.current_pm_low: Optional[float] = None
-
-        # Session tracking
-        self.prev_session_high: Optional[float] = None
-        self.prev_session_low: Optional[float] = None
-        self.curr_session_high: Optional[float] = None
-        self.curr_session_low: Optional[float] = None
-        self.last_session: Optional[str] = None
-
-        # ORB levels
-        self.midnight_orb_high: Optional[float] = None
-        self.midnight_orb_low: Optional[float] = None
-        self.midnight_orb_set: bool = False
-
-        # Rejection biases (None, 'LONG', 'SHORT')
-        self.prev_day_pm_bias: Optional[str] = None
-        self.prev_session_bias: Optional[str] = None
-        self.midnight_orb_bias: Optional[str] = None
-
-        # Quarterly Tracking
-        self.current_quarter: int = 0
-        self.current_session_name: Optional[str] = None
-        
-        # Track last rejection for continuation logic
-        self.last_rejection_level: Optional[str] = None  # 'HIGH' or 'LOW'
-        self.last_rejection_source: Optional[str] = None  # Which level was rejected
-
-    def get_session(self, hour: int) -> str:
-        """Determine session from hour (ET)."""
-        if 18 <= hour <= 23 or 0 <= hour < 3:
-            return 'ASIA'
-        elif 3 <= hour < 8:
-            return 'LONDON'
-        elif 8 <= hour < 12:
-            return 'NY_AM'
-        elif 12 <= hour < 17:
-            return 'NY_PM'
-        return 'CLOSED'
-
-    def get_quarter(self, hour: int, minute: int, session: str) -> int:
-        """Determine which quarter (1-4) based on Daye's Quarterly Theory."""
-        if session == 'ASIA':
-            h_adj = hour if hour >= 18 else hour + 24
-            mins_since_start = (h_adj - 18) * 60 + minute
-            quarter_length = 135
-        elif session == 'LONDON':
-            mins_since_start = (hour - 3) * 60 + minute
-            quarter_length = 75
-        elif session == 'NY_AM':
-            mins_since_start = (hour - 8) * 60 + minute
-            quarter_length = 60
-        elif session == 'NY_PM':
-            mins_since_start = (hour - 12) * 60 + minute
-            quarter_length = 75
-        else:
-            return 0
-
-        quarter = min(4, (mins_since_start // quarter_length) + 1)
-        return quarter
-
-    def check_rejection(self, high: float, low: float, close: float,
-                        level_high: Optional[float], level_low: Optional[float]) -> Tuple[Optional[str], Optional[str]]:
-        """Check if candle CLOSED showing rejection of a level.
-        
-        Returns: (bias_direction, level_type) where level_type is 'HIGH' or 'LOW'
-        """
-        if level_high is None or level_low is None:
-            return None, None
-
-        # Bullish rejection: swept low, CLOSED back above = LONG bias
-        if low < level_low and close > level_low:
-            return 'LONG', 'LOW'
-
-        # Bearish rejection: swept high, CLOSED back below = SHORT bias
-        if high > level_high and close < level_high:
-            return 'SHORT', 'HIGH'
-
-        return None, None
-
-    def check_continuation(self, high: float, low: float, close: float,
-                          level_high: Optional[float], level_low: Optional[float],
-                          current_bias: Optional[str]) -> Optional[str]:
-        """Check for continuation - breakout after rejection reinforces bias.
-        
-        - If we had a LOW rejection (bounced from low) and now CLOSE above high = LONG continuation
-        - If we had a HIGH rejection (rejected from high) and now CLOSE below low = SHORT continuation
-        """
-        if level_high is None or level_low is None:
-            return None
-        
-        # LONG continuation: previously bounced from low, now closed above high
-        if self.last_rejection_level == 'LOW' and close > level_high:
-            logging.info(f"📈 CONTINUATION: Bounced from low, broke high -> reinforcing LONG bias")
-            return 'LONG'
-        
-        # SHORT continuation: previously rejected from high, now closed below low
-        if self.last_rejection_level == 'HIGH' and close < level_low:
-            logging.info(f"📉 CONTINUATION: Rejected from high, broke low -> reinforcing SHORT bias")
-            return 'SHORT'
-        
-        return None
-
-    def _process_rejection(self, label: str, rej: Optional[str], level_type: Optional[str],
-                           current_bias: Optional[str], current_quarter: int,
-                           high: float, low: float, close: float,
-                           level_high: Optional[float], level_low: Optional[float]) -> Optional[str]:
-        """Process rejection with 1-candle close confirmation and continuation logic."""
-        
-        # First check for continuation (breakout after rejection)
-        continuation = self.check_continuation(high, low, close, level_high, level_low, current_bias)
-        if continuation:
-            if current_bias != continuation:
-                logging.info(f"🎯 CONTINUATION CONFIRMED (Q{current_quarter}): {label} -> {continuation} bias (breakout after rejection)")
-            self.last_rejection_level = None  # Reset after continuation
-            return continuation
-        
-        # Then check for new rejection (1 candle close required)
-        if rej is not None:
-            # Track which level was rejected for continuation logic
-            self.last_rejection_level = level_type
-            self.last_rejection_source = label
-            
-            if current_bias is None:
-                # No bias yet - establish it with 1 closed candle
-                logging.info(f"🎯 REJECTION CONFIRMED (Q{current_quarter}): {label} -> {rej} bias (candle closed)")
-                return rej
-            elif rej != current_bias:
-                # Opposite rejection - flip bias with 1 closed candle
-                logging.info(f"🔁 BIAS FLIP (Q{current_quarter}): {label} {current_bias} -> {rej} (candle closed)")
-                return rej
-            else:
-                # Same direction - reinforce
-                return current_bias
-        
-        return current_bias
-
-    def update(self, ts_et, high: float, low: float, close: float):
-        """Update all tracked levels with new bar data (on candle CLOSE)."""
-        date = ts_et.date()
-        hour = ts_et.hour
-        minute = ts_et.minute
-        current_session = self.get_session(hour)
-        current_quarter = self.get_quarter(hour, minute, current_session) if current_session != 'CLOSED' else 0
-
-        # === NEW DAY ===
-        if self.current_date != date:
-            if self.current_pm_high is not None:
-                self.prev_day_pm_high = self.current_pm_high
-                self.prev_day_pm_low = self.current_pm_low
-            self.current_pm_high = None
-            self.current_pm_low = None
-            self.current_date = date
-
-            # Reset ORB and its bias each new calendar day
-            self.midnight_orb_high = None
-            self.midnight_orb_low = None
-            self.midnight_orb_set = False
-            self.midnight_orb_bias = None
-
-            # Daily reset for previous PM bias
-            self.prev_day_pm_bias = None
-            
-            # Reset continuation tracking
-            self.last_rejection_level = None
-            self.last_rejection_source = None
-
-        # === SESSION CHANGE ===
-        if current_session != self.last_session and current_session != 'CLOSED':
-            if self.curr_session_high is not None:
-                self.prev_session_high = self.curr_session_high
-                self.prev_session_low = self.curr_session_low
-            self.curr_session_high = None
-            self.curr_session_low = None
-
-            # Reset session-based bias when we roll to a new session
-            self.prev_session_bias = None
-            self.last_session = current_session
-            
-            # Reset continuation tracking on session change
-            self.last_rejection_level = None
-            self.last_rejection_source = None
-
-        # === QUARTER CHANGE ===
-        if current_session != 'CLOSED':
-            if (self.current_session_name != current_session or
-                    self.current_quarter != current_quarter):
-                logging.info(
-                    f"🔄 QUARTER CHANGE: {current_session} Q{current_quarter} | "
-                    "keeping existing rejection biases"
-                )
-                self.current_session_name = current_session
-                self.current_quarter = current_quarter
-
-        # === UPDATE CURRENT SESSION HIGH/LOW ===
-        if current_session != 'CLOSED':
-            if self.curr_session_high is None:
-                self.curr_session_high = high
-                self.curr_session_low = low
-            else:
-                self.curr_session_high = max(self.curr_session_high, high)
-                self.curr_session_low = min(self.curr_session_low, low)
-
-        # === UPDATE PM SESSION HIGH/LOW (12:00-17:00 ET) ===
-        if 12 <= hour < 17:
-            if self.current_pm_high is None:
-                self.current_pm_high = high
-                self.current_pm_low = low
-            else:
-                self.current_pm_high = max(self.current_pm_high, high)
-                self.current_pm_low = min(self.current_pm_low, low)
-
-        # === BUILD MIDNIGHT ORB (00:00-00:15 ET) ===
-        if hour == 0 and minute < 15:
-            if self.midnight_orb_high is None:
-                self.midnight_orb_high = high
-                self.midnight_orb_low = low
-            else:
-                self.midnight_orb_high = max(self.midnight_orb_high, high)
-                self.midnight_orb_low = min(self.midnight_orb_low, low)
-        elif hour == 0 and minute >= 15 and not self.midnight_orb_set:
-            self.midnight_orb_set = True
-
-        # === CHECK FOR REJECTIONS (1 candle close required) ===
-        # 1) Previous day PM rejection
-        rej, level_type = self.check_rejection(high, low, close, self.prev_day_pm_high, self.prev_day_pm_low)
-        self.prev_day_pm_bias = self._process_rejection(
-            "Prev Day PM", rej, level_type, self.prev_day_pm_bias, current_quarter,
-            high, low, close, self.prev_day_pm_high, self.prev_day_pm_low
-        )
-
-        # 2) Previous session rejection
-        rej, level_type = self.check_rejection(high, low, close, self.prev_session_high, self.prev_session_low)
-        self.prev_session_bias = self._process_rejection(
-            "Prev Session", rej, level_type, self.prev_session_bias, current_quarter,
-            high, low, close, self.prev_session_high, self.prev_session_low
-        )
-
-        # 3) Midnight ORB rejection (only after ORB is locked in)
-        if self.midnight_orb_set:
-            rej, level_type = self.check_rejection(high, low, close, self.midnight_orb_high, self.midnight_orb_low)
-            self.midnight_orb_bias = self._process_rejection(
-                "Midnight ORB", rej, level_type, self.midnight_orb_bias, current_quarter,
-                high, low, close, self.midnight_orb_high, self.midnight_orb_low
-            )
-
-    def should_block_trade(self, side: str) -> Tuple[bool, str]:
-        """Check if trade should be blocked based on rejection biases."""
-        reasons = []
-
-        if self.prev_day_pm_bias is not None and side != self.prev_day_pm_bias:
-            reasons.append(f"prev_day_pm={self.prev_day_pm_bias}")
-
-        if self.prev_session_bias is not None and side != self.prev_session_bias:
-            reasons.append(f"prev_session={self.prev_session_bias}")
-
-        if self.midnight_orb_bias is not None and side != self.midnight_orb_bias:
-            reasons.append(f"midnight_orb={self.midnight_orb_bias}")
-
-        if reasons:
-            return True, f"Opposing bias: {', '.join(reasons)}"
-
-        return False, ""
-
-    def backfill(self, df: pd.DataFrame):
-        """
-        Replay history to populate levels (ORB, Prev PM, etc.) 
-        using the data we already downloaded.
-        """
-        logging.info("↻ Backfilling Rejection Levels from history...")
-        
-        # Sort chronologically (Oldest -> Newest) just to be safe
-        df_sorted = df.sort_index()
-        
-        for ts, row in df_sorted.iterrows():
-            # We treat the history as if it's happening 'now' to populate state
-            self.update(ts, row['high'], row['low'], row['close'])
-            
-        logging.info(f"✅ Backfill Complete.")
-        if self.midnight_orb_set:
-             logging.info(f"   ORB Loaded: {self.midnight_orb_high} - {self.midnight_orb_low}")
-        if self.prev_day_pm_high:
-             logging.info(f"   Prev PM Loaded: {self.prev_day_pm_high} - {self.prev_day_pm_low}")
-
-# ==========================================
-# 2b. CHOP FILTER (Consolidation Detection)
-# ==========================================
-# Import from external module with 320 thresholds and HH/HL structure validation
-# Place chop_filter.py in same directory as julie001.py
-try:
-    from chop_filter import ChopFilter
-    logging.info("✅ ChopFilter module loaded (320 thresholds)")
-except ImportError as e:
-    logging.error(f"❌ Failed to import chop_filter.py: {e}")
-    class ChopFilter:
-        def __init__(self, lookback=20): self.state = 'DISABLED'
-        def update(self, high, low, close, dt): return 'DISABLED'
-        def should_block_trade(self, direction, daily_bias=None): return False, None
-        def get_status(self): return {'state': 'DISABLED'}
-        def reset(self): pass
-
-# ==========================================
-# 2c. EXTENSION FILTER (Over-extension Detection)
-# ==========================================
-# Blocks continuation trades when price has extended too far beyond normal range
-try:
-    from extension_filter import ExtensionFilter
-    logging.info("✅ ExtensionFilter module loaded (320 thresholds)")
-except ImportError as e:
-    logging.error(f"❌ Failed to import extension_filter.py: {e}")
-    class ExtensionFilter:
-        def __init__(self): self.state = 'DISABLED'
-        def update(self, high, low, close, dt): return 'DISABLED'
-        def should_block_trade(self, direction): return False, None
-        def get_status(self): return {'state': 'DISABLED'}
-        def reset(self): pass
+# Implementation moved to rejection_filter.py to keep this entrypoint focused on
+# bot orchestration.
 
 # ==========================================
 # 2d. HTF FVG REJECTION
-# ==========================================    
+# ==========================================
 try:
     from htf_fvg_filter import HTFFVGFilter
     logging.info("✅ HTFFVGFilter module loaded")
@@ -519,117 +48,6 @@ except ImportError as e:
     class HTFFVGFilter:
         def check_signal_blocked(self, *args): return False, None
 
-
-# ==========================================
-# 2e. DYNAMIC STRUCTURE BLOCKER (Data-Driven Weak Level Protection)
-# ==========================================
-class DynamicStructureBlocker:
-    """
-    Blocks trades at 'Weak' levels using Data-Mined Regime Buckets (2023-2025 Data).
-    
-    SETTINGS VALIDATED ON ES DATA:
-    - Lookback: 20 (Identifies Swing Highs/Lows every ~18 mins, filters noise)
-    - Regimes: Quiet (<1.25), Normal (1.25-3.25), Volatile (>3.25)
-    """
-    
-    def __init__(self, lookback=20): 
-        self.swings_high = deque(maxlen=10) 
-        self.swings_low = deque(maxlen=10)
-        self.lookback = lookback
-        
-        # --- DATA-DRIVEN SETTINGS ---
-        self.BUCKETS = {
-            'QUIET':    {'max_range': 1.25,  'tolerance': 0.75}, 
-            'NORMAL':   {'max_range': 3.25,  'tolerance': 1.50}, 
-            'VOLATILE': {'max_range': 999,   'tolerance': 3.00}
-        }
-        
-        self.current_regime = 'NORMAL'
-        self.current_tolerance = 1.50
-        self.market_trend = "NEUTRAL"
-        self.last_structure_high = -np.inf
-        self.last_structure_low = np.inf
-
-    def _update_regime(self, df):
-        if len(df) < 5: return
-        avg_range = (df['high'] - df['low']).tail(5).mean()
-        
-        if avg_range <= self.BUCKETS['QUIET']['max_range']:
-            self.current_regime = 'QUIET'
-            self.current_tolerance = self.BUCKETS['QUIET']['tolerance']
-        elif avg_range <= self.BUCKETS['NORMAL']['max_range']:
-            self.current_regime = 'NORMAL'
-            self.current_tolerance = self.BUCKETS['NORMAL']['tolerance']
-        else:
-            self.current_regime = 'VOLATILE'
-            self.current_tolerance = self.BUCKETS['VOLATILE']['tolerance']
-
-    def update(self, df: pd.DataFrame):
-        # Need Lookback * 2 + buffer to confirm swing
-        if len(df) < (self.lookback * 2) + 5: return
-
-        self._update_regime(df)
-        
-        # Identify Swings [Current - Lookback]
-        curr_idx = len(df) - 1 - self.lookback
-        curr_high = df['high'].iloc[curr_idx]
-        curr_low = df['low'].iloc[curr_idx]
-        
-        # Check Fractal High
-        is_high = True
-        for i in range(1, self.lookback + 1):
-            if df['high'].iloc[curr_idx - i] >= curr_high or df['high'].iloc[curr_idx + i] >= curr_high:
-                is_high = False; break
-        
-        # Check Fractal Low
-        is_low = True
-        for i in range(1, self.lookback + 1):
-            if df['low'].iloc[curr_idx - i] <= curr_low or df['low'].iloc[curr_idx + i] <= curr_low:
-                is_low = False; break
-
-        # Update Structure
-        if is_high:
-            is_strong = curr_high > self.last_structure_high
-            if is_strong: 
-                self.last_structure_high = curr_high
-                if self.market_trend != "BULLISH": self.market_trend = "NEUTRAL" 
-            self.swings_high.append({'price': curr_high, 'strong': is_strong})
-            
-            # Trend Check: Lower Highs
-            if len(self.swings_high) >= 2 and self.swings_high[-1]['price'] < self.swings_high[-2]['price']:
-                self.market_trend = "BEARISH"
-
-        if is_low:
-            is_strong = curr_low < self.last_structure_low
-            if is_strong: 
-                self.last_structure_low = curr_low
-                if self.market_trend != "BEARISH": self.market_trend = "NEUTRAL"
-            self.swings_low.append({'price': curr_low, 'strong': is_strong})
-            
-            # Trend Check: Higher Lows
-            if len(self.swings_low) >= 2 and self.swings_low[-1]['price'] > self.swings_low[-2]['price']:
-                self.market_trend = "BULLISH"
-
-    def should_block_trade(self, signal_side, current_price):
-        tolerance = self.current_tolerance
-
-        # BLOCK SHORTS at Weak EQH
-        if signal_side == "SHORT":
-            if self.market_trend == "BULLISH": tolerance *= 1.5 
-            for swing in self.swings_high:
-                if abs(current_price - swing['price']) < tolerance:
-                    if not swing['strong']: 
-                        return True, f"Blocked: Weak EQH ({swing['price']:.2f}) [{self.current_regime}]"
-
-        # BLOCK LONGS at Weak EQL
-        if signal_side == "LONG":
-            if self.market_trend == "BEARISH": tolerance *= 1.5
-            for swing in self.swings_low:
-                if abs(current_price - swing['price']) < tolerance:
-                    if not swing['strong']:
-                        return True, f"Blocked: Weak EQL ({swing['price']:.2f}) [{self.current_regime}]"
-
-        return False, None
 
 class BankLevelQuarterFilter:
     """Filter trades based on bank level rejection relative to prev PM, prev session, and midnight ORB."""
@@ -1323,25 +741,27 @@ class ProjectXClient:
         Get available contracts using Search to find ES futures specifically.
         Endpoint: POST /api/Contract/search
         """
+        refresh_target_symbol()
+
         if not self._check_general_rate_limit():
             return self.contract_id
-        
+
         url = f"{self.base_url}/api/Contract/search"
         # We explicitly search for "ES" to ensure we get the right list
         payload = {
             "live": False,  # Set to False to find Topstep tradable contracts
-            "searchText": CONFIG.get('TARGET_SYMBOL', 'MESZ25')
+            "searchText": CONFIG.get('TARGET_SYMBOL', 'ESZ25')
         }
-        
+
         try:
             logging.info(f"🔎 Searching for contracts with symbol: {payload['searchText']}...")
             resp = self.session.post(url, json=payload)
             self._track_general_request()
             resp.raise_for_status()
             data = resp.json()
-            
+
             if 'contracts' in data and len(data['contracts']) > 0:
-                target = CONFIG.get('TARGET_SYMBOL', 'MESZ25')
+                target = CONFIG.get('TARGET_SYMBOL', 'ESZ25')
                 for contract in data['contracts']:
                     contract_id = contract.get('id', '')
                     contract_name = contract.get('name', '')
@@ -3241,6 +2661,7 @@ class DynamicEngine2Strategy(Strategy):
 # 12. MAIN EXECUTION LOOP
 # ==========================================
 def run_bot():
+    refresh_target_symbol()
     print("=" * 60)
     print("PROJECTX GATEWAY - ES FUTURES BOT (LIVE)")
     print("--- Julie Pro (Session Specialized) ---")
