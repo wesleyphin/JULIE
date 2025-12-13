@@ -9,8 +9,6 @@ import joblib
 import uuid
 from abc import ABC, abstractmethod
 from typing import Dict, Optional, List, Tuple
-from collections import deque
-
 from config import CONFIG, refresh_target_symbol
 from dynamic_sltp_params import dynamic_sltp_engine, get_sltp
 from volatility_filter import volatility_filter, check_volatility, VolRegime
@@ -19,6 +17,9 @@ from htf_fvg_filter import HTFFVGFilter
 from dynamic_signal_engine import get_signal_engine
 from dynamic_signal_engine2 import get_signal_engine as get_signal_engine2
 from rejection_filter import RejectionFilter
+from chop_filter import ChopFilter
+from extension_filter import ExtensionFilter
+from dynamic_structure_blocker import DynamicStructureBlocker
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,41 +30,14 @@ logging.basicConfig(
 NY_TZ = pytz.timezone('America/New_York')
 
 # ==========================================
-# 2b. CHOP FILTER (Consolidation Detection)
+# 2a. REJECTION FILTER (Trade Direction Filters)
 # ==========================================
-# Import from external module with 320 thresholds and HH/HL structure validation
-# Place chop_filter.py in same directory as julie001.py
-try:
-    from chop_filter import ChopFilter
-    logging.info("✅ ChopFilter module loaded (320 thresholds)")
-except ImportError as e:
-    logging.error(f"❌ Failed to import chop_filter.py: {e}")
-    class ChopFilter:
-        def __init__(self, lookback=20): self.state = 'DISABLED'
-        def update(self, high, low, close, dt): return 'DISABLED'
-        def should_block_trade(self, direction, daily_bias=None): return False, None
-        def get_status(self): return {'state': 'DISABLED'}
-        def reset(self): pass
-
-# ==========================================
-# 2c. EXTENSION FILTER (Over-extension Detection)
-# ==========================================
-# Blocks continuation trades when price has extended too far beyond normal range
-try:
-    from extension_filter import ExtensionFilter
-    logging.info("✅ ExtensionFilter module loaded (320 thresholds)")
-except ImportError as e:
-    logging.error(f"❌ Failed to import extension_filter.py: {e}")
-    class ExtensionFilter:
-        def __init__(self): self.state = 'DISABLED'
-        def update(self, high, low, close, dt): return 'DISABLED'
-        def should_block_trade(self, direction): return False, None
-        def get_status(self): return {'state': 'DISABLED'}
-        def reset(self): pass
+# Implementation moved to rejection_filter.py to keep this entrypoint focused on
+# bot orchestration.
 
 # ==========================================
 # 2d. HTF FVG REJECTION
-# ==========================================    
+# ==========================================
 try:
     from htf_fvg_filter import HTFFVGFilter
     logging.info("✅ HTFFVGFilter module loaded")
@@ -73,117 +47,6 @@ except ImportError as e:
     class HTFFVGFilter:
         def check_signal_blocked(self, *args): return False, None
 
-
-# ==========================================
-# 2e. DYNAMIC STRUCTURE BLOCKER (Data-Driven Weak Level Protection)
-# ==========================================
-class DynamicStructureBlocker:
-    """
-    Blocks trades at 'Weak' levels using Data-Mined Regime Buckets (2023-2025 Data).
-    
-    SETTINGS VALIDATED ON ES DATA:
-    - Lookback: 20 (Identifies Swing Highs/Lows every ~18 mins, filters noise)
-    - Regimes: Quiet (<1.25), Normal (1.25-3.25), Volatile (>3.25)
-    """
-    
-    def __init__(self, lookback=20): 
-        self.swings_high = deque(maxlen=10) 
-        self.swings_low = deque(maxlen=10)
-        self.lookback = lookback
-        
-        # --- DATA-DRIVEN SETTINGS ---
-        self.BUCKETS = {
-            'QUIET':    {'max_range': 1.25,  'tolerance': 0.75}, 
-            'NORMAL':   {'max_range': 3.25,  'tolerance': 1.50}, 
-            'VOLATILE': {'max_range': 999,   'tolerance': 3.00}
-        }
-        
-        self.current_regime = 'NORMAL'
-        self.current_tolerance = 1.50
-        self.market_trend = "NEUTRAL"
-        self.last_structure_high = -np.inf
-        self.last_structure_low = np.inf
-
-    def _update_regime(self, df):
-        if len(df) < 5: return
-        avg_range = (df['high'] - df['low']).tail(5).mean()
-        
-        if avg_range <= self.BUCKETS['QUIET']['max_range']:
-            self.current_regime = 'QUIET'
-            self.current_tolerance = self.BUCKETS['QUIET']['tolerance']
-        elif avg_range <= self.BUCKETS['NORMAL']['max_range']:
-            self.current_regime = 'NORMAL'
-            self.current_tolerance = self.BUCKETS['NORMAL']['tolerance']
-        else:
-            self.current_regime = 'VOLATILE'
-            self.current_tolerance = self.BUCKETS['VOLATILE']['tolerance']
-
-    def update(self, df: pd.DataFrame):
-        # Need Lookback * 2 + buffer to confirm swing
-        if len(df) < (self.lookback * 2) + 5: return
-
-        self._update_regime(df)
-        
-        # Identify Swings [Current - Lookback]
-        curr_idx = len(df) - 1 - self.lookback
-        curr_high = df['high'].iloc[curr_idx]
-        curr_low = df['low'].iloc[curr_idx]
-        
-        # Check Fractal High
-        is_high = True
-        for i in range(1, self.lookback + 1):
-            if df['high'].iloc[curr_idx - i] >= curr_high or df['high'].iloc[curr_idx + i] >= curr_high:
-                is_high = False; break
-        
-        # Check Fractal Low
-        is_low = True
-        for i in range(1, self.lookback + 1):
-            if df['low'].iloc[curr_idx - i] <= curr_low or df['low'].iloc[curr_idx + i] <= curr_low:
-                is_low = False; break
-
-        # Update Structure
-        if is_high:
-            is_strong = curr_high > self.last_structure_high
-            if is_strong: 
-                self.last_structure_high = curr_high
-                if self.market_trend != "BULLISH": self.market_trend = "NEUTRAL" 
-            self.swings_high.append({'price': curr_high, 'strong': is_strong})
-            
-            # Trend Check: Lower Highs
-            if len(self.swings_high) >= 2 and self.swings_high[-1]['price'] < self.swings_high[-2]['price']:
-                self.market_trend = "BEARISH"
-
-        if is_low:
-            is_strong = curr_low < self.last_structure_low
-            if is_strong: 
-                self.last_structure_low = curr_low
-                if self.market_trend != "BEARISH": self.market_trend = "NEUTRAL"
-            self.swings_low.append({'price': curr_low, 'strong': is_strong})
-            
-            # Trend Check: Higher Lows
-            if len(self.swings_low) >= 2 and self.swings_low[-1]['price'] > self.swings_low[-2]['price']:
-                self.market_trend = "BULLISH"
-
-    def should_block_trade(self, signal_side, current_price):
-        tolerance = self.current_tolerance
-
-        # BLOCK SHORTS at Weak EQH
-        if signal_side == "SHORT":
-            if self.market_trend == "BULLISH": tolerance *= 1.5 
-            for swing in self.swings_high:
-                if abs(current_price - swing['price']) < tolerance:
-                    if not swing['strong']: 
-                        return True, f"Blocked: Weak EQH ({swing['price']:.2f}) [{self.current_regime}]"
-
-        # BLOCK LONGS at Weak EQL
-        if signal_side == "LONG":
-            if self.market_trend == "BEARISH": tolerance *= 1.5
-            for swing in self.swings_low:
-                if abs(current_price - swing['price']) < tolerance:
-                    if not swing['strong']:
-                        return True, f"Blocked: Weak EQL ({swing['price']:.2f}) [{self.current_regime}]"
-
-        return False, None
 
 class BankLevelQuarterFilter:
     """Filter trades based on bank level rejection relative to prev PM, prev session, and midnight ORB."""
