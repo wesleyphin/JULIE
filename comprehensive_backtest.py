@@ -49,7 +49,7 @@ try:
     from regime_strategy import RegimeAdaptiveStrategy
     from ict_model_strategy import ICTModelStrategy
     from intraday_dip_strategy import IntradayDipStrategy
-    from orb_strategy import ORBStrategy
+    from orb_strategy import OrbStrategy
     from volatility_filter import VolatilityFilter, VOLATILITY_THRESHOLDS
     from rejection_filter import RejectionFilter
     from chop_filter import ChopFilter, CHOP_THRESHOLDS
@@ -324,7 +324,7 @@ class ComprehensiveBacktester:
             'RegimeAdaptive': RegimeAdaptiveStrategy(),
             'ICTModel': ICTModelStrategy(),
             'IntradayDip': IntradayDipStrategy(),
-            'ORB': ORBStrategy()
+            'ORB': OrbStrategy()
         }
 
         # Initialize filters
