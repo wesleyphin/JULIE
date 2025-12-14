@@ -7,7 +7,7 @@ Dynamic volatility filtering with 320 time-hierarchy combinations:
 - Day of Week: MON-FRI
 - Session: ASIA, LONDON, NY_AM, NY_PM
 
-Thresholds derived from 2023-2025 ES futures data (958,390 active bars).
+Thresholds derived from 2023-2025 MES futures data (958,390 active bars).
 """
 
 import pandas as pd
@@ -514,7 +514,7 @@ class HierarchicalVolatilityFilter:
             adj_tp = base_tp * 0.85
             adjustment_applied = True
         
-        # Snap to ES tick
+        # Snap to MES tick
         adj_sl = round(adj_sl * 4) / 4
         adj_tp = round(adj_tp * 4) / 4
         adj_sl = max(adj_sl, 1.0)

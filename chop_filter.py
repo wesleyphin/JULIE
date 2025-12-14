@@ -2,7 +2,7 @@
 ChopFilter Module - Dynamic Consolidation Detection with Structure Validation
 ==============================================================================
 
-320 hierarchical thresholds based on 2023-2025 ES futures data.
+320 hierarchical thresholds based on 2023-2025 MES futures data.
 Key format: YearlyQ_MonthlyQ_DayOfWeek_Session
 
 Logic:

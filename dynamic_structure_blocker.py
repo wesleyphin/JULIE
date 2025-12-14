@@ -7,7 +7,7 @@ class DynamicStructureBlocker:
     """
     Blocks trades at "Weak" levels using data-mined regime buckets (2023-2025 data).
 
-    SETTINGS VALIDATED ON ES DATA:
+    SETTINGS VALIDATED ON MES DATA:
     - Lookback: 20 (identifies swing highs/lows every ~18 mins, filters noise)
     - Regimes: Quiet (<1.25), Normal (1.25-3.25), Volatile (>3.25)
     """

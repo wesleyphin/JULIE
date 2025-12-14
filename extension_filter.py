@@ -1,5 +1,5 @@
 """
-Extension Filter Module for ES Futures Trading
+Extension Filter Module for MES Futures Trading
 ===============================================
 Detects when price has extended too far beyond normal daily/session range,
 blocking continuation trades in the direction of the extension.
@@ -11,7 +11,7 @@ Logic:
 - When price is extended DOWN (large range with price near session low), blocks SHORTs
 
 320 hierarchical thresholds: YearlyQ_MonthlyQ_DayOfWeek_Session
-Based on ES 2023-2025 historical data.
+Based on MES 2023-2025 historical data.
 """
 
 from datetime import datetime
