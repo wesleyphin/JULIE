@@ -26,6 +26,8 @@ from ml_physics_strategy import MLPhysicsStrategy
 from dynamic_engine_strategy import DynamicEngineStrategy
 from dynamic_engine2_strategy import DynamicEngine2Strategy
 from event_logger import event_logger
+from circuit_breaker import CircuitBreaker
+from news_filter import NewsFilter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1200,6 +1202,8 @@ def run_bot():
     extension_filter = ExtensionFilter()
     htf_fvg_filter = HTFFVGFilter() # Now uses Memory-Based Class
     structure_blocker = DynamicStructureBlocker(lookback=20)
+    news_filter = NewsFilter()
+    circuit_breaker = CircuitBreaker(max_daily_loss=600, max_consecutive_losses=7)
     
     print("\nActive Strategies:")
     print("  [FAST EXECUTION]")
@@ -1236,9 +1240,23 @@ def run_bot():
             if time.time() - last_token_check > TOKEN_CHECK_INTERVAL:
                 client.validate_session()
                 last_token_check = time.time()
-            
+
+            # === GLOBAL RISK & NEWS FILTERS ===
+            cb_blocked, cb_reason = circuit_breaker.should_block_trade()
+            if cb_blocked:
+                logging.info(f"🚫 Circuit Breaker Block: {cb_reason}")
+                time.sleep(60)
+                continue
+
+            current_time = datetime.datetime.now(pytz.utc)
+            news_blocked, news_reason = news_filter.should_block_trade(current_time)
+            if news_blocked:
+                logging.info(f"🚫 NEWS WAIT: {news_reason}")
+                time.sleep(10)
+                continue
+
             # 1. Fetch Latest Data (Fast loop)
-            new_df = client.get_market_data(lookback_minutes=500, force_fetch=True) 
+            new_df = client.get_market_data(lookback_minutes=500, force_fetch=True)
             
             if new_df.empty:
                 time.sleep(1)
