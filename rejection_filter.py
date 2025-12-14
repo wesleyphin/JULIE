@@ -367,8 +367,20 @@ class RejectionFilter:
 
         return False, ""
 
+    def backfill(self, df):
+        """Backfill filter state from historical DataFrame (index is timestamp)."""
+        logging.info("Backfilling rejection filter from historical data...")
+        for ts, row in df.iterrows():
+            self.update(ts, row['high'], row['low'], row['close'])
+
+        logging.info(f"✅ Backfill Complete.")
+        if self.midnight_orb_set:
+            logging.info(f"   ORB Loaded: {self.midnight_orb_high} - {self.midnight_orb_low}")
+        if self.prev_day_pm_high:
+            logging.info(f"   Prev PM Loaded: {self.prev_day_pm_high} - {self.prev_day_pm_low}")
+
     def backfill_from_df(self, df, tz):
-        """Backfill filter state from historical DataFrame."""
+        """Backfill filter state from historical DataFrame (legacy method)."""
         logging.info("Backfilling rejection filter from historical data...")
         for _, row in df.iterrows():
             ts = row['timestamp'].tz_localize(pytz.UTC).tz_convert(tz)
@@ -376,6 +388,6 @@ class RejectionFilter:
 
         logging.info(f"✅ Backfill Complete.")
         if self.midnight_orb_set:
-             logging.info(f"   ORB Loaded: {self.midnight_orb_high} - {self.midnight_orb_low}")
+            logging.info(f"   ORB Loaded: {self.midnight_orb_high} - {self.midnight_orb_low}")
         if self.prev_day_pm_high:
-             logging.info(f"   Prev PM Loaded: {self.prev_day_pm_high} - {self.prev_day_pm_low}")
+            logging.info(f"   Prev PM Loaded: {self.prev_day_pm_high} - {self.prev_day_pm_low}")
