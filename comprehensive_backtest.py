@@ -1252,8 +1252,9 @@ def main():
 
         # Find the datetime column (handle different naming conventions)
         datetime_col = None
-        for col in ['Datetime', 'datetime', 'timestamp', 'Timestamp', 'Date', 'date', 'Time Series', 'time series']:
-            if col in df.columns:
+        for col in df.columns:
+            col_lower = str(col).lower()
+            if any(x in col_lower for x in ['datetime', 'timestamp', 'date', 'time']):
                 datetime_col = col
                 break
 
@@ -1276,16 +1277,11 @@ def main():
             # Convert to US/Eastern if different timezone
             df.index = df.index.tz_convert(NY_TZ)
 
+        # Normalize column names to lowercase first (strategies expect lowercase)
+        df.columns = df.columns.str.lower()
+
         # Handle unnamed columns (common in some data formats)
-        # If we have Unnamed columns, they're likely OHLCV in order
-        unnamed_cols = [col for col in df.columns if 'Unnamed' in str(col) or str(col).startswith('ES')]
-
-        # If we have 5+ unnamed columns or contract columns, try to map them to OHLCV
-        if len(df.columns) >= 5:
-            # Common patterns:
-            # Pattern 1: [contract_name, open, high, low, close, volume]
-            # Pattern 2: [open, high, low, close, volume]
-
+        if any('unnamed' in str(col).lower() for col in df.columns):
             # Get numeric columns only
             numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
 
@@ -1300,9 +1296,6 @@ def main():
                 logger.info("Detected 6-column format, assuming [contract, O, H, L, C, V]")
                 df = df.iloc[:, 1:]  # Skip first column (contract name)
                 df.columns = ['open', 'high', 'low', 'close', 'volume']
-
-        # Normalize column names to lowercase (strategies expect lowercase)
-        df.columns = df.columns.str.lower()
 
         # Ensure required columns exist
         required_cols = ['open', 'high', 'low', 'close', 'volume']
