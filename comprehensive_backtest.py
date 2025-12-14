@@ -1248,11 +1248,11 @@ def main():
         logger.info(f"Loading data from {args.data_file}")
 
         # Read CSV - handle both 'Datetime' and 'timestamp' column names
-        df = pd.read_csv(args.data_file)
+        df = pd.read_csv(args.data_file, low_memory=False)
 
         # Find the datetime column (handle different naming conventions)
         datetime_col = None
-        for col in ['Datetime', 'datetime', 'timestamp', 'Timestamp', 'Date', 'date']:
+        for col in ['Datetime', 'datetime', 'timestamp', 'Timestamp', 'Date', 'date', 'Time Series', 'time series']:
             if col in df.columns:
                 datetime_col = col
                 break
@@ -1260,6 +1260,8 @@ def main():
         if datetime_col is None:
             logger.error("Could not find datetime column in data file")
             logger.error(f"Available columns: {list(df.columns)}")
+            logger.info("\nFirst few rows:")
+            logger.info(df.head())
             return
 
         # Parse datetime and set as index
@@ -1274,6 +1276,31 @@ def main():
             # Convert to US/Eastern if different timezone
             df.index = df.index.tz_convert(NY_TZ)
 
+        # Handle unnamed columns (common in some data formats)
+        # If we have Unnamed columns, they're likely OHLCV in order
+        unnamed_cols = [col for col in df.columns if 'Unnamed' in str(col) or str(col).startswith('ES')]
+
+        # If we have 5+ unnamed columns or contract columns, try to map them to OHLCV
+        if len(df.columns) >= 5:
+            # Common patterns:
+            # Pattern 1: [contract_name, open, high, low, close, volume]
+            # Pattern 2: [open, high, low, close, volume]
+
+            # Get numeric columns only
+            numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+
+            if len(numeric_cols) >= 5:
+                # Assume first 5 numeric columns are O, H, L, C, V
+                logger.info(f"Auto-detecting OHLCV columns from {len(numeric_cols)} numeric columns")
+                df = df[numeric_cols]  # Keep only numeric columns
+                df.columns = ['open', 'high', 'low', 'close', 'volume'] + list(df.columns[5:])
+                logger.info(f"Mapped columns to: {list(df.columns[:5])}")
+            elif len(df.columns) == 6:
+                # Likely: [contract, O, H, L, C, V]
+                logger.info("Detected 6-column format, assuming [contract, O, H, L, C, V]")
+                df = df.iloc[:, 1:]  # Skip first column (contract name)
+                df.columns = ['open', 'high', 'low', 'close', 'volume']
+
         # Normalize column names to lowercase (strategies expect lowercase)
         df.columns = df.columns.str.lower()
 
@@ -1283,6 +1310,9 @@ def main():
         if missing:
             logger.error(f"Missing required columns: {missing}")
             logger.error(f"Available columns: {list(df.columns)}")
+            logger.info("\nData shape: {}".format(df.shape))
+            logger.info("First few rows:")
+            logger.info(df.head())
             return
 
         # Filter by date range if specified
