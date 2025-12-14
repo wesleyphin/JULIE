@@ -268,7 +268,6 @@ class DynamicSignalEngine:
         """Initialize the signal engine."""
         self.et_tz = pytz.timezone('US/Eastern')
         self.strategies = STRATEGY_DATABASE
-        self._log_initialization()
 
     def _log_initialization(self):
         """Log strategy loading statistics."""
