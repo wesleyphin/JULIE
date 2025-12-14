@@ -32,7 +32,8 @@ from news_filter import NewsFilter
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[logging.FileHandler("topstep_live_bot.log"), logging.StreamHandler()]
+    handlers=[logging.FileHandler("topstep_live_bot.log"), logging.StreamHandler()],
+    force=True  # Override any pre-existing logging config (e.g., from pytz)
 )
 
 NY_TZ = pytz.timezone('America/New_York')
@@ -436,7 +437,7 @@ class ProjectXClient:
                         self.last_bar_timestamp = new_bar_ts
                 return df
             else:
-                logging.warning("API returned no bars")
+                logging.warning(f"API returned no bars for {self.contract_id} (timeframe: {start_time} to {end_time})")
                 return self.cached_df if not self.cached_df.empty else pd.DataFrame()
         
         except requests.exceptions.HTTPError as e:
@@ -1257,8 +1258,15 @@ def run_bot():
 
             # 1. Fetch Latest Data (Fast loop)
             new_df = client.get_market_data(lookback_minutes=500, force_fetch=True)
-            
+
             if new_df.empty:
+                # Early heartbeat - shows bot is alive even when no data available
+                if not hasattr(client, '_empty_data_counter'):
+                    client._empty_data_counter = 0
+                client._empty_data_counter += 1
+                if client._empty_data_counter % 30 == 0:
+                    print(f"⏳ Waiting for data: {datetime.datetime.now().strftime('%H:%M:%S')} | No bars received (market may be closed or starting up)")
+                    logging.info(f"No market data available - attempt #{client._empty_data_counter}")
                 time.sleep(1)
                 continue
             
