@@ -533,15 +533,12 @@ class ProjectXClient:
         
         # 2. Calculate Ticks Distance (Absolute)
         # MES tick size is 0.25
+        # sl_dist and tp_dist are in POINTS, convert to ticks
         sl_points = float(signal['sl_dist'])
         tp_points = float(signal['tp_dist'])
-        
-        # If sl_dist and tp_dist are already in POINTS:
-        abs_sl_ticks = int(abs(sl_points / 0.25))  # Convert points to ticks
 
-        # OR if they're already in TICKS:
-        abs_sl_ticks = int(abs(sl_points))  # Use directly
-        abs_tp_ticks = int(abs(tp_points))  # Use directly
+        abs_sl_ticks = int(abs(sl_points / 0.25))  # Convert points to ticks
+        abs_tp_ticks = int(abs(tp_points / 0.25))  # Convert points to ticks
 
         
         # 3. Apply Directional Signs based on Side
@@ -740,6 +737,7 @@ class ProjectXClient:
         payload = {
             "accountId": self.account_id,
             "contractId": self.contract_id,
+            "clOrdId": str(uuid.uuid4()),  # Unique order ID for close
             "type": 2,  # Market Order
             "side": side_code,
             "size": position['size']
@@ -1057,10 +1055,11 @@ class ProjectXClient:
         payload = {
             "accountId": self.account_id,
             "contractId": self.contract_id,
+            "clOrdId": str(uuid.uuid4()),  # Unique order ID for break-even stop
             "type": 4,  # Stop Market
             "side": side_code,
             "size": size,
-            "stopPrice": be_price  # FIXED: Use stopPrice, not price
+            "stopPrice": be_price
         }
 
         try:
@@ -1099,10 +1098,11 @@ class ProjectXClient:
         payload = {
             "accountId": self.account_id,
             "contractId": self.contract_id,
+            "clOrdId": str(uuid.uuid4()),  # Unique order ID
             "type": 4,  # Stop Market
             "side": side_code,
             "size": size,
-            "stopPrice": be_price  # FIXED: Use stopPrice
+            "stopPrice": be_price
         }
         
         try:
