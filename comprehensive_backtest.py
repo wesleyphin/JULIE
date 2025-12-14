@@ -728,14 +728,18 @@ class ComprehensiveBacktester:
 
             try:
                 # Generate signal
-                signal = strategy.generate_signal(lookback_df, dt)
+                signal_dict = strategy.on_bar(lookback_df)
 
-                if signal is None or signal == 'NONE':
+                if signal_dict is None:
                     continue
 
-                direction = signal.upper()
+                # Extract direction from signal dict
+                direction = signal_dict.get('side', 'NONE').upper()
                 if direction not in ['LONG', 'SHORT']:
+                    logger.debug(f"{dt}: {strategy_name} returned invalid direction: {direction}")
                     continue
+
+                logger.info(f"{dt}: {strategy_name} generated {direction} signal")
 
                 # Run through filters
                 passed, passed_filters, blocked_filters = self.check_filters(
@@ -743,7 +747,7 @@ class ComprehensiveBacktester:
                 )
 
                 if not passed:
-                    logger.debug(f"{dt}: {strategy_name} {direction} blocked by {blocked_filters}")
+                    logger.info(f"{dt}: {strategy_name} {direction} blocked by {blocked_filters}")
                     continue
 
                 # Calculate SL/TP
@@ -770,12 +774,12 @@ class ComprehensiveBacktester:
                 )
 
                 self.current_trade = trade
-                logger.debug(f"{dt}: ENTRY {strategy_name} {direction} @ {current_price:.2f} "
+                logger.info(f"{dt}: ENTRY {strategy_name} {direction} @ {current_price:.2f} "
                            f"SL: {stop_loss:.2f} TP: {take_profit:.2f}")
                 return trade
 
             except Exception as e:
-                logger.debug(f"Error in {strategy_name}: {e}")
+                logger.warning(f"Error in {strategy_name}: {e}", exc_info=True)
                 continue
 
         return None
@@ -833,11 +837,16 @@ class ComprehensiveBacktester:
             stats.signals_checked = 0
             stats.signals_blocked = 0
 
+        # Track signal generation
+        signal_count = 0
+        bars_processed = 0
+
         # Process each bar
         for i in range(len(df)):
             if i > 0 and i % progress_interval == 0:
-                logger.info(f"Processed {i}/{len(df)} bars ({i*100/len(df):.1f}%)")
+                logger.info(f"Processed {i}/{len(df)} bars ({i*100/len(df):.1f}%) - {len(self.trades)} trades so far")
 
+            bars_processed += 1
             self.process_bar(i, df, strategies)
 
         # Close any open trade at end
@@ -849,6 +858,10 @@ class ComprehensiveBacktester:
 
         # Calculate metrics
         metrics = self._calculate_metrics()
+
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Backtest complete: {bars_processed} bars processed, {len(self.trades)} trades found")
+        logger.info(f"{'='*60}\n")
 
         return metrics
 
