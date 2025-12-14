@@ -51,6 +51,7 @@ try:
     from intraday_dip_strategy import IntradayDipStrategy
     from orb_strategy import OrbStrategy
     from volatility_filter import HierarchicalVolatilityFilter, VOLATILITY_HIERARCHY
+    from rejection_filter import RejectionFilter
     from chop_filter import ChopFilter, CHOP_THRESHOLDS
     from extension_filter import ExtensionFilter, EXTENSION_THRESHOLDS
     from bank_level_quarter_filter import BankLevelQuarterFilter
@@ -329,6 +330,7 @@ class ComprehensiveBacktester:
         # Initialize filters
         self.filters = {
             'Volatility': HierarchicalVolatilityFilter(),
+            'Rejection': RejectionFilter(),
             'Chop': ChopFilter(),
             'Extension': ExtensionFilter(),
             'BankLevel': BankLevelQuarterFilter(),
@@ -414,7 +416,26 @@ class ComprehensiveBacktester:
             logger.debug(f"Volatility filter error: {e}")
             passed_filters.append('Volatility')
 
-        # 2. Chop Filter
+        # 2. Rejection Filter
+        try:
+            rej_filter = self.filters['Rejection']
+            if len(df) > 0:
+                bar = df.iloc[-1]
+                rej_filter.update(dt, bar['high'], bar['low'], bar['close'])
+            # Convert signal from LONG/SHORT to BUY/SELL for rejection filter
+            direction = 'BUY' if signal == 'LONG' else 'SELL'
+            blocked, reason = rej_filter.should_block_trade(direction)
+            self.filter_stats['Rejection'].signals_checked += 1
+            if blocked:
+                blocked_filters.append(f"Rejection: {reason}")
+                self.filter_stats['Rejection'].signals_blocked += 1
+            else:
+                passed_filters.append('Rejection')
+        except Exception as e:
+            logger.debug(f"Rejection filter error: {e}")
+            passed_filters.append('Rejection')
+
+        # 3. Chop Filter
         try:
             chop_filter = self.filters['Chop']
             if len(df) > 0:
@@ -431,7 +452,7 @@ class ComprehensiveBacktester:
             logger.debug(f"Chop filter error: {e}")
             passed_filters.append('Chop')
 
-        # 3. Extension Filter
+        # 4. Extension Filter
         try:
             ext_filter = self.filters['Extension']
             if len(df) > 0:
@@ -448,7 +469,7 @@ class ComprehensiveBacktester:
             logger.debug(f"Extension filter error: {e}")
             passed_filters.append('Extension')
 
-        # 4. Bank Level Filter
+        # 5. Bank Level Filter
         try:
             bank_filter = self.filters['BankLevel']
             if len(df) > 0:
@@ -465,7 +486,7 @@ class ComprehensiveBacktester:
             logger.debug(f"BankLevel filter error: {e}")
             passed_filters.append('BankLevel')
 
-        # 5. HTF FVG Filter
+        # 6. HTF FVG Filter
         try:
             fvg_filter = self.filters['HTFFVG']
             # Resample to 1H for FVG detection
@@ -484,7 +505,7 @@ class ComprehensiveBacktester:
             logger.debug(f"HTFFVG filter error: {e}")
             passed_filters.append('HTFFVG')
 
-        # 6. Structure Blocker
+        # 7. Structure Blocker
         try:
             struct_filter = self.filters['StructureBlocker']
             if len(df) > 50:
@@ -1110,7 +1131,7 @@ class FilterIsolationTester:
                          strategies: List[str] = None) -> pd.DataFrame:
         """Test all filters and return comparison DataFrame."""
         filter_names = [
-            'Volatility', 'Chop', 'Extension',
+            'Volatility', 'Rejection', 'Chop', 'Extension',
             'BankLevel', 'HTFFVG', 'StructureBlocker'
         ]
 
