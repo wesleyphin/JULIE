@@ -13,8 +13,8 @@ CONFIG = {
 
     # --- ACCOUNT/CONTRACT (will be fetched dynamically) ---
     "ACCOUNT_ID": None,  # Fetched via /Account/search
-    "CONTRACT_ID": None,  # Fetched via /Contract/available (e.g., "CON.F.US.ES.H25")
-    "CONTRACT_ROOT": "ES",  # Symbol root used to determine current ES contract (e.g., ESZ25)
+    "CONTRACT_ID": None,  # Fetched via /Contract/available (e.g., "CON.F.US.MES.H25")
+    "CONTRACT_ROOT": "MES",  # Symbol root used to determine current MES contract (e.g., MESZ25)
     "TARGET_SYMBOL": None,  # Determined dynamically from date and CONTRACT_ROOT
 
     # --- API ENDPOINTS (ProjectX Gateway LIVE) ---
@@ -152,11 +152,11 @@ CONTRACT_MONTH_CODES = {
 
 
 def determine_current_contract_symbol(
-    root: str = "ES",
+    root: str = "MES",
     tz_name: str = "US/Eastern",
     today: Optional[datetime.date] = None,
 ) -> str:
-    """Return the ES contract symbol for the current date (e.g., ESZ25)."""
+    """Return the MES contract symbol for the current date (e.g., MESZ25)."""
 
     tz = pytz.timezone(tz_name)
     current_date = today or datetime.datetime.now(tz).date()
@@ -173,7 +173,7 @@ def refresh_target_symbol():
     """Update CONFIG['TARGET_SYMBOL'] based on today's date and configured root."""
 
     CONFIG["TARGET_SYMBOL"] = determine_current_contract_symbol(
-        root=CONFIG.get("CONTRACT_ROOT", "ES"),
+        root=CONFIG.get("CONTRACT_ROOT", "MES"),
         tz_name=CONFIG.get("TIMEZONE", "US/Eastern"),
     )
 

@@ -299,7 +299,7 @@ class ProjectXClient:
     
     def fetch_contracts(self) -> Optional[str]:
         """
-        Get available contracts using Search to find ES futures specifically.
+        Get available contracts using Search to find MES futures specifically.
         Endpoint: POST /api/Contract/search
         """
         refresh_target_symbol()
@@ -308,10 +308,10 @@ class ProjectXClient:
             return self.contract_id
 
         url = f"{self.base_url}/api/Contract/search"
-        # We explicitly search for "ES" to ensure we get the right list
+        # We explicitly search for "MES" to ensure we get the right list
         payload = {
             "live": False,  # Set to False to find Topstep tradable contracts
-            "searchText": CONFIG.get('TARGET_SYMBOL', 'ESZ25')
+            "searchText": CONFIG.get('TARGET_SYMBOL', 'MESZ25')
         }
 
         try:
@@ -322,7 +322,7 @@ class ProjectXClient:
             data = resp.json()
 
             if 'contracts' in data and len(data['contracts']) > 0:
-                target = CONFIG.get('TARGET_SYMBOL', 'ESZ25')
+                target = CONFIG.get('TARGET_SYMBOL', 'MESZ25')
                 for contract in data['contracts']:
                     contract_id = contract.get('id', '')
                     contract_name = contract.get('name', '')
@@ -529,7 +529,7 @@ class ProjectXClient:
         side_code = 0 if is_long else 1
         
         # 2. Calculate Ticks Distance (Absolute)
-        # ES/MES tick size is 0.25
+        # MES tick size is 0.25
         sl_points = float(signal['sl_dist'])
         tp_points = float(signal['tp_dist'])
         
@@ -1128,7 +1128,7 @@ class ProjectXClient:
 def run_bot():
     refresh_target_symbol()
     print("=" * 60)
-    print("PROJECTX GATEWAY - ES FUTURES BOT (LIVE)")
+    print("PROJECTX GATEWAY - MES FUTURES BOT (LIVE)")
     print("--- Julie Pro (Session Specialized) ---")
     print("--- DYNAMIC SL/TP ENGINE ENABLED ---")
     print(f"REST API: {CONFIG['REST_BASE_URL']}")

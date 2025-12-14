@@ -1,6 +1,6 @@
-# Julie: Advanced ES Futures Trading System
+# Julie: Advanced MES Futures Trading System
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg) ![Market](https://img.shields.io/badge/Market-ES%20Futures-green.svg) ![Platform](https://img.shields.io/badge/Platform-TopstepX-orange.svg) ![License](https://img.shields.io/badge/License-Proprietary-red.svg)
+![Version](https://img.shields.io/badge/version-1.0.0-blue.svg) ![Market](https://img.shields.io/badge/Market-MES%20Futures-green.svg) ![Platform](https://img.shields.io/badge/Platform-TopstepX-orange.svg) ![License](https://img.shields.io/badge/License-Proprietary-red.svg)
 
 **Julie** is a high-frequency, session-specialized algorithmic trading bot built to execute autonomously on the **ProjectX Gateway (TopstepX)**. Unlike traditional bots that use a single logic set, Julie functions as an orchestrator for a "Team of Rivals"—a portfolio of **7 distinct strategy classes** that compete to find the best entry, all governed by a central "Defense Layer" of dynamic filters.
 
