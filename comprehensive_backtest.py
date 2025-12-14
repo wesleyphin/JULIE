@@ -10,10 +10,16 @@ Tested Components:
 - Trade Parameters: Break-even, Early Exit rules
 - Session Management and Time Hierarchy (320 combinations)
 
+Data Format:
+    Default data file: es_2023_2024_2025.csv
+    Expected columns: Datetime,Open,High,Low,Close,Volume
+    Datetime format: YYYY-MM-DD HH:MM:SS-05:00 (timezone-aware)
+
 Usage:
-    python comprehensive_backtest.py --start 2024-01-01 --end 2024-12-31
-    python comprehensive_backtest.py --start 2024-01-01 --end 2024-12-31 --strategy Confluence
+    python comprehensive_backtest.py --start 2023-01-01 --end 2024-12-31
+    python comprehensive_backtest.py --start 2024-01-01 --end 2024-06-30 --strategy Confluence
     python comprehensive_backtest.py --start 2024-01-01 --end 2024-12-31 --filter-test
+    python comprehensive_backtest.py --synthetic --start 2024-01-01 --end 2024-12-31
 """
 
 import argparse
@@ -1172,9 +1178,9 @@ class HierarchyAnalyzer:
 # ============================================================
 def main():
     parser = argparse.ArgumentParser(description='JULIE Comprehensive Backtest')
-    parser.add_argument('--start', type=str, default='2024-01-01',
+    parser.add_argument('--start', type=str, default='2023-01-01',
                         help='Start date (YYYY-MM-DD)')
-    parser.add_argument('--end', type=str, default='2024-12-31',
+    parser.add_argument('--end', type=str, default='2025-12-31',
                         help='End date (YYYY-MM-DD)')
     parser.add_argument('--strategy', type=str, default=None,
                         help='Specific strategy to test (or all)')
@@ -1188,8 +1194,8 @@ def main():
                         help='Disable early exit')
     parser.add_argument('--synthetic', action='store_true',
                         help='Use synthetic data (for testing)')
-    parser.add_argument('--data-file', type=str, default=None,
-                        help='Path to CSV data file')
+    parser.add_argument('--data-file', type=str, default='es_2023_2024_2025.csv',
+                        help='Path to CSV data file (default: es_2023_2024_2025.csv)')
     parser.add_argument('--output', type=str, default=None,
                         help='Output file for trades CSV')
     parser.add_argument('--verbose', '-v', action='store_true',
@@ -1201,19 +1207,65 @@ def main():
         logging.getLogger().setLevel(logging.DEBUG)
 
     # Load or generate data
-    if args.data_file and os.path.exists(args.data_file):
-        logger.info(f"Loading data from {args.data_file}")
-        df = pd.read_csv(args.data_file, parse_dates=['timestamp'])
-        df.set_index('timestamp', inplace=True)
-        if df.index.tz is None:
-            df.index = df.index.tz_localize(NY_TZ)
-    elif args.synthetic:
+    if args.synthetic:
         logger.info("Generating synthetic data...")
         generator = SyntheticDataGenerator()
         df = generator.generate(args.start, args.end)
+    elif args.data_file and os.path.exists(args.data_file):
+        logger.info(f"Loading data from {args.data_file}")
+
+        # Read CSV - handle both 'Datetime' and 'timestamp' column names
+        df = pd.read_csv(args.data_file)
+
+        # Find the datetime column (handle different naming conventions)
+        datetime_col = None
+        for col in ['Datetime', 'datetime', 'timestamp', 'Timestamp', 'Date', 'date']:
+            if col in df.columns:
+                datetime_col = col
+                break
+
+        if datetime_col is None:
+            logger.error("Could not find datetime column in data file")
+            logger.error(f"Available columns: {list(df.columns)}")
+            return
+
+        # Parse datetime and set as index
+        df[datetime_col] = pd.to_datetime(df[datetime_col])
+        df.set_index(datetime_col, inplace=True)
+
+        # Handle timezone
+        if df.index.tz is None:
+            # If no timezone info, assume US/Eastern
+            df.index = df.index.tz_localize(NY_TZ)
+        else:
+            # Convert to US/Eastern if different timezone
+            df.index = df.index.tz_convert(NY_TZ)
+
+        # Normalize column names to lowercase (strategies expect lowercase)
+        df.columns = df.columns.str.lower()
+
+        # Ensure required columns exist
+        required_cols = ['open', 'high', 'low', 'close', 'volume']
+        missing = [c for c in required_cols if c not in df.columns]
+        if missing:
+            logger.error(f"Missing required columns: {missing}")
+            logger.error(f"Available columns: {list(df.columns)}")
+            return
+
+        # Filter by date range if specified
+        start_dt = pd.Timestamp(args.start, tz=NY_TZ)
+        end_dt = pd.Timestamp(args.end, tz=NY_TZ) + pd.Timedelta(days=1)  # Include end date
+        df = df[(df.index >= start_dt) & (df.index < end_dt)]
+
+        if len(df) == 0:
+            logger.error(f"No data found in date range {args.start} to {args.end}")
+            return
+
+        logger.info(f"Loaded {len(df)} bars from {df.index[0]} to {df.index[-1]}")
     else:
-        logger.info("Using synthetic data (no data file provided)")
-        logger.info("Use --data-file to provide real ES futures data")
+        logger.info("Data file not found, using synthetic data")
+        logger.info(f"Tried: {args.data_file}")
+        logger.info("Use --data-file to provide real ES futures data, or --synthetic for generated data")
         generator = SyntheticDataGenerator()
         df = generator.generate(args.start, args.end)
 
