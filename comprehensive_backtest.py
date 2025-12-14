@@ -1266,7 +1266,17 @@ def main():
             return
 
         # Parse datetime and set as index
-        df[datetime_col] = pd.to_datetime(df[datetime_col])
+        # Skip any rows where the datetime column contains non-date strings (like 'Date' or 'datetime')
+        # Filter out header rows that might be duplicated in the data
+        mask = df[datetime_col].str.contains(r'^\d{4}', na=False)  # Starts with 4 digits (year)
+        df = df[mask].copy()
+
+        # Now parse the datetime with the format
+        df[datetime_col] = pd.to_datetime(df[datetime_col], format='%Y-%m-%d %H:%M:%S%z', errors='coerce')
+
+        # Drop any rows that couldn't be parsed
+        df = df.dropna(subset=[datetime_col])
+
         df.set_index(datetime_col, inplace=True)
 
         # Handle timezone
