@@ -50,8 +50,7 @@ try:
     from ict_model_strategy import ICTModelStrategy
     from intraday_dip_strategy import IntradayDipStrategy
     from orb_strategy import OrbStrategy
-    from volatility_filter import VolatilityFilter, VOLATILITY_THRESHOLDS
-    from rejection_filter import RejectionFilter
+    from volatility_filter import HierarchicalVolatilityFilter, VOLATILITY_HIERARCHY
     from chop_filter import ChopFilter, CHOP_THRESHOLDS
     from extension_filter import ExtensionFilter, EXTENSION_THRESHOLDS
     from bank_level_quarter_filter import BankLevelQuarterFilter
@@ -329,7 +328,7 @@ class ComprehensiveBacktester:
 
         # Initialize filters
         self.filters = {
-            'Volatility': VolatilityFilter(),
+            'Volatility': HierarchicalVolatilityFilter(),
             'Chop': ChopFilter(),
             'Extension': ExtensionFilter(),
             'BankLevel': BankLevelQuarterFilter(),
