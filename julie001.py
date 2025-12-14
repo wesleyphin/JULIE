@@ -537,8 +537,10 @@ class ProjectXClient:
         sl_points = float(signal['sl_dist'])
         tp_points = float(signal['tp_dist'])
 
-        abs_sl_ticks = int(abs(sl_points / 0.25))  # Convert points to ticks
-        abs_tp_ticks = int(abs(tp_points / 0.25))  # Convert points to ticks
+        abs_sl_ticks = int(abs(sl_points / 0.25))
+
+        abs_sl_ticks = int(abs(sl_points))   # Convert points to ticks
+        abs_tp_ticks = int(abs(tp_points))  # Convert points to ticks
 
         
         # 3. Apply Directional Signs based on Side
