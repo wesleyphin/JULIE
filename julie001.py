@@ -1581,8 +1581,8 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("StructureBlocker", signal['side'], True)
 
-                            # Chop (Except DynamicEngine and DynamicEngine2)
-                            if signal['strategy'] not in ["DynamicEngine", "DynamicEngine2"]:
+                            # Chop (Except DynamicEngine)
+                            if signal['strategy'] not in ["DynamicEngine"]:
                                 chop_blocked, chop_reason = chop_filter.should_block_trade(signal['side'], rejection_filter.prev_day_pm_bias)
                                 if chop_blocked:
                                     event_logger.log_filter_check("ChopFilter", signal['side'], False, chop_reason)
