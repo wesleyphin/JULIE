@@ -134,7 +134,9 @@ This is the most critical component. A signal from any strategy above **MUST** p
 
 1.  **Rejection Filter (Bias):**
     * Tracks Highs/Lows of Prev Day PM, Prev Session, and Midnight ORB.
-    * **Logic:** If price sweeps a Low and closes back above, it establishes a **Long Bias**. The filter will then **BLOCK** any Short signals until the bias flips.
+    * **Logic:**
+        * **Long Bias:** If price sweeps a Low and closes back above, it establishes a **Long Bias**, blocking all Short signals.
+        * **Short Bias:** If price sweeps a High and closes back below, it establishes a **Short Bias**, blocking all Long signals.
 
 2.  **HTF FVG Filter (Memory):**
     * Scans 1-Hour and 4-Hour charts for Fair Value Gaps.
