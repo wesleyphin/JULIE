@@ -436,9 +436,11 @@ class DynamicSignalEngine:
                         signal = 'SHORT'
 
                 if signal:
+                    # Enforce minimum SL of 4 ticks (broker requirement)
+                    sl_value = max(4.0, float(strategy['Best_SL']))
                     signal_data = {
                         'signal': signal,
-                        'sl': float(strategy['Best_SL']),
+                        'sl': sl_value,
                         'tp': float(strategy['Best_TP']),
                         'opt_wr': float(strategy['Opt_WR']),
                         'timeframe': timeframe_str,
