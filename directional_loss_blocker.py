@@ -130,19 +130,19 @@ class DirectionalLossBlocker:
                 self.long_consecutive_losses += 1
                 logging.info(f"📉 LONG loss recorded. Consecutive LONG losses: {self.long_consecutive_losses}")
 
-                # Check for bias reversal (4 losses)
+                # Check for bias reversal (4 losses) - REVERSE to opposite direction
                 if self.long_consecutive_losses >= self.bias_reversal_limit:
                     self.reversed_bias = 'LONG'
                     self.reversal_session = current_session
                     self.reversal_quarter = current_quarter
-                    logging.warning(f"🔄 BIAS REVERSED: {self.bias_reversal_limit} consecutive LONG losses!")
-                    logging.warning(f"🔄 ONLY SHORTS ALLOWED for rest of {current_session} Q{current_quarter}")
+                    logging.warning(f"🔄 BIAS REVERSED TO SHORT: {self.bias_reversal_limit} consecutive LONG losses!")
+                    logging.warning(f"🔄 ONLY SHORTS until end of {current_session} Q{current_quarter}")
 
                     event_logger.log_filter_check(
                         "DirectionalLossBlocker",
                         "LONG",
                         False,
-                        f"BIAS REVERSED: {self.bias_reversal_limit} consecutive LONG losses, only SHORTs until Q{current_quarter} ends"
+                        f"BIAS REVERSED TO SHORT: {self.bias_reversal_limit} consecutive LONG losses"
                     )
 
                 # Check for 15-min block (3 losses)
@@ -167,19 +167,19 @@ class DirectionalLossBlocker:
                 self.short_consecutive_losses += 1
                 logging.info(f"📉 SHORT loss recorded. Consecutive SHORT losses: {self.short_consecutive_losses}")
 
-                # Check for bias reversal (4 losses)
+                # Check for bias reversal (4 losses) - REVERSE to opposite direction
                 if self.short_consecutive_losses >= self.bias_reversal_limit:
                     self.reversed_bias = 'SHORT'
                     self.reversal_session = current_session
                     self.reversal_quarter = current_quarter
-                    logging.warning(f"🔄 BIAS REVERSED: {self.bias_reversal_limit} consecutive SHORT losses!")
-                    logging.warning(f"🔄 ONLY LONGS ALLOWED for rest of {current_session} Q{current_quarter}")
+                    logging.warning(f"🔄 BIAS REVERSED TO LONG: {self.bias_reversal_limit} consecutive SHORT losses!")
+                    logging.warning(f"🔄 ONLY LONGS until end of {current_session} Q{current_quarter}")
 
                     event_logger.log_filter_check(
                         "DirectionalLossBlocker",
                         "SHORT",
                         False,
-                        f"BIAS REVERSED: {self.bias_reversal_limit} consecutive SHORT losses, only LONGs until Q{current_quarter} ends"
+                        f"BIAS REVERSED TO LONG: {self.bias_reversal_limit} consecutive SHORT losses"
                     )
 
                 # Check for 15-min block (3 losses)
@@ -220,10 +220,12 @@ class DirectionalLossBlocker:
             direction = 'SHORT'
 
         # Check bias reversal FIRST (takes priority over 15-min block)
+        # After 4 consecutive losses, bias is REVERSED - only opposite direction allowed
         if self.reversed_bias is not None:
             if direction == self.reversed_bias:
-                reason = f"{direction} BLOCKED: Bias reversed after {self.bias_reversal_limit} consecutive losses (until end of Q{self.reversal_quarter})"
-                logging.info(f"⛔️ DirectionalLossBlocker: {reason}")
+                opposite = 'SHORT' if direction == 'LONG' else 'LONG'
+                reason = f"BIAS REVERSED to {opposite} only (4 consecutive {direction} losses) - until end of Q{self.reversal_quarter}"
+                logging.info(f"🔄 DirectionalLossBlocker: {reason}")
                 return True, reason
 
         # Check 15-minute time blocks
