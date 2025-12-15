@@ -5,12 +5,16 @@ import pandas as pd
 
 from dynamic_signal_engine2 import get_signal_engine as get_signal_engine2
 from strategy_base import Strategy
-
+# Import the dynamic parameter engine to access tight, data-driven SL/TPs
+from dynamic_sltp_params import get_sltp
 
 class DynamicEngine2Strategy(Strategy):
     """
     Wrapper for DynamicSignalEngine2 to run 167 hardcoded Price Action strategies
     alongside Julie's existing filters.
+
+    UPDATED: Now overrides static SL/TPs with Dynamic RegimeAdaptive parameters
+    from dynamic_sltp_params.py to tighten risk management.
     """
 
     def __init__(self):
@@ -32,17 +36,29 @@ class DynamicEngine2Strategy(Strategy):
             'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last'
         }).dropna()
 
+        # Check for pattern triggers from the hardcoded engine
         signal_data = self.engine.check_signal(current_time, df_5m, df_15m)
 
         if signal_data:
+            # Map the signal direction to the corresponding RegimeAdaptive profile
+            # 'RegimeAdaptive' offers robust, volatility-adjusted tight stops suitable for PA
+            strat_key = "RegimeAdaptive_LONG" if signal_data['signal'] == "LONG" else "RegimeAdaptive_SHORT"
+
+            # Calculate dynamic SL/TP using the original 1m dataframe for accurate real-time ATR
+            dynamic_params = get_sltp(strat_key, df)
+
             logging.info(f"🚀 DYNAMIC ENGINE 2 TRIGGER: {signal_data['strategy_id']}")
+            logging.info(f"📉 Tightening Risk: Overriding Static {signal_data['sl']}/{signal_data['tp']} "
+                         f"with Dynamic {dynamic_params['sl_dist']}/{dynamic_params['tp_dist']} "
+                         f"(Source: {dynamic_params['hierarchy_key']})")
 
             return {
                 "strategy": "DynamicEngine2",
                 "sub_strategy": signal_data['strategy_id'],
                 "side": signal_data['signal'],
-                "tp_dist": signal_data['tp'],
-                "sl_dist": signal_data['sl']
+                # Use the tighter, calculated distributions instead of the engine's hardcoded ones
+                "tp_dist": dynamic_params['tp_dist'],
+                "sl_dist": dynamic_params['sl_dist']
             }
 
         return None
