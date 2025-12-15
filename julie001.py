@@ -1587,19 +1587,31 @@ def run_bot():
                             logging.info(f"✅ FAST EXEC: {signal['strategy']} signal")
                             event_logger.log_strategy_execution(signal.get('strategy', strat_name), "FAST")
 
+                            # Track old trade result BEFORE close_and_reverse overwrites active_trade
+                            if active_trade is not None:
+                                old_side = active_trade['side']
+                                old_entry = active_trade['entry_price']
+                                if old_side == 'LONG':
+                                    old_pnl = current_price - old_entry
+                                else:
+                                    old_pnl = old_entry - current_price
+                                directional_loss_blocker.record_trade_result(old_side, old_pnl, current_time)
+                                circuit_breaker.update_trade_result(old_pnl)
+                                logging.info(f"📊 Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | Exit: {current_price:.2f} | PnL: {old_pnl:.2f} pts")
+
                             success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
                             if success:
                                 active_trade = {
-                                    'strategy': signal['strategy'], 
-                                    'side': signal['side'], 
-                                    'entry_price': current_price, 
-                                    'entry_bar': bar_count, 
-                                    'bars_held': 0, 
+                                    'strategy': signal['strategy'],
+                                    'side': signal['side'],
+                                    'entry_price': current_price,
+                                    'entry_bar': bar_count,
+                                    'bars_held': 0,
                                     'tp_dist': signal['tp_dist'],
                                     'size': 1,  # Fixed contract size
                                     'stop_order_id': client._active_stop_order_id  # Cached stop ID
                                 }
-                            
+
                             signal_executed = True
                             break
                     except Exception as e:
@@ -1725,19 +1737,31 @@ def run_bot():
                             logging.info(f"✅ STANDARD EXEC: {signal['strategy']} signal")
                             event_logger.log_strategy_execution(signal.get('strategy', strat_name), "STANDARD")
 
+                            # Track old trade result BEFORE close_and_reverse overwrites active_trade
+                            if active_trade is not None:
+                                old_side = active_trade['side']
+                                old_entry = active_trade['entry_price']
+                                if old_side == 'LONG':
+                                    old_pnl = current_price - old_entry
+                                else:
+                                    old_pnl = old_entry - current_price
+                                directional_loss_blocker.record_trade_result(old_side, old_pnl, current_time)
+                                circuit_breaker.update_trade_result(old_pnl)
+                                logging.info(f"📊 Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | Exit: {current_price:.2f} | PnL: {old_pnl:.2f} pts")
+
                             success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
                             if success:
                                 active_trade = {
-                                    'strategy': signal['strategy'], 
-                                    'side': signal['side'], 
-                                    'entry_price': current_price, 
-                                    'entry_bar': bar_count, 
-                                    'bars_held': 0, 
+                                    'strategy': signal['strategy'],
+                                    'side': signal['side'],
+                                    'entry_price': current_price,
+                                    'entry_bar': bar_count,
+                                    'bars_held': 0,
                                     'tp_dist': signal['tp_dist'],
                                     'size': 1,  # Fixed contract size
                                     'stop_order_id': client._active_stop_order_id  # Cached stop ID
                                 }
-                            
+
                             signal_executed = True
                             break
 
@@ -1824,19 +1848,32 @@ def run_bot():
 
                                 logging.info(f"✅ LOOSE EXEC: {s_name}")
                                 event_logger.log_strategy_execution(s_name, "LOOSE")
+
+                                # Track old trade result BEFORE close_and_reverse overwrites active_trade
+                                if active_trade is not None:
+                                    old_side = active_trade['side']
+                                    old_entry = active_trade['entry_price']
+                                    if old_side == 'LONG':
+                                        old_pnl = current_price - old_entry
+                                    else:
+                                        old_pnl = old_entry - current_price
+                                    directional_loss_blocker.record_trade_result(old_side, old_pnl, current_time)
+                                    circuit_breaker.update_trade_result(old_pnl)
+                                    logging.info(f"📊 Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | Exit: {current_price:.2f} | PnL: {old_pnl:.2f} pts")
+
                                 success, opposite_signal_count = client.close_and_reverse(sig, current_price, opposite_signal_count)
                                 if success:
                                     active_trade = {
-                                        'strategy': s_name, 
-                                        'side': sig['side'], 
-                                        'entry_price': current_price, 
-                                        'entry_bar': bar_count, 
-                                        'bars_held': 0, 
+                                        'strategy': s_name,
+                                        'side': sig['side'],
+                                        'entry_price': current_price,
+                                        'entry_bar': bar_count,
+                                        'bars_held': 0,
                                         'tp_dist': sig['tp_dist'],
-                                        'size': 1, 
-                                        'stop_order_id': client._active_stop_order_id 
+                                        'size': 1,
+                                        'stop_order_id': client._active_stop_order_id
                                     }
-                                
+
                                 del pending_loose_signals[s_name]
                                 signal_executed = True
                                 break
