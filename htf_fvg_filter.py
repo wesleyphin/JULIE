@@ -139,10 +139,12 @@ class HTFFVGFilter:
             
         self.memory = valid_fvgs
 
-    def check_signal_blocked(self, signal, current_price, df_1h=None, df_4h=None, tp_dist=None):
+ def check_signal_blocked(self, signal, current_price, df_1h=None, df_4h=None, tp_dist=None):
         """
         Check if signal is blocked using MEMORY.
-        Added tp_dist: If provided, we only block if the wall is closer than ~50% of our target.
+        Updates:
+        1. Ignore FVGs we have already pierced (dist < 0).
+        2. Reduced required room to 40% of TP (was 50%) for better execution.
         """
         # 1. Refresh Memory (if data provided)
         if df_1h is not None and not df_1h.empty:
@@ -163,10 +165,10 @@ class HTFFVGFilter:
             
         signal = signal.upper()
         
-        # --- LOGIC FIX: Dynamic Room Calculation ---
-        # If we have a target (e.g., 30pts), we need at least 50% of that room (15pts).
-        # If no target provided, default to 15.0 pts buffer.
-        min_room_needed = (tp_dist * 0.5) if tp_dist else 15.0
+        # --- DYNAMIC ROOM CALCULATION ---
+        # Relaxed: Require only 40% of TP distance (was 50%)
+        # Default to 10.0 pts if no TP provided
+        min_room_needed = (tp_dist * 0.40) if tp_dist else 10.0
         
         if signal in ['BUY', 'LONG']:
             # Block if Bearish FVG overhead (Price < Resistance)
@@ -174,7 +176,12 @@ class HTFFVGFilter:
                 if f['type'] == 'bearish':
                     if current_price < f['top']: 
                         dist = f['bottom'] - current_price
-                        # Only block if the FVG is close (distance < required room)
+                        
+                        # [FIX] Ignore if we are already inside/above the entry (we pierced the wall)
+                        if dist < 0:
+                            continue
+                        
+                        # Block only if wall is ahead AND too close
                         if dist < min_room_needed:
                             return True, f"Blocked LONG: Bearish {f['tf']} FVG overhead @ {f['bottom']:.2f} (Dist: {dist:.2f} < {min_room_needed:.2f})"
 
@@ -184,7 +191,12 @@ class HTFFVGFilter:
                 if f['type'] == 'bullish':
                     if current_price > f['bottom']: 
                         dist = current_price - f['top']
-                        # Only block if the FVG is close
+                        
+                        # [FIX] Ignore if we are already inside/below the entry (we pierced the wall)
+                        if dist < 0:
+                            continue
+                            
+                        # Block only if wall is ahead AND too close
                         if dist < min_room_needed:
                             return True, f"Blocked SHORT: Bullish {f['tf']} FVG support @ {f['top']:.2f} (Dist: {dist:.2f} < {min_room_needed:.2f})"
                         
