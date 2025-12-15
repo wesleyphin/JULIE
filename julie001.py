@@ -32,7 +32,8 @@ from news_filter import NewsFilter
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[logging.FileHandler("topstep_live_bot.log"), logging.StreamHandler()]
+    handlers=[logging.FileHandler("topstep_live_bot.log"), logging.StreamHandler()],
+    force=True  # Override any pre-existing logging config (e.g., from pytz)
 )
 
 NY_TZ = pytz.timezone('America/New_York')
@@ -436,7 +437,7 @@ class ProjectXClient:
                         self.last_bar_timestamp = new_bar_ts
                 return df
             else:
-                logging.warning("API returned no bars")
+                logging.warning(f"API returned no bars for {self.contract_id} (timeframe: {start_time} to {end_time})")
                 return self.cached_df if not self.cached_df.empty else pd.DataFrame()
         
         except requests.exceptions.HTTPError as e:
@@ -531,13 +532,15 @@ class ProjectXClient:
         side_code = 0 if is_long else 1
         
         # 2. Calculate Ticks Distance (Absolute)
-        # MES tick size is 0.25; strategy signals provide distances in POINTS
+        # MES tick size is 0.25
+        # sl_dist and tp_dist are in POINTS, convert to ticks
         sl_points = float(signal['sl_dist'])
         tp_points = float(signal['tp_dist'])
 
-        # Convert point distances to signed tick offsets (engine expects ticks)
         abs_sl_ticks = int(abs(sl_points / 0.25))
-        abs_tp_ticks = int(abs(tp_points / 0.25))
+
+        abs_sl_ticks = int(abs(sl_points))   # Convert points to ticks
+        abs_tp_ticks = int(abs(tp_points))  # Convert points to ticks
 
         
         # 3. Apply Directional Signs based on Side
@@ -736,6 +739,7 @@ class ProjectXClient:
         payload = {
             "accountId": self.account_id,
             "contractId": self.contract_id,
+            "clOrdId": str(uuid.uuid4()),  # Unique order ID for close
             "type": 2,  # Market Order
             "side": side_code,
             "size": position['size']
@@ -1053,10 +1057,11 @@ class ProjectXClient:
         payload = {
             "accountId": self.account_id,
             "contractId": self.contract_id,
+            "clOrdId": str(uuid.uuid4()),  # Unique order ID for break-even stop
             "type": 4,  # Stop Market
             "side": side_code,
             "size": size,
-            "stopPrice": be_price  # FIXED: Use stopPrice, not price
+            "stopPrice": be_price
         }
 
         try:
@@ -1095,10 +1100,11 @@ class ProjectXClient:
         payload = {
             "accountId": self.account_id,
             "contractId": self.contract_id,
+            "clOrdId": str(uuid.uuid4()),  # Unique order ID
             "type": 4,  # Stop Market
             "side": side_code,
             "size": size,
-            "stopPrice": be_price  # FIXED: Use stopPrice
+            "stopPrice": be_price
         }
         
         try:
@@ -1254,8 +1260,15 @@ def run_bot():
 
             # 1. Fetch Latest Data (Fast loop)
             new_df = client.get_market_data(lookback_minutes=500, force_fetch=True)
-            
+
             if new_df.empty:
+                # Early heartbeat - shows bot is alive even when no data available
+                if not hasattr(client, '_empty_data_counter'):
+                    client._empty_data_counter = 0
+                client._empty_data_counter += 1
+                if client._empty_data_counter % 30 == 0:
+                    print(f"⏳ Waiting for data: {datetime.datetime.now().strftime('%H:%M:%S')} | No bars received (market may be closed or starting up)")
+                    logging.info(f"No market data available - attempt #{client._empty_data_counter}")
                 time.sleep(1)
                 continue
             
