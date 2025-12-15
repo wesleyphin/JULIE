@@ -26,6 +26,8 @@ from ml_physics_strategy import MLPhysicsStrategy
 from dynamic_engine_strategy import DynamicEngineStrategy
 from dynamic_engine2_strategy import DynamicEngine2Strategy
 from event_logger import event_logger
+from circuit_breaker import CircuitBreaker
+from news_filter import NewsFilter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -529,16 +531,13 @@ class ProjectXClient:
         side_code = 0 if is_long else 1
         
         # 2. Calculate Ticks Distance (Absolute)
-        # MES tick size is 0.25
+        # MES tick size is 0.25; strategy signals provide distances in POINTS
         sl_points = float(signal['sl_dist'])
         tp_points = float(signal['tp_dist'])
-        
-        # If sl_dist and tp_dist are already in POINTS:
-        abs_sl_ticks = int(abs(sl_points / 0.25))  # Convert points to ticks
 
-        # OR if they're already in TICKS:
-        abs_sl_ticks = int(abs(sl_points))  # Use directly
-        abs_tp_ticks = int(abs(tp_points))  # Use directly
+        # Convert point distances to signed tick offsets (engine expects ticks)
+        abs_sl_ticks = int(abs(sl_points / 0.25))
+        abs_tp_ticks = int(abs(tp_points / 0.25))
 
         
         # 3. Apply Directional Signs based on Side
@@ -1200,6 +1199,8 @@ def run_bot():
     extension_filter = ExtensionFilter()
     htf_fvg_filter = HTFFVGFilter() # Now uses Memory-Based Class
     structure_blocker = DynamicStructureBlocker(lookback=20)
+    news_filter = NewsFilter()
+    circuit_breaker = CircuitBreaker(max_daily_loss=600, max_consecutive_losses=7)
     
     print("\nActive Strategies:")
     print("  [FAST EXECUTION]")
@@ -1236,9 +1237,23 @@ def run_bot():
             if time.time() - last_token_check > TOKEN_CHECK_INTERVAL:
                 client.validate_session()
                 last_token_check = time.time()
-            
+
+            # === GLOBAL RISK & NEWS FILTERS ===
+            cb_blocked, cb_reason = circuit_breaker.should_block_trade()
+            if cb_blocked:
+                logging.info(f"🚫 Circuit Breaker Block: {cb_reason}")
+                time.sleep(60)
+                continue
+
+            current_time = datetime.datetime.now(pytz.utc)
+            news_blocked, news_reason = news_filter.should_block_trade(current_time)
+            if news_blocked:
+                logging.info(f"🚫 NEWS WAIT: {news_reason}")
+                time.sleep(10)
+                continue
+
             # 1. Fetch Latest Data (Fast loop)
-            new_df = client.get_market_data(lookback_minutes=500, force_fetch=True) 
+            new_df = client.get_market_data(lookback_minutes=500, force_fetch=True)
             
             if new_df.empty:
                 time.sleep(1)
@@ -1512,8 +1527,8 @@ def run_bot():
                             logging.info(f"✅ FAST EXEC: {signal['strategy']} signal")
                             event_logger.log_strategy_execution(signal.get('strategy', strat_name), "FAST")
 
-                            result = client.close_and_reverse(signal, current_price, opposite_signal_count)
-                            if result[0]:
+                            success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
+                            if success:
                                 active_trade = {
                                     'strategy': signal['strategy'], 
                                     'side': signal['side'], 
@@ -1630,8 +1645,8 @@ def run_bot():
                             logging.info(f"✅ STANDARD EXEC: {signal['strategy']} signal")
                             event_logger.log_strategy_execution(signal.get('strategy', strat_name), "STANDARD")
 
-                            result = client.close_and_reverse(signal, current_price, opposite_signal_count)
-                            if result[0]:
+                            success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
+                            if success:
                                 active_trade = {
                                     'strategy': signal['strategy'], 
                                     'side': signal['side'], 
@@ -1714,8 +1729,8 @@ def run_bot():
 
                                 logging.info(f"✅ LOOSE EXEC: {s_name}")
                                 event_logger.log_strategy_execution(s_name, "LOOSE")
-                                result = client.close_and_reverse(sig, current_price, opposite_signal_count)
-                                if result[0]:
+                                success, opposite_signal_count = client.close_and_reverse(sig, current_price, opposite_signal_count)
+                                if success:
                                     active_trade = {
                                         'strategy': s_name, 
                                         'side': sig['side'], 
