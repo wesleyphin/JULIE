@@ -1540,8 +1540,8 @@ def run_bot():
                             logging.info(f"✅ FAST EXEC: {signal['strategy']} signal")
                             event_logger.log_strategy_execution(signal.get('strategy', strat_name), "FAST")
 
-                            result = client.close_and_reverse(signal, current_price, opposite_signal_count)
-                            if result[0]:
+                            success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
+                            if success:
                                 active_trade = {
                                     'strategy': signal['strategy'], 
                                     'side': signal['side'], 
@@ -1658,8 +1658,8 @@ def run_bot():
                             logging.info(f"✅ STANDARD EXEC: {signal['strategy']} signal")
                             event_logger.log_strategy_execution(signal.get('strategy', strat_name), "STANDARD")
 
-                            result = client.close_and_reverse(signal, current_price, opposite_signal_count)
-                            if result[0]:
+                            success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
+                            if success:
                                 active_trade = {
                                     'strategy': signal['strategy'], 
                                     'side': signal['side'], 
@@ -1742,8 +1742,8 @@ def run_bot():
 
                                 logging.info(f"✅ LOOSE EXEC: {s_name}")
                                 event_logger.log_strategy_execution(s_name, "LOOSE")
-                                result = client.close_and_reverse(sig, current_price, opposite_signal_count)
-                                if result[0]:
+                                success, opposite_signal_count = client.close_and_reverse(sig, current_price, opposite_signal_count)
+                                if success:
                                     active_trade = {
                                         'strategy': s_name, 
                                         'side': sig['side'], 
