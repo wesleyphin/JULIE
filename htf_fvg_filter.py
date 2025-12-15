@@ -162,9 +162,14 @@ class HTFFVGFilter:
         # 3. Check Signal against Active Memory
         if not self.memory:
             return False, None
-            
+
         signal = signal.upper()
-        
+
+        # Minimum points of room required before trading into an opposing FVG.
+        # DynamicEngine2 typically targets ~30 points, so we want a comfortable
+        # buffer to avoid taking trades directly into nearby structure.
+        MIN_ROOM_POINTS = 15.0
+
         if signal in ['BUY', 'LONG']:
             # Block if Bearish FVG overhead (Price < Resistance)
             for f in self.memory:
@@ -172,7 +177,11 @@ class HTFFVGFilter:
                     if current_price < f['top']: # Under the invalidation level
                         dist = f['bottom'] - current_price
                         # Only block if we are relatively close or inside it
-                        return True, f"Blocked LONG: Bearish {f['tf']} FVG overhead @ {f['bottom']:.2f}"
+                        if dist < MIN_ROOM_POINTS:
+                            return True, (
+                                f"Blocked LONG: Bearish {f['tf']} FVG overhead @ "
+                                f"{f['bottom']:.2f} (Dist: {dist:.2f} < {MIN_ROOM_POINTS})"
+                            )
 
         elif signal in ['SELL', 'SHORT']:
             # Block if Bullish FVG support below (Price > Support)
@@ -180,6 +189,10 @@ class HTFFVGFilter:
                 if f['type'] == 'bullish':
                     if current_price > f['bottom']: # Above the invalidation level
                         dist = current_price - f['top']
-                        return True, f"Blocked SHORT: Bullish {f['tf']} FVG support @ {f['top']:.2f}"
-                        
+                        if dist < MIN_ROOM_POINTS:
+                            return True, (
+                                f"Blocked SHORT: Bullish {f['tf']} FVG support @ "
+                                f"{f['top']:.2f} (Dist: {dist:.2f} < {MIN_ROOM_POINTS})"
+                            )
+
         return False, None
