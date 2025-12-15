@@ -268,7 +268,6 @@ class DynamicSignalEngine:
         """Initialize the signal engine."""
         self.et_tz = pytz.timezone('US/Eastern')
         self.strategies = STRATEGY_DATABASE
-        self._log_initialization()
 
     def _log_initialization(self):
         """Log strategy loading statistics."""
@@ -437,9 +436,11 @@ class DynamicSignalEngine:
                         signal = 'SHORT'
 
                 if signal:
+                    # Enforce minimum SL of 4 ticks (broker requirement)
+                    sl_value = max(4.0, float(strategy['Best_SL']))
                     signal_data = {
                         'signal': signal,
-                        'sl': float(strategy['Best_SL']),
+                        'sl': sl_value,
                         'tp': float(strategy['Best_TP']),
                         'opt_wr': float(strategy['Opt_WR']),
                         'timeframe': timeframe_str,
@@ -487,8 +488,7 @@ class DynamicSignalEngine:
         logging.info(f"   Timeframe: {best_signal['timeframe']}")
         logging.info(f"   Strategy: {best_signal['strategy_type']}")
         logging.info(f"   Stop Loss: {best_signal['sl']:.1f} points")
-        logging.info(f"   Take Profit: {best_signal['tp']:.1f} points")
-        logging.info(f"   Win Rate: {best_signal['opt_wr']:.1%}")
+        logging.info(f"   Take Profit: {best_signal['tp']:.1f} points (from hardcoded strategy DB)")
         logging.info(f"   Trigger: Body {best_signal['body']:.2f} > Thresh {best_signal['thresh']:.2f}")
         logging.info(f"   ID: {best_signal['strategy_id']}")
         logging.info("=" * 70)

@@ -16,6 +16,7 @@ from htf_fvg_filter import HTFFVGFilter
 from rejection_filter import RejectionFilter
 from chop_filter import ChopFilter
 from extension_filter import ExtensionFilter
+from trend_filter import TrendFilter
 from dynamic_structure_blocker import DynamicStructureBlocker
 from bank_level_quarter_filter import BankLevelQuarterFilter
 from orb_strategy import OrbStrategy
@@ -26,11 +27,14 @@ from ml_physics_strategy import MLPhysicsStrategy
 from dynamic_engine_strategy import DynamicEngineStrategy
 from dynamic_engine2_strategy import DynamicEngine2Strategy
 from event_logger import event_logger
+from circuit_breaker import CircuitBreaker
+from news_filter import NewsFilter
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[logging.FileHandler("topstep_live_bot.log"), logging.StreamHandler()]
+    handlers=[logging.FileHandler("topstep_live_bot.log"), logging.StreamHandler()],
+    force=True  # Override any pre-existing logging config (e.g., from pytz)
 )
 
 NY_TZ = pytz.timezone('America/New_York')
@@ -434,7 +438,7 @@ class ProjectXClient:
                         self.last_bar_timestamp = new_bar_ts
                 return df
             else:
-                logging.warning("API returned no bars")
+                logging.warning(f"API returned no bars for {self.contract_id} (timeframe: {start_time} to {end_time})")
                 return self.cached_df if not self.cached_df.empty else pd.DataFrame()
         
         except requests.exceptions.HTTPError as e:
@@ -530,15 +534,14 @@ class ProjectXClient:
         
         # 2. Calculate Ticks Distance (Absolute)
         # MES tick size is 0.25
+        # sl_dist and tp_dist are in POINTS, convert to ticks
         sl_points = float(signal['sl_dist'])
         tp_points = float(signal['tp_dist'])
-        
-        # If sl_dist and tp_dist are already in POINTS:
-        abs_sl_ticks = int(abs(sl_points / 0.25))  # Convert points to ticks
 
-        # OR if they're already in TICKS:
-        abs_sl_ticks = int(abs(sl_points))  # Use directly
-        abs_tp_ticks = int(abs(tp_points))  # Use directly
+        abs_sl_ticks = int(abs(sl_points / 0.25))
+
+        abs_sl_ticks = int(abs(sl_points))   # Convert points to ticks
+        abs_tp_ticks = int(abs(tp_points))  # Convert points to ticks
 
         
         # 3. Apply Directional Signs based on Side
@@ -737,6 +740,7 @@ class ProjectXClient:
         payload = {
             "accountId": self.account_id,
             "contractId": self.contract_id,
+            "clOrdId": str(uuid.uuid4()),  # Unique order ID for close
             "type": 2,  # Market Order
             "side": side_code,
             "size": position['size']
@@ -787,15 +791,8 @@ class ProjectXClient:
         Check current position, close if 3 opposite signals received, then place new order.
         Uses shadow position state to reduce API calls.
         """
-        # OPTIMIZATION: Check local shadow position first
-        if self._local_position['side'] == new_signal['side']:
-            logging.debug(f"Shadow position shows already {new_signal['side']}. Skipping API check.")
-            return True, 0  # Already in same direction
-        
-        # Only fetch real position if we intend to switch or local state is uncertain
+        # Always sync shadow position with broker before deciding
         position = self.get_position()
-        
-        # Update shadow position from API response
         self._local_position = position.copy()
         
         # If no position, just place the order and reset count
@@ -1054,10 +1051,11 @@ class ProjectXClient:
         payload = {
             "accountId": self.account_id,
             "contractId": self.contract_id,
+            "clOrdId": str(uuid.uuid4()),  # Unique order ID for break-even stop
             "type": 4,  # Stop Market
             "side": side_code,
             "size": size,
-            "stopPrice": be_price  # FIXED: Use stopPrice, not price
+            "stopPrice": be_price
         }
 
         try:
@@ -1096,10 +1094,11 @@ class ProjectXClient:
         payload = {
             "accountId": self.account_id,
             "contractId": self.contract_id,
+            "clOrdId": str(uuid.uuid4()),  # Unique order ID
             "type": 4,  # Stop Market
             "side": side_code,
             "size": size,
-            "stopPrice": be_price  # FIXED: Use stopPrice
+            "stopPrice": be_price
         }
         
         try:
@@ -1198,8 +1197,11 @@ def run_bot():
     bank_filter = BankLevelQuarterFilter()
     chop_filter = ChopFilter(lookback=20)
     extension_filter = ExtensionFilter()
+    trend_filter = TrendFilter()
     htf_fvg_filter = HTFFVGFilter() # Now uses Memory-Based Class
     structure_blocker = DynamicStructureBlocker(lookback=20)
+    news_filter = NewsFilter()
+    circuit_breaker = CircuitBreaker(max_daily_loss=600, max_consecutive_losses=7)
     
     print("\nActive Strategies:")
     print("  [FAST EXECUTION]")
@@ -1236,11 +1238,32 @@ def run_bot():
             if time.time() - last_token_check > TOKEN_CHECK_INTERVAL:
                 client.validate_session()
                 last_token_check = time.time()
-            
+
+            # === GLOBAL RISK & NEWS FILTERS ===
+            cb_blocked, cb_reason = circuit_breaker.should_block_trade()
+            if cb_blocked:
+                logging.info(f"🚫 Circuit Breaker Block: {cb_reason}")
+                time.sleep(60)
+                continue
+
+            current_time = datetime.datetime.now(pytz.utc)
+            news_blocked, news_reason = news_filter.should_block_trade(current_time)
+            if news_blocked:
+                logging.info(f"🚫 NEWS WAIT: {news_reason}")
+                time.sleep(10)
+                continue
+
             # 1. Fetch Latest Data (Fast loop)
-            new_df = client.get_market_data(lookback_minutes=500, force_fetch=True) 
-            
+            new_df = client.get_market_data(lookback_minutes=500, force_fetch=True)
+
             if new_df.empty:
+                # Early heartbeat - shows bot is alive even when no data available
+                if not hasattr(client, '_empty_data_counter'):
+                    client._empty_data_counter = 0
+                client._empty_data_counter += 1
+                if client._empty_data_counter % 30 == 0:
+                    print(f"⏳ Waiting for data: {datetime.datetime.now().strftime('%H:%M:%S')} | No bars received (market may be closed or starting up)")
+                    logging.info(f"No market data available - attempt #{client._empty_data_counter}")
                 time.sleep(1)
                 continue
             
@@ -1353,6 +1376,15 @@ def run_bot():
             is_new_bar = (last_processed_bar is None or current_time > last_processed_bar)
             
             if is_new_bar:
+                # Sync local active trade with broker state to avoid getting stuck
+                if active_trade is not None:
+                    broker_pos = client.get_position()
+                    if broker_pos.get('side') is None or broker_pos.get('size', 0) == 0:
+                        logging.info("ℹ️ Broker reports flat while tracking active_trade; clearing local state so new signals can execute")
+                        active_trade = None
+                        opposite_signal_count = 0
+                        client._local_position = {'side': None, 'size': 0, 'avg_price': 0.0}
+
                 bar_count += 1
                 logging.info(f"Bar: {current_time.strftime('%Y-%m-%d %H:%M:%S')} ET | Price: {current_price:.2f}")
                 last_processed_bar = current_time
@@ -1481,6 +1513,14 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("ExtensionFilter", signal['side'], True)
 
+                            # Trend Filter
+                            trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
+                            if trend_blocked:
+                                event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason)
+                                continue
+                            else:
+                                event_logger.log_filter_check("TrendFilter", signal['side'], True)
+
                             # Volatility
                             should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0))
                             if not should_trade:
@@ -1512,8 +1552,8 @@ def run_bot():
                             logging.info(f"✅ FAST EXEC: {signal['strategy']} signal")
                             event_logger.log_strategy_execution(signal.get('strategy', strat_name), "FAST")
 
-                            result = client.close_and_reverse(signal, current_price, opposite_signal_count)
-                            if result[0]:
+                            success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
+                            if success:
                                 active_trade = {
                                     'strategy': signal['strategy'], 
                                     'side': signal['side'], 
@@ -1598,7 +1638,15 @@ def run_bot():
                                     continue
                                 else:
                                     event_logger.log_filter_check("ExtensionFilter", signal['side'], True)
-                            
+
+                            # Trend Filter
+                            trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
+                            if trend_blocked:
+                                event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason)
+                                continue
+                            else:
+                                event_logger.log_filter_check("TrendFilter", signal['side'], True)
+
                             # Volatility
                             should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0))
                             if not should_trade:
@@ -1630,8 +1678,8 @@ def run_bot():
                             logging.info(f"✅ STANDARD EXEC: {signal['strategy']} signal")
                             event_logger.log_strategy_execution(signal.get('strategy', strat_name), "STANDARD")
 
-                            result = client.close_and_reverse(signal, current_price, opposite_signal_count)
-                            if result[0]:
+                            success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
+                            if success:
                                 active_trade = {
                                     'strategy': signal['strategy'], 
                                     'side': signal['side'], 
@@ -1694,6 +1742,13 @@ def run_bot():
                                 else:
                                     event_logger.log_filter_check("ExtensionFilter", sig['side'], True)
 
+                                trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, sig['side'])
+                                if trend_blocked:
+                                    event_logger.log_filter_check("TrendFilter", sig['side'], False, trend_reason)
+                                    del pending_loose_signals[s_name]; continue
+                                else:
+                                    event_logger.log_filter_check("TrendFilter", sig['side'], True)
+
                                 # Volatility
                                 should_trade, vol_adj = check_volatility(new_df, sig.get('sl_dist', 4.0), sig.get('tp_dist', 6.0))
                                 if not should_trade:
@@ -1714,8 +1769,8 @@ def run_bot():
 
                                 logging.info(f"✅ LOOSE EXEC: {s_name}")
                                 event_logger.log_strategy_execution(s_name, "LOOSE")
-                                result = client.close_and_reverse(sig, current_price, opposite_signal_count)
-                                if result[0]:
+                                success, opposite_signal_count = client.close_and_reverse(sig, current_price, opposite_signal_count)
+                                if success:
                                     active_trade = {
                                         'strategy': s_name, 
                                         'side': sig['side'], 
@@ -1782,6 +1837,13 @@ def run_bot():
                                             continue
                                         else:
                                             event_logger.log_filter_check("ExtensionFilter", signal['side'], True)
+
+                                        trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
+                                        if trend_blocked:
+                                            event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason)
+                                            continue
+                                        else:
+                                            event_logger.log_filter_check("TrendFilter", signal['side'], True)
 
                                         # Volatility
                                         should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0))
