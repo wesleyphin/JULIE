@@ -15,6 +15,27 @@ from config import CONFIG
 from terminal_ui import get_ui
 
 
+def get_current_session(dt):
+    """Determine current trading session based on ET time"""
+    hour = dt.hour
+
+    # ASIA: 18:00-03:00 ET
+    if hour >= 18 or hour < 3:
+        return 'ASIA'
+    # LONDON: 03:00-08:00 ET
+    elif 3 <= hour < 8:
+        return 'LONDON'
+    # NY_AM: 08:00-12:00 ET
+    elif 8 <= hour < 12:
+        return 'NY_AM'
+    # NY_PM: 12:00-17:00 ET
+    elif 12 <= hour < 17:
+        return 'NY_PM'
+    # OFF_HOURS: 17:00-18:00 ET
+    else:
+        return 'OFF_HOURS'
+
+
 class LogMonitor:
     """Monitors the bot's log file for signals and events"""
 
@@ -385,7 +406,6 @@ def main():
                 price = api_monitor.fetch_market_data()
                 if price:
                     # Determine session
-                    from config import get_current_session
                     current_time = datetime.now(pytz.timezone('US/Eastern'))
                     session = get_current_session(current_time)
 
