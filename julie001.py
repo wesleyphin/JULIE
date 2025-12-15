@@ -29,6 +29,7 @@ from dynamic_engine2_strategy import DynamicEngine2Strategy
 from event_logger import event_logger
 from circuit_breaker import CircuitBreaker
 from news_filter import NewsFilter
+from directional_loss_blocker import DirectionalLossBlocker
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1202,7 +1203,8 @@ def run_bot():
     structure_blocker = DynamicStructureBlocker(lookback=20)
     news_filter = NewsFilter()
     circuit_breaker = CircuitBreaker(max_daily_loss=600, max_consecutive_losses=7)
-    
+    directional_loss_blocker = DirectionalLossBlocker(consecutive_loss_limit=3, block_minutes=15)
+
     print("\nActive Strategies:")
     print("  [FAST EXECUTION]")
     for strat in fast_strategies: print(f"    • {strat.__class__.__name__}")
@@ -1381,6 +1383,16 @@ def run_bot():
                     broker_pos = client.get_position()
                     if broker_pos.get('side') is None or broker_pos.get('size', 0) == 0:
                         logging.info("ℹ️ Broker reports flat while tracking active_trade; clearing local state so new signals can execute")
+                        # Calculate PnL for directional loss tracking
+                        trade_side = active_trade['side']
+                        entry_price = active_trade['entry_price']
+                        if trade_side == 'LONG':
+                            pnl = current_price - entry_price
+                        else:
+                            pnl = entry_price - current_price
+                        directional_loss_blocker.record_trade_result(trade_side, pnl, current_time)
+                        circuit_breaker.update_trade_result(pnl)
+                        logging.info(f"📊 Trade closed: {trade_side} | Entry: {entry_price:.2f} | Exit: {current_price:.2f} | PnL: {pnl:.2f} pts")
                         active_trade = None
                         opposite_signal_count = 0
                         client._local_position = {'side': None, 'size': 0, 'avg_price': 0.0}
@@ -1436,6 +1448,17 @@ def run_bot():
                                 entry_price=active_trade['entry_price']
                             )
 
+                            # Calculate PnL for directional loss tracking
+                            trade_side = active_trade['side']
+                            entry_price = active_trade['entry_price']
+                            if trade_side == 'LONG':
+                                pnl = current_price - entry_price
+                            else:
+                                pnl = entry_price - current_price
+                            directional_loss_blocker.record_trade_result(trade_side, pnl, current_time)
+                            circuit_breaker.update_trade_result(pnl)
+                            logging.info(f"📊 Early exit closed: {trade_side} | Entry: {entry_price:.2f} | Exit: {current_price:.2f} | PnL: {pnl:.2f} pts")
+
                             position = client.get_position()
                             if position['side'] is not None:
                                 client.close_position(position)
@@ -1477,6 +1500,14 @@ def run_bot():
                             if rej_blocked:
                                 event_logger.log_rejection_block("RejectionFilter", signal['side'], rej_reason or "Rejection bias")
                                 continue
+
+                            # Directional Loss Blocker (3 consecutive losses blocks direction for 15 min)
+                            dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
+                            if dir_blocked:
+                                event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], False, dir_reason)
+                                continue
+                            else:
+                                event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], True)
 
                             # HTF FVG (Memory Based) - UPDATED
                             # Pass the strategy's target profit so we know how much room we need
@@ -1606,7 +1637,15 @@ def run_bot():
                             if rej_blocked:
                                 event_logger.log_rejection_block("RejectionFilter", signal['side'], rej_reason or "Rejection bias")
                                 continue
-                            
+
+                            # Directional Loss Blocker (3 consecutive losses blocks direction for 15 min)
+                            dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
+                            if dir_blocked:
+                                event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], False, dir_reason)
+                                continue
+                            else:
+                                event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], True)
+
                             # HTF FVG (Memory Based) - UPDATED
                             # Pass the strategy's target profit so we know how much room we need
                             tp_dist = signal.get('tp_dist', 15.0) 
@@ -1717,6 +1756,14 @@ def run_bot():
                                     event_logger.log_rejection_block("RejectionFilter", sig['side'], rej_reason or "Rejection bias")
                                     del pending_loose_signals[s_name]; continue
 
+                                # Directional Loss Blocker (3 consecutive losses blocks direction for 15 min)
+                                dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(sig['side'], current_time)
+                                if dir_blocked:
+                                    event_logger.log_filter_check("DirectionalLossBlocker", sig['side'], False, dir_reason)
+                                    del pending_loose_signals[s_name]; continue
+                                else:
+                                    event_logger.log_filter_check("DirectionalLossBlocker", sig['side'], True)
+
                                 # HTF FVG
                                 fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(sig['side'], current_price, None, None)
                                 if fvg_blocked:
@@ -1815,6 +1862,14 @@ def run_bot():
                                         if rej_blocked:
                                             event_logger.log_rejection_block("RejectionFilter", signal['side'], rej_reason or "Rejection bias")
                                             continue
+
+                                        # Directional Loss Blocker (3 consecutive losses blocks direction for 15 min)
+                                        dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
+                                        if dir_blocked:
+                                            event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], False, dir_reason)
+                                            continue
+                                        else:
+                                            event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], True)
 
                                         fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(signal['side'], current_price, None, None)
                                         if fvg_blocked:
