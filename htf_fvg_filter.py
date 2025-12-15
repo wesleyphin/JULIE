@@ -136,10 +136,10 @@ class HTFFVGFilter:
         if broken_count > 0 or expired_count > 0:
             # logging.info(f"🧹 HTF Memory Cleaned: {broken_count} broken, {expired_count} expired")
             pass
-            
+
         self.memory = valid_fvgs
 
-     def check_signal_blocked(self, signal, current_price, df_1h=None, df_4h=None, tp_dist=None):
+    def check_signal_blocked(self, signal, current_price, df_1h=None, df_4h=None, tp_dist=None):
         """
         Check if signal is blocked using MEMORY.
         Updates:
@@ -147,57 +147,57 @@ class HTFFVGFilter:
         2. Reduced required room to 40% of TP (was 50%) for better execution.
         """
         # 1. Refresh Memory (if data provided)
-            if df_1h is not None and not df_1h.empty:
-                fvgs_1h = self._scan_for_new_fvgs(df_1h, '1H')
-                self._update_memory(fvgs_1h)
-            
-            if df_4h is not None and not df_4h.empty:
-                fvgs_4h = self._scan_for_new_fvgs(df_4h, '4H')
-                self._update_memory(fvgs_4h)
+        if df_1h is not None and not df_1h.empty:
+            fvgs_1h = self._scan_for_new_fvgs(df_1h, '1H')
+            self._update_memory(fvgs_1h)
+
+        if df_4h is not None and not df_4h.empty:
+            fvgs_4h = self._scan_for_new_fvgs(df_4h, '4H')
+            self._update_memory(fvgs_4h)
 
         # 2. Clean Memory (Live Invalidation)
-            current_time = datetime.now(df_1h.index.tz) if (df_1h is not None and not df_1h.empty) else datetime.now().astimezone()
-            self._clean_memory(current_price, current_time)
+        current_time = datetime.now(df_1h.index.tz) if (df_1h is not None and not df_1h.empty) else datetime.now().astimezone()
+        self._clean_memory(current_price, current_time)
 
         # 3. Check Signal against Active Memory
-            if not self.memory:
-                return False, None
-            
-            signal = signal.upper()
-        
+        if not self.memory:
+            return False, None
+
+        signal = signal.upper()
+
         # --- DYNAMIC ROOM CALCULATION ---
         # Relaxed: Require only 40% of TP distance (was 50%)
         # Default to 10.0 pts if no TP provided
-            min_room_needed = (tp_dist * 0.40) if tp_dist else 10.0
-        
-            if signal in ['BUY', 'LONG']:
-            # Block if Bearish FVG overhead (Price < Resistance)
-                for f in self.memory:
-                    if f['type'] == 'bearish':
-                        if current_price < f['top']: 
-                            dist = f['bottom'] - current_price
-                        
-                        # [FIX] Ignore if we are already inside/above the entry (we pierced the wall)
-                            if dist < 0:
-                                continue
-                        
-                        # Block only if wall is ahead AND too close
-                            if dist < min_room_needed:
-                                return True, f"Blocked LONG: Bearish {f['tf']} FVG overhead @ {f['bottom']:.2f} (Dist: {dist:.2f} < {min_room_needed:.2f})"
+        min_room_needed = (tp_dist * 0.40) if tp_dist else 10.0
 
-            elif signal in ['SELL', 'SHORT']:
-            # Block if Bullish FVG support below (Price > Support)
-                for f in self.memory:
-                    if f['type'] == 'bullish':
-                        if current_price > f['bottom']: 
-                            dist = current_price - f['top']
-                        
-                        # [FIX] Ignore if we are already inside/below the entry (we pierced the wall)
-                            if dist < 0:
-                                continue
-                            
+        if signal in ['BUY', 'LONG']:
+            # Block if Bearish FVG overhead (Price < Resistance)
+            for f in self.memory:
+                if f['type'] == 'bearish':
+                    if current_price < f['top']:
+                        dist = f['bottom'] - current_price
+
+                        # [FIX] Ignore if we are already inside/above the entry (we pierced the wall)
+                        if dist < 0:
+                            continue
+
                         # Block only if wall is ahead AND too close
-                            if dist < min_room_needed:
-                                return True, f"Blocked SHORT: Bullish {f['tf']} FVG support @ {f['top']:.2f} (Dist: {dist:.2f} < {min_room_needed:.2f})"
-                        
-            return False, None
+                        if dist < min_room_needed:
+                            return True, f"Blocked LONG: Bearish {f['tf']} FVG overhead @ {f['bottom']:.2f} (Dist: {dist:.2f} < {min_room_needed:.2f})"
+
+        elif signal in ['SELL', 'SHORT']:
+            # Block if Bullish FVG support below (Price > Support)
+            for f in self.memory:
+                if f['type'] == 'bullish':
+                    if current_price > f['bottom']:
+                        dist = current_price - f['top']
+
+                        # [FIX] Ignore if we are already inside/below the entry (we pierced the wall)
+                        if dist < 0:
+                            continue
+
+                        # Block only if wall is ahead AND too close
+                        if dist < min_room_needed:
+                            return True, f"Blocked SHORT: Bullish {f['tf']} FVG support @ {f['top']:.2f} (Dist: {dist:.2f} < {min_room_needed:.2f})"
+
+        return False, None
