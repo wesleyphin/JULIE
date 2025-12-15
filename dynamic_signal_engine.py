@@ -488,7 +488,7 @@ class DynamicSignalEngine:
         logging.info(f"   Timeframe: {best_signal['timeframe']}")
         logging.info(f"   Strategy: {best_signal['strategy_type']}")
         logging.info(f"   Stop Loss: {best_signal['sl']:.1f} points")
-        logging.info(f"   Take Profit: {best_signal['tp']:.1f} points")
+        logging.info(f"   Take Profit: {best_signal['tp']:.1f} points (from hardcoded strategy DB)")
         logging.info(f"   Trigger: Body {best_signal['body']:.2f} > Thresh {best_signal['thresh']:.2f}")
         logging.info(f"   ID: {best_signal['strategy_id']}")
         logging.info("=" * 70)

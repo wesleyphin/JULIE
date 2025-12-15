@@ -547,11 +547,13 @@ class HierarchicalVolatilityFilter:
         t = adjustments['thresholds']
         msg = (f"{emoji} VolFilter [{adjustments['hierarchy_key']}|{regime}]: "
                f"std={adjustments['current_std']:.7f} "
-               f"(p10={t['p10']:.6f}, p25={t['p25']:.6f})")
-        
+               f"(p10={t['p10']:.6f}, p25={t['p25']:.6f}, p75={t['p75']:.6f})")
+
         if adjustments['adjustment_applied']:
             msg += (f" | SL:{adjustments['base_sl']:.2f}→{adjustments['sl_dist']:.2f}, "
                    f"TP:{adjustments['base_tp']:.2f}→{adjustments['tp_dist']:.2f}")
+        else:
+            msg += " | No SL/TP change (volatility within normal band)"
         
         logging.info(msg)
 

@@ -16,6 +16,7 @@ from htf_fvg_filter import HTFFVGFilter
 from rejection_filter import RejectionFilter
 from chop_filter import ChopFilter
 from extension_filter import ExtensionFilter
+from trend_filter import TrendFilter
 from dynamic_structure_blocker import DynamicStructureBlocker
 from bank_level_quarter_filter import BankLevelQuarterFilter
 from orb_strategy import OrbStrategy
@@ -790,15 +791,8 @@ class ProjectXClient:
         Check current position, close if 3 opposite signals received, then place new order.
         Uses shadow position state to reduce API calls.
         """
-        # OPTIMIZATION: Check local shadow position first
-        if self._local_position['side'] == new_signal['side']:
-            logging.debug(f"Shadow position shows already {new_signal['side']}. Skipping API check.")
-            return True, 0  # Already in same direction
-        
-        # Only fetch real position if we intend to switch or local state is uncertain
+        # Always sync shadow position with broker before deciding
         position = self.get_position()
-        
-        # Update shadow position from API response
         self._local_position = position.copy()
         
         # If no position, just place the order and reset count
@@ -1203,6 +1197,7 @@ def run_bot():
     bank_filter = BankLevelQuarterFilter()
     chop_filter = ChopFilter(lookback=20)
     extension_filter = ExtensionFilter()
+    trend_filter = TrendFilter()
     htf_fvg_filter = HTFFVGFilter() # Now uses Memory-Based Class
     structure_blocker = DynamicStructureBlocker(lookback=20)
     news_filter = NewsFilter()
@@ -1381,6 +1376,15 @@ def run_bot():
             is_new_bar = (last_processed_bar is None or current_time > last_processed_bar)
             
             if is_new_bar:
+                # Sync local active trade with broker state to avoid getting stuck
+                if active_trade is not None:
+                    broker_pos = client.get_position()
+                    if broker_pos.get('side') is None or broker_pos.get('size', 0) == 0:
+                        logging.info("ℹ️ Broker reports flat while tracking active_trade; clearing local state so new signals can execute")
+                        active_trade = None
+                        opposite_signal_count = 0
+                        client._local_position = {'side': None, 'size': 0, 'avg_price': 0.0}
+
                 bar_count += 1
                 logging.info(f"Bar: {current_time.strftime('%Y-%m-%d %H:%M:%S')} ET | Price: {current_price:.2f}")
                 last_processed_bar = current_time
@@ -1509,6 +1513,14 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("ExtensionFilter", signal['side'], True)
 
+                            # Trend Filter
+                            trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
+                            if trend_blocked:
+                                event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason)
+                                continue
+                            else:
+                                event_logger.log_filter_check("TrendFilter", signal['side'], True)
+
                             # Volatility
                             should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0))
                             if not should_trade:
@@ -1626,7 +1638,15 @@ def run_bot():
                                     continue
                                 else:
                                     event_logger.log_filter_check("ExtensionFilter", signal['side'], True)
-                            
+
+                            # Trend Filter
+                            trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
+                            if trend_blocked:
+                                event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason)
+                                continue
+                            else:
+                                event_logger.log_filter_check("TrendFilter", signal['side'], True)
+
                             # Volatility
                             should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0))
                             if not should_trade:
@@ -1722,6 +1742,13 @@ def run_bot():
                                 else:
                                     event_logger.log_filter_check("ExtensionFilter", sig['side'], True)
 
+                                trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, sig['side'])
+                                if trend_blocked:
+                                    event_logger.log_filter_check("TrendFilter", sig['side'], False, trend_reason)
+                                    del pending_loose_signals[s_name]; continue
+                                else:
+                                    event_logger.log_filter_check("TrendFilter", sig['side'], True)
+
                                 # Volatility
                                 should_trade, vol_adj = check_volatility(new_df, sig.get('sl_dist', 4.0), sig.get('tp_dist', 6.0))
                                 if not should_trade:
@@ -1810,6 +1837,13 @@ def run_bot():
                                             continue
                                         else:
                                             event_logger.log_filter_check("ExtensionFilter", signal['side'], True)
+
+                                        trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
+                                        if trend_blocked:
+                                            event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason)
+                                            continue
+                                        else:
+                                            event_logger.log_filter_check("TrendFilter", signal['side'], True)
 
                                         # Volatility
                                         should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0))
