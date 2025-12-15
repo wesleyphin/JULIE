@@ -139,11 +139,10 @@ class HTFFVGFilter:
             
         self.memory = valid_fvgs
 
-    def check_signal_blocked(self, signal, current_price, df_1h=None, df_4h=None):
+    def check_signal_blocked(self, signal, current_price, df_1h=None, df_4h=None, tp_dist=None):
         """
         Check if signal is blocked using MEMORY.
-        Dataframes (df_1h, df_4h) are OPTIONAL. 
-        If provided, memory is refreshed. If None, we use existing memory.
+        Added tp_dist: If provided, we only block if the wall is closer than ~50% of our target.
         """
         # 1. Refresh Memory (if data provided)
         if df_1h is not None and not df_1h.empty:
@@ -155,44 +154,38 @@ class HTFFVGFilter:
             self._update_memory(fvgs_4h)
 
         # 2. Clean Memory (Live Invalidation)
-        # We assume the latest timestamp from data or just use current system time
         current_time = datetime.now(df_1h.index.tz) if (df_1h is not None and not df_1h.empty) else datetime.now().astimezone()
         self._clean_memory(current_price, current_time)
 
         # 3. Check Signal against Active Memory
         if not self.memory:
             return False, None
-
+            
         signal = signal.upper()
-
-        # Minimum points of room required before trading into an opposing FVG.
-        # DynamicEngine2 typically targets ~30 points, so we want a comfortable
-        # buffer to avoid taking trades directly into nearby structure.
-        MIN_ROOM_POINTS = 15.0
-
+        
+        # --- LOGIC FIX: Dynamic Room Calculation ---
+        # If we have a target (e.g., 30pts), we need at least 50% of that room (15pts).
+        # If no target provided, default to 15.0 pts buffer.
+        min_room_needed = (tp_dist * 0.5) if tp_dist else 15.0
+        
         if signal in ['BUY', 'LONG']:
             # Block if Bearish FVG overhead (Price < Resistance)
             for f in self.memory:
                 if f['type'] == 'bearish':
-                    if current_price < f['top']: # Under the invalidation level
+                    if current_price < f['top']: 
                         dist = f['bottom'] - current_price
-                        # Only block if we are relatively close or inside it
-                        if dist < MIN_ROOM_POINTS:
-                            return True, (
-                                f"Blocked LONG: Bearish {f['tf']} FVG overhead @ "
-                                f"{f['bottom']:.2f} (Dist: {dist:.2f} < {MIN_ROOM_POINTS})"
-                            )
+                        # Only block if the FVG is close (distance < required room)
+                        if dist < min_room_needed:
+                            return True, f"Blocked LONG: Bearish {f['tf']} FVG overhead @ {f['bottom']:.2f} (Dist: {dist:.2f} < {min_room_needed:.2f})"
 
         elif signal in ['SELL', 'SHORT']:
             # Block if Bullish FVG support below (Price > Support)
             for f in self.memory:
                 if f['type'] == 'bullish':
-                    if current_price > f['bottom']: # Above the invalidation level
+                    if current_price > f['bottom']: 
                         dist = current_price - f['top']
-                        if dist < MIN_ROOM_POINTS:
-                            return True, (
-                                f"Blocked SHORT: Bullish {f['tf']} FVG support @ "
-                                f"{f['top']:.2f} (Dist: {dist:.2f} < {MIN_ROOM_POINTS})"
-                            )
-
+                        # Only block if the FVG is close
+                        if dist < min_room_needed:
+                            return True, f"Blocked SHORT: Bullish {f['tf']} FVG support @ {f['top']:.2f} (Dist: {dist:.2f} < {min_room_needed:.2f})"
+                        
         return False, None

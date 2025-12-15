@@ -1478,8 +1478,12 @@ def run_bot():
                                 event_logger.log_rejection_block("RejectionFilter", signal['side'], rej_reason or "Rejection bias")
                                 continue
 
-                            # HTF FVG (Memory Based)
-                            fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(signal['side'], current_price, None, None)
+                            # HTF FVG (Memory Based) - UPDATED
+                            # Pass the strategy's target profit so we know how much room we need
+                            tp_dist = signal.get('tp_dist', 15.0) 
+                            fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
+                                signal['side'], current_price, None, None, tp_dist=tp_dist
+                            )
                             if fvg_blocked:
                                 logging.info(f"🚫 BLOCKED (HTF FVG): {fvg_reason}")
                                 event_logger.log_filter_check("HTF_FVG", signal['side'], False, fvg_reason)
@@ -1603,8 +1607,12 @@ def run_bot():
                                 event_logger.log_rejection_block("RejectionFilter", signal['side'], rej_reason or "Rejection bias")
                                 continue
                             
-                            # HTF FVG (Memory Based)
-                            fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(signal['side'], current_price, None, None)
+                            # HTF FVG (Memory Based) - UPDATED
+                            # Pass the strategy's target profit so we know how much room we need
+                            tp_dist = signal.get('tp_dist', 15.0) 
+                            fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
+                                signal['side'], current_price, None, None, tp_dist=tp_dist
+                            )
                             if fvg_blocked:
                                 logging.info(f"🚫 BLOCKED (HTF FVG): {fvg_reason}")
                                 event_logger.log_filter_check("HTF_FVG", signal['side'], False, fvg_reason)
