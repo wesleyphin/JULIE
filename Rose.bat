@@ -22,7 +22,7 @@ call venv\Scripts\activate.bat
 echo.
 
 REM Step 3: Check if packages are installed
-python -c "import pandas, numpy, requests, pytz, joblib, sklearn" 2>nul
+python -c "import pandas, numpy, requests, pytz, joblib, sklearn, rich, colorama, click" 2>nul
 if errorlevel 1 (
     echo [3] Upgrading pip...
     python -m pip install --upgrade pip
@@ -54,17 +54,29 @@ if errorlevel 1 (
     echo Installing scikit-learn...
     pip install scikit-learn
     echo.
+    
+    echo Installing rich...
+    pip install rich
+    echo.
+    
+    echo Installing colorama...
+    pip install colorama
+    echo.
+    
+    echo Installing click...
+    pip install click
+    echo.
 ) else (
     echo [3] All packages already installed
     echo.
 )
 
-REM Step 4: Run the bot
+REM Step 4: Run the UI Monitor
 echo ========================================
-echo LAUNCHING BOT
+echo LAUNCHING JULIE UI MONITOR
 echo ========================================
 echo.
 
-python julie001.py
+python monitor_ui.py
 
 pause
