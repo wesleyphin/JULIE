@@ -22,7 +22,7 @@ call venv\Scripts\activate.bat
 echo.
 
 REM Step 3: Check if packages are installed
-python -c "import pandas, numpy, requests, pytz, joblib, sklearn, rich" 2>nul
+python -c "import pandas, numpy, requests, pytz, joblib, sklearn" 2>nul
 if errorlevel 1 (
     echo [3] Upgrading pip...
     python -m pip install --upgrade pip
@@ -54,14 +54,12 @@ if errorlevel 1 (
     echo Installing scikit-learn...
     pip install scikit-learn
     echo.
-
-    echo Installing rich (for GUI monitor)...
-    pip install rich
-    echo.
 ) else (
     echo [3] All packages already installed
     echo.
 )
+
+REM Note: tkinter comes with Python, no need to install separately
 
 REM Step 4: Launch the trading bot and GUI monitor
 echo ========================================
