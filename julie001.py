@@ -1372,8 +1372,9 @@ def run_bot():
             chop_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             extension_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             structure_blocker.update(new_df)
+            directional_loss_blocker.update_quarter(current_time)
 
-            
+
             # Only process signals on NEW bars
             is_new_bar = (last_processed_bar is None or current_time > last_processed_bar)
             
@@ -1408,7 +1409,8 @@ def run_bot():
                 chop_filter.update(curr_bar['high'], curr_bar['low'], curr_bar['close'], current_time)
                 extension_filter.update(curr_bar['high'], curr_bar['low'], curr_bar['close'], current_time)
                 structure_blocker.update(new_df)
-                
+                directional_loss_blocker.update_quarter(current_time)
+
                 # === EARLY EXIT CHECK ===
                 if active_trade is not None:
                     active_trade['bars_held'] += 1
