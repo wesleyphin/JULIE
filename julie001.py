@@ -166,6 +166,57 @@ class ProjectXClient:
         - /api/History/retrieveBars: 50 requests / 30 seconds
         - All other endpoints: 200 requests / 60 seconds
     """
+    # Class-level (shared) rate limiting - all instances share these
+    _shared_bar_timestamps = []
+    _shared_general_timestamps = []
+    _shared_last_bar_fetch = None
+    _shared_lock = None  # Will be initialized on first use
+
+    # Class-level rate limit config
+    SHARED_BAR_RATE_LIMIT = 50
+    SHARED_BAR_RATE_WINDOW = 30
+    SHARED_GENERAL_RATE_LIMIT = 200
+    SHARED_GENERAL_RATE_WINDOW = 60
+    SHARED_MIN_FETCH_INTERVAL = 0.5  # Minimum 500ms between any bar fetches across all instances
+
+    @classmethod
+    def _get_lock(cls):
+        """Thread-safe lock initialization"""
+        if cls._shared_lock is None:
+            import threading
+            cls._shared_lock = threading.Lock()
+        return cls._shared_lock
+
+    @classmethod
+    def _shared_check_bar_rate_limit(cls) -> bool:
+        """Check shared rate limit for bar fetches across all client instances"""
+        with cls._get_lock():
+            now = time.time()
+            # Clean old timestamps
+            cls._shared_bar_timestamps = [
+                t for t in cls._shared_bar_timestamps
+                if now - t < cls.SHARED_BAR_RATE_WINDOW
+            ]
+            # Check if we're approaching limit (leave buffer of 10)
+            if len(cls._shared_bar_timestamps) >= cls.SHARED_BAR_RATE_LIMIT - 10:
+                logging.warning(f"⚠️ Shared bar rate limit ({len(cls._shared_bar_timestamps)}/{cls.SHARED_BAR_RATE_LIMIT}). Using cache.")
+                return False
+            # Enforce minimum interval between ANY bar fetches
+            if cls._shared_last_bar_fetch is not None:
+                elapsed = now - cls._shared_last_bar_fetch
+                if elapsed < cls.SHARED_MIN_FETCH_INTERVAL:
+                    wait_time = cls.SHARED_MIN_FETCH_INTERVAL - elapsed
+                    time.sleep(wait_time)
+            return True
+
+    @classmethod
+    def _shared_track_bar_fetch(cls):
+        """Track a bar fetch request in shared rate limiter"""
+        with cls._get_lock():
+            now = time.time()
+            cls._shared_bar_timestamps.append(now)
+            cls._shared_last_bar_fetch = now
+
     def __init__(self, contract_root: Optional[str] = None, target_symbol: Optional[str] = None):
         self.session = requests.Session()
         self.token = None
@@ -392,20 +443,19 @@ class ProjectXClient:
         Endpoint: POST /api/History/retrieveBars
         Rate Limit: 50 requests / 30 seconds
         """
+        # SHARED rate limit check first (coordinates across MES/MNQ clients)
+        if not ProjectXClient._shared_check_bar_rate_limit():
+            return self.cached_df
+
         now = time.time()
 
-        # Clean old timestamps
+        # Instance-level tracking (for per-client diagnostics)
         self.bar_fetch_timestamps = [
             t for t in self.bar_fetch_timestamps
             if now - t < self.BAR_RATE_WINDOW
         ]
 
-        # Check rate limit
-        if len(self.bar_fetch_timestamps) >= self.BAR_RATE_LIMIT - 5:
-            logging.warning(f"⚠️ Bar rate limit ({len(self.bar_fetch_timestamps)}/{self.BAR_RATE_LIMIT}). Using cache.")
-            return self.cached_df
-
-        # Enforce minimum interval
+        # Instance-level minimum interval (skip if force_fetch)
         if self.last_bar_fetch_time is not None:
             if now - self.last_bar_fetch_time < self.MIN_FETCH_INTERVAL and not force_fetch:
                 return self.cached_df
@@ -439,12 +489,15 @@ class ProjectXClient:
         
         try:
             resp = self.session.post(url, json=payload, headers=headers)
-            
+
+            # Track request in shared limiter immediately after making the call
+            ProjectXClient._shared_track_bar_fetch()
+
             if resp.status_code == 429:
-                logging.warning("🚫 Rate limited (429). Backing off 5s...")
+                logging.warning(f"🚫 Rate limited (429) for {self.contract_root}. Backing off 5s...")
                 time.sleep(5)
                 return self.cached_df
-            
+
             resp.raise_for_status()
             self.bar_fetch_timestamps.append(now)
             self.last_bar_fetch_time = now
@@ -499,8 +552,8 @@ class ProjectXClient:
             Fetch historical bars with custom timeframe (for HTF analysis).
             minutes_per_bar: 60 for 1H, 240 for 4H.
             """
-            # Rate limit check (reuse existing logic)
-            if not self._check_general_rate_limit():
+            # SHARED rate limit check first (coordinates across MES/MNQ clients)
+            if not ProjectXClient._shared_check_bar_rate_limit():
                 return pd.DataFrame()
 
             end_time = datetime.datetime.now(datetime.timezone.utc)
@@ -522,6 +575,8 @@ class ProjectXClient:
 
             try:
                 resp = self.session.post(url, json=payload)
+                # Track in shared limiter immediately
+                ProjectXClient._shared_track_bar_fetch()
                 self._track_general_request()
             
                 if resp.status_code == 200:
@@ -538,11 +593,12 @@ class ProjectXClient:
                 return pd.DataFrame()
             
     def get_rate_limit_status(self) -> str:
-        """Returns current rate limit usage"""
+        """Returns current rate limit usage (shared across all clients)"""
         now = time.time()
-        bar_recent = len([t for t in self.bar_fetch_timestamps if now - t < self.BAR_RATE_WINDOW])
+        # Use shared timestamps for accurate cross-client tracking
+        shared_bar_recent = len([t for t in ProjectXClient._shared_bar_timestamps if now - t < ProjectXClient.SHARED_BAR_RATE_WINDOW])
         general_recent = len([t for t in self.general_request_timestamps if now - t < self.GENERAL_RATE_WINDOW])
-        return f"Bars: {bar_recent}/{self.BAR_RATE_LIMIT} (30s) | General: {general_recent}/{self.GENERAL_RATE_LIMIT} (60s)"
+        return f"Bars: {shared_bar_recent}/{ProjectXClient.SHARED_BAR_RATE_LIMIT} (30s) | General: {general_recent}/{self.GENERAL_RATE_LIMIT} (60s)"
     
     def place_order(self, signal: Dict, current_price: float):
         """
