@@ -4,7 +4,8 @@ import numpy as np
 import datetime
 import time
 import logging
-import pytz
+from zoneinfo import ZoneInfo
+from datetime import timezone as dt_timezone
 import uuid
 from typing import Dict, Optional, List, Tuple
 
@@ -37,10 +38,10 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
     handlers=[logging.FileHandler("topstep_live_bot.log"), logging.StreamHandler()],
-    force=True  # Override any pre-existing logging config (e.g., from pytz)
+    force=True  # Override any pre-existing logging config
 )
 
-NY_TZ = pytz.timezone('America/New_York')
+NY_TZ = ZoneInfo('America/New_York')
 
 # ==========================================
 # 2a. REJECTION FILTER (Trade Direction Filters)
@@ -143,7 +144,7 @@ class ProjectXClient:
         self.token = None
         self.token_expiry = None
         self.base_url = CONFIG['REST_BASE_URL']
-        self.et = pytz.timezone('US/Eastern')
+        self.et = ZoneInfo('America/New_York')
         
         # Account and contract info (fetched after login)
         self.account_id = CONFIG.get('ACCOUNT_ID')
@@ -315,10 +316,10 @@ class ProjectXClient:
             return self.contract_id
 
         url = f"{self.base_url}/api/Contract/search"
-        # We explicitly search for "MES" to ensure we get the right list
+        # Search using the root symbol (e.g., "MES") to find all contracts
         payload = {
             "live": False,  # Set to False to find Topstep tradable contracts
-            "searchText": CONFIG.get('TARGET_SYMBOL', 'CON.F.US.MES.Z25')
+            "searchText": CONFIG.get('CONTRACT_ROOT', 'MES')
         }
 
         try:
@@ -329,13 +330,15 @@ class ProjectXClient:
             data = resp.json()
 
             if 'contracts' in data and len(data['contracts']) > 0:
-                target = CONFIG.get('TARGET_SYMBOL', 'CON.F.US.MES.Z25')
+                # TARGET_SYMBOL is short form like "MES.Z25" for matching
+                target = CONFIG.get('TARGET_SYMBOL', 'MES.Z25')
                 for contract in data['contracts']:
                     contract_id = contract.get('id', '')
                     contract_name = contract.get('name', '')
                     logging.info(f"  Found: {contract_name} ({contract_id})")
-                    
-                    if (f".{target}." in contract_id or contract_id.endswith(f".{target}")):
+
+                    # Match contract IDs like "CON.F.US.MES.Z25" that end with ".MES.Z25"
+                    if contract_id.endswith(f".{target}"):
                         self.contract_id = contract_id
                         logging.info(f"✅ Selected Contract ID: {self.contract_id}")
                         return self.contract_id
@@ -1261,7 +1264,7 @@ def run_bot():
                 time.sleep(60)
                 continue
 
-            current_time = datetime.datetime.now(pytz.utc)
+            current_time = datetime.datetime.now(dt_timezone.utc)
             news_blocked, news_reason = news_filter.should_block_trade(current_time)
             if news_blocked:
                 logging.info(f"🚫 NEWS WAIT: {news_reason}")

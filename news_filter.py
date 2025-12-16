@@ -1,7 +1,8 @@
 import datetime
 import logging
+from datetime import timezone as dt_timezone
 
-import pytz
+from zoneinfo import ZoneInfo
 
 
 class NewsFilter:
@@ -10,7 +11,7 @@ class NewsFilter:
     """
 
     def __init__(self):
-        self.et = pytz.timezone("America/New_York")
+        self.et = ZoneInfo("America/New_York")
         # Daily Recurrent Blackouts (Hour, Minute, Duration_Minutes)
         # Example: CME Close/Reopen (16:55 - 18:05 ET)
         self.daily_blackouts = [
@@ -25,7 +26,7 @@ class NewsFilter:
     def should_block_trade(self, current_time: datetime.datetime) -> tuple[bool, str]:
         # Ensure time is ET
         if current_time.tzinfo is None:
-            current_time = pytz.utc.localize(current_time).astimezone(self.et)
+            current_time = current_time.replace(tzinfo=dt_timezone.utc).astimezone(self.et)
         else:
             current_time = current_time.astimezone(self.et)
 

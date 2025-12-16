@@ -2,7 +2,8 @@ import datetime
 import logging
 from typing import Optional, Tuple
 
-import pytz
+from zoneinfo import ZoneInfo
+from datetime import timezone as dt_timezone
 
 from event_logger import event_logger
 
@@ -383,7 +384,7 @@ class RejectionFilter:
         """Backfill filter state from historical DataFrame (legacy method)."""
         logging.info("Backfilling rejection filter from historical data...")
         for _, row in df.iterrows():
-            ts = row['timestamp'].tz_localize(pytz.UTC).tz_convert(tz)
+            ts = row['timestamp'].tz_localize(dt_timezone.utc).tz_convert(tz)
             self.update(ts, row['high'], row['low'], row['close'])
 
         logging.info(f"✅ Backfill Complete.")

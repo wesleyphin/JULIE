@@ -3,7 +3,7 @@ import logging
 from typing import Dict, Optional
 
 import pandas as pd
-import pytz
+from zoneinfo import ZoneInfo
 
 from dynamic_sltp_params import dynamic_sltp_engine
 from strategy_base import Strategy
@@ -11,7 +11,7 @@ from strategy_base import Strategy
 
 class ConfluenceStrategy(Strategy):
     def __init__(self):
-        self.et = pytz.timezone('US/Eastern')
+        self.et = ZoneInfo('America/New_York')
         # Session tracking
         self.current_session = None
         self.prev_session_high = None
