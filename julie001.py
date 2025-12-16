@@ -9,7 +9,7 @@ from datetime import timezone as dt_timezone
 import uuid
 from typing import Dict, Optional, List, Tuple
 
-from config import CONFIG, refresh_target_symbol
+from config import CONFIG, refresh_target_symbol, determine_current_contract_symbol
 from dynamic_sltp_params import dynamic_sltp_engine, get_sltp
 from volatility_filter import volatility_filter, check_volatility, VolRegime
 from regime_strategy import RegimeAdaptiveStrategy
@@ -24,6 +24,7 @@ from memory_sr_filter import MemorySRFilter
 from orb_strategy import OrbStrategy
 from intraday_dip_strategy import IntradayDipStrategy
 from confluence_strategy import ConfluenceStrategy
+from smt_strategy import SMTStrategy
 from dynamic_chop import DynamicChopAnalyzer
 from ict_model_strategy import ICTModelStrategy
 from ml_physics_strategy import MLPhysicsStrategy
@@ -165,13 +166,17 @@ class ProjectXClient:
         - /api/History/retrieveBars: 50 requests / 30 seconds
         - All other endpoints: 200 requests / 60 seconds
     """
-    def __init__(self):
+    def __init__(self, contract_root: Optional[str] = None, target_symbol: Optional[str] = None):
         self.session = requests.Session()
         self.token = None
         self.token_expiry = None
         self.base_url = CONFIG['REST_BASE_URL']
         self.et = ZoneInfo('America/New_York')
-        
+
+        # Contract configuration (allows per-instance override)
+        self.contract_root = contract_root or CONFIG.get('CONTRACT_ROOT', 'MES')
+        self.target_symbol = target_symbol or CONFIG.get('TARGET_SYMBOL')
+
         # Account and contract info (fetched after login)
         self.account_id = CONFIG.get('ACCOUNT_ID')
         self.contract_id = CONFIG.get('CONTRACT_ID')
@@ -345,7 +350,7 @@ class ProjectXClient:
         # Search using the root symbol (e.g., "MES") to find all contracts
         payload = {
             "live": False,  # Set to False to find Topstep tradable contracts
-            "searchText": CONFIG.get('CONTRACT_ROOT', 'MES')
+            "searchText": self.contract_root
         }
 
         try:
@@ -357,7 +362,7 @@ class ProjectXClient:
 
             if 'contracts' in data and len(data['contracts']) > 0:
                 # TARGET_SYMBOL is short form like "MES.Z25" for matching
-                target = CONFIG.get('TARGET_SYMBOL', 'MES.Z25')
+                target = self.target_symbol or determine_current_contract_symbol(self.contract_root)
                 for contract in data['contracts']:
                     contract_id = contract.get('id', '')
                     contract_name = contract.get('name', '')
@@ -1191,6 +1196,20 @@ def run_bot():
     print(f"   Account ID: {client.account_id}")
     print(f"   Contract ID: {client.contract_id}")
 
+    # Secondary client for MNQ data (SMT divergence inputs)
+    mnq_target_symbol = determine_current_contract_symbol(
+        "MNQ", tz_name=CONFIG.get("TIMEZONE", "US/Eastern")
+    )
+    mnq_client = ProjectXClient(contract_root="MNQ", target_symbol=mnq_target_symbol)
+
+    try:
+        mnq_client.login()
+        mnq_client.account_id = client.account_id or mnq_client.fetch_accounts()
+        mnq_client.fetch_contracts()
+    except Exception as e:
+        logging.error(f"❌ Failed to initialize MNQ data client: {e}")
+        return
+
     # Initialize all strategies
 
     # Dynamic chop analyzer (tiered thresholds with LTF breakout override)
@@ -1207,10 +1226,12 @@ def run_bot():
     # STANDARD PRIORITY - Normal execution
     ml_strategy = MLPhysicsStrategy()
     dynamic_engine_strat = DynamicEngineStrategy()
+    smt_strategy = SMTStrategy(mnq_client)
 
     standard_strategies = [
         ConfluenceStrategy(),
         dynamic_engine_strat,
+        smt_strategy,
     ]
     
     # Only add ML strategy if at least one model loaded successfully
