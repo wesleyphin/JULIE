@@ -332,7 +332,11 @@ class DynamicSignalEngine:
     def check_signal(self, current_time: datetime, df_5m, df_15m) -> Optional[Dict]:
         """
         Check for trading signals based on hardcoded strategies.
-        Includes NEW Tie-Breaker Logic using recent price location.
+
+        NEW TIE-BREAKER HIERARCHY:
+        1. Direction Count (Most signals wins)
+        2. Price Location (Longs prefer Lows, Shorts prefer Highs)
+        3. Win Rate (Best historic performance wins)
         """
         # Convert current time to ET if needed
         if current_time.tzinfo is None:
@@ -342,24 +346,17 @@ class DynamicSignalEngine:
 
         # Get current session
         session = self.get_session_from_time(current_time)
-
         logging.debug(f"🔍 Signal Check: Session={session}")
 
         # Filter strategies for current session
         matching_strategies = [s for s in self.strategies if s['Session'] == session]
-
         if not matching_strategies:
-            logging.debug(f"⚪ No strategies for session {session}")
             return None
 
-        logging.debug(f"📋 Checking {len(matching_strategies)} strategies for session {session}")
-
-        # Check both timeframes
-        triggered_signals = []
-
-        # --- NEW: Location Context (Percent Rank) ---
-        # Calculate where we are relative to the last 20 bars (approx 1.5 hours on 5m)
-        price_location = 0.5  # Default middle
+        # --- 1. CALCULATE PRICE LOCATION (0.0 to 1.0) ---
+        # 0.0 = At Recent Low (Favors Longs)
+        # 1.0 = At Recent High (Favors Shorts)
+        price_location = 0.5  # Default neutral
         try:
             if df_5m is not None and len(df_5m) > 20:
                 last_20 = df_5m.iloc[-20:]
@@ -369,127 +366,101 @@ class DynamicSignalEngine:
 
                 if recent_high > recent_low:
                     price_location = (current_close - recent_low) / (recent_high - recent_low)
+                    price_location = max(0.0, min(1.0, price_location)) # Clamp
         except Exception as e:
             logging.error(f"Error calculating price location: {e}")
+
+        # --- 2. COLLECT TRIGGERS ---
+        triggered_signals = []
 
         for timeframe_str, df in [('5min', df_5m), ('15min', df_15m)]:
             if df is None or len(df) < 2:
                 continue
 
-            # Get previous candle (fully closed)
             prev_candle = df.iloc[-2]
-
-            # Ensure we have required columns (case-insensitive)
             col_map = {col.lower(): col for col in df.columns}
             open_col = col_map.get('open')
             close_col = col_map.get('close')
 
             if not open_col or not close_col:
-                logging.warning(f"⚠️ Missing OHLC columns in {timeframe_str} dataframe")
                 continue
 
             prev_open = float(prev_candle[open_col])
             prev_close = float(prev_candle[close_col])
             body = self._calculate_body(prev_open, prev_close)
             abs_body = abs(body)
-
             is_green = self._is_green_candle(prev_open, prev_close)
             is_red = self._is_red_candle(prev_open, prev_close)
 
-            # Filter for current timeframe
             tf_strategies = [s for s in matching_strategies if s['TF'] == timeframe_str]
 
             for strategy in tf_strategies:
                 strategy_type = strategy['Type']
                 thresh = float(strategy['Thresh'])
-
                 signal = None
 
-                # Check strategy logic
-                if strategy_type == 'Long_Rev':
-                    # LONG if prev candle RED and abs(body) > threshold
-                    if is_red and abs_body > thresh:
-                        signal = 'LONG'
-
-                elif strategy_type == 'Short_Rev':
-                    # SHORT if prev candle GREEN and abs(body) > threshold
-                    if is_green and abs_body > thresh:
-                        signal = 'SHORT'
-
-                elif strategy_type == 'Long_Mom':
-                    # LONG if prev candle GREEN and abs(body) > threshold
-                    if is_green and abs_body > thresh:
-                        signal = 'LONG'
-
-                elif strategy_type == 'Short_Mom':
-                    # SHORT if prev candle RED and abs(body) > threshold
-                    if is_red and abs_body > thresh:
-                        signal = 'SHORT'
+                if strategy_type == 'Long_Rev' and is_red and abs_body > thresh:
+                    signal = 'LONG'
+                elif strategy_type == 'Short_Rev' and is_green and abs_body > thresh:
+                    signal = 'SHORT'
+                elif strategy_type == 'Long_Mom' and is_green and abs_body > thresh:
+                    signal = 'LONG'
+                elif strategy_type == 'Short_Mom' and is_red and abs_body > thresh:
+                    signal = 'SHORT'
 
                 if signal:
-                    # Enforce minimum SL of 4 ticks (broker requirement)
                     sl_value = max(4.0, float(strategy['Best_SL']))
-
-                    # --- NEW: LOGIC SCORE CALCULATION ---
-                    # Start with Win Rate
-                    logic_score = float(strategy['Opt_WR'])
-
-                    # Adjust based on Location
-                    # If Price is High (>0.8) -> Boost Shorts, Penalize Longs
-                    if price_location > 0.8:
-                        if signal == 'SHORT':
-                            logic_score *= 1.5
-                        if signal == 'LONG':
-                            logic_score *= 0.5
-                    # If Price is Low (<0.2) -> Boost Longs, Penalize Shorts
-                    elif price_location < 0.2:
-                        if signal == 'LONG':
-                            logic_score *= 1.5
-                        if signal == 'SHORT':
-                            logic_score *= 0.5
-
-                    signal_data = {
+                    triggered_signals.append({
                         'signal': signal,
                         'sl': sl_value,
                         'tp': float(strategy['Best_TP']),
                         'opt_wr': float(strategy['Opt_WR']),
-                        'logic_score': logic_score,  # New field for sorting
                         'timeframe': timeframe_str,
                         'strategy_type': strategy_type,
                         'thresh': thresh,
                         'body': abs_body,
-                        'year': int(strategy['Year']),
-                        'qtr': int(strategy['Qtr']),
-                        'strategy_id': (
-                            f"{timeframe_str}_{session}_{strategy_type}_T{int(thresh)}_"
-                            f"Y{int(strategy['Year'])}Q{int(strategy['Qtr'])}"
-                        )
-                    }
-                    triggered_signals.append(signal_data)
+                        'strategy_id': f"{timeframe_str}_{session}_{strategy_type}_T{int(thresh)}_Y{int(strategy['Year'])}Q{int(strategy['Qtr'])}"
+                    })
+                    logging.info(f"✅ TRIGGER: {strategy_type} on {timeframe_str} | Body={abs_body:.2f} > Thresh={thresh:.2f}")
 
-                    logging.info(
-                        f"✅ TRIGGER: {strategy_type} on {timeframe_str} | "
-                        f"Body={abs_body:.2f} > Thresh={thresh:.2f} | "
-                        f"Loc={price_location:.2f} | Score={logic_score:.3f}"
-                    )
-
-        # Tie-breaking: pick highest Logic Score (was WR)
         if not triggered_signals:
-            logging.debug(f"⚪ No triggers for session {session}")
             return None
 
-        if len(triggered_signals) > 1:
-            # Sort by logic_score descending
-            triggered_signals.sort(key=lambda x: x['logic_score'], reverse=True)
-            logging.info(
-                f"🎯 TIE-BREAK: {len(triggered_signals)} signals detected, "
-                f"selecting highest Logic Score (Location Adjusted)"
-            )
-            logging.info(f"   Winner: {triggered_signals[0]['strategy_id']} (Score: {triggered_signals[0]['logic_score']:.3f})")
-            for i, sig in enumerate(triggered_signals[1:], 1):
-                logging.info(f"   #{i+1}: {sig['strategy_id']} (Score: {sig['logic_score']:.3f})")
+        # --- 3. APPLY HIERARCHICAL SCORING ---
+        long_count = sum(1 for s in triggered_signals if s['signal'] == 'LONG')
+        short_count = sum(1 for s in triggered_signals if s['signal'] == 'SHORT')
+
+        for sig in triggered_signals:
+            # Priority 1: Signal Count (Magnitude 10.0)
+            # If 5 Longs vs 1 Short -> Long gets 50 pts, Short gets 10 pts.
+            count_score = long_count if sig['signal'] == 'LONG' else short_count
+
+            # Priority 2: Price Location (Magnitude 2.0)
+            # Longs want Low price (1 - loc). Shorts want High price (loc).
+            # Max score 2.0, enough to break ties in count, but not overcome count difference.
+            if sig['signal'] == 'LONG':
+                loc_score = 1.0 - price_location
+            else:
+                loc_score = price_location
+
+            # Priority 3: Win Rate (Magnitude 1.0)
+            # Standard decimal WR (e.g., 0.35) adds final tie-break.
+            wr_score = sig['opt_wr']
+
+            # Final Formula
+            sig['final_score'] = (count_score * 10.0) + (loc_score * 2.0) + wr_score
+            sig['debug_info'] = f"Count:{count_score} Loc:{loc_score:.2f} WR:{wr_score:.3f}"
+
+        # Sort by Final Score Descending
+        triggered_signals.sort(key=lambda x: x['final_score'], reverse=True)
 
         best_signal = triggered_signals[0]
+
+        logging.info(f"🎯 TIE-BREAK: {len(triggered_signals)} signals. Counts: LONG={long_count}, SHORT={short_count}")
+        logging.info(f"   Price Location: {price_location:.2f} (0=Low, 1=High)")
+        logging.info(f"   Winner: {best_signal['strategy_id']} (Score: {best_signal['final_score']:.3f} | {best_signal['debug_info']})")
+        if len(triggered_signals) > 1:
+            logging.info(f"   Runner-up: {triggered_signals[1]['strategy_id']} (Score: {triggered_signals[1]['final_score']:.3f})")
 
         logging.info("=" * 70)
         logging.info(f"🚀 FINAL SIGNAL SELECTED")
@@ -498,7 +469,6 @@ class DynamicSignalEngine:
         logging.info(f"   Strategy: {best_signal['strategy_type']}")
         logging.info(f"   Stop Loss: {best_signal['sl']:.1f} points")
         logging.info(f"   Take Profit: {best_signal['tp']:.1f} points")
-        logging.info(f"   Trigger: Body {best_signal['body']:.2f} > Thresh {best_signal['thresh']:.2f}")
         logging.info(f"   ID: {best_signal['strategy_id']}")
         logging.info("=" * 70)
 
