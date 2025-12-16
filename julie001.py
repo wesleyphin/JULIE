@@ -1782,7 +1782,15 @@ def run_bot():
                             # Trend Filter
                             trend_blocked = trend_blocked_ctx
                             trend_reason = trend_reason_ctx
-                            if trend_blocked:
+
+                            # === FIX: Bypass Trend Filter if we are Fading the Range ===
+                            # If Chop Analyzer says "Long Only" (Bottom of Range), we ignore "Bearish Trend" warnings.
+                            is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
+
+                            if is_range_fade and trend_blocked:
+                                logging.info(f"🔓 BYPASSING TREND FILTER: Range Fade {signal['side']} play at structure extreme")
+                                event_logger.log_filter_check("TrendFilter", signal['side'], True, "Bypassed (Range Fade)")
+                            elif trend_blocked:
                                 event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason)
                                 continue
                             else:
@@ -1978,7 +1986,15 @@ def run_bot():
                             # Trend Filter
                             trend_blocked = trend_blocked_ctx
                             trend_reason = trend_reason_ctx
-                            if trend_blocked:
+
+                            # === FIX: Bypass Trend Filter if we are Fading the Range ===
+                            # If Chop Analyzer says "Long Only" (Bottom of Range), we ignore "Bearish Trend" warnings.
+                            is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
+
+                            if is_range_fade and trend_blocked:
+                                logging.info(f"🔓 BYPASSING TREND FILTER: Range Fade {signal['side']} play at structure extreme")
+                                event_logger.log_filter_check("TrendFilter", signal['side'], True, "Bypassed (Range Fade)")
+                            elif trend_blocked:
                                 event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason)
                                 continue
                             else:
@@ -2152,9 +2168,18 @@ def run_bot():
                                 else:
                                     event_logger.log_filter_check("ExtensionFilter", sig['side'], True)
 
+                                # Trend Filter
                                 trend_blocked = trend_blocked_ctx
                                 trend_reason = trend_reason_ctx
-                                if trend_blocked:
+
+                                # === FIX: Bypass Trend Filter if we are Fading the Range ===
+                                # If Chop Analyzer says "Long Only" (Bottom of Range), we ignore "Bearish Trend" warnings.
+                                is_range_fade = (allowed_chop_side is not None and sig['side'] == allowed_chop_side)
+
+                                if is_range_fade and trend_blocked:
+                                    logging.info(f"🔓 BYPASSING TREND FILTER: Range Fade {sig['side']} play at structure extreme")
+                                    event_logger.log_filter_check("TrendFilter", sig['side'], True, "Bypassed (Range Fade)")
+                                elif trend_blocked:
                                     event_logger.log_filter_check("TrendFilter", sig['side'], False, trend_reason)
                                     del pending_loose_signals[s_name]; continue
                                 else:
@@ -2308,9 +2333,18 @@ def run_bot():
                                         else:
                                             event_logger.log_filter_check("ExtensionFilter", signal['side'], True)
 
+                                        # Trend Filter
                                         trend_blocked = trend_blocked_ctx
                                         trend_reason = trend_reason_ctx
-                                        if trend_blocked:
+
+                                        # === FIX: Bypass Trend Filter if we are Fading the Range ===
+                                        # If Chop Analyzer says "Long Only" (Bottom of Range), we ignore "Bearish Trend" warnings.
+                                        is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
+
+                                        if is_range_fade and trend_blocked:
+                                            logging.info(f"🔓 BYPASSING TREND FILTER: Range Fade {signal['side']} play at structure extreme")
+                                            event_logger.log_filter_check("TrendFilter", signal['side'], True, "Bypassed (Range Fade)")
+                                        elif trend_blocked:
                                             event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason)
                                             continue
                                         else:
