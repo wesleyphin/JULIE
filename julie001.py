@@ -1709,12 +1709,22 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("ImpulseFilter", signal['side'], True)
 
-                            # HTF FVG (Memory Based) - UPDATED
+                            # HTF FVG (Memory Based) - CONTEXT AWARE
                             # Pass the strategy's target profit so we know how much room we need
                             tp_dist = signal.get('tp_dist', 15.0)
+
+                            # === FIX: Relax FVG check if we are trading WITH the Range Fade ===
+                            # If Chop says "Long Only" and we are going Long, we expect to break resistance.
+                            # We reduce the effective TP distance passed to the filter, making it less strict.
+                            effective_tp_dist = tp_dist
+                            if allowed_chop_side is not None and signal['side'] == allowed_chop_side:
+                                effective_tp_dist = tp_dist * 0.5  # Require 50% less room
+                                logging.info(f"🔓 RELAXING FVG CHECK: Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
+
                             fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
-                                signal['side'], current_price, None, None, tp_dist=tp_dist
+                                signal['side'], current_price, None, None, tp_dist=effective_tp_dist
                             )
+
                             if fvg_blocked:
                                 logging.info(f"🚫 BLOCKED (HTF FVG): {fvg_reason}")
                                 event_logger.log_filter_check("HTF_FVG", signal['side'], False, fvg_reason)
@@ -1903,12 +1913,22 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("ImpulseFilter", signal['side'], True)
 
-                            # HTF FVG (Memory Based) - UPDATED
+                            # HTF FVG (Memory Based) - CONTEXT AWARE
                             # Pass the strategy's target profit so we know how much room we need
                             tp_dist = signal.get('tp_dist', 15.0)
+
+                            # === FIX: Relax FVG check if we are trading WITH the Range Fade ===
+                            # If Chop says "Long Only" and we are going Long, we expect to break resistance.
+                            # We reduce the effective TP distance passed to the filter, making it less strict.
+                            effective_tp_dist = tp_dist
+                            if allowed_chop_side is not None and signal['side'] == allowed_chop_side:
+                                effective_tp_dist = tp_dist * 0.5  # Require 50% less room
+                                logging.info(f"🔓 RELAXING FVG CHECK: Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
+
                             fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
-                                signal['side'], current_price, None, None, tp_dist=tp_dist
+                                signal['side'], current_price, None, None, tp_dist=effective_tp_dist
                             )
+
                             if fvg_blocked:
                                 logging.info(f"🚫 BLOCKED (HTF FVG): {fvg_reason}")
                                 event_logger.log_filter_check("HTF_FVG", signal['side'], False, fvg_reason)
@@ -2066,8 +2086,22 @@ def run_bot():
                                 else:
                                     event_logger.log_filter_check("ImpulseFilter", sig['side'], True)
 
-                                # HTF FVG
-                                fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(sig['side'], current_price, None, None)
+                                # HTF FVG (Memory Based) - CONTEXT AWARE
+                                # Pass the strategy's target profit so we know how much room we need
+                                tp_dist = sig.get('tp_dist', 15.0)
+
+                                # === FIX: Relax FVG check if we are trading WITH the Range Fade ===
+                                # If Chop says "Long Only" and we are going Long, we expect to break resistance.
+                                # We reduce the effective TP distance passed to the filter, making it less strict.
+                                effective_tp_dist = tp_dist
+                                if allowed_chop_side is not None and sig['side'] == allowed_chop_side:
+                                    effective_tp_dist = tp_dist * 0.5  # Require 50% less room
+                                    logging.info(f"🔓 RELAXING FVG CHECK: Fading Range {sig['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
+
+                                fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
+                                    sig['side'], current_price, None, None, tp_dist=effective_tp_dist
+                                )
+
                                 if fvg_blocked:
                                     logging.info(f"🚫 BLOCKED (HTF FVG): {fvg_reason}")
                                     event_logger.log_filter_check("HTF_FVG", sig['side'], False, fvg_reason)
