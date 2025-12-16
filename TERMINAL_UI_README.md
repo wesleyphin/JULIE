@@ -42,7 +42,7 @@ The JULIE Terminal UI is a **standalone monitoring application** that provides a
 - **Current Price**: Live MES futures price updates
 - **Market Bias**: Current directional bias (LONG/SHORT/NEUTRAL)
 - **Volatility Regime**: Market volatility state
-- **Symbol Info**: Contract being traded (e.g., MESZ25)
+- **Symbol Info**: Contract being traded (e.g., CON.F.US.MES.Z25)
 - **Account Info**: Account ID and daily P&L tracking
 
 ### 🛡️ **Filter Status Dashboard**

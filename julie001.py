@@ -19,6 +19,7 @@ from extension_filter import ExtensionFilter
 from trend_filter import TrendFilter
 from dynamic_structure_blocker import DynamicStructureBlocker
 from bank_level_quarter_filter import BankLevelQuarterFilter
+from memory_sr_filter import MemorySRFilter
 from orb_strategy import OrbStrategy
 from intraday_dip_strategy import IntradayDipStrategy
 from confluence_strategy import ConfluenceStrategy
@@ -317,7 +318,7 @@ class ProjectXClient:
         # We explicitly search for "MES" to ensure we get the right list
         payload = {
             "live": False,  # Set to False to find Topstep tradable contracts
-            "searchText": CONFIG.get('TARGET_SYMBOL', 'MESZ25')
+            "searchText": CONFIG.get('TARGET_SYMBOL', 'CON.F.US.MES.Z25')
         }
 
         try:
@@ -328,7 +329,7 @@ class ProjectXClient:
             data = resp.json()
 
             if 'contracts' in data and len(data['contracts']) > 0:
-                target = CONFIG.get('TARGET_SYMBOL', 'MESZ25')
+                target = CONFIG.get('TARGET_SYMBOL', 'CON.F.US.MES.Z25')
                 for contract in data['contracts']:
                     contract_id = contract.get('id', '')
                     contract_name = contract.get('name', '')
@@ -1207,6 +1208,7 @@ def run_bot():
     trend_filter = TrendFilter()
     htf_fvg_filter = HTFFVGFilter() # Now uses Memory-Based Class
     structure_blocker = DynamicStructureBlocker(lookback=20)
+    memory_sr = MemorySRFilter(lookback_bars=300, zone_width=2.0, touch_threshold=2)
     news_filter = NewsFilter()
     circuit_breaker = CircuitBreaker(max_daily_loss=600, max_consecutive_losses=7)
     directional_loss_blocker = DirectionalLossBlocker(consecutive_loss_limit=3, block_minutes=15)
@@ -1390,6 +1392,7 @@ def run_bot():
             chop_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             extension_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             structure_blocker.update(new_df)
+            memory_sr.update(new_df)
             directional_loss_blocker.update_quarter(current_time)
 
 
@@ -1427,6 +1430,7 @@ def run_bot():
                 chop_filter.update(curr_bar['high'], curr_bar['low'], curr_bar['close'], current_time)
                 extension_filter.update(curr_bar['high'], curr_bar['low'], curr_bar['close'], current_time)
                 structure_blocker.update(new_df)
+                memory_sr.update(new_df)
                 directional_loss_blocker.update_quarter(current_time)
 
                 # === EARLY EXIT CHECK ===
@@ -1550,6 +1554,14 @@ def run_bot():
                                 continue
                             else:
                                 event_logger.log_filter_check("StructureBlocker", signal['side'], True)
+
+                            mem_blocked, mem_reason = memory_sr.should_block_trade(signal['side'], current_price)
+                            if mem_blocked:
+                                logging.info(f"🚫 {mem_reason}")
+                                event_logger.log_filter_check("MemorySR", signal['side'], False, mem_reason)
+                                continue
+                            else:
+                                event_logger.log_filter_check("MemorySR", signal['side'], True)
 
                             # Chop
                             daily_bias = rejection_filter.prev_day_pm_bias
@@ -1825,6 +1837,13 @@ def run_bot():
                                     del pending_loose_signals[s_name]; continue
                                 else:
                                     event_logger.log_filter_check("StructureBlocker", sig['side'], True)
+                                mem_blocked, mem_reason = memory_sr.should_block_trade(sig['side'], current_price)
+                                if mem_blocked:
+                                    logging.info(f"🚫 {mem_reason}")
+                                    event_logger.log_filter_check("MemorySR", sig['side'], False, mem_reason)
+                                    del pending_loose_signals[s_name]; continue
+                                else:
+                                    event_logger.log_filter_check("MemorySR", sig['side'], True)
                                 # =====================================
 
                                 chop_blocked, chop_reason = chop_filter.should_block_trade(sig['side'], rejection_filter.prev_day_pm_bias)
@@ -1942,6 +1961,12 @@ def run_bot():
                                             continue
                                         else:
                                             event_logger.log_filter_check("StructureBlocker", signal['side'], True)
+                                        mem_blocked, mem_reason = memory_sr.should_block_trade(signal['side'], current_price)
+                                        if mem_blocked:
+                                            event_logger.log_filter_check("MemorySR", signal['side'], False, mem_reason)
+                                            continue
+                                        else:
+                                            event_logger.log_filter_check("MemorySR", signal['side'], True)
                                         # =====================================
 
                                         chop_blocked, chop_reason = chop_filter.should_block_trade(signal['side'], rejection_filter.prev_day_pm_bias)

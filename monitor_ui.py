@@ -216,7 +216,7 @@ class APIMonitor:
         url = f"{self.base_url}/api/Contract/search"
         payload = {
             "live": False,
-            "searchText": CONFIG.get('TARGET_SYMBOL', 'MESZ25')
+            "searchText": CONFIG.get('TARGET_SYMBOL', 'CON.F.US.MES.Z25')
         }
 
         try:
@@ -225,7 +225,7 @@ class APIMonitor:
             data = resp.json()
 
             if 'contracts' in data and len(data['contracts']) > 0:
-                target = CONFIG.get('TARGET_SYMBOL', 'MESZ25')
+                target = CONFIG.get('TARGET_SYMBOL', 'CON.F.US.MES.Z25')
                 for contract in data['contracts']:
                     contract_id = contract.get('id', '')
                     if f".{target}." in contract_id or contract_id.endswith(f".{target}"):

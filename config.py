@@ -14,7 +14,7 @@ CONFIG = {
     # --- ACCOUNT/CONTRACT (will be fetched dynamically) ---
     "ACCOUNT_ID": None,  # Fetched via /Account/search
     "CONTRACT_ID": None,  # Fetched via /Contract/available (e.g., "CON.F.US.MES.H25")
-    "CONTRACT_ROOT": "MES",  # Symbol root used to determine current MES contract (e.g., MESZ25)
+    "CONTRACT_ROOT": "MES",  # Symbol root used to determine current MES contract (e.g., CON.F.US.MES.Z25)
     "TARGET_SYMBOL": None,  # Determined dynamically from date and CONTRACT_ROOT
 
     # --- API ENDPOINTS (ProjectX Gateway LIVE) ---
@@ -156,7 +156,7 @@ def determine_current_contract_symbol(
     tz_name: str = "US/Eastern",
     today: Optional[datetime.date] = None,
 ) -> str:
-    """Return the MES contract symbol for the current date (e.g., MESZ25)."""
+    """Return the MES contract symbol for the current date (e.g., CON.F.US.MES.Z25)."""
 
     tz = pytz.timezone(tz_name)
     current_date = today or datetime.datetime.now(tz).date()
@@ -166,7 +166,7 @@ def determine_current_contract_symbol(
         raise ValueError(f"Unsupported month for contract mapping: {current_date.month}")
 
     year_code = str(current_date.year % 100).zfill(2)
-    return f"{root}{month_code}{year_code}"
+    return f"CON.F.US.{root}.{month_code}{year_code}"
 
 
 def refresh_target_symbol():
