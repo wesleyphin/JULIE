@@ -1,3 +1,7 @@
+import warnings
+# Suppress pytz pkg_resources deprecation warning (triggered by pandas dependency)
+warnings.filterwarnings("ignore", message="pkg_resources is deprecated", category=UserWarning)
+
 import requests
 import pandas as pd
 import numpy as np
@@ -1285,7 +1289,10 @@ def run_bot():
     # Token refresh
     last_token_check = time.time()
     TOKEN_CHECK_INTERVAL = 3600
-    
+
+    # Chop state tracking (only log when state changes)
+    last_chop_reason = None
+
     # === STEP 1: INITIAL DATA LOAD (MAX HISTORY) ===
     logging.info("⏳ Startup: Fetching full 20,000 bar history (MES)...")
     # Fetch the maximum allowed history ONCE before the loop starts
@@ -1396,19 +1403,30 @@ def run_bot():
             # Initialize Directional Restrictions
             allowed_chop_side = None  # None means ALL allowed (unless blocked)
 
-            # Parse the new "Fade" reasons
+            # Parse the new "Fade" reasons (only log when state changes)
             if "ALLOW_LONG_ONLY" in chop_reason:
                 allowed_chop_side = "LONG"
-                logging.info(f"⚠️ CHOP RESTRICTION: {chop_reason}")
+                if chop_reason != last_chop_reason:
+                    logging.info(f"⚠️ CHOP RESTRICTION: {chop_reason}")
+                    last_chop_reason = chop_reason
 
             elif "ALLOW_SHORT_ONLY" in chop_reason:
                 allowed_chop_side = "SHORT"
-                logging.info(f"⚠️ CHOP RESTRICTION: {chop_reason}")
+                if chop_reason != last_chop_reason:
+                    logging.info(f"⚠️ CHOP RESTRICTION: {chop_reason}")
+                    last_chop_reason = chop_reason
 
             elif is_choppy:
-                logging.info(f"⛔ TRADE BLOCKED: {chop_reason}")
+                if chop_reason != last_chop_reason:
+                    logging.info(f"⛔ TRADE BLOCKED: {chop_reason}")
+                    last_chop_reason = chop_reason
                 time.sleep(2)
                 continue
+            else:
+                # Clear chop state if no restriction active
+                if last_chop_reason is not None:
+                    logging.info("✅ CHOP RESTRICTION CLEARED")
+                    last_chop_reason = None
 
             # Heartbeat
             current_price = new_df.iloc[-1]['close']
