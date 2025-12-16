@@ -14,7 +14,7 @@ import pandas as pd
 import numpy as np
 import logging
 from typing import Dict, Tuple
-import pytz
+from zoneinfo import ZoneInfo
 
 # ============================================================
 # HIERARCHICAL VOLATILITY THRESHOLDS (320 combinations)
@@ -377,7 +377,7 @@ class HierarchicalVolatilityFilter:
         self.low_vol_stop_mult = low_vol_stop_mult
         self.low_vol_size_mult = low_vol_size_mult
         self.std_window = std_window
-        self.et = pytz.timezone('US/Eastern')
+        self.et = ZoneInfo('America/New_York')
         
         # Cache
         self._last_std = None

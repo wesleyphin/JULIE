@@ -302,9 +302,9 @@ def get_strategy_stats() -> Dict:
 if __name__ == "__main__":
     # Test: Show current configuration
     from datetime import datetime
-    import pytz
-    
-    et = pytz.timezone('America/New_York')
+    from zoneinfo import ZoneInfo
+
+    et = ZoneInfo('America/New_York')
     now = datetime.now(et)
     
     combo = get_combo_key(now)

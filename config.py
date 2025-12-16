@@ -1,6 +1,6 @@
 import datetime
 from typing import Optional
-import pytz
+from zoneinfo import ZoneInfo
 
 
 # Core runtime configuration for the bot. This was pulled directly from the
@@ -156,9 +156,9 @@ def determine_current_contract_symbol(
     tz_name: str = "US/Eastern",
     today: Optional[datetime.date] = None,
 ) -> str:
-    """Return the MES contract symbol for the current date (e.g., CON.F.US.MES.Z25)."""
+    """Return the MES contract symbol for the current date (e.g., MESZ25)."""
 
-    tz = pytz.timezone(tz_name)
+    tz = ZoneInfo(tz_name.replace("US/Eastern", "America/New_York"))
     current_date = today or datetime.datetime.now(tz).date()
     month_code = CONTRACT_MONTH_CODES.get(current_date.month)
 
@@ -166,7 +166,9 @@ def determine_current_contract_symbol(
         raise ValueError(f"Unsupported month for contract mapping: {current_date.month}")
 
     year_code = str(current_date.year % 100).zfill(2)
-    return f"CON.F.US.{root}.{month_code}{year_code}"
+    # Return short identifier for matching (e.g., MES.Z25)
+    # Full contract ID format is CON.F.US.MES.Z25
+    return f"{root}.{month_code}{year_code}"
 
 
 def refresh_target_symbol():

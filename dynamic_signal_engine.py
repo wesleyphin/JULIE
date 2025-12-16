@@ -10,7 +10,7 @@ Date: December 2025
 import logging
 from typing import Optional, Dict
 from datetime import datetime
-import pytz
+from zoneinfo import ZoneInfo
 
 
 # ============================================================================
@@ -266,7 +266,7 @@ class DynamicSignalEngine:
 
     def __init__(self):
         """Initialize the signal engine."""
-        self.et_tz = pytz.timezone('US/Eastern')
+        self.et_tz = ZoneInfo('America/New_York')
         self.strategies = STRATEGY_DATABASE
 
     def _log_initialization(self):

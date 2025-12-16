@@ -2,11 +2,11 @@ import datetime
 import logging
 
 import joblib
-import pytz
+from zoneinfo import ZoneInfo
 
 from config import CONFIG
 
-NY_TZ = pytz.timezone('America/New_York')
+NY_TZ = ZoneInfo('America/New_York')
 
 
 class SessionManager:

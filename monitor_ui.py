@@ -6,7 +6,7 @@ Displays real-time signals, positions, and market data without modifying the mai
 
 import requests
 import time
-import pytz
+from zoneinfo import ZoneInfo
 import re
 from datetime import datetime
 from pathlib import Path
@@ -147,7 +147,7 @@ class APIMonitor:
         self.base_url = CONFIG['REST_BASE_URL']
         self.account_id = None
         self.contract_id = None
-        self.et = pytz.timezone('US/Eastern')
+        self.et = ZoneInfo('America/New_York')
 
     def login(self):
         """Authenticate with the API"""
@@ -406,7 +406,7 @@ def main():
                 price = api_monitor.fetch_market_data()
                 if price:
                     # Determine session
-                    current_time = datetime.now(pytz.timezone('US/Eastern'))
+                    current_time = datetime.now(ZoneInfo('America/New_York'))
                     session = get_current_session(current_time)
 
                     ui.update_market_context({

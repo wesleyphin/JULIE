@@ -10,7 +10,7 @@ Example key: "Q1_W2_FRI_NY_AM"
 Generated: 2025-12-10 11:04:38
 """
 
-import pytz
+from zoneinfo import ZoneInfo
 from typing import Dict
 import pandas as pd
 import numpy as np
@@ -2966,7 +2966,7 @@ class DynamicSLTPEngine:
     """
     
     def __init__(self):
-        self.et = pytz.timezone('US/Eastern')
+        self.et = ZoneInfo('America/New_York')
     
     @staticmethod
     def get_yearly_quarter(month: int) -> str:
