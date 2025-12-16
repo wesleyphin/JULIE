@@ -360,28 +360,33 @@ class ChopFilter:
     - NORMAL: Range > breakout_threshold, no directional bias
     """
     
-    def __init__(self, lookback: int = 20, swing_lookback: int = 5):
+    def __init__(self, lookback: int = 20, swing_lookback: int = 5,
+                 max_bars_in_chop: int = 20):
         self.lookback = lookback
         self.swing_lookback = swing_lookback  # Bars to confirm swing high/low
-        
+        self.max_bars_in_chop = max_bars_in_chop  # ~1 hour on 5m chart; disable fading after this
+
         # Price tracking
         self.highs = deque(maxlen=lookback)
         self.lows = deque(maxlen=lookback)
         self.closes = deque(maxlen=lookback)
-        
+
         # Chop range tracking
         self.chop_high = None
         self.chop_low = None
-        
+
         # Breakout level (the important level that was broken)
         self.breakout_level = None
         self.breakout_direction = None  # 'LONG' or 'SHORT'
-        
+
         # Swing tracking for structure validation
         self.swing_highs = []  # List of (price, bar_index) tuples
         self.swing_lows = []
         self.bar_count = 0
-        
+
+        # NEW: Time decay tracking - "The longer the base, the higher in space"
+        self.bars_in_chop = 0  # How many bars we've been consolidating
+
         # State
         self.state = 'NORMAL'
         self.current_threshold = None
@@ -614,18 +619,23 @@ class ChopFilter:
                 self.state = 'IN_CHOP'
                 self.chop_high = range_high
                 self.chop_low = range_low
-            
+                self.bars_in_chop = 1  # NEW: Start counting
+
             # 2. NEW LOGIC: Bunched Swings Check
             elif self._check_bunched_swings(chop_thresh):
                 self.state = 'IN_CHOP'
                 self.chop_high = range_high
                 self.chop_low = range_low
-                
+                self.bars_in_chop = 1  # NEW: Start counting
+
         elif self.state == 'IN_CHOP':
+            # NEW: Increment time-in-chop counter
+            self.bars_in_chop += 1
+
             # Update chop range
             self.chop_high = max(self.chop_high, range_high)
             self.chop_low = min(self.chop_low, range_low)
-            
+
             # Check for breakout
             if close > self.chop_high:
                 self.state = 'BREAKOUT_LONG'
@@ -633,17 +643,20 @@ class ChopFilter:
                 self.breakout_direction = 'LONG'
                 self.swing_highs.clear()  # Reset for fresh structure tracking
                 self.swing_lows.clear()
+                self.bars_in_chop = 0  # NEW: Reset counter on breakout
             elif close < self.chop_low:
                 self.state = 'BREAKOUT_SHORT'
                 self.breakout_level = self.chop_low
                 self.breakout_direction = 'SHORT'
                 self.swing_highs.clear()
                 self.swing_lows.clear()
+                self.bars_in_chop = 0  # NEW: Reset counter on breakout
             elif current_range > breakout_thresh:
                 # Range expanded without clear breakout
                 self.state = 'NORMAL'
                 self.chop_high = None
                 self.chop_low = None
+                self.bars_in_chop = 0  # NEW: Reset counter
                 
         elif self.state == 'BREAKOUT_LONG':
             structure = self._check_structure_for_long(close)
@@ -711,6 +724,13 @@ class ChopFilter:
             if current_price is None or self.chop_high is None or self.chop_low is None:
                 return True, "IN_CHOP: Market consolidating"
 
+            # NEW: Time Decay - "The longer the base, the higher in space"
+            # If consolidation has lasted too long, a breakout is more likely.
+            # DISABLE fading logic and block ALL trades (wait for breakout confirmation)
+            if self.bars_in_chop > self.max_bars_in_chop:
+                return True, (f"IN_CHOP (STALE): Consolidation lasted {self.bars_in_chop} bars "
+                              f"(>{self.max_bars_in_chop}). Fading disabled - wait for breakout")
+
             # Calculate range height
             chop_range = self.chop_high - self.chop_low
 
@@ -777,6 +797,8 @@ class ChopFilter:
             'threshold': self.current_threshold,
             'swing_highs': [s[0] for s in self.swing_highs[-3:]] if self.swing_highs else [],
             'swing_lows': [s[0] for s in self.swing_lows[-3:]] if self.swing_lows else [],
+            'bars_in_chop': self.bars_in_chop,  # NEW: Time decay tracking
+            'max_bars_in_chop': self.max_bars_in_chop,
         }
     
     def reset(self):
@@ -792,3 +814,4 @@ class ChopFilter:
         self.breakout_direction = None
         self.state = 'NORMAL'
         self.bar_count = 0
+        self.bars_in_chop = 0  # NEW: Reset time decay counter
