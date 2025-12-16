@@ -702,15 +702,23 @@ class ChopFilter:
         
         return self.state
     
-    def should_block_trade(self, direction: str, daily_bias: str = None, current_price: float = None) -> tuple:
+    def should_block_trade(
+        self,
+        direction: str,
+        daily_bias: str = None,
+        current_price: float = None,
+        trend_state: str = "NEUTRAL",
+        vol_regime: str = "normal",
+    ) -> tuple:
         """
         Check if trade should be blocked based on chop state.
 
         UPDATED LOGIC: "Fade the Range"
+        - Context-aware buy/sell zones that expand/contract with trend & volatility.
         - If IN_CHOP:
-          - ALLOW Longs if price is in the Bottom 25% of the range.
-          - ALLOW Shorts if price is in the Top 25% of the range.
-          - BLOCK everything in the middle 50% (No Man's Land).
+          - LONG zone starts at 25%, expands to 50% when strongly bullish, and widens in low vol.
+          - SHORT zone starts at 75%, drifts to 50% when strongly bearish, and widens in low vol.
+          - High vol tightens zones (accordion effect) to demand more extreme fades.
         """
         direction = direction.upper()
 
@@ -742,21 +750,46 @@ class ChopFilter:
             # We clip values > 1.0 or < 0.0 in case price is slightly piercing edges
             position_in_range = (current_price - self.chop_low) / chop_range
 
+            # --- DYNAMIC ZONES BASED ON TREND ---
+            long_zone_limit = 0.25
+            short_zone_limit = 0.75
+
+            trend_state = trend_state or "NEUTRAL"
+            vol_regime = vol_regime or "normal"
+            if "Strong Bullish" in trend_state:
+                long_zone_limit = 0.50
+            if "Strong Bearish" in trend_state:
+                short_zone_limit = 0.50
+
+            # --- VOLATILITY-SCALED ZONES (Accordion Effect) ---
+            if vol_regime in ("low", "ultra_low"):
+                long_zone_limit += 0.10
+                short_zone_limit -= 0.10
+            elif vol_regime == "high":
+                long_zone_limit -= 0.10
+                short_zone_limit += 0.10
+
+            # Clamp to sensible bounds
+            long_zone_limit = max(0.0, min(long_zone_limit, 1.0))
+            short_zone_limit = max(0.0, min(short_zone_limit, 1.0))
+
             # --- LONG LOGIC: Buy Support ---
             if direction == 'LONG':
                 # Allow buying only in the bottom 25% of the chop box
-                if position_in_range <= 0.25:
+                if position_in_range <= long_zone_limit:
                     return False, None  # ALLOW: Buying the bottom of the range
                 else:
-                    return True, f"IN_CHOP: Blocked Long at {position_in_range:.0%} of range (Buy Zone < 25%)"
+                    return True, ("IN_CHOP: Blocked Long at "
+                                  f"{position_in_range:.0%} of range (Buy Zone < {long_zone_limit:.0%})")
 
             # --- SHORT LOGIC: Sell Resistance ---
             if direction == 'SHORT':
                 # Allow selling only in the top 25% of the chop box
-                if position_in_range >= 0.75:
+                if position_in_range >= short_zone_limit:
                     return False, None  # ALLOW: Selling the top of the range
                 else:
-                    return True, f"IN_CHOP: Blocked Short at {position_in_range:.0%} of range (Sell Zone > 75%)"
+                    return True, ("IN_CHOP: Blocked Short at "
+                                  f"{position_in_range:.0%} of range (Sell Zone > {short_zone_limit:.0%})")
 
             return True, "IN_CHOP: Market consolidating"
 
@@ -773,12 +806,16 @@ class ChopFilter:
 
         # 3. Handle Failed Breakouts (Existing Logic)
         if self.state == 'FAILED_LONG':
+            if direction == 'SHORT':
+                return False, "OPPORTUNITY: Fading the Failed Long Breakout"
             if direction == 'LONG':
                 if daily_bias and daily_bias.upper() == 'LONG':
                     return True, "FAILED_LONG: LH after breakout, blocking continuation"
                 return True, "FAILED_LONG: Made LH after breakout"
 
         if self.state == 'FAILED_SHORT':
+            if direction == 'LONG':
+                return False, "OPPORTUNITY: Fading the Failed Short Breakout"
             if direction == 'SHORT':
                 if daily_bias and daily_bias.upper() == 'SHORT':
                     return True, "FAILED_SHORT: HL after breakout, blocking continuation"

@@ -1,13 +1,13 @@
 import logging
 import time
-from typing import Dict
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
 
 class DynamicChopAnalyzer:
-    """Analyze chop using dynamic thresholds with breakout propagation."""
+    """Analyze chop using dynamic thresholds with breakout and HTF fade logic."""
 
     def __init__(self, client):
         self.client = client
@@ -71,9 +71,11 @@ class DynamicChopAnalyzer:
         except Exception as e:  # pragma: no cover - defensive logging
             logging.error("[DynamicChop] Calibration Error: %s", e)
 
-    def check_market_state(self, df_1m_current: pd.DataFrame, df_60m_current: pd.DataFrame = None):
+    def check_market_state(
+        self, df_1m_current: pd.DataFrame, df_60m_current: Optional[pd.DataFrame] = None
+    ) -> Tuple[bool, str]:
         """
-        Determines if we are in chop and if a breakout is shifting timeframes.
+        Determines market state with HTF breakout and fade opportunities.
         Returns: (is_blocked, reason)
 
         Args:
@@ -103,6 +105,17 @@ class DynamicChopAnalyzer:
                     False,
                     f"🟢 HTF BREAKOUT: 1m Vol ({current_1m_vol:.2f}) approaching 60m Range ({current_60m_vol:.2f})",
                 )
+
+            # HTF Range Fade: allow directional trades at the range extremes
+            current_price = df_1m_current["close"].iloc[-1]
+            if current_60m_vol > 0:
+                position_in_range = (current_price - current_60m_low) / current_60m_vol
+
+                if position_in_range <= 0.15:
+                    return False, "ALLOW_LONG_ONLY: At Bottom of 60M Range (Fade Support)"
+
+                if position_in_range >= 0.85:
+                    return False, "ALLOW_SHORT_ONLY: At Top of 60M Range (Fade Resistance)"
 
         # --- STEP 3: CHECK BREAKOUT PROPAGATION (The "Shift") ---
         # If current 1M volatility > 60M Chop Threshold, the breakout is REAL.
