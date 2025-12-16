@@ -1719,7 +1719,7 @@ def run_bot():
                             effective_tp_dist = tp_dist
                             if allowed_chop_side is not None and signal['side'] == allowed_chop_side:
                                 effective_tp_dist = tp_dist * 0.5  # Require 50% less room
-                                logging.info(f"🔓 RELAXING FVG CHECK: Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
+                                logging.info(f"🔓 RELAXING FVG CHECK (Standard): Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
 
                             fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
                                 signal['side'], current_price, None, None, tp_dist=effective_tp_dist
@@ -1923,7 +1923,7 @@ def run_bot():
                             effective_tp_dist = tp_dist
                             if allowed_chop_side is not None and signal['side'] == allowed_chop_side:
                                 effective_tp_dist = tp_dist * 0.5  # Require 50% less room
-                                logging.info(f"🔓 RELAXING FVG CHECK: Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
+                                logging.info(f"🔓 RELAXING FVG CHECK (Standard): Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
 
                             fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
                                 signal['side'], current_price, None, None, tp_dist=effective_tp_dist
@@ -2096,7 +2096,7 @@ def run_bot():
                                 effective_tp_dist = tp_dist
                                 if allowed_chop_side is not None and sig['side'] == allowed_chop_side:
                                     effective_tp_dist = tp_dist * 0.5  # Require 50% less room
-                                    logging.info(f"🔓 RELAXING FVG CHECK: Fading Range {sig['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
+                                    logging.info(f"🔓 RELAXING FVG CHECK (Loose): Fading Range {sig['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
 
                                 fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
                                     sig['side'], current_price, None, None, tp_dist=effective_tp_dist
@@ -2251,7 +2251,16 @@ def run_bot():
                                         else:
                                             event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], True)
 
-                                        fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(signal['side'], current_price, None, None)
+                                        tp_dist = signal.get('tp_dist', 15.0)
+
+                                        effective_tp_dist = tp_dist
+                                        if allowed_chop_side is not None and signal['side'] == allowed_chop_side:
+                                            effective_tp_dist = tp_dist * 0.5
+                                            logging.info(f"🔓 RELAXING FVG CHECK (Loose): Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
+
+                                        fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
+                                            signal['side'], current_price, None, None, tp_dist=effective_tp_dist
+                                        )
                                         if fvg_blocked:
                                             event_logger.log_filter_check("HTF_FVG", signal['side'], False, fvg_reason)
                                             continue
