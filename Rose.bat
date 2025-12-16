@@ -22,7 +22,7 @@ call venv\Scripts\activate.bat
 echo.
 
 REM Step 3: Check if packages are installed
-python -c "import pandas, numpy, requests, pytz, joblib, sklearn, rich, colorama, click" 2>nul
+python -c "import pandas, numpy, requests, joblib, sklearn, rich, colorama, click" 2>nul
 if errorlevel 1 (
     echo [3] Upgrading pip...
     python -m pip install --upgrade pip
@@ -42,11 +42,7 @@ if errorlevel 1 (
     echo Installing requests...
     pip install requests
     echo.
-    
-    echo Installing pytz...
-    pip install pytz
-    echo.
-    
+
     echo Installing joblib...
     pip install joblib
     echo.

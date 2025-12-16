@@ -83,7 +83,7 @@ Live scrolling log of bot activity:
 
 1. **Python packages** (should already be installed with your bot):
    ```bash
-   pip install rich requests pandas pytz
+   pip install rich requests pandas
    ```
 
 2. **Configuration**: Your `config.py` must have valid credentials:
@@ -283,7 +283,7 @@ python monitor_ui.py
 - `rich` - Terminal UI framework with live updates
 - `requests` - HTTP client for TopstepX API
 - `pandas` - Data processing (inherited from bot)
-- `pytz` - Timezone handling (US/Eastern)
+- `zoneinfo` - Timezone handling (US/Eastern) - built into Python 3.9+
 
 ### Performance
 - CPU usage: ~1-3% (mostly from terminal rendering)
