@@ -1226,7 +1226,7 @@ def run_bot():
     # STANDARD PRIORITY - Normal execution
     ml_strategy = MLPhysicsStrategy()
     dynamic_engine_strat = DynamicEngineStrategy()
-    smt_strategy = SMTStrategy(mnq_client)
+    smt_strategy = SMTStrategy()
 
     standard_strategies = [
         ConfluenceStrategy(),
@@ -1268,7 +1268,7 @@ def run_bot():
     print("  [LOOSE EXECUTION]")
     for strat in loose_strategies: print(f"    • {strat.__class__.__name__}")
     
-    print("\nListening for market data (polling every 1 second)...")
+    print("\nListening for market data (polling every 2 seconds)...")
     
     # === TRACKING VARIABLES ===
     last_htf_fetch_time = 0
@@ -1287,13 +1287,20 @@ def run_bot():
     TOKEN_CHECK_INTERVAL = 3600
     
     # === STEP 1: INITIAL DATA LOAD (MAX HISTORY) ===
-    logging.info("⏳ Startup: Fetching full 20,000 bar history...")
+    logging.info("⏳ Startup: Fetching full 20,000 bar history (MES)...")
     # Fetch the maximum allowed history ONCE before the loop starts
     master_df = client.get_market_data(lookback_minutes=20000, force_fetch=True)
 
+    logging.info("⏳ Startup: Fetching full 20,000 bar history (MNQ)...")
+    master_mnq_df = mnq_client.get_market_data(lookback_minutes=20000, force_fetch=True)
+
     if master_df.empty:
-        logging.warning("⚠️ Startup fetch returned empty data. Bot will attempt to build history in loop.")
+        logging.warning("⚠️ Startup fetch returned empty data (MES). Bot will attempt to build history in loop.")
         master_df = pd.DataFrame()
+
+    if master_mnq_df.empty:
+        logging.warning("⚠️ Startup fetch returned empty data (MNQ). Bot will attempt to build history in loop.")
+        master_mnq_df = pd.DataFrame()
 
     # One-time backfill flag
     data_backfilled = False
@@ -1324,10 +1331,10 @@ def run_bot():
                 time.sleep(10)
                 continue
 
-            # === STEP 2: INCREMENTAL UPDATE (SMALL FETCH) ===
-            # We only ask for the last 15 minutes to cover any gaps or latency
-            # This is a tiny, fast request compared to the 20k bar monster
+            # === STEP 2: INCREMENTAL UPDATE (SEQUENTIAL FETCH) ===
+            # Fetch MES first, then MNQ immediately after to keep timestamps close
             recent_data = client.get_market_data(lookback_minutes=15, force_fetch=True)
+            recent_mnq_data = mnq_client.get_market_data(lookback_minutes=15, force_fetch=True)
 
             if not recent_data.empty:
                 # Append new data to our master history
@@ -1340,8 +1347,14 @@ def run_bot():
                 if len(master_df) > 50000:
                     master_df = master_df.iloc[-50000:]
 
+            if not recent_mnq_data.empty:
+                master_mnq_df = pd.concat([master_mnq_df, recent_mnq_data])
+                master_mnq_df = master_mnq_df[~master_mnq_df.index.duplicated(keep='last')]
+                if len(master_mnq_df) > 50000:
+                    master_mnq_df = master_mnq_df.iloc[-50000:]
+
             # Make sure we have data before proceeding
-            if master_df.empty:
+            if master_df.empty or master_mnq_df.empty:
                 # Early heartbeat - shows bot is alive even when no data available
                 if not hasattr(client, '_empty_data_counter'):
                     client._empty_data_counter = 0
@@ -1349,7 +1362,7 @@ def run_bot():
                 if client._empty_data_counter % 30 == 0:
                     print(f"⏳ Waiting for data: {datetime.datetime.now().strftime('%H:%M:%S')} | No bars received (market may be closed or starting up)")
                     logging.info(f"No market data available - attempt #{client._empty_data_counter}")
-                time.sleep(1)
+                time.sleep(2)
                 continue
 
             # Use master_df for all calculations now
@@ -1381,7 +1394,7 @@ def run_bot():
             is_choppy, chop_reason = chop_analyzer.check_market_state(new_df, df_60m_current=df_60m)
             if is_choppy:
                 logging.info(f"⛔ TRADE BLOCKED: {chop_reason}")
-                time.sleep(1)
+                time.sleep(2)
                 continue
 
             # Heartbeat
@@ -1787,6 +1800,8 @@ def run_bot():
                         
                         if strat_name == "MLPhysicsStrategy":
                             signal = ml_signal
+                        elif strat_name == "SMTStrategy":
+                            signal = strat.on_bar(new_df, master_mnq_df)
                         else:
                             try:
                                 signal = strat.on_bar(new_df)
@@ -2179,7 +2194,7 @@ def run_bot():
                                 except Exception as e:
                                     logging.error(f"Error in {s_name}: {e}")
 
-            time.sleep(1)
+            time.sleep(2)
             
         except KeyboardInterrupt:
             print("\nBot Stopped by User.")
