@@ -1286,6 +1286,15 @@ def run_bot():
     last_token_check = time.time()
     TOKEN_CHECK_INTERVAL = 3600
     
+    # === STEP 1: INITIAL DATA LOAD (MAX HISTORY) ===
+    logging.info("⏳ Startup: Fetching full 20,000 bar history...")
+    # Fetch the maximum allowed history ONCE before the loop starts
+    master_df = client.get_market_data(lookback_minutes=20000, force_fetch=True)
+
+    if master_df.empty:
+        logging.warning("⚠️ Startup fetch returned empty data. Bot will attempt to build history in loop.")
+        master_df = pd.DataFrame()
+
     # One-time backfill flag
     data_backfilled = False
 
@@ -1315,12 +1324,24 @@ def run_bot():
                 time.sleep(10)
                 continue
 
-            # 1. Fetch Latest Data (Deep History: 20,000 bars)
-            # This grabs ~14 days of 1-minute data in one go.
-            # We use this to build 5m, 15m, and 60m charts locally.
-            new_df = client.get_market_data(lookback_minutes=20000, force_fetch=True)
+            # === STEP 2: INCREMENTAL UPDATE (SMALL FETCH) ===
+            # We only ask for the last 15 minutes to cover any gaps or latency
+            # This is a tiny, fast request compared to the 20k bar monster
+            recent_data = client.get_market_data(lookback_minutes=15, force_fetch=True)
 
-            if new_df.empty:
+            if not recent_data.empty:
+                # Append new data to our master history
+                master_df = pd.concat([master_df, recent_data])
+
+                # Remove duplicates based on timestamp (keep the newest version of the bar)
+                master_df = master_df[~master_df.index.duplicated(keep='last')]
+
+                # Optional: Keep memory safe (limit to 50k bars - deeper than API allows!)
+                if len(master_df) > 50000:
+                    master_df = master_df.iloc[-50000:]
+
+            # Make sure we have data before proceeding
+            if master_df.empty:
                 # Early heartbeat - shows bot is alive even when no data available
                 if not hasattr(client, '_empty_data_counter'):
                     client._empty_data_counter = 0
@@ -1331,11 +1352,15 @@ def run_bot():
                 time.sleep(1)
                 continue
 
+            # Use master_df for all calculations now
+            # This variable now holds 20k+ bars of history
+            new_df = master_df
+
             # === LOCAL RESAMPLING ENGINE ===
-            # Instantly generate Higher Timeframes from the 20k bar cache
-            df_5m = resample_dataframe(new_df, 5)   # ~4,000 bars
-            df_15m = resample_dataframe(new_df, 15)  # ~1,300 bars
-            df_60m = resample_dataframe(new_df, 60)  # ~330 bars (Enough for HTF Logic)
+            # Resample from our locally maintained deep history
+            df_5m = resample_dataframe(new_df, 5)
+            df_15m = resample_dataframe(new_df, 15)
+            df_60m = resample_dataframe(new_df, 60)
 
             # === ONE-TIME BACKFILL ===
             if not data_backfilled:
