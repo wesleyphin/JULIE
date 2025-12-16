@@ -701,55 +701,60 @@ class ProjectXClient:
                 event_logger.log_error("RATE_LIMIT", "Order placement rate limited")
                 return None
 
-            resp_data = resp.json()
-
-            if resp.status_code == 200:
-                # Check for business logic success
-                if resp_data.get('success') is False:
-                     err_msg = resp_data.get('errorMessage', 'Unknown Rejection')
-                     logging.error(f"❌ Order Rejected by Engine: {err_msg}")
-
-                     # Enhanced event logging: Order rejected
-                     event_logger.log_trade_order_rejected(
-                         side=signal['side'],
-                         price=current_price,
-                         error_msg=err_msg,
-                         strategy=signal.get('strategy', 'Unknown')
-                     )
-                     return None
-                else:
-                     logging.info(f"✅ Order Placed Successfully [{unique_order_id[:8]}]")
-
-                     # Enhanced event logging: Order placed successfully
-                     event_logger.log_trade_order_placed(
-                         order_id=unique_order_id,
-                         side=signal['side'],
-                         price=current_price,
-                         tp_price=tp_price,
-                         sl_price=sl_price,
-                         strategy=signal.get('strategy', 'Unknown')
-                     )
-                     
-                     # Update shadow position state
-                     self._local_position = {
-                         'side': signal['side'],
-                         'size': 5,  # Fixed size
-                         'avg_price': current_price
-                     }
-                     
-                     # Try to capture stop order ID from response if available
-                     # The exact field name depends on the API response structure
-                     if 'stopLossOrderId' in resp_data:
-                         self._active_stop_order_id = resp_data['stopLossOrderId']
-                         logging.debug(f"📝 Captured stop order ID: {self._active_stop_order_id}")
-                     elif 'orderId' in resp_data:
-                         # Main order ID - we'll still need to search for bracket orders
-                         logging.debug(f"📝 Main order ID: {resp_data['orderId']}")
-                     
-                     return resp_data
-            else:
-                logging.error(f"❌ HTTP Error {resp.status_code}: {resp.text}")
+            if resp.status_code != 200:
+                logging.error(f"❌ HTTP Error {resp.status_code}: {resp.text[:500] if resp.text else 'Empty response'}")
                 return None
+
+            # Only parse JSON after confirming 200 status
+            try:
+                resp_data = resp.json()
+            except Exception as json_err:
+                logging.error(f"❌ Failed to parse order response: {json_err}")
+                return None
+
+            # Check for business logic success
+            if resp_data.get('success') is False:
+                err_msg = resp_data.get('errorMessage', 'Unknown Rejection')
+                logging.error(f"❌ Order Rejected by Engine: {err_msg}")
+
+                # Enhanced event logging: Order rejected
+                event_logger.log_trade_order_rejected(
+                    side=signal['side'],
+                    price=current_price,
+                    error_msg=err_msg,
+                    strategy=signal.get('strategy', 'Unknown')
+                )
+                return None
+
+            logging.info(f"✅ Order Placed Successfully [{unique_order_id[:8]}]")
+
+            # Enhanced event logging: Order placed successfully
+            event_logger.log_trade_order_placed(
+                order_id=unique_order_id,
+                side=signal['side'],
+                price=current_price,
+                tp_price=tp_price,
+                sl_price=sl_price,
+                strategy=signal.get('strategy', 'Unknown')
+            )
+
+            # Update shadow position state
+            self._local_position = {
+                'side': signal['side'],
+                'size': 5,  # Fixed size
+                'avg_price': current_price
+            }
+
+            # Try to capture stop order ID from response if available
+            # The exact field name depends on the API response structure
+            if 'stopLossOrderId' in resp_data:
+                self._active_stop_order_id = resp_data['stopLossOrderId']
+                logging.debug(f"📝 Captured stop order ID: {self._active_stop_order_id}")
+            elif 'orderId' in resp_data:
+                # Main order ID - we'll still need to search for bracket orders
+                logging.debug(f"📝 Main order ID: {resp_data['orderId']}")
+
+            return resp_data
                 
         except Exception as e:
             logging.error(f"❌ Order exception: {e}")
@@ -856,8 +861,19 @@ class ProjectXClient:
                 event_logger.log_error("RATE_LIMIT", "Position close rate limited")
                 return False
 
-            resp_data = resp.json()
-            if resp.status_code == 200 and resp_data.get('success', False):
+            if resp.status_code != 200:
+                logging.error(f"❌ Position close HTTP Error {resp.status_code}: {resp.text[:500] if resp.text else 'Empty response'}")
+                event_logger.log_error("POSITION_CLOSE_FAILED", f"HTTP {resp.status_code}")
+                return False
+
+            # Only parse JSON after confirming 200 status
+            try:
+                resp_data = resp.json()
+            except Exception as json_err:
+                logging.error(f"❌ Failed to parse close response: {json_err}")
+                return False
+
+            if resp_data.get('success', False):
                 logging.info(f"✅ Position close order submitted: {resp_data}")
 
                 # Enhanced event logging: Position closed
@@ -876,7 +892,7 @@ class ProjectXClient:
 
                 return True
             else:
-                logging.error(f"❌ Position close failed: {resp_data}")
+                logging.error(f"❌ Position close rejected: {resp_data}")
                 event_logger.log_error("POSITION_CLOSE_FAILED", f"Failed to close position: {resp_data}")
                 return False
         except Exception as e:
