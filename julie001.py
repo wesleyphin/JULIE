@@ -1395,7 +1395,7 @@ def run_bot():
                     tp_dist = active_trade.get('tp_dist', 6.0)
                     entry_price = active_trade['entry_price']
                     trigger_pct = be_config.get('trigger_pct', 0.40)
-                    trail_pct = be_config.get('trail_pct', 0.50)  # Lock in 50% of profit above trigger
+                    trail_pct = be_config.get('trail_pct', 0.25)  # Lock in 25% of profit above trigger
 
                     if active_trade['side'] == 'LONG':
                         current_profit = current_price - entry_price
