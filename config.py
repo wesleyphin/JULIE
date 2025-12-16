@@ -90,6 +90,7 @@ CONFIG = {
         "enabled": True,
         "trigger_pct": 0.40,  # Trigger at 40% of TP distance
         "buffer_ticks": 1,    # Add 1 tick buffer above entry for longs (below for shorts)
+        "trail_pct": 0.25,    # Lock in 25% of profit as trailing stop
     },
 
     # --- SESSION DEFINITIONS (From Optimization Results) ---

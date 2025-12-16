@@ -34,6 +34,32 @@ from news_filter import NewsFilter
 from directional_loss_blocker import DirectionalLossBlocker
 from impulse_filter import ImpulseFilter
 
+# ==========================================
+# RESAMPLER HELPER FUNCTION
+# ==========================================
+def resample_dataframe(df: pd.DataFrame, timeframe_minutes: int) -> pd.DataFrame:
+    """
+    Resamples 1-minute OHLCV data into higher timeframes (5m, 15m, 60m).
+    """
+    if df.empty:
+        return pd.DataFrame()
+
+    # Define aggregation rules
+    agg_dict = {
+        'open': 'first',
+        'high': 'max',
+        'low': 'min',
+        'close': 'last',
+        'volume': 'sum'
+    }
+
+    # Resample using the timeframe string (e.g., '5T' for 5 minutes)
+    tf_code = f"{timeframe_minutes}T"
+    resampled_df = df.resample(tf_code).agg(agg_dict).dropna()
+
+    return resampled_df
+
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -354,43 +380,45 @@ class ProjectXClient:
             logging.error(f"Failed to fetch contracts: {e}")
             return None
     
-    def get_market_data(self, lookback_minutes: int = 500, force_fetch: bool = False) -> pd.DataFrame:
+    def get_market_data(self, lookback_minutes: int = 20000, force_fetch: bool = False) -> pd.DataFrame:
         """
-        Fetch historical bars with rate limiting
+        Fetch historical bars with rate limiting.
+        UPDATED: limit increased to 20,000 for deep history (~14 days of 1m data).
         Endpoint: POST /api/History/retrieveBars
         Rate Limit: 50 requests / 30 seconds
         """
         now = time.time()
-        
+
         # Clean old timestamps
         self.bar_fetch_timestamps = [
             t for t in self.bar_fetch_timestamps
             if now - t < self.BAR_RATE_WINDOW
         ]
-        
+
         # Check rate limit
         if len(self.bar_fetch_timestamps) >= self.BAR_RATE_LIMIT - 5:
             logging.warning(f"⚠️ Bar rate limit ({len(self.bar_fetch_timestamps)}/{self.BAR_RATE_LIMIT}). Using cache.")
             return self.cached_df
-        
+
         # Enforce minimum interval
         if self.last_bar_fetch_time is not None:
             if now - self.last_bar_fetch_time < self.MIN_FETCH_INTERVAL and not force_fetch:
                 return self.cached_df
-        
+
         if self.contract_id is None:
             logging.error("No contract ID set. Call fetch_contracts() first.")
             return self.cached_df
-        
+
+        # Calculate start time based on the massive lookback
         end_time = datetime.datetime.now(datetime.timezone.utc)
         start_time = end_time - datetime.timedelta(minutes=lookback_minutes)
-        
+
         url = f"{self.base_url}/api/History/retrieveBars"
         payload = {
             "accountId": self.account_id,
             "contractId": self.contract_id,
             "live": False,
-            "limit": 1000,
+            "limit": 20000,  # UPDATED TO 20,000 for deep history
             "startTime": start_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
             "endTime": end_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
             "unit": 2,
@@ -1270,8 +1298,10 @@ def run_bot():
                 time.sleep(10)
                 continue
 
-            # 1. Fetch Latest Data (Fast loop)
-            new_df = client.get_market_data(lookback_minutes=500, force_fetch=True)
+            # 1. Fetch Latest Data (Deep History: 20,000 bars)
+            # This grabs ~14 days of 1-minute data in one go.
+            # We use this to build 5m, 15m, and 60m charts locally.
+            new_df = client.get_market_data(lookback_minutes=20000, force_fetch=True)
 
             if new_df.empty:
                 # Early heartbeat - shows bot is alive even when no data available
@@ -1283,14 +1313,20 @@ def run_bot():
                     logging.info(f"No market data available - attempt #{client._empty_data_counter}")
                 time.sleep(1)
                 continue
-            
+
+            # === LOCAL RESAMPLING ENGINE ===
+            # Instantly generate Higher Timeframes from the 20k bar cache
+            df_5m = resample_dataframe(new_df, 5)   # ~4,000 bars
+            df_15m = resample_dataframe(new_df, 15)  # ~1,300 bars
+            df_60m = resample_dataframe(new_df, 60)  # ~330 bars (Enough for HTF Logic)
+
             # === ONE-TIME BACKFILL ===
             if not data_backfilled:
                 logging.info("🔄 Performing one-time backfill of filter state from history...")
-                # Replay the 500 minutes of history we just fetched
+                # Replay the history we just fetched
                 # This restores Midnight ORB, Prev Session, etc. instantly
                 rejection_filter.backfill(new_df)
-                
+
                 # Also backfill bank_filter (has same update() signature)
                 for ts, row in new_df.sort_index().iterrows():
                     bank_filter.update(ts, row['high'], row['low'], row['close'])
@@ -1298,8 +1334,9 @@ def run_bot():
                 data_backfilled = True
                 logging.info("✅ State restored from history.")
 
-            # === DYNAMIC CHOP CHECK WITH BREAKOUT OVERRIDE ===
-            is_choppy, chop_reason = chop_analyzer.check_market_state(new_df)
+            # === DYNAMIC CHOP CHECK (Pass Local DFs) ===
+            # We pass the locally generated df_60m so the analyzer can use it for breakout shift logic
+            is_choppy, chop_reason = chop_analyzer.check_market_state(new_df, df_60m_current=df_60m)
             if is_choppy:
                 logging.info(f"⛔ TRADE BLOCKED: {chop_reason}")
                 time.sleep(1)
@@ -1351,42 +1388,73 @@ def run_bot():
                  except Exception as e:
                      logging.error(f"Startup HTF fetch failed: {e}")
             
-            # === BREAK-EVEN CHECK (EVERY TICK) ===
-            if active_trade is not None and not active_trade.get('break_even_triggered', False):
+            # === TRAILING STOP / BREAK-EVEN CHECK (EVERY TICK) ===
+            if active_trade is not None:
                 be_config = CONFIG.get('BREAK_EVEN', {})
                 if be_config.get('enabled', False):
                     tp_dist = active_trade.get('tp_dist', 6.0)
                     entry_price = active_trade['entry_price']
                     trigger_pct = be_config.get('trigger_pct', 0.40)
-                    
+                    trail_pct = be_config.get('trail_pct', 0.25)  # Lock in 25% of profit above trigger
+
                     if active_trade['side'] == 'LONG':
                         current_profit = current_price - entry_price
                     else:
                         current_profit = entry_price - current_price
-                    
+
                     profit_threshold = tp_dist * trigger_pct
-                    
+
+                    # Only act if we're above the initial trigger threshold
                     if current_profit >= profit_threshold:
-                        logging.info(f"🔒 BREAK-EVEN TRIGGER: Profit {current_profit:.2f} >= {profit_threshold:.2f}")
                         buffer = be_config.get('buffer_ticks', 1) * 0.25
-                        be_price = entry_price + buffer if active_trade['side'] == 'LONG' else entry_price - buffer
 
-                        # Use known size from active_trade (default to 1) and cached stop order ID
-                        known_size = active_trade.get('size', 1)
-                        stop_order_id = active_trade.get('stop_order_id')
+                        # Calculate trailing stop price based on current profit
+                        # Start at break-even, then trail as profit increases
+                        if not active_trade.get('break_even_triggered', False):
+                            # First trigger: move to break-even
+                            new_stop_price = entry_price + buffer if active_trade['side'] == 'LONG' else entry_price - buffer
+                            logging.info(f"🔒 BREAK-EVEN TRIGGER: Profit {current_profit:.2f} >= {profit_threshold:.2f}")
+                        else:
+                            # Trailing: lock in trail_pct of profit above entry
+                            # e.g., if profit is 4.0 pts and trail_pct is 0.5, lock in 2.0 pts
+                            trail_amount = current_profit * trail_pct
+                            if active_trade['side'] == 'LONG':
+                                new_stop_price = entry_price + trail_amount
+                            else:
+                                new_stop_price = entry_price - trail_amount
+                            # Round to nearest tick (0.25)
+                            new_stop_price = round(new_stop_price * 4) / 4
 
-                        if client.modify_stop_to_breakeven(be_price, active_trade['side'], known_size, stop_order_id):
-                            active_trade['break_even_triggered'] = True
-                            logging.info(f"✅ BREAK-EVEN SET: Stop moved to {be_price:.2f}")
+                        # Get current stop level to avoid unnecessary modifications
+                        current_stop = active_trade.get('current_stop_price', 0)
 
-                            # Enhanced event logging: Breakeven adjustment
-                            old_sl = entry_price - tp_dist if active_trade['side'] == 'LONG' else entry_price + tp_dist
-                            event_logger.log_breakeven_adjustment(
-                                old_sl=old_sl,
-                                new_sl=be_price,
-                                current_price=current_price,
-                                profit_points=current_profit
-                            )
+                        # Only modify if new stop is better than current stop
+                        should_modify = False
+                        if active_trade['side'] == 'LONG':
+                            if new_stop_price > current_stop + 0.25:  # At least 1 tick better
+                                should_modify = True
+                        else:  # SHORT
+                            if new_stop_price < current_stop - 0.25:
+                                should_modify = True
+
+                        if should_modify:
+                            known_size = active_trade.get('size', 1)
+                            stop_order_id = active_trade.get('stop_order_id')
+
+                            if client.modify_stop_to_breakeven(new_stop_price, active_trade['side'], known_size, stop_order_id):
+                                old_stop = active_trade.get('current_stop_price', entry_price - tp_dist if active_trade['side'] == 'LONG' else entry_price + tp_dist)
+                                active_trade['break_even_triggered'] = True
+                                active_trade['current_stop_price'] = new_stop_price
+                                profit_pct = (current_profit / tp_dist) * 100
+                                logging.info(f"✅ TRAILING STOP: Moved from {old_stop:.2f} to {new_stop_price:.2f} | Profit: {current_profit:.2f} ({profit_pct:.0f}% to TP)")
+
+                                # Enhanced event logging: Breakeven/Trailing adjustment
+                                event_logger.log_breakeven_adjustment(
+                                    old_sl=old_stop,
+                                    new_sl=new_stop_price,
+                                    current_price=current_price,
+                                    profit_points=current_profit
+                                )
 
             currbar = new_df.iloc[-1]
             rejection_filter.update(current_time, currbar['high'], currbar['low'], currbar['close'])
@@ -1649,6 +1717,8 @@ def run_bot():
 
                             success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
                             if success:
+                                sl_dist = signal.get('sl_dist', signal['tp_dist'])
+                                initial_stop = current_price - sl_dist if signal['side'] == 'LONG' else current_price + sl_dist
                                 active_trade = {
                                     'strategy': signal['strategy'],
                                     'side': signal['side'],
@@ -1657,7 +1727,9 @@ def run_bot():
                                     'bars_held': 0,
                                     'tp_dist': signal['tp_dist'],
                                     'size': 1,  # Fixed contract size
-                                    'stop_order_id': client._active_stop_order_id  # Cached stop ID
+                                    'stop_order_id': client._active_stop_order_id,  # Cached stop ID
+                                    'current_stop_price': initial_stop,  # Track for trailing stop
+                                    'break_even_triggered': False
                                 }
 
                             signal_executed = True
@@ -1811,6 +1883,8 @@ def run_bot():
 
                             success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
                             if success:
+                                sl_dist = signal.get('sl_dist', signal['tp_dist'])
+                                initial_stop = current_price - sl_dist if signal['side'] == 'LONG' else current_price + sl_dist
                                 active_trade = {
                                     'strategy': signal['strategy'],
                                     'side': signal['side'],
@@ -1819,7 +1893,9 @@ def run_bot():
                                     'bars_held': 0,
                                     'tp_dist': signal['tp_dist'],
                                     'size': 1,  # Fixed contract size
-                                    'stop_order_id': client._active_stop_order_id  # Cached stop ID
+                                    'stop_order_id': client._active_stop_order_id,  # Cached stop ID
+                                    'current_stop_price': initial_stop,  # Track for trailing stop
+                                    'break_even_triggered': False
                                 }
 
                             signal_executed = True
@@ -1942,6 +2018,8 @@ def run_bot():
 
                                 success, opposite_signal_count = client.close_and_reverse(sig, current_price, opposite_signal_count)
                                 if success:
+                                    sl_dist = sig.get('sl_dist', sig['tp_dist'])
+                                    initial_stop = current_price - sl_dist if sig['side'] == 'LONG' else current_price + sl_dist
                                     active_trade = {
                                         'strategy': s_name,
                                         'side': sig['side'],
@@ -1950,7 +2028,9 @@ def run_bot():
                                         'bars_held': 0,
                                         'tp_dist': sig['tp_dist'],
                                         'size': 1,
-                                        'stop_order_id': client._active_stop_order_id
+                                        'stop_order_id': client._active_stop_order_id,
+                                        'current_stop_price': initial_stop,  # Track for trailing stop
+                                        'break_even_triggered': False
                                     }
 
                                 del pending_loose_signals[s_name]
