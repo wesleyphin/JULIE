@@ -23,13 +23,12 @@ The JULIE Terminal UI is a **standalone monitoring application** that provides a
   - TP and SL distances
   - Execution status (EXECUTED, BLOCKED, PENDING)
   - Timestamp for each signal
-- **Strategy Coverage**: Monitors all 8 strategies:
+- **Strategy Coverage**: Monitors all 7 strategies:
   - RegimeAdaptive (FAST)
   - IntradayDip (FAST)
   - Confluence (STANDARD)
   - MLPhysics (STANDARD)
   - DynamicEngine (STANDARD)
-  - DynamicEngine2 (STANDARD)
   - ORB (LOOSE)
   - ICTModel (LOOSE)
 
