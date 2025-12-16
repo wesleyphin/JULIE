@@ -996,34 +996,30 @@ class ProjectXClient:
             logging.error(f"❌ Order modification exception: {e}")
             return False
     
-    def modify_stop_to_breakeven(self, entry_price: float, side: str, known_size: int = None, stop_order_id: int = None) -> bool:
+    def modify_stop_to_breakeven(self, stop_price: float, side: str, known_size: int = None, stop_order_id: int = None) -> bool:
         """
-        Modify stop to break-even using the /api/Order/modify endpoint.
-        
+        Modify stop to a new price using the /api/Order/modify endpoint.
+
         Args:
-            entry_price: Original entry price
+            stop_price: Target stop price (already calculated by caller with buffer/trailing)
             side: 'LONG' or 'SHORT'
             known_size: Known position size (avoids API call)
             stop_order_id: Known stop order ID (avoids search_orders call)
-        
+
         Returns:
-            True if break-even was set successfully
+            True if stop was modified successfully
         """
         # 1. Determine position size
         position_size = known_size if known_size is not None else 1
-        
+
         if position_size == 0:
-            logging.warning("❌ No position size provided. Aborting BE.")
+            logging.warning("❌ No position size provided. Aborting stop modification.")
             return False
 
-        # 2. Calculate break-even price with buffer
-        buffer = 0.25  # 1 tick buffer
-        if side == 'LONG':
-            be_price = round((entry_price + buffer) * 4) / 4
-        else:  # SHORT
-            be_price = round((entry_price - buffer) * 4) / 4
+        # 2. Use the stop price directly (caller handles buffer/trailing calculation)
+        be_price = round(stop_price * 4) / 4  # Just ensure tick alignment
 
-        logging.info(f"🔒 BREAK-EVEN: Moving Stop to {be_price:.2f} for {position_size} contracts")
+        logging.info(f"🔒 TRAILING STOP: Moving Stop to {be_price:.2f} for {position_size} contracts")
 
         # 3. Find stop order ID (use cached if available)
         target_stop_id = stop_order_id or self._active_stop_order_id
@@ -1050,7 +1046,7 @@ class ProjectXClient:
         
         # 4. Use modify_order API instead of cancel+place
         if self.modify_order(target_stop_id, stop_price=be_price):
-            logging.info(f"✅ BREAK-EVEN SET: Stop modified to {be_price:.2f}")
+            logging.info(f"✅ STOP MODIFIED: Stop moved to {be_price:.2f}")
             return True
         else:
             # Fallback: cancel old stop and place new one
