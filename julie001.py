@@ -22,6 +22,7 @@ from bank_level_quarter_filter import BankLevelQuarterFilter
 from orb_strategy import OrbStrategy
 from intraday_dip_strategy import IntradayDipStrategy
 from confluence_strategy import ConfluenceStrategy
+from dynamic_chop import DynamicChopAnalyzer
 from ict_model_strategy import ICTModelStrategy
 from ml_physics_strategy import MLPhysicsStrategy
 from dynamic_engine_strategy import DynamicEngineStrategy
@@ -1163,6 +1164,11 @@ def run_bot():
     print(f"   Contract ID: {client.contract_id}")
 
     # Initialize all strategies
+
+    # Dynamic chop analyzer (tiered thresholds with LTF breakout override)
+    chop_analyzer = DynamicChopAnalyzer(client)
+    chop_analyzer.calibrate()
+    last_chop_calibration = time.time()
     
     # HIGH PRIORITY - Execute immediately on signal
     fast_strategies = [
@@ -1241,6 +1247,11 @@ def run_bot():
                 client.validate_session()
                 last_token_check = time.time()
 
+            # Periodic chop threshold recalibration (default every 4 hours)
+            if chop_analyzer.should_recalibrate(last_chop_calibration):
+                chop_analyzer.calibrate()
+                last_chop_calibration = time.time()
+
             # === GLOBAL RISK & NEWS FILTERS ===
             cb_blocked, cb_reason = circuit_breaker.should_block_trade()
             if cb_blocked:
@@ -1279,10 +1290,17 @@ def run_bot():
                 # Also backfill bank_filter (has same update() signature)
                 for ts, row in new_df.sort_index().iterrows():
                     bank_filter.update(ts, row['high'], row['low'], row['close'])
-                
+
                 data_backfilled = True
                 logging.info("✅ State restored from history.")
-            
+
+            # === DYNAMIC CHOP CHECK WITH BREAKOUT OVERRIDE ===
+            is_choppy, chop_reason = chop_analyzer.check_market_state(new_df)
+            if is_choppy:
+                logging.info(f"⛔ TRADE BLOCKED: {chop_reason}")
+                time.sleep(1)
+                continue
+
             # Heartbeat
             current_price = new_df.iloc[-1]['close']
             current_time = new_df.index[-1]
