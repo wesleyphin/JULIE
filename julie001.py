@@ -53,8 +53,8 @@ def resample_dataframe(df: pd.DataFrame, timeframe_minutes: int) -> pd.DataFrame
         'volume': 'sum'
     }
 
-    # Resample using the timeframe string (e.g., '5T' for 5 minutes)
-    tf_code = f"{timeframe_minutes}T"
+    # Resample using the timeframe string (e.g., '5min' for 5 minutes)
+    tf_code = f"{timeframe_minutes}min"
     resampled_df = df.resample(tf_code).agg(agg_dict).dropna()
 
     return resampled_df
