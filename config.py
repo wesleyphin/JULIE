@@ -27,6 +27,14 @@ CONFIG = {
     "MAX_DAILY_LOSS": 1000.0,
     "TIMEZONE": "US/Eastern",
 
+    # --- RISK & FEE MANAGEMENT ---
+    "RISK": {
+        "POINT_VALUE": 5.0,      # $ value per point per contract (MES=$5, ES=$50)
+        "FEES_PER_SIDE": 2.50,   # Commission + Exchange fee per side (estimated)
+        "MIN_NET_PROFIT": 10.0,  # Minimum expected profit (after round-trip fees) to take a trade
+        "CONTRACTS": 1           # Number of contracts traded
+    },
+
     # --- ML SESSION-BASED STRATEGY SETTINGS ---
     "WINDOW_SIZE": 15,
 
