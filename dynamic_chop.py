@@ -71,10 +71,14 @@ class DynamicChopAnalyzer:
         except Exception as e:  # pragma: no cover - defensive logging
             logging.error("[DynamicChop] Calibration Error: %s", e)
 
-    def check_market_state(self, df_1m_current: pd.DataFrame):
+    def check_market_state(self, df_1m_current: pd.DataFrame, df_60m_current: pd.DataFrame = None):
         """
         Determines if we are in chop and if a breakout is shifting timeframes.
         Returns: (is_blocked, reason)
+
+        Args:
+            df_1m_current: 1-minute OHLCV dataframe
+            df_60m_current: Optional 60-minute dataframe for accurate HTF comparison
         """
         if df_1m_current.empty or len(df_1m_current) < 20:
             return False, "Insufficient Data"
@@ -85,7 +89,22 @@ class DynamicChopAnalyzer:
         current_1m_low = df_1m_current["low"].iloc[-self.LOOKBACK :].min()
         current_1m_vol = current_1m_high - current_1m_low
 
-        # --- STEP 2: CHECK BREAKOUT PROPAGATION (The "Shift") ---
+        # --- STEP 2: 60-Min Volatility (using provided DF if available) ---
+        # If we passed the 60m dataframe from the main loop, use it for accurate comparison
+        if df_60m_current is not None and not df_60m_current.empty and len(df_60m_current) >= self.LOOKBACK:
+            # Calculate actual 60m volatility from the provided dataframe
+            current_60m_high = df_60m_current["high"].iloc[-self.LOOKBACK :].max()
+            current_60m_low = df_60m_current["low"].iloc[-self.LOOKBACK :].min()
+            current_60m_vol = current_60m_high - current_60m_low
+
+            # Compare 1m volatility against actual 60m volatility for breakout detection
+            if current_1m_vol > current_60m_vol * 0.8:
+                return (
+                    False,
+                    f"🟢 HTF BREAKOUT: 1m Vol ({current_1m_vol:.2f}) approaching 60m Range ({current_60m_vol:.2f})",
+                )
+
+        # --- STEP 3: CHECK BREAKOUT PROPAGATION (The "Shift") ---
         # If current 1M volatility > 60M Chop Threshold, the breakout is REAL.
         # It has likely already broken the HTF chop structure.
         if current_1m_vol > self.thresholds["60M"]:
@@ -95,7 +114,7 @@ class DynamicChopAnalyzer:
                 f"({current_1m_vol:.2f}) > 60m Chop ({self.thresholds['60M']:.2f})",
             )
 
-        # --- STEP 3: TIERED CHECKS ---
+        # --- STEP 4: TIERED CHECKS ---
 
         # If 1m volatility is extremely low (Tier 3 Chop), definitely block.
         if current_1m_vol < self.thresholds["1M"]:
