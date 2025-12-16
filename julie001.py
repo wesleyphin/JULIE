@@ -1,7 +1,3 @@
-import warnings
-# Suppress pytz pkg_resources deprecation warning (triggered by pandas dependency)
-warnings.filterwarnings("ignore", message="pkg_resources is deprecated", category=UserWarning)
-
 import requests
 import pandas as pd
 import numpy as np
