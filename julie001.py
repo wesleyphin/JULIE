@@ -1577,7 +1577,11 @@ def run_bot():
 
                             # Chop
                             daily_bias = rejection_filter.prev_day_pm_bias
-                            chop_blocked, chop_reason = chop_filter.should_block_trade(signal['side'], daily_bias)
+                            chop_blocked, chop_reason = chop_filter.should_block_trade(
+                                signal['side'],
+                                daily_bias,
+                                current_price
+                            )
                             if chop_blocked:
                                 event_logger.log_filter_check("ChopFilter", signal['side'], False, chop_reason)
                                 continue
@@ -1734,7 +1738,11 @@ def run_bot():
 
                             # Chop (Except DynamicEngine)
                             if signal['strategy'] not in ["DynamicEngine"]:
-                                chop_blocked, chop_reason = chop_filter.should_block_trade(signal['side'], rejection_filter.prev_day_pm_bias)
+                                chop_blocked, chop_reason = chop_filter.should_block_trade(
+                                    signal['side'],
+                                    rejection_filter.prev_day_pm_bias,
+                                    current_price
+                                )
                                 if chop_blocked:
                                     event_logger.log_filter_check("ChopFilter", signal['side'], False, chop_reason)
                                     continue
@@ -1874,7 +1882,11 @@ def run_bot():
                                     event_logger.log_filter_check("MemorySR", sig['side'], True)
                                 # =====================================
 
-                                chop_blocked, chop_reason = chop_filter.should_block_trade(sig['side'], rejection_filter.prev_day_pm_bias)
+                                chop_blocked, chop_reason = chop_filter.should_block_trade(
+                                    sig['side'],
+                                    rejection_filter.prev_day_pm_bias,
+                                    current_price
+                                )
                                 if chop_blocked:
                                     event_logger.log_filter_check("ChopFilter", sig['side'], False, chop_reason)
                                     del pending_loose_signals[s_name]; continue
@@ -1997,7 +2009,11 @@ def run_bot():
                                             event_logger.log_filter_check("MemorySR", signal['side'], True)
                                         # =====================================
 
-                                        chop_blocked, chop_reason = chop_filter.should_block_trade(signal['side'], rejection_filter.prev_day_pm_bias)
+                                        chop_blocked, chop_reason = chop_filter.should_block_trade(
+                                            signal['side'],
+                                            rejection_filter.prev_day_pm_bias,
+                                            current_price
+                                        )
                                         if chop_blocked:
                                             event_logger.log_filter_check("ChopFilter", signal['side'], False, chop_reason)
                                             continue

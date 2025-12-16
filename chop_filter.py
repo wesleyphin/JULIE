@@ -689,43 +689,81 @@ class ChopFilter:
         
         return self.state
     
-    def should_block_trade(self, direction: str, daily_bias: str = None) -> tuple:
+    def should_block_trade(self, direction: str, daily_bias: str = None, current_price: float = None) -> tuple:
         """
-        Check if trade should be blocked based on chop state and structure.
+        Check if trade should be blocked based on chop state.
+
+        UPDATED LOGIC: "Fade the Range"
+        - If IN_CHOP:
+          - ALLOW Longs if price is in the Bottom 25% of the range.
+          - ALLOW Shorts if price is in the Top 25% of the range.
+          - BLOCK everything in the middle 50% (No Man's Land).
         """
         direction = direction.upper()
-        
-        # Block all trades in chop
+
+        # Use last known close if current_price is not provided by the strategy
+        if current_price is None and len(self.closes) > 0:
+            current_price = self.closes[-1]
+
+        # 1. Handle Chop State (Range Fading Logic)
         if self.state == 'IN_CHOP':
+            # Safety check for missing data
+            if current_price is None or self.chop_high is None or self.chop_low is None:
+                return True, "IN_CHOP: Market consolidating"
+
+            # Calculate range height
+            chop_range = self.chop_high - self.chop_low
+
+            # If range is extremely tight (< 1 point), don't try to fade it (too risky)
+            if chop_range < 1.0:
+                return True, f"IN_CHOP: Range too tight to fade ({chop_range:.2f} pts)"
+
+            # Calculate where we are in the range (0.0 = Low, 1.0 = High)
+            # We clip values > 1.0 or < 0.0 in case price is slightly piercing edges
+            position_in_range = (current_price - self.chop_low) / chop_range
+
+            # --- LONG LOGIC: Buy Support ---
+            if direction == 'LONG':
+                # Allow buying only in the bottom 25% of the chop box
+                if position_in_range <= 0.25:
+                    return False, None  # ALLOW: Buying the bottom of the range
+                else:
+                    return True, f"IN_CHOP: Blocked Long at {position_in_range:.0%} of range (Buy Zone < 25%)"
+
+            # --- SHORT LOGIC: Sell Resistance ---
+            if direction == 'SHORT':
+                # Allow selling only in the top 25% of the chop box
+                if position_in_range >= 0.75:
+                    return False, None  # ALLOW: Selling the top of the range
+                else:
+                    return True, f"IN_CHOP: Blocked Short at {position_in_range:.0%} of range (Sell Zone > 75%)"
+
             return True, "IN_CHOP: Market consolidating"
-        
-        # Breakout states - block opposing direction
+
+        # 2. Handle Breakout States (Existing Logic)
         if self.state == 'BREAKOUT_LONG' and direction == 'SHORT':
             return True, "BREAKOUT_LONG: Pending bullish confirmation"
         if self.state == 'BREAKOUT_SHORT' and direction == 'LONG':
             return True, "BREAKOUT_SHORT: Pending bearish confirmation"
-        
-        # Confirmed states - block opposing direction
+
         if self.state == 'CONFIRMED_LONG' and direction == 'SHORT':
             return True, "CONFIRMED_LONG: HH structure, blocking shorts"
         if self.state == 'CONFIRMED_SHORT' and direction == 'LONG':
             return True, "CONFIRMED_SHORT: LL structure, blocking longs"
-        
-        # FAILED states - block continuation trades in bias direction
+
+        # 3. Handle Failed Breakouts (Existing Logic)
         if self.state == 'FAILED_LONG':
             if direction == 'LONG':
-                # Check if this is a continuation of daily bias
                 if daily_bias and daily_bias.upper() == 'LONG':
-                    return True, "FAILED_LONG: LH after breakout above level, blocking long continuation"
-                # Even without explicit bias, block longs in failed structure
-                return True, "FAILED_LONG: Made LH after breakout, weak structure"
-        
+                    return True, "FAILED_LONG: LH after breakout, blocking continuation"
+                return True, "FAILED_LONG: Made LH after breakout"
+
         if self.state == 'FAILED_SHORT':
             if direction == 'SHORT':
                 if daily_bias and daily_bias.upper() == 'SHORT':
-                    return True, "FAILED_SHORT: HL after breakout below level, blocking short continuation"
-                return True, "FAILED_SHORT: Made HL after breakout, weak structure"
-        
+                    return True, "FAILED_SHORT: HL after breakout, blocking continuation"
+                return True, "FAILED_SHORT: Made HL after breakout"
+
         return False, None
     
     def get_status(self) -> dict:
