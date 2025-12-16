@@ -459,7 +459,6 @@ class DynamicSignalEngine:
                     logging.info(
                         f"✅ TRIGGER: {strategy_type} on {timeframe_str} | "
                         f"Body={abs_body:.2f} > Thresh={thresh:.2f} | "
-                        f"WR={strategy['Opt_WR']:.1%} | "
                         f"SL={strategy['Best_SL']:.1f} TP={strategy['Best_TP']:.1f}"
                     )
 
@@ -475,10 +474,9 @@ class DynamicSignalEngine:
                 f"🎯 TIE-BREAK: {len(triggered_signals)} signals detected, "
                 f"selecting highest WR"
             )
-            logging.info(f"   Winner: {triggered_signals[0]['strategy_id']} "
-                        f"(WR={triggered_signals[0]['opt_wr']:.1%})")
+            logging.info(f"   Winner: {triggered_signals[0]['strategy_id']}")
             for i, sig in enumerate(triggered_signals[1:], 1):
-                logging.info(f"   #{i+1}: {sig['strategy_id']} (WR={sig['opt_wr']:.1%})")
+                logging.info(f"   #{i+1}: {sig['strategy_id']}")
 
         best_signal = triggered_signals[0]
 
