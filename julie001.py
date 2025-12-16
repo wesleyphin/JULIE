@@ -596,7 +596,10 @@ class ProjectXClient:
         # 4. Generate Unique Client Order ID
         unique_order_id = str(uuid.uuid4())
 
-        # 5. Construct Payload
+        # 5. Get order size from signal (allows volatility filter to reduce size)
+        order_size = int(signal.get('size', 5))
+
+        # 6. Construct Payload
         # Using 'ticks' with the correct signs calculated above
         payload = {
             "accountId": self.account_id,
@@ -604,7 +607,7 @@ class ProjectXClient:
             "clOrdId": unique_order_id,
             "type": 2,  # Market Order
             "side": side_code,
-            "size": 5,  # Fixed size per your config
+            "size": order_size,  # Use size from signal (volatility-adjusted)
             "stopLossBracket": {
                 "type": 4,      # Stop Market
                 "ticks": final_sl_ticks
@@ -1561,13 +1564,16 @@ def run_bot():
                         # Calculate PnL for directional loss tracking
                         trade_side = active_trade['side']
                         entry_price = active_trade['entry_price']
+                        trade_size = active_trade.get('size', 5)
                         if trade_side == 'LONG':
-                            pnl = current_price - entry_price
+                            pnl_points = current_price - entry_price
                         else:
-                            pnl = entry_price - current_price
-                        directional_loss_blocker.record_trade_result(trade_side, pnl, current_time)
-                        circuit_breaker.update_trade_result(pnl)
-                        logging.info(f"📊 Trade closed: {trade_side} | Entry: {entry_price:.2f} | Exit: {current_price:.2f} | PnL: {pnl:.2f} pts")
+                            pnl_points = entry_price - current_price
+                        # Convert points to dollars: MES = $5 per point per contract
+                        pnl_dollars = pnl_points * 5.0 * trade_size
+                        directional_loss_blocker.record_trade_result(trade_side, pnl_points, current_time)
+                        circuit_breaker.update_trade_result(pnl_dollars)
+                        logging.info(f"📊 Trade closed: {trade_side} | Entry: {entry_price:.2f} | Exit: {current_price:.2f} | PnL: {pnl_points:.2f} pts (${pnl_dollars:.2f})")
                         active_trade = None
                         opposite_signal_count = 0
                         client._local_position = {'side': None, 'size': 0, 'avg_price': 0.0}
@@ -1629,13 +1635,16 @@ def run_bot():
                             # Calculate PnL for directional loss tracking
                             trade_side = active_trade['side']
                             entry_price = active_trade['entry_price']
+                            trade_size = active_trade.get('size', 5)
                             if trade_side == 'LONG':
-                                pnl = current_price - entry_price
+                                pnl_points = current_price - entry_price
                             else:
-                                pnl = entry_price - current_price
-                            directional_loss_blocker.record_trade_result(trade_side, pnl, current_time)
-                            circuit_breaker.update_trade_result(pnl)
-                            logging.info(f"📊 Early exit closed: {trade_side} | Entry: {entry_price:.2f} | Exit: {current_price:.2f} | PnL: {pnl:.2f} pts")
+                                pnl_points = entry_price - current_price
+                            # Convert points to dollars: MES = $5 per point per contract
+                            pnl_dollars = pnl_points * 5.0 * trade_size
+                            directional_loss_blocker.record_trade_result(trade_side, pnl_points, current_time)
+                            circuit_breaker.update_trade_result(pnl_dollars)
+                            logging.info(f"📊 Early exit closed: {trade_side} | Entry: {entry_price:.2f} | Exit: {current_price:.2f} | PnL: {pnl_points:.2f} pts (${pnl_dollars:.2f})")
 
                             position = client.get_position()
                             if position['side'] is not None:
@@ -1770,7 +1779,7 @@ def run_bot():
                                 event_logger.log_filter_check("TrendFilter", signal['side'], True)
 
                             # Volatility
-                            should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0))
+                            should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0), base_size=5)
                             if not should_trade:
                                 event_logger.log_filter_check("VolatilityFilter", signal['side'], False, "Volatility check failed")
                                 continue
@@ -1780,11 +1789,12 @@ def run_bot():
                             if vol_adj.get('adjustment_applied', False):
                                 signal['sl_dist'] = vol_adj['sl_dist']
                                 signal['tp_dist'] = vol_adj['tp_dist']
+                                signal['size'] = vol_adj['size']  # Apply volatility-adjusted size
                                 event_logger.log_trade_modified(
                                     "VolatilityAdjustment",
                                     signal.get('tp_dist', 6.0),
                                     vol_adj['tp_dist'],
-                                    "Volatility regime adjustment"
+                                    f"Volatility regime adjustment (size={vol_adj['size']})"
                                 )
 
                             # Bank Filter (RegimeAdaptive Only)
@@ -1804,13 +1814,16 @@ def run_bot():
                             if active_trade is not None:
                                 old_side = active_trade['side']
                                 old_entry = active_trade['entry_price']
+                                old_size = active_trade.get('size', 5)
                                 if old_side == 'LONG':
-                                    old_pnl = current_price - old_entry
+                                    old_pnl_points = current_price - old_entry
                                 else:
-                                    old_pnl = old_entry - current_price
-                                directional_loss_blocker.record_trade_result(old_side, old_pnl, current_time)
-                                circuit_breaker.update_trade_result(old_pnl)
-                                logging.info(f"📊 Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | Exit: {current_price:.2f} | PnL: {old_pnl:.2f} pts")
+                                    old_pnl_points = old_entry - current_price
+                                # Convert points to dollars: MES = $5 per point per contract
+                                old_pnl_dollars = old_pnl_points * 5.0 * old_size
+                                directional_loss_blocker.record_trade_result(old_side, old_pnl_points, current_time)
+                                circuit_breaker.update_trade_result(old_pnl_dollars)
+                                logging.info(f"📊 Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | Exit: {current_price:.2f} | PnL: {old_pnl_points:.2f} pts (${old_pnl_dollars:.2f})")
 
                             success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
                             if success:
@@ -1823,7 +1836,7 @@ def run_bot():
                                     'entry_bar': bar_count,
                                     'bars_held': 0,
                                     'tp_dist': signal['tp_dist'],
-                                    'size': 5,  # Fixed contract size
+                                    'size': signal.get('size', 5),  # Use signal size (volatility-adjusted)
                                     'stop_order_id': client._active_stop_order_id,  # Cached stop ID
                                     'current_stop_price': initial_stop,  # Track for trailing stop
                                     'break_even_triggered': False
@@ -1952,7 +1965,7 @@ def run_bot():
                                 event_logger.log_filter_check("TrendFilter", signal['side'], True)
 
                             # Volatility
-                            should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0))
+                            should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0), base_size=5)
                             if not should_trade:
                                 event_logger.log_filter_check("VolatilityFilter", signal['side'], False, "Volatility check failed")
                                 continue
@@ -1962,11 +1975,12 @@ def run_bot():
                             if vol_adj.get('adjustment_applied', False):
                                 signal['sl_dist'] = vol_adj['sl_dist']
                                 signal['tp_dist'] = vol_adj['tp_dist']
+                                signal['size'] = vol_adj['size']  # Apply volatility-adjusted size
                                 event_logger.log_trade_modified(
                                     "VolatilityAdjustment",
                                     signal.get('tp_dist', 6.0),
                                     vol_adj['tp_dist'],
-                                    "Volatility regime adjustment"
+                                    f"Volatility regime adjustment (size={vol_adj['size']})"
                                 )
 
                             # Bank Filter (ML Only)
@@ -1986,13 +2000,16 @@ def run_bot():
                             if active_trade is not None:
                                 old_side = active_trade['side']
                                 old_entry = active_trade['entry_price']
+                                old_size = active_trade.get('size', 5)
                                 if old_side == 'LONG':
-                                    old_pnl = current_price - old_entry
+                                    old_pnl_points = current_price - old_entry
                                 else:
-                                    old_pnl = old_entry - current_price
-                                directional_loss_blocker.record_trade_result(old_side, old_pnl, current_time)
-                                circuit_breaker.update_trade_result(old_pnl)
-                                logging.info(f"📊 Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | Exit: {current_price:.2f} | PnL: {old_pnl:.2f} pts")
+                                    old_pnl_points = old_entry - current_price
+                                # Convert points to dollars: MES = $5 per point per contract
+                                old_pnl_dollars = old_pnl_points * 5.0 * old_size
+                                directional_loss_blocker.record_trade_result(old_side, old_pnl_points, current_time)
+                                circuit_breaker.update_trade_result(old_pnl_dollars)
+                                logging.info(f"📊 Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | Exit: {current_price:.2f} | PnL: {old_pnl_points:.2f} pts (${old_pnl_dollars:.2f})")
 
                             success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
                             if success:
@@ -2005,7 +2022,7 @@ def run_bot():
                                     'entry_bar': bar_count,
                                     'bars_held': 0,
                                     'tp_dist': signal['tp_dist'],
-                                    'size': 5,  # Fixed contract size
+                                    'size': signal.get('size', 5),  # Use signal size (volatility-adjusted)
                                     'stop_order_id': client._active_stop_order_id,  # Cached stop ID
                                     'current_stop_price': initial_stop,  # Track for trailing stop
                                     'break_even_triggered': False
@@ -2110,7 +2127,7 @@ def run_bot():
                                     event_logger.log_filter_check("TrendFilter", sig['side'], True)
 
                                 # Volatility
-                                should_trade, vol_adj = check_volatility(new_df, sig.get('sl_dist', 4.0), sig.get('tp_dist', 6.0))
+                                should_trade, vol_adj = check_volatility(new_df, sig.get('sl_dist', 4.0), sig.get('tp_dist', 6.0), base_size=5)
                                 if not should_trade:
                                     event_logger.log_filter_check("VolatilityFilter", sig['side'], False, "Volatility check failed")
                                     del pending_loose_signals[s_name]; continue
@@ -2120,11 +2137,12 @@ def run_bot():
                                 if vol_adj.get('adjustment_applied', False):
                                     sig['sl_dist'] = vol_adj['sl_dist']
                                     sig['tp_dist'] = vol_adj['tp_dist']
+                                    sig['size'] = vol_adj['size']  # Apply volatility-adjusted size
                                     event_logger.log_trade_modified(
                                         "VolatilityAdjustment",
                                         sig.get('tp_dist', 6.0),
                                         vol_adj['tp_dist'],
-                                        "Volatility regime adjustment"
+                                        f"Volatility regime adjustment (size={vol_adj['size']})"
                                     )
 
                                 logging.info(f"✅ LOOSE EXEC: {s_name}")
@@ -2134,13 +2152,16 @@ def run_bot():
                                 if active_trade is not None:
                                     old_side = active_trade['side']
                                     old_entry = active_trade['entry_price']
+                                    old_size = active_trade.get('size', 5)
                                     if old_side == 'LONG':
-                                        old_pnl = current_price - old_entry
+                                        old_pnl_points = current_price - old_entry
                                     else:
-                                        old_pnl = old_entry - current_price
-                                    directional_loss_blocker.record_trade_result(old_side, old_pnl, current_time)
-                                    circuit_breaker.update_trade_result(old_pnl)
-                                    logging.info(f"📊 Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | Exit: {current_price:.2f} | PnL: {old_pnl:.2f} pts")
+                                        old_pnl_points = old_entry - current_price
+                                    # Convert points to dollars: MES = $5 per point per contract
+                                    old_pnl_dollars = old_pnl_points * 5.0 * old_size
+                                    directional_loss_blocker.record_trade_result(old_side, old_pnl_points, current_time)
+                                    circuit_breaker.update_trade_result(old_pnl_dollars)
+                                    logging.info(f"📊 Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | Exit: {current_price:.2f} | PnL: {old_pnl_points:.2f} pts (${old_pnl_dollars:.2f})")
 
                                 success, opposite_signal_count = client.close_and_reverse(sig, current_price, opposite_signal_count)
                                 if success:
@@ -2153,7 +2174,7 @@ def run_bot():
                                         'entry_bar': bar_count,
                                         'bars_held': 0,
                                         'tp_dist': sig['tp_dist'],
-                                        'size': 5,
+                                        'size': sig.get('size', 5),  # Use signal size (volatility-adjusted)
                                         'stop_order_id': client._active_stop_order_id,
                                         'current_stop_price': initial_stop,  # Track for trailing stop
                                         'break_even_triggered': False
@@ -2253,7 +2274,7 @@ def run_bot():
                                             event_logger.log_filter_check("TrendFilter", signal['side'], True)
 
                                         # Volatility
-                                        should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0))
+                                        should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0), base_size=5)
                                         if not should_trade:
                                             event_logger.log_filter_check("VolatilityFilter", signal['side'], False, "Volatility check failed")
                                             continue
@@ -2263,11 +2284,12 @@ def run_bot():
                                         if vol_adj.get('adjustment_applied', False):
                                             signal['sl_dist'] = vol_adj['sl_dist']
                                             signal['tp_dist'] = vol_adj['tp_dist']
+                                            signal['size'] = vol_adj['size']  # Apply volatility-adjusted size
                                             event_logger.log_trade_modified(
                                                 "VolatilityAdjustment",
                                                 signal.get('tp_dist', 6.0),
                                                 vol_adj['tp_dist'],
-                                                "Volatility regime adjustment"
+                                                f"Volatility regime adjustment (size={vol_adj['size']})"
                                             )
 
                                         logging.info(f"🕐 Queuing {s_name} signal")
