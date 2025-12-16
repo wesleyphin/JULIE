@@ -517,7 +517,8 @@ class HierarchicalVolatilityFilter:
         # Snap to MES tick
         adj_sl = round(adj_sl * 4) / 4
         adj_tp = round(adj_tp * 4) / 4
-        adj_sl = max(adj_sl, 1.0)
+        # Minimum 4.0 points SL required (engine requires minimum 4 ticks)
+        adj_sl = max(adj_sl, 4.0)
         adj_tp = max(adj_tp, 1.5)
         
         return {
