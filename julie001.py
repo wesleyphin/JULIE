@@ -32,6 +32,7 @@ from event_logger import event_logger
 from circuit_breaker import CircuitBreaker
 from news_filter import NewsFilter
 from directional_loss_blocker import DirectionalLossBlocker
+from impulse_filter import ImpulseFilter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -1212,6 +1213,7 @@ def run_bot():
     news_filter = NewsFilter()
     circuit_breaker = CircuitBreaker(max_daily_loss=600, max_consecutive_losses=7)
     directional_loss_blocker = DirectionalLossBlocker(consecutive_loss_limit=3, block_minutes=15)
+    impulse_filter = ImpulseFilter(lookback=20, impulse_multiplier=2.5)
 
     print("\nActive Strategies:")
     print("  [FAST EXECUTION]")
@@ -1394,6 +1396,7 @@ def run_bot():
             structure_blocker.update(new_df)
             memory_sr.update(new_df)
             directional_loss_blocker.update_quarter(current_time)
+            impulse_filter.update(new_df)
 
 
             # Only process signals on NEW bars
@@ -1432,6 +1435,7 @@ def run_bot():
                 structure_blocker.update(new_df)
                 memory_sr.update(new_df)
                 directional_loss_blocker.update_quarter(current_time)
+                impulse_filter.update(new_df)
 
                 # === EARLY EXIT CHECK ===
                 if active_trade is not None:
@@ -1533,9 +1537,17 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], True)
 
+                            # Impulse Filter (Prevent catching falling knife / fading rocket ship)
+                            impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])
+                            if impulse_blocked:
+                                event_logger.log_filter_check("ImpulseFilter", signal['side'], False, impulse_reason)
+                                continue
+                            else:
+                                event_logger.log_filter_check("ImpulseFilter", signal['side'], True)
+
                             # HTF FVG (Memory Based) - UPDATED
                             # Pass the strategy's target profit so we know how much room we need
-                            tp_dist = signal.get('tp_dist', 15.0) 
+                            tp_dist = signal.get('tp_dist', 15.0)
                             fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
                                 signal['side'], current_price, None, None, tp_dist=tp_dist
                             )
@@ -1690,9 +1702,17 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], True)
 
+                            # Impulse Filter (Prevent catching falling knife / fading rocket ship)
+                            impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])
+                            if impulse_blocked:
+                                event_logger.log_filter_check("ImpulseFilter", signal['side'], False, impulse_reason)
+                                continue
+                            else:
+                                event_logger.log_filter_check("ImpulseFilter", signal['side'], True)
+
                             # HTF FVG (Memory Based) - UPDATED
                             # Pass the strategy's target profit so we know how much room we need
-                            tp_dist = signal.get('tp_dist', 15.0) 
+                            tp_dist = signal.get('tp_dist', 15.0)
                             fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
                                 signal['side'], current_price, None, None, tp_dist=tp_dist
                             )
@@ -1819,6 +1839,14 @@ def run_bot():
                                     del pending_loose_signals[s_name]; continue
                                 else:
                                     event_logger.log_filter_check("DirectionalLossBlocker", sig['side'], True)
+
+                                # Impulse Filter (Prevent catching falling knife / fading rocket ship)
+                                impulse_blocked, impulse_reason = impulse_filter.should_block_trade(sig['side'])
+                                if impulse_blocked:
+                                    event_logger.log_filter_check("ImpulseFilter", sig['side'], False, impulse_reason)
+                                    del pending_loose_signals[s_name]; continue
+                                else:
+                                    event_logger.log_filter_check("ImpulseFilter", sig['side'], True)
 
                                 # HTF FVG
                                 fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(sig['side'], current_price, None, None)
