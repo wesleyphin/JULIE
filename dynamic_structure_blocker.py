@@ -6,6 +6,11 @@ from collections import deque
 class DynamicStructureBlocker:
     """
     Blocks trades at "Weak" levels using data-mined regime buckets (2023-2025 data).
+    
+    UPDATED LOGIC:
+    - Bidirectional checks: Treats Weak Highs/Lows as BOTH Magnets (liquidity) and Resistance/Support.
+    - Prevents "Buying the Top" of a chop range (Longs at EQH).
+    - Prevents "Selling the Bottom" of a chop range (Shorts at EQL).
 
     SETTINGS VALIDATED ON MES DATA:
     - Lookback: 20 (identifies swing highs/lows every ~18 mins, filters noise)
@@ -97,24 +102,53 @@ class DynamicStructureBlocker:
                 self.market_trend = "BULLISH"
 
     def should_block_trade(self, signal_side: str, current_price: float):
+        """
+        Check BOTH sides of structure for every trade signal.
+        1. Magnet Check: Don't fade a weak level (it will likely get swept).
+        2. Barrier Check: Don't trade directly into a weak level (it is resistance/support).
+        """
         tolerance = self.current_tolerance
 
-        # Block shorts at weak EQH
+        # =========================
+        # SHORTS
+        # =========================
         if signal_side == "SHORT":
             if self.market_trend == "BULLISH":
                 tolerance *= 1.5
+            
+            # 1. Magnet Check: Don't Short Weak Highs (EQH)
+            # Logic: Price will likely go UP to sweep this high before dropping.
             for swing in self.swings_high:
                 if abs(current_price - swing["price"]) < tolerance:
                     if not swing["strong"]:
-                        return True, f"Blocked: Weak EQH ({swing['price']:.2f}) [{self.current_regime}]"
+                        return True, f"Blocked: Weak EQH Magnet ({swing['price']:.2f}) [{self.current_regime}]"
 
-        # Block longs at weak EQL
+            # 2. Barrier Check: Don't Short into Weak Support (EQL) -> NEW FIX
+            # Logic: If we are at the bottom of a range, don't short the floor. Wait for breakdown.
+            for swing in self.swings_low:
+                if abs(current_price - swing["price"]) < tolerance:
+                    # If it's weak, it might hold as range support first
+                    return True, f"Blocked: Selling into Weak Support EQL ({swing['price']:.2f})"
+
+        # =========================
+        # LONGS
+        # =========================
         if signal_side == "LONG":
             if self.market_trend == "BEARISH":
                 tolerance *= 1.5
+                
+            # 1. Magnet Check: Don't Long Weak Lows (EQL)
+            # Logic: Price will likely go DOWN to sweep this low before rallying.
             for swing in self.swings_low:
                 if abs(current_price - swing["price"]) < tolerance:
                     if not swing["strong"]:
-                        return True, f"Blocked: Weak EQL ({swing['price']:.2f}) [{self.current_regime}]"
+                        return True, f"Blocked: Weak EQL Magnet ({swing['price']:.2f}) [{self.current_regime}]"
+
+            # 2. Barrier Check: Don't Long into Weak Resistance (EQH) -> NEW FIX
+            # Logic: If we are at the top of a range, don't buy the ceiling. Wait for breakout.
+            for swing in self.swings_high:
+                if abs(current_price - swing["price"]) < tolerance:
+                    # If it's weak, it acts as resistance until proven otherwise
+                    return True, f"Blocked: Buying into Weak Resistance EQH ({swing['price']:.2f})"
 
         return False, None
