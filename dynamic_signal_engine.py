@@ -11,6 +11,7 @@ import logging
 from typing import Optional, Dict
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import pandas as pd  # Ensure pandas is imported for rolling calculation
 
 
 # ============================================================================
@@ -331,24 +332,7 @@ class DynamicSignalEngine:
     def check_signal(self, current_time: datetime, df_5m, df_15m) -> Optional[Dict]:
         """
         Check for trading signals based on hardcoded strategies.
-
-        Args:
-            current_time: Current datetime in US/Eastern timezone
-            df_5m: 5-minute OHLC dataframe (must have: open, high, low, close)
-            df_15m: 15-minute OHLC dataframe (must have: open, high, low, close)
-
-        Returns:
-            Dict with signal details or None:
-            {
-                'signal': 'LONG' or 'SHORT',
-                'sl': stop loss distance (points),
-                'tp': take profit distance (points),
-                'strategy_id': string description,
-                'timeframe': '5min' or '15min',
-                'opt_wr': optimized win rate,
-                'thresh': threshold that triggered,
-                'body': actual candle body size
-            }
+        Includes NEW Tie-Breaker Logic using recent price location.
         """
         # Convert current time to ET if needed
         if current_time.tzinfo is None:
@@ -372,6 +356,21 @@ class DynamicSignalEngine:
 
         # Check both timeframes
         triggered_signals = []
+
+        # --- NEW: Location Context (Percent Rank) ---
+        # Calculate where we are relative to the last 20 bars (approx 1.5 hours on 5m)
+        price_location = 0.5  # Default middle
+        try:
+            if df_5m is not None and len(df_5m) > 20:
+                last_20 = df_5m.iloc[-20:]
+                recent_high = last_20['high'].max()
+                recent_low = last_20['low'].min()
+                current_close = df_5m.iloc[-1]['close']
+
+                if recent_high > recent_low:
+                    price_location = (current_close - recent_low) / (recent_high - recent_low)
+        except Exception as e:
+            logging.error(f"Error calculating price location: {e}")
 
         for timeframe_str, df in [('5min', df_5m), ('15min', df_15m)]:
             if df is None or len(df) < 2:
@@ -397,16 +396,8 @@ class DynamicSignalEngine:
             is_green = self._is_green_candle(prev_open, prev_close)
             is_red = self._is_red_candle(prev_open, prev_close)
 
-            logging.debug(
-                f"   {timeframe_str} prev candle: "
-                f"O={prev_open:.2f} C={prev_close:.2f} Body={body:.2f} "
-                f"({'GREEN' if is_green else 'RED' if is_red else 'DOJI'})"
-            )
-
             # Filter for current timeframe
             tf_strategies = [s for s in matching_strategies if s['TF'] == timeframe_str]
-
-            logging.debug(f"   Found {len(tf_strategies)} {timeframe_str} strategies")
 
             for strategy in tf_strategies:
                 strategy_type = strategy['Type']
@@ -438,11 +429,31 @@ class DynamicSignalEngine:
                 if signal:
                     # Enforce minimum SL of 4 ticks (broker requirement)
                     sl_value = max(4.0, float(strategy['Best_SL']))
+
+                    # --- NEW: LOGIC SCORE CALCULATION ---
+                    # Start with Win Rate
+                    logic_score = float(strategy['Opt_WR'])
+
+                    # Adjust based on Location
+                    # If Price is High (>0.8) -> Boost Shorts, Penalize Longs
+                    if price_location > 0.8:
+                        if signal == 'SHORT':
+                            logic_score *= 1.5
+                        if signal == 'LONG':
+                            logic_score *= 0.5
+                    # If Price is Low (<0.2) -> Boost Longs, Penalize Shorts
+                    elif price_location < 0.2:
+                        if signal == 'LONG':
+                            logic_score *= 1.5
+                        if signal == 'SHORT':
+                            logic_score *= 0.5
+
                     signal_data = {
                         'signal': signal,
                         'sl': sl_value,
                         'tp': float(strategy['Best_TP']),
                         'opt_wr': float(strategy['Opt_WR']),
+                        'logic_score': logic_score,  # New field for sorting
                         'timeframe': timeframe_str,
                         'strategy_type': strategy_type,
                         'thresh': thresh,
@@ -459,24 +470,24 @@ class DynamicSignalEngine:
                     logging.info(
                         f"✅ TRIGGER: {strategy_type} on {timeframe_str} | "
                         f"Body={abs_body:.2f} > Thresh={thresh:.2f} | "
-                        f"SL={strategy['Best_SL']:.1f} TP={strategy['Best_TP']:.1f}"
+                        f"Loc={price_location:.2f} | Score={logic_score:.3f}"
                     )
 
-        # Tie-breaking: pick highest Opt_WR if multiple signals
+        # Tie-breaking: pick highest Logic Score (was WR)
         if not triggered_signals:
             logging.debug(f"⚪ No triggers for session {session}")
             return None
 
         if len(triggered_signals) > 1:
-            # Sort by Opt_WR descending
-            triggered_signals.sort(key=lambda x: x['opt_wr'], reverse=True)
+            # Sort by logic_score descending
+            triggered_signals.sort(key=lambda x: x['logic_score'], reverse=True)
             logging.info(
                 f"🎯 TIE-BREAK: {len(triggered_signals)} signals detected, "
-                f"selecting highest WR"
+                f"selecting highest Logic Score (Location Adjusted)"
             )
-            logging.info(f"   Winner: {triggered_signals[0]['strategy_id']}")
+            logging.info(f"   Winner: {triggered_signals[0]['strategy_id']} (Score: {triggered_signals[0]['logic_score']:.3f})")
             for i, sig in enumerate(triggered_signals[1:], 1):
-                logging.info(f"   #{i+1}: {sig['strategy_id']}")
+                logging.info(f"   #{i+1}: {sig['strategy_id']} (Score: {sig['logic_score']:.3f})")
 
         best_signal = triggered_signals[0]
 
@@ -486,7 +497,7 @@ class DynamicSignalEngine:
         logging.info(f"   Timeframe: {best_signal['timeframe']}")
         logging.info(f"   Strategy: {best_signal['strategy_type']}")
         logging.info(f"   Stop Loss: {best_signal['sl']:.1f} points")
-        logging.info(f"   Take Profit: {best_signal['tp']:.1f} points (from hardcoded strategy DB)")
+        logging.info(f"   Take Profit: {best_signal['tp']:.1f} points")
         logging.info(f"   Trigger: Body {best_signal['body']:.2f} > Thresh {best_signal['thresh']:.2f}")
         logging.info(f"   ID: {best_signal['strategy_id']}")
         logging.info("=" * 70)

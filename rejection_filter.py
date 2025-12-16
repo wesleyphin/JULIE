@@ -112,13 +112,23 @@ class RejectionFilter:
 
         - If we had a LOW rejection (bounced from low) and now CLOSE above high = LONG continuation
         - If we had a HIGH rejection (rejected from high) and now CLOSE below low = SHORT continuation
+
+        UPDATED: Added breakout tolerance. Breakout must be significant (> 1.0 point)
+        to avoid flipping bias on weak breakouts at EQH/Resistance.
         """
         if level_high is None or level_low is None:
             return None
 
-        # LONG continuation: previously bounced from low, now closed above high
+        breakout_threshold = 1.0  # Minimum points past level to confirm breakout
+
+        # LONG continuation: previously bounced from low, now closed SIGNIFICANTLY above high
         if self.last_rejection_level == 'LOW' and close > level_high:
-            logging.info(f"📈 CONTINUATION: Bounced from low, broke high -> reinforcing LONG bias")
+            dist = close - level_high
+            if dist < breakout_threshold:
+                logging.info(f"⚠️ Weak breakout above high (+{dist:.2f} pts). Ignoring continuation bias at Resistance/EQH.")
+                return None
+
+            logging.info(f"📈 CONTINUATION: Bounced from low, broke high (+{dist:.2f} pts) -> reinforcing LONG bias")
 
             # Enhanced event logging: Continuation pattern detected
             event_logger.log_rejection_detected(
@@ -130,9 +140,14 @@ class RejectionFilter:
             )
             return 'LONG'
 
-        # SHORT continuation: previously rejected from high, now closed below low
+        # SHORT continuation: previously rejected from high, now closed SIGNIFICANTLY below low
         if self.last_rejection_level == 'HIGH' and close < level_low:
-            logging.info(f"📉 CONTINUATION: Rejected from high, broke low -> reinforcing SHORT bias")
+            dist = level_low - close
+            if dist < breakout_threshold:
+                logging.info(f"⚠️ Weak breakout below low (-{dist:.2f} pts). Ignoring continuation bias at Support/EQL.")
+                return None
+
+            logging.info(f"📉 CONTINUATION: Rejected from high, broke low (-{dist:.2f} pts) -> reinforcing SHORT bias")
 
             # Enhanced event logging: Continuation pattern detected
             event_logger.log_rejection_detected(
