@@ -604,7 +604,7 @@ class ProjectXClient:
             "clOrdId": unique_order_id,
             "type": 2,  # Market Order
             "side": side_code,
-            "size": 1,  # Fixed size per your config
+            "size": 5,  # Fixed size per your config
             "stopLossBracket": {
                 "type": 4,      # Stop Market
                 "ticks": final_sl_ticks
@@ -674,7 +674,7 @@ class ProjectXClient:
                      # Update shadow position state
                      self._local_position = {
                          'side': signal['side'],
-                         'size': 1,  # Fixed size
+                         'size': 5,  # Fixed size
                          'avg_price': current_price
                      }
                      
@@ -1392,7 +1392,20 @@ def run_bot():
             # === DYNAMIC CHOP CHECK (Pass Local DFs) ===
             # We pass the locally generated df_60m so the analyzer can use it for breakout shift logic
             is_choppy, chop_reason = chop_analyzer.check_market_state(new_df, df_60m_current=df_60m)
-            if is_choppy:
+
+            # Initialize Directional Restrictions
+            allowed_chop_side = None  # None means ALL allowed (unless blocked)
+
+            # Parse the new "Fade" reasons
+            if "ALLOW_LONG_ONLY" in chop_reason:
+                allowed_chop_side = "LONG"
+                logging.info(f"⚠️ CHOP RESTRICTION: {chop_reason}")
+
+            elif "ALLOW_SHORT_ONLY" in chop_reason:
+                allowed_chop_side = "SHORT"
+                logging.info(f"⚠️ CHOP RESTRICTION: {chop_reason}")
+
+            elif is_choppy:
                 logging.info(f"⛔ TRADE BLOCKED: {chop_reason}")
                 time.sleep(2)
                 continue
@@ -1636,6 +1649,11 @@ def run_bot():
                         if signal:
                             strategy_results['checked'].append(strat_name)
 
+                            # Enforce HTF range fade directional restriction
+                            if allowed_chop_side is not None and signal['side'] != allowed_chop_side:
+                                logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
+                                continue
+
                             # Enhanced event logging: Strategy signal generated
                             event_logger.log_strategy_signal(
                                 strategy_name=signal.get('strategy', strat_name),
@@ -1698,12 +1716,21 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("MemorySR", signal['side'], True)
 
+                            # Context for Chop Filter
+                            trend_blocked_ctx, trend_reason_ctx = trend_filter.should_block_trade(new_df, signal['side'])
+                            trend_state = ("Strong Bearish" if (trend_reason_ctx and "Bearish" in trend_reason_ctx)
+                                           else ("Strong Bullish" if (trend_reason_ctx and "Bullish" in trend_reason_ctx)
+                                                 else "NEUTRAL"))
+                            vol_regime, _, _ = volatility_filter.get_regime(new_df)
+
                             # Chop
                             daily_bias = rejection_filter.prev_day_pm_bias
                             chop_blocked, chop_reason = chop_filter.should_block_trade(
                                 signal['side'],
                                 daily_bias,
-                                current_price
+                                current_price,
+                                trend_state=trend_state,
+                                vol_regime=vol_regime
                             )
                             if chop_blocked:
                                 event_logger.log_filter_check("ChopFilter", signal['side'], False, chop_reason)
@@ -1720,7 +1747,8 @@ def run_bot():
                                 event_logger.log_filter_check("ExtensionFilter", signal['side'], True)
 
                             # Trend Filter
-                            trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
+                            trend_blocked = trend_blocked_ctx
+                            trend_reason = trend_reason_ctx
                             if trend_blocked:
                                 event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason)
                                 continue
@@ -1781,7 +1809,7 @@ def run_bot():
                                     'entry_bar': bar_count,
                                     'bars_held': 0,
                                     'tp_dist': signal['tp_dist'],
-                                    'size': 1,  # Fixed contract size
+                                    'size': 5,  # Fixed contract size
                                     'stop_order_id': client._active_stop_order_id,  # Cached stop ID
                                     'current_stop_price': initial_stop,  # Track for trailing stop
                                     'break_even_triggered': False
@@ -1810,6 +1838,11 @@ def run_bot():
                         
                         if signal:
                             strategy_results['checked'].append(strat_name)
+
+                            # Enforce HTF range fade directional restriction
+                            if allowed_chop_side is not None and signal['side'] != allowed_chop_side:
+                                logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
+                                continue
 
                             # Enhanced event logging: Strategy signal generated
                             event_logger.log_strategy_signal(
@@ -1865,12 +1898,20 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("StructureBlocker", signal['side'], True)
 
+                            trend_blocked_ctx, trend_reason_ctx = trend_filter.should_block_trade(new_df, signal['side'])
+                            trend_state = ("Strong Bearish" if (trend_reason_ctx and "Bearish" in trend_reason_ctx)
+                                           else ("Strong Bullish" if (trend_reason_ctx and "Bullish" in trend_reason_ctx)
+                                                 else "NEUTRAL"))
+                            vol_regime, _, _ = volatility_filter.get_regime(new_df)
+
                             # Chop (Except DynamicEngine)
                             if signal['strategy'] not in ["DynamicEngine"]:
                                 chop_blocked, chop_reason = chop_filter.should_block_trade(
                                     signal['side'],
                                     rejection_filter.prev_day_pm_bias,
-                                    current_price
+                                    current_price,
+                                    trend_state=trend_state,
+                                    vol_regime=vol_regime
                                 )
                                 if chop_blocked:
                                     event_logger.log_filter_check("ChopFilter", signal['side'], False, chop_reason)
@@ -1884,11 +1925,12 @@ def run_bot():
                                 if ext_blocked:
                                     event_logger.log_filter_check("ExtensionFilter", signal['side'], False, ext_reason)
                                     continue
-                                else:
-                                    event_logger.log_filter_check("ExtensionFilter", signal['side'], True)
+                            else:
+                                event_logger.log_filter_check("ExtensionFilter", signal['side'], True)
 
                             # Trend Filter
-                            trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
+                            trend_blocked = trend_blocked_ctx
+                            trend_reason = trend_reason_ctx
                             if trend_blocked:
                                 event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason)
                                 continue
@@ -1949,7 +1991,7 @@ def run_bot():
                                     'entry_bar': bar_count,
                                     'bars_held': 0,
                                     'tp_dist': signal['tp_dist'],
-                                    'size': 1,  # Fixed contract size
+                                    'size': 5,  # Fixed contract size
                                     'stop_order_id': client._active_stop_order_id,  # Cached stop ID
                                     'current_stop_price': initial_stop,  # Track for trailing stop
                                     'break_even_triggered': False
@@ -1967,6 +2009,10 @@ def run_bot():
                             pending['bar_count'] += 1
                             if pending['bar_count'] >= 1:
                                 sig = pending['signal']
+                                if allowed_chop_side is not None and sig['side'] != allowed_chop_side:
+                                    logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {sig['side']} vs Allowed {allowed_chop_side}")
+                                    del pending_loose_signals[s_name]
+                                    continue
                                 # Re-check filters
                                 rej_blocked, rej_reason = rejection_filter.should_block_trade(sig['side'])
                                 if rej_blocked:
@@ -2015,10 +2061,18 @@ def run_bot():
                                     event_logger.log_filter_check("MemorySR", sig['side'], True)
                                 # =====================================
 
+                                trend_blocked_ctx, trend_reason_ctx = trend_filter.should_block_trade(new_df, sig['side'])
+                                trend_state = ("Strong Bearish" if (trend_reason_ctx and "Bearish" in trend_reason_ctx)
+                                               else ("Strong Bullish" if (trend_reason_ctx and "Bullish" in trend_reason_ctx)
+                                                     else "NEUTRAL"))
+                                vol_regime, _, _ = volatility_filter.get_regime(new_df)
+
                                 chop_blocked, chop_reason = chop_filter.should_block_trade(
                                     sig['side'],
                                     rejection_filter.prev_day_pm_bias,
-                                    current_price
+                                    current_price,
+                                    trend_state=trend_state,
+                                    vol_regime=vol_regime
                                 )
                                 if chop_blocked:
                                     event_logger.log_filter_check("ChopFilter", sig['side'], False, chop_reason)
@@ -2033,7 +2087,8 @@ def run_bot():
                                 else:
                                     event_logger.log_filter_check("ExtensionFilter", sig['side'], True)
 
-                                trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, sig['side'])
+                                trend_blocked = trend_blocked_ctx
+                                trend_reason = trend_reason_ctx
                                 if trend_blocked:
                                     event_logger.log_filter_check("TrendFilter", sig['side'], False, trend_reason)
                                     del pending_loose_signals[s_name]; continue
@@ -2084,7 +2139,7 @@ def run_bot():
                                         'entry_bar': bar_count,
                                         'bars_held': 0,
                                         'tp_dist': sig['tp_dist'],
-                                        'size': 1,
+                                        'size': 5,
                                         'stop_order_id': client._active_stop_order_id,
                                         'current_stop_price': initial_stop,  # Track for trailing stop
                                         'break_even_triggered': False
@@ -2101,6 +2156,9 @@ def run_bot():
                                     signal = strat.on_bar(new_df)
                                     s_name = strat.__class__.__name__
                                     if signal and s_name not in pending_loose_signals:
+                                        if allowed_chop_side is not None and signal['side'] != allowed_chop_side:
+                                            logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
+                                            continue
                                         # Enhanced event logging: Strategy signal generated
                                         event_logger.log_strategy_signal(
                                             strategy_name=signal.get('strategy', s_name),
@@ -2146,10 +2204,18 @@ def run_bot():
                                             event_logger.log_filter_check("MemorySR", signal['side'], True)
                                         # =====================================
 
+                                        trend_blocked_ctx, trend_reason_ctx = trend_filter.should_block_trade(new_df, signal['side'])
+                                        trend_state = ("Strong Bearish" if (trend_reason_ctx and "Bearish" in trend_reason_ctx)
+                                                       else ("Strong Bullish" if (trend_reason_ctx and "Bullish" in trend_reason_ctx)
+                                                             else "NEUTRAL"))
+                                        vol_regime, _, _ = volatility_filter.get_regime(new_df)
+
                                         chop_blocked, chop_reason = chop_filter.should_block_trade(
                                             signal['side'],
                                             rejection_filter.prev_day_pm_bias,
-                                            current_price
+                                            current_price,
+                                            trend_state=trend_state,
+                                            vol_regime=vol_regime
                                         )
                                         if chop_blocked:
                                             event_logger.log_filter_check("ChopFilter", signal['side'], False, chop_reason)
@@ -2164,7 +2230,8 @@ def run_bot():
                                         else:
                                             event_logger.log_filter_check("ExtensionFilter", signal['side'], True)
 
-                                        trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
+                                        trend_blocked = trend_blocked_ctx
+                                        trend_reason = trend_reason_ctx
                                         if trend_blocked:
                                             event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason)
                                             continue
