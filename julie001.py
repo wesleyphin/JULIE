@@ -1395,6 +1395,14 @@ def run_bot():
                 data_backfilled = True
                 logging.info("✅ State restored from history.")
 
+            # Heartbeat (runs even during chop)
+            current_price = new_df.iloc[-1]['close']
+            if not hasattr(client, '_heartbeat_counter'):
+                client._heartbeat_counter = 0
+            client._heartbeat_counter += 1
+            if client._heartbeat_counter % 30 == 0:
+                print(f"💓 Heartbeat: {datetime.datetime.now().strftime('%H:%M:%S')} | Price: {current_price:.2f}")
+
             # === DYNAMIC CHOP CHECK (Pass Local DFs) ===
             # We pass the locally generated df_60m so the analyzer can use it for breakout shift logic
             is_choppy, chop_reason = chop_analyzer.check_market_state(new_df, df_60m_current=df_60m)
@@ -1427,16 +1435,8 @@ def run_bot():
                     logging.info("✅ CHOP RESTRICTION CLEARED")
                     last_chop_reason = None
 
-            # Heartbeat
-            current_price = new_df.iloc[-1]['close']
             current_time = new_df.index[-1]
             now_ts = time.time()
-            
-            if not hasattr(client, '_heartbeat_counter'):
-                client._heartbeat_counter = 0
-            client._heartbeat_counter += 1
-            if client._heartbeat_counter % 30 == 0:
-                print(f"💓 Heartbeat: {datetime.datetime.now().strftime('%H:%M:%S')} | Price: {current_price:.2f}")
 
             # === UPDATE HTF FVG MEMORY (THROTTLED) ===
             # Only update memory once every 60 seconds to save API calls.
