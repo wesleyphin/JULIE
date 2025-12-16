@@ -41,7 +41,7 @@ class NewsFilter:
 
         # 2. Check Specific Calendar Events
         for year, month, day, h, m, duration in self.calendar_blackouts:
-            event_start = self.et.localize(datetime.datetime(year, month, day, h, m))
+            event_start = datetime.datetime(year, month, day, h, m, tzinfo=self.et)
             # Block 5 mins before event
             block_start = event_start - datetime.timedelta(minutes=5)
             block_end = event_start + datetime.timedelta(minutes=duration)
