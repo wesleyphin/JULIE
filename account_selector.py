@@ -85,8 +85,8 @@ class AccountSelector:
 
         # Add individual accounts
         for idx, account in enumerate(accounts, start=1):
-            account_name = account.get('name', 'Unknown')
-            account_id = account.get('id', 'N/A')
+            account_name = str(account.get('name', 'Unknown'))
+            account_id = str(account.get('id', 'N/A'))
 
             table.add_row(
                 f"[bold]{idx}[/bold]",
