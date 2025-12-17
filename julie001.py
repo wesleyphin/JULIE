@@ -245,6 +245,16 @@ def run_bot():
         logging.warning("⚠️ Startup fetch returned empty data (MES). Bot will attempt to build history in loop.")
         master_df = pd.DataFrame()
 
+    # --- 10/10 UPGRADE: DYNAMIC VOLATILITY CALIBRATION ---
+    # Use the 20,000 bars (approx 2 weeks) to recalibrate the Volatility Map
+    # This ensures "High Volatility" means "High relative to TODAY", not 2024.
+    if not master_df.empty:
+        try:
+            volatility_filter.calibrate(master_df)
+        except Exception as e:
+            logging.error(f"❌ Calibration Failed: {e} (Continuing with static thresholds)")
+    # --- END CALIBRATION ---
+
     if master_mnq_df.empty:
         logging.warning("⚠️ Startup fetch returned empty data (MNQ). Bot will attempt to build history in loop.")
         master_mnq_df = pd.DataFrame()

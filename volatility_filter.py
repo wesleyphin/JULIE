@@ -554,8 +554,78 @@ class HierarchicalVolatilityFilter:
                    f"TP:{adjustments['base_tp']:.2f}→{adjustments['tp_dist']:.2f}")
         else:
             msg += " | No SL/TP change (volatility within normal band)"
-        
+
         logging.info(msg)
+
+    def calibrate(self, df: pd.DataFrame, min_samples: int = 30):
+        """
+        10/10 UPGRADE: Rolling Window Calibration Engine.
+        Recalculates p10/p25/p75 thresholds based on recent live data.
+
+        Args:
+            df: DataFrame containing recent history (e.g., last 5,000-20,000 bars)
+            min_samples: Minimum bars required in a specific time-bucket to trigger an update
+        """
+        if len(df) < 500:
+            logging.warning("⚠️ Volatility Calibration Skipped: Insufficient history (<500 bars)")
+            return
+
+        logging.info(f"⚙️ STARTUP CALIBRATION: Analyzing {len(df)} bars to adjust volatility map...")
+
+        # 1. Prepare Data
+        # We perform the same math as the filter uses live
+        df_cal = df.copy()
+        df_cal['returns'] = df_cal['close'].pct_change()
+        df_cal['std'] = df_cal['returns'].rolling(self.std_window).std()
+        df_cal = df_cal.dropna(subset=['std'])  # Drop the first 20 NaN bars
+
+        # 2. Tag Data with Hierarchy Keys
+        # We apply the exact same key generation logic (Year_Week_Day_Session)
+        # Optimization: We iterate once to build keys
+        hierarchy_keys = []
+        for ts in df_cal.index:
+            hierarchy_keys.append(self.get_hierarchy_key(ts))
+
+        df_cal['hierarchy_key'] = hierarchy_keys
+
+        # 3. Group & Calculate Distributions
+        grouped = df_cal.groupby('hierarchy_key')['std']
+
+        updates = 0
+        skipped = 0
+
+        for key, group in grouped:
+            # Only update if we have statistically significant recent data for this specific slot
+            if len(group) < min_samples:
+                skipped += 1
+                continue
+
+            # Calculate Live Percentiles
+            new_p10 = float(group.quantile(0.10))
+            new_p25 = float(group.quantile(0.25))
+            new_med = float(group.median())
+            new_p75 = float(group.quantile(0.75))
+
+            # 4. Overwrite the Memory Map
+            # Check if this key exists in our static map, or if it's new
+            # If it exists, we overwrite it. If not, we create it.
+            if key in VOLATILITY_HIERARCHY:
+                # Log significant drifts (>20% change) for debugging
+                old_p75 = VOLATILITY_HIERARCHY[key]['p75']
+                drift = abs(new_p75 - old_p75) / old_p75
+                if drift > 0.20:
+                    logging.info(f"   🌊 DRIFT DETECTED [{key}]: p75 shifted {old_p75:.6f} -> {new_p75:.6f} ({drift:.1%})")
+
+            # ATOMIC UPDATE
+            VOLATILITY_HIERARCHY[key] = {
+                "p10": new_p10,
+                "p25": new_p25,
+                "median": new_med,
+                "p75": new_p75
+            }
+            updates += 1
+
+        logging.info(f"✅ CALIBRATION COMPLETE: Updated {updates} regime buckets based on recent market conditions.")
 
 
 # Global instance
