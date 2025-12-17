@@ -1156,6 +1156,26 @@ def run_bot():
                             pending['bar_count'] += 1
                             if pending['bar_count'] >= 1:
                                 sig = pending['signal']
+
+                                # ==========================================
+                                # 🧠 GEMINI 3.0: APPLY OPTIMIZATION
+                                # ==========================================
+                                # Apply the active session multipliers from CONFIG
+                                # If Gemini is disabled or failed, these default to 1.0
+                                sl_mult = CONFIG.get('DYNAMIC_SL_MULTIPLIER', 1.0)
+                                tp_mult = CONFIG.get('DYNAMIC_TP_MULTIPLIER', 1.0)
+
+                                if sl_mult != 1.0 or tp_mult != 1.0:
+                                    old_sl = sig.get('sl_dist', 4.0)
+                                    old_tp = sig.get('tp_dist', 6.0)
+
+                                    # Apply Multipliers
+                                    sig['sl_dist'] = old_sl * sl_mult
+                                    sig['tp_dist'] = old_tp * tp_mult
+
+                                    logging.info(f"🧠 GEMINI OPTIMIZED: {s_name} | SL: {old_sl:.2f}->{sig['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{sig['tp_dist']:.2f} (x{tp_mult})")
+                                # ==========================================
+
                                 if allowed_chop_side is not None and sig['side'] != allowed_chop_side:
                                     logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {sig['side']} vs Allowed {allowed_chop_side}")
                                     del pending_loose_signals[s_name]
@@ -1321,6 +1341,25 @@ def run_bot():
                                     signal = strat.on_bar(new_df)
                                     s_name = strat.__class__.__name__
                                     if signal and s_name not in pending_loose_signals:
+                                        # ==========================================
+                                        # 🧠 GEMINI 3.0: APPLY OPTIMIZATION
+                                        # ==========================================
+                                        # Apply the active session multipliers from CONFIG
+                                        # If Gemini is disabled or failed, these default to 1.0
+                                        sl_mult = CONFIG.get('DYNAMIC_SL_MULTIPLIER', 1.0)
+                                        tp_mult = CONFIG.get('DYNAMIC_TP_MULTIPLIER', 1.0)
+
+                                        if sl_mult != 1.0 or tp_mult != 1.0:
+                                            old_sl = signal.get('sl_dist', 4.0)
+                                            old_tp = signal.get('tp_dist', 6.0)
+
+                                            # Apply Multipliers
+                                            signal['sl_dist'] = old_sl * sl_mult
+                                            signal['tp_dist'] = old_tp * tp_mult
+
+                                            logging.info(f"🧠 GEMINI OPTIMIZED: {s_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
+                                        # ==========================================
+
                                         if allowed_chop_side is not None and signal['side'] != allowed_chop_side:
                                             logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
                                             continue
