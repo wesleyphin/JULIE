@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-JULIE Trading Bot - Standalone Terminal Monitor
+Julie-UI - Beautiful Real-Time Trading Monitor
 Displays real-time signals, positions, and market data without modifying the main bot
 """
 
@@ -13,6 +13,7 @@ from pathlib import Path
 from threading import Thread
 from config import CONFIG
 from terminal_ui import get_ui
+from account_selector import select_account_interactive
 
 
 def get_current_session(dt):
@@ -145,9 +146,11 @@ class APIMonitor:
         self.session = requests.Session()
         self.token = None
         self.base_url = CONFIG['REST_BASE_URL']
-        self.account_id = None
+        self.account_ids = []  # Support multiple accounts
+        self.account_id = None  # Primary account for backward compatibility
         self.contract_id = None
         self.et = ZoneInfo('America/New_York')
+        self.monitor_all = False  # Flag to indicate if monitoring all accounts
 
     def login(self):
         """Authenticate with the API"""
@@ -179,34 +182,38 @@ class APIMonitor:
             return False
 
     def fetch_account_id(self):
-        """Get the account ID (using first active account if not hardcoded)"""
-        if CONFIG.get('ACCOUNT_ID'):
-            self.account_id = CONFIG['ACCOUNT_ID']
-            self.ui.add_event("API", f"Using account: {self.account_id}")
+        """Get the account ID using beautiful interactive selection UI"""
+        # Use the beautiful account selector
+        self.ui.add_event("API", "Opening account selection interface...")
+
+        selected = select_account_interactive(self.session)
+
+        if selected is None:
+            self.ui.add_event("ERROR", "Account selection cancelled")
+            return False
+
+        # Handle list of accounts (Monitor All)
+        if isinstance(selected, list):
+            self.account_ids = selected
+            self.account_id = selected[0] if selected else None  # Use first as primary
+            self.monitor_all = True
+            self.ui.add_event("API", f"✓ Monitoring ALL {len(selected)} accounts")
+            self.ui.update_account_info({
+                'account_id': f"{len(selected)} accounts",
+                'monitor_all': True
+            })
             return True
 
-        url = f"{self.base_url}/api/Account/search"
-        payload = {"onlyActiveAccounts": True}
-
-        try:
-            resp = self.session.post(url, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-
-            if 'accounts' in data and len(data['accounts']) > 0:
-                # Use first account
-                self.account_id = data['accounts'][0].get('id')
-                account_name = data['accounts'][0].get('name', 'Unknown')
-                self.ui.add_event("API", f"✓ Account: {account_name}")
-                self.ui.update_account_info({'account_id': self.account_id})
-                return True
-            else:
-                self.ui.add_event("ERROR", "No active accounts found")
-                return False
-
-        except Exception as e:
-            self.ui.add_event("ERROR", f"Failed to fetch account: {e}")
-            return False
+        # Handle single account
+        self.account_ids = [selected]
+        self.account_id = selected
+        self.monitor_all = False
+        self.ui.add_event("API", f"✓ Monitoring account: {selected}")
+        self.ui.update_account_info({
+            'account_id': selected,
+            'monitor_all': False
+        })
+        return True
 
     def fetch_contract_id(self):
         """Get the contract ID for current symbol"""
@@ -246,12 +253,34 @@ class APIMonitor:
             return False
 
     def fetch_position(self):
-        """Fetch current position from API"""
-        if not self.account_id:
+        """Fetch current position from API (supports multiple accounts)"""
+        if not self.account_ids:
+            return None
+
+        # If monitoring single account, use simple fetch
+        if not self.monitor_all:
+            return self._fetch_single_account_position(self.account_id)
+
+        # If monitoring all accounts, aggregate positions
+        all_positions = []
+        for acc_id in self.account_ids:
+            pos = self._fetch_single_account_position(acc_id)
+            if pos and pos.get('side') is not None:
+                all_positions.append(pos)
+
+        # For now, return first active position (can be enhanced to show all)
+        if all_positions:
+            return all_positions[0]
+
+        return {'side': None, 'size': 0, 'avg_price': 0.0}
+
+    def _fetch_single_account_position(self, account_id):
+        """Fetch position for a single account"""
+        if not account_id:
             return None
 
         url = f"{self.base_url}/api/Position/search"
-        payload = {"accountId": self.account_id}
+        payload = {"accountId": account_id}
 
         try:
             resp = self.session.post(url, json=payload, timeout=5)
@@ -269,9 +298,9 @@ class APIMonitor:
                         size = pos.get('size', 0)
                         avg_price = pos.get('averagePrice', 0.0)
                         if size > 0:
-                            return {'side': 'LONG', 'size': size, 'avg_price': avg_price}
+                            return {'side': 'LONG', 'size': size, 'avg_price': avg_price, 'account_id': account_id}
                         elif size < 0:
-                            return {'side': 'SHORT', 'size': abs(size), 'avg_price': avg_price}
+                            return {'side': 'SHORT', 'size': abs(size), 'avg_price': avg_price, 'account_id': account_id}
 
                 return {'side': None, 'size': 0, 'avg_price': 0.0}
 
@@ -319,7 +348,7 @@ class APIMonitor:
 def main():
     """Main monitoring application"""
     print("=" * 60)
-    print("JULIE TRADING BOT - TERMINAL MONITOR")
+    print("JULIE-UI - REAL-TIME TRADING MONITOR")
     print("Real-time display of signals, positions, and market data")
     print("=" * 60)
     print()
@@ -332,7 +361,7 @@ def main():
     })
     ui.start(refresh_rate=1.0)
 
-    ui.add_event("SYSTEM", "JULIE Monitor starting...")
+    ui.add_event("SYSTEM", "Julie-UI starting...")
     ui.add_event("SYSTEM", f"Target: {CONFIG.get('TARGET_SYMBOL', 'MES')}")
 
     # Initialize API monitor

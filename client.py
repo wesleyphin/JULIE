@@ -197,7 +197,7 @@ class ProjectXClient:
 
     def fetch_accounts(self) -> Optional[int]:
         """
-        Retrieve active accounts and PROMPT USER for selection.
+        Retrieve active accounts and PROMPT USER for selection using beautiful UI.
         """
         # If a specific ID is hardcoded in CONFIG, use it automatically (good for automation)
         if CONFIG.get('ACCOUNT_ID'):
@@ -205,6 +205,42 @@ class ProjectXClient:
             logging.info(f"Using Hardcoded Account ID from Config: {self.account_id}")
             return self.account_id
 
+        try:
+            # Try to use the beautiful account selector UI
+            from account_selector import select_account_interactive
+
+            selected = select_account_interactive(self.session)
+
+            if selected is None:
+                logging.warning("Account selection cancelled")
+                return None
+
+            # Handle single account selection (julie001 doesn't support multi-account)
+            if isinstance(selected, list):
+                # User selected "Monitor All" but julie001 can only trade one account
+                print("\n⚠️  Note: Main trading bot can only trade ONE account at a time.")
+                print("    Using the first account from your selection.\n")
+                self.account_id = selected[0] if selected else None
+            else:
+                self.account_id = selected
+
+            if self.account_id:
+                logging.info(f"User selected account ID: {self.account_id}")
+                return self.account_id
+            else:
+                logging.warning("No account selected")
+                return None
+
+        except ImportError:
+            # Fallback to simple text-based selection if account_selector not available
+            logging.warning("Beautiful UI not available, using simple selection")
+            return self._fetch_accounts_simple()
+        except Exception as e:
+            logging.error(f"Error in account selection: {e}")
+            return self._fetch_accounts_simple()
+
+    def _fetch_accounts_simple(self) -> Optional[int]:
+        """Fallback simple text-based account selection"""
         url = f"{self.base_url}/api/Account/search"
         payload = {"onlyActiveAccounts": True}
 
