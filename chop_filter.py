@@ -387,6 +387,10 @@ class ChopFilter:
         # NEW: Time decay tracking - "The longer the base, the higher in space"
         self.bars_in_chop = 0  # How many bars we've been consolidating
 
+        # NEW: Volatility Scalar - Baseline ATR for threshold adjustment
+        # Average 5m ATR for MES (2023-2025 Reference Value)
+        self.baseline_atr = 4.50
+
         # State
         self.state = 'NORMAL'
         self.current_threshold = None
@@ -588,29 +592,58 @@ class ChopFilter:
         
         return 'PENDING'
     
-    def update(self, high: float, low: float, close: float, dt: datetime) -> str:
+    def update(self, high: float, low: float, close: float, dt: datetime, current_atr: float = None) -> str:
         """
         Update filter with new bar data.
         Returns current state.
+
+        Args:
+            high: Bar high price
+            low: Bar low price
+            close: Bar close price
+            dt: Bar datetime
+            current_atr: Current ATR value for volatility scaling (optional)
         """
         self.highs.append(high)
         self.lows.append(low)
         self.closes.append(close)
         self._update_swings(high, low)
-        
+
         if len(self.highs) < self.lookback:
             return 'NORMAL'
-        
+
         # Calculate current range
         range_high = max(self.highs)
         range_low = min(self.lows)
         current_range = range_high - range_low
-        
-        # Get thresholds
-        thresholds = self._get_thresholds(dt)
-        self.current_threshold = thresholds
-        chop_thresh = thresholds['chop']
-        breakout_thresh = thresholds['breakout']
+
+        # ==========================================
+        # VOLATILITY SCALAR ("Accordion Effect")
+        # ==========================================
+        # If ATR is missing, default to 1.0 (no change)
+        vol_scalar = 1.0
+        if current_atr and current_atr > 0:
+            # We use sqrt to damp the scalar so it doesn't swing too wildly
+            # e.g., ATR doubles (4.5 -> 9.0) => scalar = sqrt(2) ≈ 1.41
+            vol_scalar = (current_atr / self.baseline_atr) ** 0.5
+            # Clamp to reasonable limits (0.8x to 2.0x)
+            vol_scalar = max(0.8, min(vol_scalar, 2.0))
+
+        # Get base thresholds
+        base_thresholds = self._get_thresholds(dt)
+
+        # Apply scalar - If volatility is high, we require a wider range to confirm breakout
+        chop_thresh = base_thresholds['chop'] * vol_scalar
+        breakout_thresh = base_thresholds['breakout'] * vol_scalar
+
+        # Update current_threshold dict for logging/debugging
+        self.current_threshold = {
+            'chop': chop_thresh,
+            'breakout': breakout_thresh,
+            'median': base_thresholds.get('median', 0) * vol_scalar,
+            'scalar': vol_scalar,
+            'current_atr': current_atr
+        }
         
         # State machine
         if self.state == 'NORMAL':
@@ -825,6 +858,10 @@ class ChopFilter:
     
     def get_status(self) -> dict:
         """Get current filter status for logging."""
+        # Extract scalar from threshold dict if available
+        vol_scalar = self.current_threshold.get('scalar', 1.0) if self.current_threshold else 1.0
+        current_atr = self.current_threshold.get('current_atr') if self.current_threshold else None
+
         return {
             'state': self.state,
             'chop_high': self.chop_high,
@@ -834,8 +871,11 @@ class ChopFilter:
             'threshold': self.current_threshold,
             'swing_highs': [s[0] for s in self.swing_highs[-3:]] if self.swing_highs else [],
             'swing_lows': [s[0] for s in self.swing_lows[-3:]] if self.swing_lows else [],
-            'bars_in_chop': self.bars_in_chop,  # NEW: Time decay tracking
+            'bars_in_chop': self.bars_in_chop,
             'max_bars_in_chop': self.max_bars_in_chop,
+            'vol_scalar': vol_scalar,  # NEW: Volatility scalar for debugging
+            'current_atr': current_atr,
+            'baseline_atr': self.baseline_atr,
         }
     
     def reset(self):

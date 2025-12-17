@@ -15,6 +15,26 @@ class GeminiSessionOptimizer:
         self.headers = {"Content-Type": "application/json"}
         self.csv_path = 'es_2023_2024_2025.csv'
 
+    def _slice_dataframe_by_session(self, df, session_name):
+        """
+        Returns a subset of the dataframe containing ONLY rows that fall
+        within the specified session's trading hours.
+        This enables "like-for-like" comparison of session behavior.
+        """
+        session_hours = CONFIG.get('SESSIONS', {}).get(session_name, {}).get('HOURS', [])
+
+        if not session_hours or df.empty:
+            return df  # Fallback to full df
+
+        # Filter: Keep only rows where the hour is in the session definition
+        # Ensure df index is DatetimeIndex
+        if not isinstance(df.index, pd.DatetimeIndex):
+            logging.warning("DataFrame index is not DatetimeIndex, cannot slice by session")
+            return df
+
+        mask = df.index.hour.isin(session_hours)
+        return df[mask]
+
     def _load_historical_data(self):
         """Loads and cleans the historical CSV."""
         try:
@@ -111,75 +131,107 @@ class GeminiSessionOptimizer:
 
     def optimize_new_session(self, master_df, session_name, events_data, base_sl, base_tp):
         """
-        Main Optimization Routine with Advanced Metrics.
+        Main Optimization Routine with Session-Aligned Metrics.
+        Uses "like-for-like" comparison: analyzes only the same session hours
+        from the past 13 days for accurate context.
         """
-        logging.info(f"🧠 Gemini 3.0: Analyzing Market Structure & Sentiment...")
+        logging.info(f"🧠 Gemini 3.0: Analyzing Session-Aligned Context for {session_name}...")
 
-        # --- 1. PROCESS CURRENT DATA ---
-        if master_df.empty: return None
-
-        # Last 13 Days Window
-        last_time = master_df.index.max()
-        start_time_13d = last_time - datetime.timedelta(days=13)
-        current_window = master_df[master_df.index >= start_time_13d]
-
-        if current_window.empty:
-            logging.warning("Insufficient data for window analysis")
+        if master_df.empty:
             return None
 
-        # A. Basic Volatility
-        avg_range = round((current_window['high'] - current_window['low']).mean(), 2)
+        # --- STEP 1: TIME SLICING (Session-Aligned Analysis) ---
+        # Instead of looking at continuous time, we only look at "Like-for-Like" sessions
+        # from the last ~14 days (approx 20k bars).
+        session_aligned_df = self._slice_dataframe_by_session(master_df, session_name)
 
-        # B. Advanced Trend Strength (ADX)
-        # Resample to 15min for cleaner ADX calculation
-        df_15m = current_window.resample('15min').agg({'high':'max', 'low':'min', 'close':'last'}).dropna()
-        adx_score = self._calculate_adx(df_15m)
+        if session_aligned_df.empty:
+            logging.warning(f"No history found for session {session_name}")
+            return None
+
+        logging.info(f"📊 Session-aligned data: {len(session_aligned_df)} bars for {session_name}")
+
+        # --- STEP 2: CALCULATE METRICS ON SESSION-ALIGNED DATA ---
+
+        # A. Volatility (Average range of THIS specific session over last 13 days)
+        # Resample by day first to get daily session ranges
+        daily_session_stats = session_aligned_df.resample('D').agg({
+            'high': 'max',
+            'low': 'min',
+            'volume': 'sum'
+        }).dropna()
+
+        # Calculate average range for this session type
+        daily_session_stats['range'] = daily_session_stats['high'] - daily_session_stats['low']
+        avg_session_range = round(daily_session_stats['range'].mean(), 2) if not daily_session_stats.empty else 0
+        num_session_days = len(daily_session_stats)
+
+        # B. Volume Profile (Relative Volume for this session)
+        avg_session_volume = int(daily_session_stats['volume'].mean()) if not daily_session_stats.empty else 0
+
+        # C. ADX on session-aligned data (reflects session-specific momentum)
+        df_15m = session_aligned_df.resample('15min').agg({
+            'high': 'max',
+            'low': 'min',
+            'close': 'last'
+        }).dropna()
+        adx_score = self._calculate_adx(df_15m) if not df_15m.empty else 0
         trend_status = "TRENDING" if adx_score > 25 else "CHOPPY/RANGING"
 
-        # C. Market Profile (Value Area)
-        profile = self._calculate_market_profile(current_window)
+        # D. Market Profile on session-aligned data
+        profile = self._calculate_market_profile(session_aligned_df)
         curr_price = profile.get('current_price', 0)
         vah = profile.get('VAH', 0)
         val = profile.get('VAL', 0)
 
         profile_status = "INSIDE VALUE (Balance)"
-        if curr_price > vah: profile_status = "ABOVE VALUE (Bullish Imbalance)"
-        elif curr_price < val: profile_status = "BELOW VALUE (Bearish Imbalance)"
+        if curr_price > vah:
+            profile_status = "ABOVE VALUE (Bullish Imbalance)"
+        elif curr_price < val:
+            profile_status = "BELOW VALUE (Bearish Imbalance)"
 
-        # --- 2. HISTORICAL CONTEXT ---
+        # --- STEP 3: HISTORICAL CONTEXT (Same Session from CSV) ---
         hist_df = self._load_historical_data()
+        hist_session_range = "N/A"
         hist_context = "Historical Data Unavailable"
-        if hist_df is not None:
-            mask = (
-                (hist_df.index.month == last_time.month) &
-                (hist_df.index.day >= start_time_13d.day) &
-                (hist_df.index.day <= last_time.day)
-            )
-            hist_window = hist_df[mask]
-            if not hist_window.empty:
-                hist_avg_range = round((hist_window['high'] - hist_window['low']).mean(), 2)
-                hist_context = f"Historical Avg Range: {hist_avg_range} pts"
 
-        # --- 3. CONSTRUCT ADVANCED PROMPT ---
+        if hist_df is not None:
+            # Slice historical data by same session hours
+            hist_session_df = self._slice_dataframe_by_session(hist_df, session_name)
+
+            if not hist_session_df.empty:
+                # Calculate historical session stats
+                hist_daily_stats = hist_session_df.resample('D').agg({
+                    'high': 'max',
+                    'low': 'min'
+                }).dropna()
+                hist_daily_stats['range'] = hist_daily_stats['high'] - hist_daily_stats['low']
+                hist_session_range = round(hist_daily_stats['range'].mean(), 2)
+                hist_context = f"{hist_session_range} pts (from {len(hist_daily_stats)} historical sessions)"
+
+        # --- STEP 4: CONSTRUCT ADVANCED PROMPT ---
         system_instruction = (
             f"You are a Quantitative Risk Manager optimizing for the {session_name} session. "
             "Use Market Structure (Value Area), Trend Strength (ADX), and News to adjust TP/SL.\n"
             "Rules:\n"
             "- High ADX (>30) + Imbalance: Widen TP significantly (Trend Following).\n"
             "- Low ADX (<20) + Inside Value: Tighten TP, Widen SL slightly (Mean Reversion).\n"
-            "- High Impact Events: Maximize SL (Volatility Protection)."
+            "- High Impact Events: Maximize SL (Volatility Protection).\n"
+            "- Compare recent session range to historical norm to detect expansion/contraction."
         )
 
         user_prompt = (
-            f"**SESSION: {session_name}**\n\n"
-            f"=== MARKET STRUCTURE (Last 13 Days) ===\n"
-            f"Trend Strength (ADX): {adx_score} ({trend_status})\n"
-            f"Market Profile: {profile_status}\n"
+            f"**OPTIMIZATION REQUEST FOR: {session_name}**\n\n"
+
+            f"=== SESSION CONTEXT (Vs. Past {num_session_days} {session_name} Sessions) ===\n"
+            f"Avg Session Range: {avg_session_range} pts\n"
+            f"Avg Session Volume: {avg_session_volume:,}\n"
+            f"Recent Trend (ADX on Session Data): {adx_score} ({trend_status})\n"
+            f"Current Market Profile: {profile_status}\n"
             f"Price Location: {curr_price} (VAH: {vah} | VAL: {val})\n\n"
 
-            f"=== VOLATILITY REGIME ===\n"
-            f"Current Avg Range: {avg_range} pts\n"
-            f"Historical Norm: {hist_context}\n\n"
+            f"=== HISTORICAL CONTEXT (2023-2025 Data) ===\n"
+            f"Long-term Avg {session_name} Range: {hist_context}\n\n"
 
             f"=== NEWS EVENTS ===\n"
             f"{events_data}\n\n"
@@ -187,14 +239,18 @@ class GeminiSessionOptimizer:
             f"=== BASE PARAMETERS ===\n"
             f"SL: {base_sl} | TP: {base_tp}\n\n"
 
-            "**OPTIMIZATION TASK:**\n"
+            "**TASK:**\n"
+            "Compare recent session behavior to historical norms. "
+            "If recent sessions are expanding (High Range/Vol), increase TP multiplier. "
+            "If contracting (Chop), decrease TP multiplier.\n\n"
+
             "Output STRICT JSON:\n"
             "{\n"
-            '  "session": "' + session_name + '",\n'
+            f'  "session": "{session_name}",\n'
             '  "regime": "TREND" or "RANGE" or "BREAKOUT",\n'
             '  "sl_multiplier": number (e.g. 1.1),\n'
             '  "tp_multiplier": number (e.g. 1.5),\n'
-            '  "reasoning": "Explain using ADX and Value Area"\n'
+            '  "reasoning": "Explain using ADX, Value Area, and Range comparison"\n'
             "}"
         )
 
