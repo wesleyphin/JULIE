@@ -327,13 +327,58 @@ def run_bot():
                     base_sl = session_cfg.get('SL', 4.0)
                     base_tp = session_cfg.get('TP', 8.0)
 
-                    # 3. Call Gemini
+                    # --- NEW: Generate Structure Context String ---
+                    structure_price = master_df.iloc[-1]['close'] if not master_df.empty else 0
+
+                    # 2a. Get Memory S/R (Nearest 2 levels)
+                    nearest_supports = sorted(
+                        [s for s in memory_sr.supports if s < structure_price],
+                        key=lambda x: structure_price - x
+                    )[:2]
+                    nearest_resistances = sorted(
+                        [r for r in memory_sr.resistances if r > structure_price],
+                        key=lambda x: x - structure_price
+                    )[:2]
+
+                    sr_str = f"Current Price: {structure_price:.2f}\n"
+                    sr_str += f"Nearest Support (Memory): {nearest_supports}\n"
+                    sr_str += f"Nearest Resistance (Memory): {nearest_resistances}\n"
+
+                    # 2b. Get HTF FVGs (Active Memories)
+                    active_fvgs = htf_fvg_filter.memory
+                    fvg_str = "Active HTF FVGs:\n"
+                    if active_fvgs:
+                        for fvg in active_fvgs:
+                            dist = 0
+                            status = "Away"
+                            if fvg['type'] == 'bullish':
+                                if fvg['bottom'] <= structure_price <= fvg['top']:
+                                    status = "INSIDE ZONE"
+                                elif structure_price > fvg['top']:
+                                    dist = structure_price - fvg['top']
+                                    status = f"{dist:.2f} pts above"
+                            else:
+                                if fvg['bottom'] <= structure_price <= fvg['top']:
+                                    status = "INSIDE ZONE"
+                                elif structure_price < fvg['bottom']:
+                                    dist = fvg['bottom'] - structure_price
+                                    status = f"{dist:.2f} pts below"
+
+                            fvg_str += f" - {fvg['tf']} {fvg['type'].upper()} ({fvg['bottom']:.2f}-{fvg['top']:.2f}): {status}\n"
+                    else:
+                        fvg_str += " - None nearby\n"
+
+                    full_structure_context = sr_str + "\n" + fvg_str
+                    # -----------------------------------------------
+
+                    # 3. Call Gemini with structure context
                     opt_result = optimizer.optimize_new_session(
                         master_df,
                         current_session_name,
                         events_str,
                         base_sl,
-                        base_tp
+                        base_tp,
+                        structure_context=full_structure_context
                     )
 
                     if opt_result:
