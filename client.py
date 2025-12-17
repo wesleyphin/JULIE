@@ -976,15 +976,7 @@ class ProjectXClient:
     def modify_stop_to_breakeven(self, stop_price: float, side: str, known_size: int = None, stop_order_id: int = None) -> bool:
         """
         Modify stop to a new price using the /api/Order/modify endpoint.
-
-        Args:
-            stop_price: Target stop price (already calculated by caller with buffer/trailing)
-            side: 'LONG' or 'SHORT'
-            known_size: Known position size (avoids API call)
-            stop_order_id: Known stop order ID (avoids search_orders call)
-
-        Returns:
-            True if stop was modified successfully
+        FIXED: Correctly reads stopPrice from order object to prevent false 'skipping'.
         """
         # 1. Determine position size
         position_size = known_size if known_size is not None else 1
@@ -995,8 +987,6 @@ class ProjectXClient:
 
         # 2. Use the stop price directly (caller handles buffer/trailing calculation)
         be_price = round(stop_price * 4) / 4  # Just ensure tick alignment
-
-        logging.info(f"TRAILING STOP: Moving Stop to {be_price:.2f} for {position_size} contracts")
 
         # 3. Find stop order ID (use cached if available)
         target_stop_id = stop_order_id or self._active_stop_order_id
@@ -1009,17 +999,26 @@ class ProjectXClient:
                 order_status = str(order.get('status', '')).lower()
                 if order_type in [4, 5] and order_status in ['working', 'pending', 'accepted', 'active']:
                     target_stop_id = order.get('orderId')
-                    current_stop = order.get('price', 0)
+
+                    # [FIX] Read stopPrice or triggerPrice, fall back to price, prevent 0
+                    current_stop = order.get('stopPrice') or order.get('triggerPrice') or order.get('price') or 0
 
                     # Smart check: Don't move if we are already better than BE
-                    if (side == 'LONG' and current_stop >= be_price) or (side == 'SHORT' and current_stop <= be_price):
-                        logging.info(f"Stop already at better price ({current_stop}). Skipping.")
-                        return True
+                    # Only check if we actually found a valid price > 0
+                    if current_stop > 0:
+                        if (side == 'LONG' and current_stop >= be_price):
+                            logging.info(f"Stop already at better price ({current_stop} >= {be_price}). Skipping.")
+                            return True
+                        elif (side == 'SHORT' and current_stop <= be_price):
+                            logging.info(f"Stop already at better price ({current_stop} <= {be_price}). Skipping.")
+                            return True
                     break
 
         if target_stop_id is None:
             logging.warning("No stop order found to modify. Placing new stop.")
             return self._place_breakeven_stop(be_price, side, position_size)
+
+        logging.info(f"TRAILING STOP: Moving Stop to {be_price:.2f} for {position_size} contracts (ID: {target_stop_id})")
 
         # 4. Use modify_order API instead of cancel+place
         if self.modify_order(target_stop_id, stop_price=be_price):
