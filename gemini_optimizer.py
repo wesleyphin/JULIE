@@ -129,11 +129,15 @@ class GeminiSessionOptimizer:
             "current_price": df.iloc[-1]['close']
         }
 
-    def optimize_new_session(self, master_df, session_name, events_data, base_sl, base_tp):
+    def optimize_new_session(self, master_df, session_name, events_data, base_sl, base_tp,
+                             structure_context=""):
         """
         Main Optimization Routine with Session-Aligned Metrics.
         Uses "like-for-like" comparison: analyzes only the same session hours
         from the past 13 days for accurate context.
+
+        Args:
+            structure_context: Textual summary of nearby S/R levels and FVGs
         """
         logging.info(f"🧠 Gemini 3.0: Analyzing Session-Aligned Context for {session_name}...")
 
@@ -211,9 +215,12 @@ class GeminiSessionOptimizer:
 
         # --- STEP 4: CONSTRUCT ADVANCED PROMPT ---
         system_instruction = (
-            f"You are a Quantitative Risk Manager optimizing for the {session_name} session. "
-            "Use Market Structure (Value Area), Trend Strength (ADX), and News to adjust TP/SL.\n"
+            f"You are a Quantitative Risk Manager optimizing for the {session_name} session.\n"
+            "Use Market Structure (S/R, FVGs), Trend Strength (ADX), and News to adjust TP/SL.\n"
             "Rules:\n"
+            "- High ADX + Open Space (No S/R nearby): Widen TP significantly (Trend Following).\n"
+            "- Price sandwiched between S/R or inside FVG: Tighten TP, reduce SL multiplier (Chop/Mean Reversion).\n"
+            "- Approaching Major FVG: Conservative TP to front-run the reversal zone.\n"
             "- High ADX (>30) + Imbalance: Widen TP significantly (Trend Following).\n"
             "- Low ADX (<20) + Inside Value: Tighten TP, Widen SL slightly (Mean Reversion).\n"
             "- High Impact Events: Maximize SL (Volatility Protection).\n"
@@ -222,6 +229,9 @@ class GeminiSessionOptimizer:
 
         user_prompt = (
             f"**OPTIMIZATION REQUEST FOR: {session_name}**\n\n"
+
+            f"=== MARKET STRUCTURE (Walls & Magnets) ===\n"
+            f"{structure_context}\n\n"
 
             f"=== SESSION CONTEXT (Vs. Past {num_session_days} {session_name} Sessions) ===\n"
             f"Avg Session Range: {avg_session_range} pts\n"
@@ -241,8 +251,9 @@ class GeminiSessionOptimizer:
 
             "**TASK:**\n"
             "Compare recent session behavior to historical norms. "
-            "If recent sessions are expanding (High Range/Vol), increase TP multiplier. "
-            "If contracting (Chop), decrease TP multiplier.\n\n"
+            "Consider Market Structure (S/R walls, FVGs) when setting TP targets. "
+            "If recent sessions are expanding (High Range/Vol) with open space, increase TP multiplier. "
+            "If contracting (Chop) or sandwiched between structure, decrease TP multiplier.\n\n"
 
             "Output STRICT JSON:\n"
             "{\n"
@@ -250,7 +261,7 @@ class GeminiSessionOptimizer:
             '  "regime": "TREND" or "RANGE" or "BREAKOUT",\n'
             '  "sl_multiplier": number (e.g. 1.1),\n'
             '  "tp_multiplier": number (e.g. 1.5),\n'
-            '  "reasoning": "Explain using ADX, Value Area, and Range comparison"\n'
+            '  "reasoning": "Explain using ADX, Value Area, S/R levels, FVGs, and Range comparison"\n'
             "}"
         )
 
