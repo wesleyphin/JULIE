@@ -2,7 +2,7 @@
 
 ## Overview
 
-JULIE Trading Bot now features a beautiful, interactive account selection interface that allows you to:
+Julie-UI and JULIE Trading Bot now feature a beautiful, interactive account selection interface that allows you to:
 - Select a specific account to monitor/trade
 - Monitor ALL accounts simultaneously
 - Works with both the monitoring UI and the trading bot
@@ -17,11 +17,11 @@ JULIE Trading Bot now features a beautiful, interactive account selection interf
 
 ## How to Use
 
-### For Monitoring (monitor_ui.py)
+### For Monitoring (julie_ui.py)
 
-1. Start the monitor:
+1. Start Julie-UI:
    ```bash
-   python monitor_ui.py
+   python julie_ui.py
    ```
 
 2. The beautiful account selection interface will appear automatically after authentication
@@ -51,7 +51,7 @@ JULIE Trading Bot now features a beautiful, interactive account selection interf
 2. The same beautiful interface will appear
 
 3. Select the account you want to trade with
-   - Note: The trading bot can only trade ONE account at a time
+   - Note: The trading bot can only trade ONE account at a time (for safety)
    - If you select "Monitor All", the bot will use the first account
 
 ## Visual Examples
@@ -100,7 +100,7 @@ or
    - Uses Rich library for terminal UI
    - Supports single and multi-account selection
 
-2. **monitor_ui.py** (MODIFIED)
+2. **julie_ui.py** (MODIFIED - formerly monitor_ui.py)
    - Integrated account selector
    - Support for monitoring multiple accounts
    - Enhanced position tracking
@@ -146,7 +146,7 @@ pip install rich
 ## FAQ
 
 **Q: Can I monitor multiple accounts with the trading bot?**
-A: No, the trading bot (julie001.py) can only trade ONE account at a time for safety. However, the monitor UI (monitor_ui.py) supports monitoring all accounts simultaneously.
+A: No, the trading bot (julie001.py) can only trade ONE account at a time for safety. However, Julie-UI (julie_ui.py) supports monitoring all accounts simultaneously.
 
 **Q: Will this work with my existing strategies?**
 A: Yes! The account selection is completely separate from trading strategies. No strategy code has been modified.

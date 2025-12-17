@@ -1,5 +1,5 @@
 """
-Terminal UI for JULIE Trading Bot
+Terminal UI for Julie-UI
 Displays real-time signals, positions, and market context
 """
 
@@ -125,7 +125,7 @@ class TerminalUI:
 
     def _render_header(self):
         """Render the header section"""
-        title = Text("JULIE - Advanced MES Futures Trading Bot", style="bold cyan")
+        title = Text("Julie-UI - Real-Time Trading Monitor", style="bold cyan")
         subtitle = Text(f"Session: {self.market_context['session']} | Symbol: {self.market_context['symbol']} | {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", style="dim")
         header_text = Text.assemble(title, "\n", subtitle)
         return Panel(Align.center(header_text), style="bold blue")

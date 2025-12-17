@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-JULIE Trading Bot - Standalone Terminal Monitor
+Julie-UI - Beautiful Real-Time Trading Monitor
 Displays real-time signals, positions, and market data without modifying the main bot
 """
 
@@ -348,7 +348,7 @@ class APIMonitor:
 def main():
     """Main monitoring application"""
     print("=" * 60)
-    print("JULIE TRADING BOT - TERMINAL MONITOR")
+    print("JULIE-UI - REAL-TIME TRADING MONITOR")
     print("Real-time display of signals, positions, and market data")
     print("=" * 60)
     print()
@@ -361,7 +361,7 @@ def main():
     })
     ui.start(refresh_rate=1.0)
 
-    ui.add_event("SYSTEM", "JULIE Monitor starting...")
+    ui.add_event("SYSTEM", "Julie-UI starting...")
     ui.add_event("SYSTEM", f"Target: {CONFIG.get('TARGET_SYMBOL', 'MES')}")
 
     # Initialize API monitor
