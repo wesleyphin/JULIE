@@ -292,13 +292,14 @@ class JulieDashboard:
             try:
                 summary = self.tracker.get_summary()
 
-                # Update UI with account summary
-                self.ui.update_account_info({
-                    'account_id': f"{summary['total_accounts']} accounts",
-                    'daily_pnl': summary['total_pnl'],
-                    'total_trades': summary['total_trades'],
-                    'win_rate': summary['win_rate']
-                })
+                # Sync accounts from tracker to UI
+                for account_id, account_data in self.tracker.accounts.items():
+                    self.ui.update_account(account_id, account_data)
+
+                # Sync positions from tracker to UI
+                for account_id, position in self.tracker.positions.items():
+                    if position:
+                        self.ui.update_position(account_id, position)
 
                 # Update market context
                 self.ui.update_market_context({
@@ -432,6 +433,10 @@ class JulieDashboard:
         # Start bot threads
         self.running = True
         self.start_bots(accounts, is_copy_trade=is_copy_trade, master_account_id=master_account_id)
+
+        # Initial sync of accounts to UI
+        for account_id, account_data in self.tracker.accounts.items():
+            self.ui.update_account(account_id, account_data)
 
         # Start UI update thread
         ui_thread = threading.Thread(target=self.update_dashboard_ui, daemon=True)
