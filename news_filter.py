@@ -10,6 +10,7 @@ class NewsFilter:
     """
     Blocks trading during High Impact News events.
     Fetches data dynamically from ForexFactory.
+    Also stores recent past events for Gemini 3.0 Analysis.
     """
 
     def __init__(self):
@@ -17,13 +18,13 @@ class NewsFilter:
         self.ff_url = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
 
         # 1. Daily Recurrent Blackouts (Hour, Minute, Duration_Minutes)
-        # CME Close: 16:55 - 18:05 ET
         self.daily_blackouts = [
-            (16, 55, 70),
+            (16, 55, 70), # CME Close
         ]
 
-        # 2. Dynamic Event Blackouts (Populated on startup)
-        self.calendar_blackouts = []
+        # 2. Event Containers
+        self.calendar_blackouts = [] # Future/Active events (for blocking trades)
+        self.recent_events = []      # All events in current month (for Gemini context)
 
         # Load the calendar immediately
         self.refresh_calendar()
@@ -39,11 +40,14 @@ class NewsFilter:
             count = 0
             current_time = datetime.datetime.now(self.et)
 
+            # Reset lists
+            self.calendar_blackouts = []
+            self.recent_events = []
+
             for event in data:
                 # Filter for High Impact USD news only
                 if event.get('country') == 'USD' and event.get('impact') == 'High':
                     # Parse timestamp (Format: "2024-12-18T14:00:00-04:00")
-                    # We treat the date string carefully to ensure timezone awareness
                     event_dt_str = event.get('date')
                     try:
                         # Parse ISO format
@@ -51,25 +55,54 @@ class NewsFilter:
                         # Convert to ET to match bot's internal clock
                         event_dt_et = event_dt.astimezone(self.et)
 
+                        # Create generic event object
+                        event_obj = {
+                            'title': event.get('title'),
+                            'time': event_dt_et,
+                            'date_str': event_dt_et.strftime('%Y-%m-%d %H:%M'),
+                            'impact': 'High'
+                        }
+
+                        # A. Populate Context List (For Gemini)
+                        # We capture events that happened recently in the current month
+                        if event_dt_et.month == current_time.month:
+                            self.recent_events.append(event_obj)
+
+                        # B. Populate Blackout List (For Circuit Breaker)
                         # Only add future events (or events from today)
                         if event_dt_et.date() >= current_time.date():
-                            # Store: (datetime object, title)
-                            # We block 5 mins before and 30 mins after (35 min duration)
+                            # We block 5 mins before and 35 mins after
                             self.calendar_blackouts.append({
                                 'time': event_dt_et,
                                 'title': event.get('title'),
-                                'duration': 35, # Default blackout duration
-                                'pre_buffer': 5 # Minutes before event to stop
+                                'duration': 35,
+                                'pre_buffer': 5
                             })
                             count += 1
+
                     except Exception as parse_err:
                         logging.warning(f"Failed to parse event date: {event_dt_str} - {parse_err}")
 
-            logging.info(f"✅ Calendar updated: {count} high-impact USD events found this week.")
+            logging.info(f"✅ Calendar updated: {count} upcoming blocking events.")
+            logging.info(f"📋 Gemini Context: {len(self.recent_events)} events stored for analysis.")
 
         except Exception as e:
             logging.error(f"❌ Failed to fetch news calendar: {e}")
             logging.warning("⚠️ Running with NO dynamic news filters! Be careful.")
+
+    def fetch_news(self) -> list[str]:
+        """
+        Returns a formatted list of all High Impact events for the current month.
+        Used by GeminiSessionOptimizer to build the 'Big Picture'.
+        """
+        # Sort by date
+        sorted_events = sorted(self.recent_events, key=lambda x: x['time'])
+
+        # Format for LLM consumption
+        if not sorted_events:
+            return ["No major high-impact events detected this month."]
+
+        return [f"{e['date_str']} | {e['title']}" for e in sorted_events]
 
     def should_block_trade(self, current_time: datetime.datetime) -> tuple[bool, str]:
         # Ensure time is ET
@@ -88,7 +121,6 @@ class NewsFilter:
         # 2. Check Dynamic Calendar Events
         for event in self.calendar_blackouts:
             event_time = event['time']
-            # Define window: 5 mins before to X mins after
             block_start = event_time - datetime.timedelta(minutes=event['pre_buffer'])
             block_end = event_time + datetime.timedelta(minutes=event['duration'])
 

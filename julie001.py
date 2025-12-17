@@ -36,6 +36,7 @@ from directional_loss_blocker import DirectionalLossBlocker
 from impulse_filter import ImpulseFilter
 from client import ProjectXClient
 from risk_engine import OptimizedTPEngine
+from gemini_optimizer import GeminiSessionOptimizer
 
 # ==========================================
 # RESAMPLER HELPER FUNCTION
@@ -202,6 +203,10 @@ def run_bot():
     directional_loss_blocker = DirectionalLossBlocker(consecutive_loss_limit=3, block_minutes=15)
     impulse_filter = ImpulseFilter(lookback=20, impulse_multiplier=2.5)
 
+    # Initialize Gemini Session Optimizer
+    optimizer = GeminiSessionOptimizer()
+    last_processed_session = None
+
     print("\nActive Strategies:")
     print("  [FAST EXECUTION]")
     for strat in fast_strategies: print(f"    • {strat.__class__.__name__}")
@@ -287,6 +292,66 @@ def run_bot():
                 logging.info(f"🚫 NEWS WAIT: {news_reason}")
                 time.sleep(10)
                 continue
+
+            # === SESSION DETECTION & GEMINI OPTIMIZATION ===
+            current_time_et = datetime.datetime.now(NY_TZ)
+            hour = current_time_et.hour
+
+            if 18 <= hour or hour < 3:
+                current_session_name = "ASIA"
+            elif 3 <= hour < 8:
+                current_session_name = "LONDON"
+            elif 8 <= hour < 12:
+                current_session_name = "NY_AM"
+            elif 12 <= hour < 17:
+                current_session_name = "NY_PM"
+            else:
+                current_session_name = "POST_MARKET"
+
+            # --- OPTIMIZATION TRIGGER ---
+            if current_session_name != last_processed_session:
+                logging.info(f"🔄 SESSION HANDOVER: {last_processed_session} -> {current_session_name}")
+
+                if CONFIG.get('GEMINI', {}).get('enabled', False):
+                    print(f"\n🧠 OPTIMIZING FOR {current_session_name} SESSION...")
+
+                    # 1. Fetch Events
+                    try:
+                        raw_events = news_filter.fetch_news()
+                        events_str = str(raw_events)
+                    except Exception as e:
+                        events_str = "Events data unavailable."
+
+                    # 2. Get Hardcoded Base Params for Session
+                    session_cfg = CONFIG['SESSIONS'].get(current_session_name, {})
+                    base_sl = session_cfg.get('SL', 4.0)
+                    base_tp = session_cfg.get('TP', 8.0)
+
+                    # 3. Call Gemini
+                    opt_result = optimizer.optimize_new_session(
+                        master_df,
+                        current_session_name,
+                        events_str,
+                        base_sl,
+                        base_tp
+                    )
+
+                    if opt_result:
+                        sl_mult = float(opt_result.get('sl_multiplier', 1.0))
+                        tp_mult = float(opt_result.get('tp_multiplier', 1.0))
+                        reason = opt_result.get('reasoning', '')
+
+                        # 4. Update Global Config
+                        CONFIG['DYNAMIC_SL_MULTIPLIER'] = sl_mult
+                        CONFIG['DYNAMIC_TP_MULTIPLIER'] = tp_mult
+
+                        print(f"🎯 NEW MULTIPLIERS | SL: {sl_mult}x | TP: {tp_mult}x")
+                        print(f"📝 Reasoning: {reason}")
+                    else:
+                        CONFIG['DYNAMIC_SL_MULTIPLIER'] = 1.0
+                        CONFIG['DYNAMIC_TP_MULTIPLIER'] = 1.0
+
+                last_processed_session = current_session_name
 
             # === STEP 2: INCREMENTAL UPDATE (SEQUENTIAL FETCH) ===
             # Fetch MES first, then MNQ immediately after to keep timestamps close
