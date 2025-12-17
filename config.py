@@ -101,6 +101,17 @@ CONFIG = {
         "trail_pct": 0.25,    # Lock in 25% of profit as trailing stop
     },
 
+    # --- GEMINI 3.0 PRO OPTIMIZATION ---
+    "GEMINI": {
+        "enabled": True,
+        "api_key": "YOUR_GEMINI_API_KEY_HERE",
+        "model": "gemini-3-pro-preview",
+    },
+
+    # Dynamic Multipliers (Updated by Bot at runtime)
+    "DYNAMIC_SL_MULTIPLIER": 1.0,
+    "DYNAMIC_TP_MULTIPLIER": 1.0,
+
     # --- SESSION DEFINITIONS (From Optimization Results) ---
     "SESSIONS": {
         "ASIA": {
