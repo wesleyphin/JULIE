@@ -79,8 +79,11 @@ class DashboardUI:
                     'daily_pnl': 0.0,
                     'trades': 0,
                     'wins': 0,
-                    'losses': 0
+                    'losses': 0,
+                    'is_trading': account_data.get('is_trading', True),
+                    'bot_active': account_data.get('bot_active', True)
                 }
+            # Always update with latest data
             self.accounts[account_id].update(account_data)
 
     def update_position(self, account_id: str, position: dict):

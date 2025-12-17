@@ -434,15 +434,20 @@ class JulieDashboard:
         self.running = True
         self.start_bots(accounts, is_copy_trade=is_copy_trade, master_account_id=master_account_id)
 
-        # Initial sync of accounts to UI
+        # Wait a moment for bots to initialize
+        time.sleep(0.5)
+
+        # Initial sync of accounts to UI - make sure this happens
+        self.ui.add_event("SYSTEM", f"Syncing {len(self.tracker.accounts)} accounts to dashboard...")
         for account_id, account_data in self.tracker.accounts.items():
             self.ui.update_account(account_id, account_data)
+            self.ui.add_event("DEBUG", f"Added {account_data.get('name')} to dashboard")
 
         # Start UI update thread
         ui_thread = threading.Thread(target=self.update_dashboard_ui, daemon=True)
         ui_thread.start()
 
-        self.ui.add_event("SYSTEM", "✓ Dashboard active - all bots running")
+        self.ui.add_event("SYSTEM", f"✓ Dashboard active - {len(self.tracker.accounts)} accounts loaded")
 
         # Main loop
         try:
