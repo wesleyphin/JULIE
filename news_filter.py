@@ -44,6 +44,24 @@ class NewsFilter:
             self.calendar_blackouts = []
             self.recent_events = []
 
+            # ==========================================
+            # TIERED EVENT HANDLING
+            # ==========================================
+            # TIER 1: Market-moving events (CPI, FOMC, NFP, Powell)
+            TIER_1_KEYWORDS = ['CPI', 'Non-Farm', 'FOMC', 'Rate Decision', 'Powell', 'NFP', 'Nonfarm']
+            TIER_1_DURATION = 60  # Block for 1 hour after
+            TIER_1_BUFFER = 10    # Block 10 mins before
+
+            # TIER 2: Important but less volatile
+            TIER_2_KEYWORDS = ['GDP', 'PPI', 'Retail Sales', 'Unemployment Claims', 'ISM', 'PMI']
+            TIER_2_DURATION = 30
+            TIER_2_BUFFER = 5
+
+            # DEFAULT (Tier 3): Other high-impact events
+            DEFAULT_DURATION = 15
+            DEFAULT_BUFFER = 3
+            # ==========================================
+
             for event in data:
                 # Filter for High Impact USD news only
                 if event.get('country') == 'USD' and event.get('impact') == 'High':
@@ -55,12 +73,29 @@ class NewsFilter:
                         # Convert to ET to match bot's internal clock
                         event_dt_et = event_dt.astimezone(self.et)
 
+                        title = event.get('title', '')
+
+                        # Determine Tier based on event title
+                        duration = DEFAULT_DURATION
+                        pre_buffer = DEFAULT_BUFFER
+                        tier = 3
+
+                        if any(k.lower() in title.lower() for k in TIER_1_KEYWORDS):
+                            duration = TIER_1_DURATION
+                            pre_buffer = TIER_1_BUFFER
+                            tier = 1
+                        elif any(k.lower() in title.lower() for k in TIER_2_KEYWORDS):
+                            duration = TIER_2_DURATION
+                            pre_buffer = TIER_2_BUFFER
+                            tier = 2
+
                         # Create generic event object
                         event_obj = {
-                            'title': event.get('title'),
+                            'title': title,
                             'time': event_dt_et,
                             'date_str': event_dt_et.strftime('%Y-%m-%d %H:%M'),
-                            'impact': 'High'
+                            'impact': 'High',
+                            'tier': tier
                         }
 
                         # A. Populate Context List (For Gemini)
@@ -71,14 +106,15 @@ class NewsFilter:
                         # B. Populate Blackout List (For Circuit Breaker)
                         # Only add future events (or events from today)
                         if event_dt_et.date() >= current_time.date():
-                            # We block 5 mins before and 35 mins after
                             self.calendar_blackouts.append({
                                 'time': event_dt_et,
-                                'title': event.get('title'),
-                                'duration': 35,
-                                'pre_buffer': 5
+                                'title': title,
+                                'duration': duration,      # DYNAMIC DURATION
+                                'pre_buffer': pre_buffer,  # DYNAMIC BUFFER
+                                'tier': tier
                             })
                             count += 1
+                            logging.debug(f"📌 Event: {title} | Tier {tier} | Block: -{pre_buffer}m/+{duration}m")
 
                     except Exception as parse_err:
                         logging.warning(f"Failed to parse event date: {event_dt_str} - {parse_err}")
