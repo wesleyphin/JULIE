@@ -6,7 +6,6 @@ import datetime
 import numpy as np
 from config import CONFIG
 
-
 class GeminiSessionOptimizer:
     def __init__(self):
         self.config = CONFIG.get('GEMINI', {})
@@ -19,24 +18,29 @@ class GeminiSessionOptimizer:
     def _load_historical_data(self):
         """Loads and cleans the historical CSV."""
         try:
-            df = pd.read_csv(self.csv_path, thousands=',')
+            # FIX 1: Added low_memory=False to suppress DtypeWarning
+            df = pd.read_csv(self.csv_path, thousands=',', low_memory=False)
             df.columns = [c.strip().lower() for c in df.columns]
+
             date_col = next((c for c in df.columns if 'date' in c), None)
             if not date_col: return None
+
             df['timestamp'] = pd.to_datetime(df[date_col], errors='coerce')
             df.dropna(subset=['timestamp'], inplace=True)
             df.set_index('timestamp', inplace=True)
+
             # Numeric cleanup
             for col in ['open', 'high', 'low', 'close', 'volume']:
-                if col in df.columns and df[col].dtype == object:
-                    df[col] = df[col].astype(str).str.replace('"', '').str.replace(',', '')
+                if col in df.columns:
+                    # Convert to string first to handle mixed types safely
+                    if df[col].dtype == object:
+                        df[col] = df[col].astype(str).str.replace('"', '').str.replace(',', '')
                     df[col] = pd.to_numeric(df[col], errors='coerce')
             return df
         except Exception as e:
             logging.error(f"Error loading historical CSV: {e}")
             return None
 
-    # --- NEW: CALCULATE TREND STRENGTH (ADX) ---
     def _calculate_adx(self, df, period=14):
         """Calculates Average Directional Index to measure Trend Strength (0-100)."""
         if df.empty: return 0
@@ -60,17 +64,18 @@ class GeminiSessionOptimizer:
         plus_di = 100 * (df['plus_dm'].rolling(period).sum() / tr_smooth)
         minus_di = 100 * (df['minus_dm'].rolling(period).sum() / tr_smooth)
 
-        dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
+        # Avoid division by zero
+        sum_di = plus_di + minus_di
+        dx = 100 * abs(plus_di - minus_di) / sum_di.replace(0, 1)
+
         adx = dx.rolling(period).mean().iloc[-1]
 
         return round(adx, 2)
 
-    # --- NEW: CALCULATE VOLUME PROFILE ---
     def _calculate_market_profile(self, df):
         """Identifies Value Area (70% of volume) and Point of Control."""
         if df.empty: return {}
 
-        # 1. Bin prices (tick size 0.25 for ES/MES)
         tick_size = 0.25
         min_price = df['low'].min()
         max_price = df['high'].max()
@@ -78,27 +83,24 @@ class GeminiSessionOptimizer:
         # Create bins
         bins = np.arange(min_price, max_price + tick_size, tick_size)
 
-        # Simply assign total volume of a bar to its close price bin (Approximate but fast)
-        # For more precision we would distribute volume, but this is sufficient for 'Big Picture'
-        volume_profile = df.groupby(pd.cut(df['close'], bins))['volume'].sum()
+        # FIX 2: Added observed=False to suppress FutureWarning
+        volume_profile = df.groupby(pd.cut(df['close'], bins), observed=False)['volume'].sum()
 
-        # 2. Find POC (Point of Control) - Price with max volume
+        # Find POC
         poc_bin = volume_profile.idxmax()
         poc_price = poc_bin.mid
 
-        # 3. Calculate Value Area (70% of volume around POC)
+        # Calculate Value Area (70%)
         total_volume = volume_profile.sum()
         target_volume = total_volume * 0.70
 
-        # Sort bins by volume (descending) to accumulate 'highest volume' nodes first
         sorted_vol = volume_profile.sort_values(ascending=False)
         cumulative_vol = sorted_vol.cumsum()
 
-        # Filter for bins that make up the first 70%
         value_area_bins = sorted_vol[cumulative_vol <= target_volume].index
 
-        vah = max([b.right for b in value_area_bins]) # Value Area High
-        val = min([b.left for b in value_area_bins])  # Value Area Low
+        vah = max([b.right for b in value_area_bins])
+        val = min([b.left for b in value_area_bins])
 
         return {
             "POC": poc_price,
@@ -120,6 +122,10 @@ class GeminiSessionOptimizer:
         last_time = master_df.index.max()
         start_time_13d = last_time - datetime.timedelta(days=13)
         current_window = master_df[master_df.index >= start_time_13d]
+
+        if current_window.empty:
+            logging.warning("Insufficient data for window analysis")
+            return None
 
         # A. Basic Volatility
         avg_range = round((current_window['high'] - current_window['low']).mean(), 2)
