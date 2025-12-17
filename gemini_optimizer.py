@@ -21,15 +21,11 @@ class GeminiSessionOptimizer:
         try:
             df = pd.read_csv(self.csv_path, thousands=',')
             df.columns = [c.strip().lower() for c in df.columns]
-
             date_col = next((c for c in df.columns if 'date' in c), None)
-            if not date_col:
-                return None
-
+            if not date_col: return None
             df['timestamp'] = pd.to_datetime(df[date_col], errors='coerce')
             df.dropna(subset=['timestamp'], inplace=True)
             df.set_index('timestamp', inplace=True)
-
             # Numeric cleanup
             for col in ['open', 'high', 'low', 'close', 'volume']:
                 if col in df.columns and df[col].dtype == object:
@@ -40,38 +36,113 @@ class GeminiSessionOptimizer:
             logging.error(f"Error loading historical CSV: {e}")
             return None
 
-    def _get_volatility_profile(self, df):
-        """Calculates 13-day volatility stats."""
-        if df.empty:
-            return {}
+    # --- NEW: CALCULATE TREND STRENGTH (ADX) ---
+    def _calculate_adx(self, df, period=14):
+        """Calculates Average Directional Index to measure Trend Strength (0-100)."""
+        if df.empty: return 0
         df = df.copy()
-        df['range'] = df['high'] - df['low']
+
+        # True Range
+        df['tr0'] = abs(df['high'] - df['low'])
+        df['tr1'] = abs(df['high'] - df['close'].shift(1))
+        df['tr2'] = abs(df['low'] - df['close'].shift(1))
+        df['tr'] = df[['tr0', 'tr1', 'tr2']].max(axis=1)
+
+        # Directional Movement
+        df['up_move'] = df['high'] - df['high'].shift(1)
+        df['down_move'] = df['low'].shift(1) - df['low']
+
+        df['plus_dm'] = np.where((df['up_move'] > df['down_move']) & (df['up_move'] > 0), df['up_move'], 0)
+        df['minus_dm'] = np.where((df['down_move'] > df['up_move']) & (df['down_move'] > 0), df['down_move'], 0)
+
+        # Smoothed
+        tr_smooth = df['tr'].rolling(period).sum()
+        plus_di = 100 * (df['plus_dm'].rolling(period).sum() / tr_smooth)
+        minus_di = 100 * (df['minus_dm'].rolling(period).sum() / tr_smooth)
+
+        dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di)
+        adx = dx.rolling(period).mean().iloc[-1]
+
+        return round(adx, 2)
+
+    # --- NEW: CALCULATE VOLUME PROFILE ---
+    def _calculate_market_profile(self, df):
+        """Identifies Value Area (70% of volume) and Point of Control."""
+        if df.empty: return {}
+
+        # 1. Bin prices (tick size 0.25 for ES/MES)
+        tick_size = 0.25
+        min_price = df['low'].min()
+        max_price = df['high'].max()
+
+        # Create bins
+        bins = np.arange(min_price, max_price + tick_size, tick_size)
+
+        # Simply assign total volume of a bar to its close price bin (Approximate but fast)
+        # For more precision we would distribute volume, but this is sufficient for 'Big Picture'
+        volume_profile = df.groupby(pd.cut(df['close'], bins))['volume'].sum()
+
+        # 2. Find POC (Point of Control) - Price with max volume
+        poc_bin = volume_profile.idxmax()
+        poc_price = poc_bin.mid
+
+        # 3. Calculate Value Area (70% of volume around POC)
+        total_volume = volume_profile.sum()
+        target_volume = total_volume * 0.70
+
+        # Sort bins by volume (descending) to accumulate 'highest volume' nodes first
+        sorted_vol = volume_profile.sort_values(ascending=False)
+        cumulative_vol = sorted_vol.cumsum()
+
+        # Filter for bins that make up the first 70%
+        value_area_bins = sorted_vol[cumulative_vol <= target_volume].index
+
+        vah = max([b.right for b in value_area_bins]) # Value Area High
+        val = min([b.left for b in value_area_bins])  # Value Area Low
+
         return {
-            "avg_range": round(df['range'].mean(), 2),
-            "max_range": round(df['range'].max(), 2),
-            "std_dev": round(df['range'].std(), 2)
+            "POC": poc_price,
+            "VAH": vah,
+            "VAL": val,
+            "current_price": df.iloc[-1]['close']
         }
 
     def optimize_new_session(self, master_df, session_name, events_data, base_sl, base_tp):
         """
-        Main Optimization Routine.
+        Main Optimization Routine with Advanced Metrics.
         """
-        logging.info(f"🧠 Gemini 3.0: Analyzing {session_name} Session (13-Day vs History)...")
+        logging.info(f"🧠 Gemini 3.0: Analyzing Market Structure & Sentiment...")
 
-        # --- 1. PROCESS CURRENT 13-DAY DATA ---
-        if master_df.empty:
-            return None
+        # --- 1. PROCESS CURRENT DATA ---
+        if master_df.empty: return None
 
+        # Last 13 Days Window
         last_time = master_df.index.max()
         start_time_13d = last_time - datetime.timedelta(days=13)
         current_window = master_df[master_df.index >= start_time_13d]
 
-        curr_metrics = self._get_volatility_profile(current_window)
+        # A. Basic Volatility
+        avg_range = round((current_window['high'] - current_window['low']).mean(), 2)
 
-        # --- 2. PROCESS HISTORICAL DATA (Seasonality) ---
+        # B. Advanced Trend Strength (ADX)
+        # Resample to 15min for cleaner ADX calculation
+        df_15m = current_window.resample('15min').agg({'high':'max', 'low':'min', 'close':'last'}).dropna()
+        adx_score = self._calculate_adx(df_15m)
+        trend_status = "TRENDING" if adx_score > 25 else "CHOPPY/RANGING"
+
+        # C. Market Profile (Value Area)
+        profile = self._calculate_market_profile(current_window)
+        curr_price = profile.get('current_price', 0)
+        vah = profile.get('VAH', 0)
+        val = profile.get('VAL', 0)
+
+        profile_status = "INSIDE VALUE (Balance)"
+        if curr_price > vah: profile_status = "ABOVE VALUE (Bullish Imbalance)"
+        elif curr_price < val: profile_status = "BELOW VALUE (Bearish Imbalance)"
+
+        # --- 2. HISTORICAL CONTEXT ---
         hist_df = self._load_historical_data()
         hist_context = "Historical Data Unavailable"
-
         if hist_df is not None:
             mask = (
                 (hist_df.index.month == last_time.month) &
@@ -79,47 +150,49 @@ class GeminiSessionOptimizer:
                 (hist_df.index.day <= last_time.day)
             )
             hist_window = hist_df[mask]
-
             if not hist_window.empty:
-                h_metrics = self._get_volatility_profile(hist_window)
-                hist_context = (
-                    f"HISTORICAL SEASONALITY (Same 13-day window in 2023-2025):\n"
-                    f"- Historical Avg Volatility: {h_metrics.get('avg_range')} pts\n"
-                    f"- Historical Max Spike: {h_metrics.get('max_range')} pts"
-                )
+                hist_avg_range = round((hist_window['high'] - hist_window['low']).mean(), 2)
+                hist_context = f"Historical Avg Range: {hist_avg_range} pts"
 
-        # --- 3. CONSTRUCT PROMPT ---
+        # --- 3. CONSTRUCT ADVANCED PROMPT ---
         system_instruction = (
             f"You are a Quantitative Risk Manager optimizing for the {session_name} session. "
-            "Your Task: Compare Current vs Historical Volatility and analyze Major Events to adjust TP/SL Multipliers.\n"
+            "Use Market Structure (Value Area), Trend Strength (ADX), and News to adjust TP/SL.\n"
             "Rules:\n"
-            "- If High Impact Events (CPI/PPI/FOMC) are present: WIDEN SL/TP significantly (1.5x+).\n"
-            "- If Current Volatility > Historical: WIDEN SL/TP (1.2x).\n"
-            "- If Current Volatility < Historical: TIGHTEN SL/TP (0.8x-1.0x)."
+            "- High ADX (>30) + Imbalance: Widen TP significantly (Trend Following).\n"
+            "- Low ADX (<20) + Inside Value: Tighten TP, Widen SL slightly (Mean Reversion).\n"
+            "- High Impact Events: Maximize SL (Volatility Protection)."
         )
 
         user_prompt = (
-            f"**SESSION HANDOVER: {session_name}**\n\n"
-            f"=== FINANCIAL EVENTS (Live Feed) ===\n"
+            f"**SESSION: {session_name}**\n\n"
+            f"=== MARKET STRUCTURE (Last 13 Days) ===\n"
+            f"Trend Strength (ADX): {adx_score} ({trend_status})\n"
+            f"Market Profile: {profile_status}\n"
+            f"Price Location: {curr_price} (VAH: {vah} | VAL: {val})\n\n"
+
+            f"=== VOLATILITY REGIME ===\n"
+            f"Current Avg Range: {avg_range} pts\n"
+            f"Historical Norm: {hist_context}\n\n"
+
+            f"=== NEWS EVENTS ===\n"
             f"{events_data}\n\n"
-            f"=== CURRENT REGIME (Last 13 Days) ===\n"
-            f"Avg 1-min Range: {curr_metrics.get('avg_range', 'N/A')} pts\n\n"
-            f"=== HISTORICAL BASELINE ===\n"
-            f"{hist_context}\n\n"
-            f"=== DEFAULT PARAMETERS ===\n"
-            f"Base SL: {base_sl}\n"
-            f"Base TP: {base_tp}\n\n"
-            "**OPTIMIZATION OUTPUT (JSON ONLY):**\n"
+
+            f"=== BASE PARAMETERS ===\n"
+            f"SL: {base_sl} | TP: {base_tp}\n\n"
+
+            "**OPTIMIZATION TASK:**\n"
+            "Output STRICT JSON:\n"
             "{\n"
             '  "session": "' + session_name + '",\n'
-            '  "regime": "VOLATILE" or "QUIET" or "EVENT_RISK",\n'
-            '  "sl_multiplier": number (e.g. 1.2),\n'
+            '  "regime": "TREND" or "RANGE" or "BREAKOUT",\n'
+            '  "sl_multiplier": number (e.g. 1.1),\n'
             '  "tp_multiplier": number (e.g. 1.5),\n'
-            '  "reasoning": "Explain decision based on Event + Data comparison"\n'
+            '  "reasoning": "Explain using ADX and Value Area"\n'
             "}"
         )
 
-        # --- 4. EXECUTE GEMINI CALL ---
+        # --- 4. EXECUTE ---
         payload = {
             "contents": [{"parts": [{"text": user_prompt}]}],
             "system_instruction": {"parts": [{"text": system_instruction}]},
@@ -130,9 +203,7 @@ class GeminiSessionOptimizer:
             response = requests.post(self.url, headers=self.headers, json=payload, timeout=45)
             if response.status_code == 200:
                 return json.loads(response.json()['candidates'][0]['content']['parts'][0]['text'])
-            else:
-                logging.error(f"Gemini API Error: {response.text}")
-                return None
+            return None
         except Exception as e:
             logging.error(f"Gemini Optimization Error: {e}")
             return None
