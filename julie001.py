@@ -1347,6 +1347,8 @@ def run_bot():
     
     # === TRACKING VARIABLES ===
     last_htf_fetch_time = 0
+    last_position_sync_time = 0
+    POSITION_SYNC_INTERVAL = 30  # Sync every 30 seconds
     
     # Track pending signals for delayed execution
     pending_loose_signals = {}
@@ -1509,6 +1511,48 @@ def run_bot():
             client._heartbeat_counter += 1
             if client._heartbeat_counter % 30 == 0:
                 print(f"💓 Heartbeat: {datetime.datetime.now().strftime('%H:%M:%S')} | Price: {current_price:.2f}")
+
+            # ==========================================
+            # HEARTBEAT POSITION SYNC
+            # ==========================================
+            if now_ts - last_position_sync_time > POSITION_SYNC_INTERVAL:
+                try:
+                    # 1. Force fetch from Broker
+                    broker_pos = client.get_position()
+
+                    # 2. Update Shadow State
+                    client._local_position = broker_pos.copy()
+
+                    # 3. Check for DRIFT (Critical Safety Check)
+                    if active_trade is not None:
+                        # Scenario: Bot thinks we are Long, Broker says Flat
+                        if broker_pos['size'] == 0:
+                            logging.warning(f"⚠️ STATE DRIFT: Bot has {active_trade['side']} trade, but Broker is FLAT.")
+                            logging.warning("   -> Forcing local trade closure to prevent errors.")
+
+                            # Log the ghost close so analytics stay clean
+                            event_logger.log_trade_closed(
+                                side=active_trade['side'],
+                                entry_price=active_trade['entry_price'],
+                                exit_price=current_price, # Best guess
+                                pnl=0.0,
+                                reason="State Drift / Broker Liquidation"
+                            )
+
+                            # Clean up local state
+                            active_trade = None
+                            opposite_signal_count = 0
+                            client._active_stop_order_id = None
+
+                        # Scenario: Bot thinks Long, Broker is Short (Rare, but bad)
+                        elif broker_pos['side'] != active_trade['side']:
+                            logging.critical("🚨 CRITICAL DRIFT: Bot/Broker side mismatch! Stopping bot for safety.")
+                            break
+
+                    last_position_sync_time = now_ts
+
+                except Exception as e:
+                    logging.error(f"❌ Heartbeat Sync Failed: {e}")
 
             # === UPDATE HTF FVG MEMORY (THROTTLED) ===
             # Only update memory once every 60 seconds to save API calls.
