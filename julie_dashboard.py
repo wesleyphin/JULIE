@@ -165,7 +165,7 @@ class JulieDashboard:
     """Main dashboard orchestrator"""
 
     def __init__(self):
-        self.ui = get_ui()
+        self.ui = get_dashboard()
         self.tracker = MultiAccountTracker()
         self.bot_threads = []
         self.session = requests.Session()
