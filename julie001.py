@@ -18,7 +18,7 @@ from rejection_filter import RejectionFilter
 from chop_filter import ChopFilter
 from extension_filter import ExtensionFilter
 from trend_filter import TrendFilter
-from dynamic_structure_blocker import DynamicStructureBlocker
+from dynamic_structure_blocker import DynamicStructureBlocker, RegimeStructureBlocker
 from bank_level_quarter_filter import BankLevelQuarterFilter
 from memory_sr_filter import MemorySRFilter
 from orb_strategy import OrbStrategy
@@ -197,6 +197,7 @@ def run_bot():
     trend_filter = TrendFilter()
     htf_fvg_filter = HTFFVGFilter() # Now uses Memory-Based Class
     structure_blocker = DynamicStructureBlocker(lookback=20)
+    regime_blocker = RegimeStructureBlocker(lookback=20)  # Legacy regime-based blocker
     memory_sr = MemorySRFilter(lookback_bars=300, zone_width=2.0, touch_threshold=2)
     news_filter = NewsFilter()
     circuit_breaker = CircuitBreaker(max_daily_loss=600, max_consecutive_losses=7)
@@ -650,6 +651,7 @@ def run_bot():
             chop_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             extension_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             structure_blocker.update(new_df)
+            regime_blocker.update(new_df)
             memory_sr.update(new_df)
             directional_loss_blocker.update_quarter(current_time)
             impulse_filter.update(new_df)
@@ -692,6 +694,7 @@ def run_bot():
                 chop_filter.update(curr_bar['high'], curr_bar['low'], curr_bar['close'], current_time)
                 extension_filter.update(curr_bar['high'], curr_bar['low'], curr_bar['close'], current_time)
                 structure_blocker.update(new_df)
+                regime_blocker.update(new_df)
                 memory_sr.update(new_df)
                 directional_loss_blocker.update_quarter(current_time)
                 impulse_filter.update(new_df)
@@ -883,6 +886,15 @@ def run_bot():
                                 continue
                             else:
                                 event_logger.log_filter_check("StructureBlocker", signal['side'], True)
+
+                            # Regime Structure Blocker (EQH/EQL with regime tolerance)
+                            regime_blocked, regime_reason = regime_blocker.should_block_trade(signal['side'], current_price)
+                            if regime_blocked:
+                                logging.info(f"🚫 {regime_reason}")
+                                event_logger.log_filter_check("RegimeBlocker", signal['side'], False, regime_reason)
+                                continue
+                            else:
+                                event_logger.log_filter_check("RegimeBlocker", signal['side'], True)
 
                             mem_blocked, mem_reason = memory_sr.should_block_trade(signal['side'], current_price)
                             if mem_blocked:
@@ -1136,6 +1148,15 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("StructureBlocker", signal['side'], True)
 
+                            # Regime Structure Blocker (EQH/EQL with regime tolerance)
+                            regime_blocked, regime_reason = regime_blocker.should_block_trade(signal['side'], current_price)
+                            if regime_blocked:
+                                logging.info(f"🚫 {regime_reason}")
+                                event_logger.log_filter_check("RegimeBlocker", signal['side'], False, regime_reason)
+                                continue
+                            else:
+                                event_logger.log_filter_check("RegimeBlocker", signal['side'], True)
+
                             trend_blocked_ctx, trend_reason_ctx = trend_filter.should_block_trade(new_df, signal['side'])
                             trend_state = ("Strong Bearish" if (trend_reason_ctx and "Bearish" in trend_reason_ctx)
                                            else ("Strong Bullish" if (trend_reason_ctx and "Bullish" in trend_reason_ctx)
@@ -1358,6 +1379,14 @@ def run_bot():
                                     del pending_loose_signals[s_name]; continue
                                 else:
                                     event_logger.log_filter_check("StructureBlocker", sig['side'], True)
+                                # Regime Structure Blocker (EQH/EQL with regime tolerance)
+                                regime_blocked, regime_reason = regime_blocker.should_block_trade(sig['side'], current_price)
+                                if regime_blocked:
+                                    logging.info(f"🚫 {regime_reason}")
+                                    event_logger.log_filter_check("RegimeBlocker", sig['side'], False, regime_reason)
+                                    del pending_loose_signals[s_name]; continue
+                                else:
+                                    event_logger.log_filter_check("RegimeBlocker", sig['side'], True)
                                 mem_blocked, mem_reason = memory_sr.should_block_trade(sig['side'], current_price)
                                 if mem_blocked:
                                     logging.info(f"🚫 {mem_reason}")
@@ -1543,6 +1572,13 @@ def run_bot():
                                             continue
                                         else:
                                             event_logger.log_filter_check("StructureBlocker", signal['side'], True)
+                                        # Regime Structure Blocker (EQH/EQL with regime tolerance)
+                                        regime_blocked, regime_reason = regime_blocker.should_block_trade(signal['side'], current_price)
+                                        if regime_blocked:
+                                            event_logger.log_filter_check("RegimeBlocker", signal['side'], False, regime_reason)
+                                            continue
+                                        else:
+                                            event_logger.log_filter_check("RegimeBlocker", signal['side'], True)
                                         mem_blocked, mem_reason = memory_sr.should_block_trade(signal['side'], current_price)
                                         if mem_blocked:
                                             event_logger.log_filter_check("MemorySR", signal['side'], False, mem_reason)
