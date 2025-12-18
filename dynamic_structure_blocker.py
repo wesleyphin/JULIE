@@ -6,35 +6,164 @@ from config import CONFIG
 
 
 # =============================================================================
-# NEW IMPLEMENTATION: Penalty Box Blocker (Simple & Aggressive)
+# PENALTY BOX BLOCKER: Fixed Tolerance + 3-Bar Decay (Simple & Aggressive)
 # =============================================================================
-class DynamicStructureBlocker:
+class PenaltyBoxBlocker:
     """
     Simple structure blocker using a "penalty box" mechanism.
 
-    - Looks back 50 candles to find ceiling/floor
-    - Blocks trades for 3 bars when price enters the danger zone
-    - Fixed 5.0 point tolerance
+    LOGIC:
+    - Looks back 50 candles to find ceiling (highest high) and floor (lowest low)
+    - When price enters within 5.0 points of ceiling/floor, blocks trades for 3 bars
+    - Fixed 5.0 point tolerance (no regime adjustment)
+    - Time-based penalty box with 3-bar decay
+
+    USE CASE:
+    - Prevents buying at the top of a range
+    - Prevents selling at the bottom of a range
+    - Forces waiting after entering danger zones
     """
 
-    def __init__(self):
-        # Configuration
-        self.lookback = 50          # Look back 50 candles to find the "Ceiling" and "Floor"
-    def __init__(self, pivot_window=5, lookback=50):
+    def __init__(self, lookback: int = 50, tolerance: float = 5.0, penalty_bars: int = 3):
+        """
+        :param lookback: Number of candles to find ceiling/floor (default 50)
+        :param tolerance: Fixed point tolerance for danger zone (default 5.0)
+        :param penalty_bars: Bars to block after entering danger zone (default 3)
+        """
+        self.lookback = lookback
+        self.tolerance = tolerance
+        self.penalty_bars = penalty_bars
+
+        # Penalty box counters (decrement each bar)
+        self.long_block_counter = 0
+        self.short_block_counter = 0
+
+        # Tracked levels
+        self.ceiling = None
+        self.floor = None
+
+    def update(self, df: pd.DataFrame) -> None:
+        """
+        Call each bar to:
+        1. Update ceiling/floor levels
+        2. Decay penalty box counters
+        3. Check if price entered danger zones
+        """
+        if df is None or len(df) < self.lookback:
+            return
+
+        # Get last N bars for ceiling/floor
+        lookback_df = df.tail(self.lookback)
+        self.ceiling = lookback_df['high'].max()
+        self.floor = lookback_df['low'].min()
+
+        current_price = df['close'].iloc[-1]
+
+        # Decay existing counters
+        if self.long_block_counter > 0:
+            self.long_block_counter -= 1
+            if self.long_block_counter == 0:
+                logging.info("🔓 LONG penalty box expired")
+
+        if self.short_block_counter > 0:
+            self.short_block_counter -= 1
+            if self.short_block_counter == 0:
+                logging.info("🔓 SHORT penalty box expired")
+
+        # Check if price entered CEILING danger zone (blocks LONGS)
+        if self.ceiling is not None:
+            distance_to_ceiling = self.ceiling - current_price
+            if 0 < distance_to_ceiling <= self.tolerance:
+                if self.long_block_counter == 0:
+                    logging.warning(f"⚠️ PENALTY BOX: Price near CEILING ({self.ceiling:.2f}), blocking LONGS for {self.penalty_bars} bars")
+                self.long_block_counter = self.penalty_bars
+
+        # Check if price entered FLOOR danger zone (blocks SHORTS)
+        if self.floor is not None:
+            distance_to_floor = current_price - self.floor
+            if 0 < distance_to_floor <= self.tolerance:
+                if self.short_block_counter == 0:
+                    logging.warning(f"⚠️ PENALTY BOX: Price near FLOOR ({self.floor:.2f}), blocking SHORTS for {self.penalty_bars} bars")
+                self.short_block_counter = self.penalty_bars
+
+    def should_block_trade(self, side: str, current_price: float):
+        """
+        Interface method for julie001.py integration.
+        Returns (blocked: bool, reason: str)
+        """
+        if side.upper() == "LONG":
+            if self.long_block_counter > 0:
+                return True, f"Penalty Box: LONG blocked ({self.long_block_counter} bars left) - Near ceiling {self.ceiling:.2f}"
+            # Also instant-block if currently in danger zone
+            if self.ceiling is not None and current_price is not None:
+                distance = self.ceiling - current_price
+                if 0 < distance <= self.tolerance:
+                    return True, f"Danger Zone: Price within {distance:.2f} pts of ceiling ({self.ceiling:.2f})"
+
+        elif side.upper() == "SHORT":
+            if self.short_block_counter > 0:
+                return True, f"Penalty Box: SHORT blocked ({self.short_block_counter} bars left) - Near floor {self.floor:.2f}"
+            # Also instant-block if currently in danger zone
+            if self.floor is not None and current_price is not None:
+                distance = current_price - self.floor
+                if 0 < distance <= self.tolerance:
+                    return True, f"Danger Zone: Price within {distance:.2f} pts of floor ({self.floor:.2f})"
+
+        return False, "OK"
+
+    def can_long(self):
+        """Legacy API: Returns (allowed: bool, reason: str)"""
+        blocked, reason = self.should_block_trade("LONG", None)
+        return not blocked, reason
+
+    def can_short(self):
+        """Legacy API: Returns (allowed: bool, reason: str)"""
+        blocked, reason = self.should_block_trade("SHORT", None)
+        return not blocked, reason
+
+    def get_status(self) -> dict:
+        """Get current blocker state for monitoring."""
+        return {
+            'ceiling': self.ceiling,
+            'floor': self.floor,
+            'long_block_counter': self.long_block_counter,
+            'short_block_counter': self.short_block_counter,
+            'tolerance': self.tolerance,
+        }
+
+
+# =============================================================================
+# DYNAMIC STRUCTURE BLOCKER: Macro Trend + Fade Detection (Price Action)
+# =============================================================================
+class DynamicStructureBlocker:
+    """
+    Structure blocker using macro trend detection and fade setups.
+
+    LOGIC:
+    - Detects macro structure trend via fractal pivots (HH/HL = UP, LH/LL = DOWN)
+    - Blocks counter-trend trades UNLESS valid fade setup detected
+    - Fade setup requires: Volume Spike (2x avg) + Rejection Wick (Hammer/Shooting Star)
+
+    USE CASE:
+    - Prevents fighting strong trends without confirmation
+    - Allows counter-trend trades only on high-probability reversals
+    """
+
+    def __init__(self, pivot_window: int = 5, lookback: int = 50):
         """
         :param pivot_window: Bars on left/right to confirm a fractal pivot.
-        :param lookback: Legacy parameter for backwards compatibility.
+        :param lookback: Minimum bars needed for trend detection.
         """
         self.pivot_window = pivot_window
         self.lookback = lookback
         self.df = None  # Stored dataframe from update()
 
-    def update(self, df):
+    def update(self, df: pd.DataFrame) -> None:
         """Store the latest dataframe for blocking checks."""
         if df is not None and not df.empty:
             self.df = df.copy()
 
-    def _find_pivots(self, df):
+    def _find_pivots(self, df: pd.DataFrame):
         """Identify fractal swing points."""
         df = df.copy()
         # Vectorized pivot detection
@@ -44,11 +173,11 @@ class DynamicStructureBlocker:
 
         return df[df['is_pivot_high']], df[df['is_pivot_low']]
 
-    def get_structure_trend(self, df):
+    def get_structure_trend(self, df: pd.DataFrame) -> str:
         """
         Returns 'UP' (HH+HL), 'DOWN' (LH+LL), or 'NEUTRAL'.
         """
-        if len(df) < 50:
+        if len(df) < self.lookback:
             return "NEUTRAL"
         highs, lows = self._find_pivots(df)
 
@@ -66,14 +195,17 @@ class DynamicStructureBlocker:
 
         return "NEUTRAL"
 
-    def check_fade_setup(self, df, signal_type):
+    def check_fade_setup(self, df: pd.DataFrame, signal_type: str) -> bool:
         """
         Detects Bottoms/Tops using PRICE ACTION + VOLUME (No RSI).
 
         Logic for LONG Fade (Bottom Catching):
         1. Volume Spike: Current Vol > 2.0x Average Vol (Capitulation).
-        2. Rejection Wick: Long lower wick (Hammer pattern).
-        3. Extension: Price is below the Lower Bollinger Band (Overextended).
+        2. Rejection Wick: Long lower wick (Hammer pattern) OR Bullish Engulfing.
+
+        Logic for SHORT Fade (Top Catching):
+        1. Volume Spike: Current Vol > 2.0x Average Vol.
+        2. Rejection Wick: Long upper wick (Shooting Star) OR Bearish Engulfing.
         """
         if len(df) < 20:
             return False
@@ -95,11 +227,9 @@ class DynamicStructureBlocker:
         # --- FADE A DOWNTREND (Buy the Bottom) ---
         if signal_type == "LONG":
             # 1. VOLUME FILTER: Is this a "Stopping Volume" event?
-            # Data shows bottoms often have spikes > 2.0x normal volume
             is_vol_climax = vol_ratio > 2.0
 
             # 2. WICK FILTER: Is there a long lower wick?
-            # Rejection: The candle dipped but buyers pushed it back up into the top 40%
             lower_wick = min(open_, close) - low
             is_hammer = (lower_wick / range_) > 0.40  # Wick is 40% of the candle
 
@@ -130,7 +260,7 @@ class DynamicStructureBlocker:
 
         return False
 
-    def is_trade_allowed(self, df, signal_type):
+    def is_trade_allowed(self, df: pd.DataFrame, signal_type: str):
         """
         Master check:
         1. Check Macro Structure (HH/LL).
@@ -158,7 +288,7 @@ class DynamicStructureBlocker:
 
         return True, "OK"
 
-    def should_block_trade(self, side, current_price):
+    def should_block_trade(self, side: str, current_price: float):
         """
         Interface method for julie001.py integration.
         Returns (blocked: bool, reason: str)
@@ -177,21 +307,19 @@ class DynamicStructureBlocker:
         else:
             return True, reason   # Blocked
 
-    # Legacy methods for backwards compatibility
     def can_long(self):
-        """Returns (Bool, Reason)"""
+        """Legacy API: Returns (allowed: bool, reason: str)"""
         blocked, reason = self.should_block_trade("LONG", None)
         return not blocked, reason
 
     def can_short(self):
-        """Returns (Bool, Reason)"""
-        if self.short_block_counter > 0:
-            return False, f"Blocked by EQL (Wait {self.short_block_counter} bars)"
-        return True, "OK"
+        """Legacy API: Returns (allowed: bool, reason: str)"""
+        blocked, reason = self.should_block_trade("SHORT", None)
+        return not blocked, reason
 
 
 # =============================================================================
-# LEGACY IMPLEMENTATION: Regime-Based Blocker (Adaptive & Nuanced)
+# REGIME STRUCTURE BLOCKER: Adaptive Tolerance by Volatility (Legacy)
 # =============================================================================
 class RegimeStructureBlocker:
     """
@@ -201,10 +329,11 @@ class RegimeStructureBlocker:
     - Bidirectional checks: Treats Weak Highs/Lows as BOTH Magnets (liquidity) and Resistance/Support.
     - Prevents "Buying the Top" of a chop range (Longs at EQH).
     - Prevents "Selling the Bottom" of a chop range (Shorts at EQL).
+    - Uses ADAPTIVE tolerance based on current volatility regime.
 
     SETTINGS VALIDATED ON MES DATA:
     - Lookback: 20 (identifies swing highs/lows every ~18 mins, filters noise)
-    - Regimes: Quiet (<1.25), Normal (1.25-3.25), Volatile (>3.25)
+    - Regimes: Quiet (<1.25 pt range), Normal (1.25-3.25), Volatile (>3.25)
     """
 
     def __init__(self, lookback: int = 20):
@@ -212,7 +341,7 @@ class RegimeStructureBlocker:
         self.swings_low = deque(maxlen=10)
         self.lookback = lookback
 
-        # --- DATA-DRIVEN SETTINGS ---
+        # --- DATA-DRIVEN REGIME BUCKETS ---
         self.BUCKETS = {
             "QUIET": {"max_range": 1.25, "tolerance": 0.75},
             "NORMAL": {"max_range": 3.25, "tolerance": 1.50},
@@ -226,6 +355,7 @@ class RegimeStructureBlocker:
         self.last_structure_low = np.inf
 
     def _update_regime(self, df: pd.DataFrame) -> None:
+        """Update volatility regime based on recent candle ranges."""
         if len(df) < 5:
             return
         avg_range = (df["high"] - df["low"]).tail(5).mean()
@@ -241,6 +371,7 @@ class RegimeStructureBlocker:
             self.current_tolerance = self.BUCKETS["VOLATILE"]["tolerance"]
 
     def update(self, df: pd.DataFrame) -> None:
+        """Update swing levels and regime on each bar."""
         # Need Lookback * 2 + buffer to confirm swing
         if len(df) < (self.lookback * 2) + 5:
             return
@@ -341,6 +472,14 @@ class RegimeStructureBlocker:
                     # If it's weak, it acts as resistance until proven otherwise
                     return True, f"Blocked: Buying into Weak Resistance EQH ({swing['price']:.2f})"
 
-        return False, None
-        blocked, reason = self.should_block_trade("SHORT", None)
-        return not blocked, reason
+        return False, "OK"
+
+    def can_long(self):
+        """Legacy API: Returns (allowed: bool, reason: str)"""
+        # Note: Requires current_price for full check, returns OK if no price
+        return True, "OK (use should_block_trade with price for full check)"
+
+    def can_short(self):
+        """Legacy API: Returns (allowed: bool, reason: str)"""
+        # Note: Requires current_price for full check, returns OK if no price
+        return True, "OK (use should_block_trade with price for full check)"
