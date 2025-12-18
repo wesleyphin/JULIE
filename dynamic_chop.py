@@ -28,7 +28,6 @@ class DynamicChopAnalyzer:
         del days_lookback  # unused but kept for future tuning
         try:
             # 1. Fetch 60-Minute Data (Tier 1)
-            # We need enough bars for statistical significance (~1 month = ~500 hourly bars)
             df_60 = self.client.fetch_custom_bars(lookback_bars=500, minutes_per_bar=60)
             if not df_60.empty:
                 r_60 = (
@@ -55,7 +54,6 @@ class DynamicChopAnalyzer:
                 )
 
             # 3. Fetch 1-Minute Data (Tier 3)
-            # Standard get_market_data usually gets 1m bars
             df_1 = self.client.get_market_data(lookback_minutes=1000)
             if not df_1.empty:
                 r_1 = (
@@ -127,38 +125,57 @@ class DynamicChopAnalyzer:
 
     def check_target_feasibility(self, entry_price: float, side: str, tp_distance: float, df_1m: pd.DataFrame) -> Tuple[bool, str]:
         """
-        NEW FEASIBILITY CHECK (Fix for 20:56-21:00 Issue):
+        Ensures TP target sits INSIDE the current range (Box) if volatility is low.
+        Now includes 'Micro-Compression' check (Last 2 Bars).
 
-        If we are in a CHOP regime (Low Volatility), ensure the TP target
-        sits INSIDE the current range (Box).
-
-        If the TP extends past the High/Low of the chop, it implies a breakout
-        is needed to win, which is low probability in chop. We block it.
+        CRITICAL: This check is skipped if Regime is TRENDING (to allow pullbacks).
         """
         if df_1m.empty or len(df_1m) < self.LOOKBACK:
              return True, "Insufficient Data"
 
-        # 1. Define the Chop Box (High/Low of last 20 bars)
+        # =========================================================
+        # 1. REGIME CHECK (The Safety Switch)
+        # =========================================================
         box_high = df_1m["high"].iloc[-self.LOOKBACK:].max()
         box_low = df_1m["low"].iloc[-self.LOOKBACK:].min()
         current_vol = box_high - box_low
 
-        # 2. Determine Regime: Are we in Chop?
-        # We use the 15M Threshold as the dividing line.
-        # If Vol > 15M Threshold, we are "Active/Trending" -> Allow Breakouts (Return True)
+        # Determine Regime (Using 15M Threshold as the 'Trend' line)
+        # If Vol > 15M Threshold, we are "Active/Trending"
         if current_vol > self.thresholds.get("15M", 6.75):
             return True, "Trend/Breakout Regime (Target Check Skipped)"
 
-        # 3. We are in CHOP. Enforce the Box Constraint.
+        # =========================================================
+        # 2. MICRO-COMPRESSION CHECK (The "First 2 Bars" Fix)
+        # =========================================================
+        # Only active because we passed the Regime Check (we are NOT trending)
+        micro_high = df_1m["high"].iloc[-2:].max()
+        micro_low = df_1m["low"].iloc[-2:].min()
+        micro_vol = micro_high - micro_low
+
+        if micro_vol <= 5.0:
+            # We are in tight compression in a non-trending market.
+            # Rule: DO NOT assume a breakout. The TP MUST fit inside these 2 bars.
+            if side.upper() == "LONG":
+                target = entry_price + tp_distance
+                if target > micro_high:
+                    return False, f"⛔ MICRO COMPRESSION: Range {micro_vol:.2f}pts. TP {target} > High {micro_high}. Waiting for Expansion."
+            elif side.upper() == "SHORT":
+                target = entry_price - tp_distance
+                if target < micro_low:
+                    return False, f"⛔ MICRO COMPRESSION: Range {micro_vol:.2f}pts. TP {target} < Low {micro_low}. Waiting for Expansion."
+
+        # =========================================================
+        # 3. MACRO CHOP CHECK (The Standard 20-Bar Fix)
+        # =========================================================
+        # If in Chop (which we are), enforce the 20-bar Box
         if side.upper() == "LONG":
             target = entry_price + tp_distance
-            # If target is ABOVE the box high (requires breakout), Block.
             if target > box_high:
                 return False, f"⛔ CHOP BOUND: TP ({target:.2f}) extends past Range High ({box_high:.2f}). Unlikely to hit."
 
         elif side.upper() == "SHORT":
             target = entry_price - tp_distance
-            # If target is BELOW the box low (requires breakout), Block.
             if target < box_low:
                 return False, f"⛔ CHOP BOUND: TP ({target:.2f}) extends past Range Low ({box_low:.2f}). Unlikely to hit."
 
