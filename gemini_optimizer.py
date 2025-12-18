@@ -275,7 +275,25 @@ class GeminiSessionOptimizer:
         try:
             response = requests.post(self.url, headers=self.headers, json=payload, timeout=45)
             if response.status_code == 200:
-                return json.loads(response.json()['candidates'][0]['content']['parts'][0]['text'])
+                # 1. Parse the Raw JSON
+                data = json.loads(response.json()['candidates'][0]['content']['parts'][0]['text'])
+
+                # 2. APPLY SAFETY GUARDRAILS (Hard Cap at 1.5x, Floor at 0.5x)
+                # We use .get() to avoid crashing if keys are missing, defaulting to 1.0
+                raw_sl = float(data.get('sl_multiplier', 1.0))
+                raw_tp = float(data.get('tp_multiplier', 1.0))
+
+                # Apply the Cap: Min of (Value, 1.5) and Max of (Value, 0.5)
+                # Lower bound (0.5) prevents stops from becoming too tight
+                data['sl_multiplier'] = max(0.5, min(raw_sl, 1.5))
+                data['tp_multiplier'] = max(0.5, min(raw_tp, 1.5))
+
+                # Logging the intervention if it happened
+                if raw_sl > 1.5 or raw_tp > 1.5:
+                    logging.warning(f"⚠️ Gemini output capped! SL: {raw_sl}->{data['sl_multiplier']}, TP: {raw_tp}->{data['tp_multiplier']}")
+
+                return data
+
             return None
         except Exception as e:
             logging.error(f"Gemini Optimization Error: {e}")
