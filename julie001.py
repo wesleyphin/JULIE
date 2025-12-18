@@ -937,6 +937,21 @@ def run_bot():
                                     f"Volatility regime adjustment (size={vol_adj['size']})"
                                 )
 
+                            # --- NEW: CHOP FEASIBILITY CHECK ---
+                            # Prevents taking trades in chop where the TP is outside the visible range.
+                            is_feasible, feasibility_reason = chop_analyzer.check_target_feasibility(
+                                entry_price=current_price,
+                                side=signal['side'],
+                                tp_distance=signal.get('tp_dist', 6.0),
+                                df_1m=new_df
+                            )
+                            if not is_feasible:
+                                logging.info(f"🚫 Trade Skipped (FAST): {feasibility_reason}")
+                                event_logger.log_filter_check("ChopFeasibility", signal['side'], False, feasibility_reason)
+                                continue
+                            else:
+                                event_logger.log_filter_check("ChopFeasibility", signal['side'], True)
+
                             # Bank Filter (RegimeAdaptive Only)
                             bank_blocked, bank_reason = bank_filter.should_block_trade(signal['side'])
                             if bank_blocked:
@@ -1160,6 +1175,21 @@ def run_bot():
                                     f"Volatility regime adjustment (size={vol_adj['size']})"
                                 )
 
+                            # --- NEW: CHOP FEASIBILITY CHECK ---
+                            # Prevents taking trades in chop where the TP is outside the visible range.
+                            is_feasible, feasibility_reason = chop_analyzer.check_target_feasibility(
+                                entry_price=current_price,
+                                side=signal['side'],
+                                tp_distance=signal.get('tp_dist', 6.0),
+                                df_1m=new_df
+                            )
+                            if not is_feasible:
+                                logging.info(f"🚫 Trade Skipped (STANDARD): {feasibility_reason}")
+                                event_logger.log_filter_check("ChopFeasibility", signal['side'], False, feasibility_reason)
+                                continue
+                            else:
+                                event_logger.log_filter_check("ChopFeasibility", signal['side'], True)
+
                             # Bank Filter (ML Only)
                             if strat_name == "MLPhysicsStrategy":
                                 bank_blocked, bank_reason = bank_filter.should_block_trade(signal['side'])
@@ -1364,6 +1394,21 @@ def run_bot():
                                         vol_adj['tp_dist'],
                                         f"Volatility regime adjustment (size={vol_adj['size']})"
                                     )
+
+                                # --- NEW: CHOP FEASIBILITY CHECK ---
+                                # Prevents taking trades in chop where the TP is outside the visible range.
+                                is_feasible, feasibility_reason = chop_analyzer.check_target_feasibility(
+                                    entry_price=current_price,
+                                    side=sig['side'],
+                                    tp_distance=sig.get('tp_dist', 6.0),
+                                    df_1m=new_df
+                                )
+                                if not is_feasible:
+                                    logging.info(f"🚫 Trade Skipped (LOOSE): {feasibility_reason}")
+                                    event_logger.log_filter_check("ChopFeasibility", sig['side'], False, feasibility_reason)
+                                    del pending_loose_signals[s_name]; continue
+                                else:
+                                    event_logger.log_filter_check("ChopFeasibility", sig['side'], True)
 
                                 logging.info(f"✅ LOOSE EXEC: {s_name}")
                                 event_logger.log_strategy_execution(s_name, "LOOSE")
