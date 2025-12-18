@@ -1,34 +1,38 @@
 import pandas as pd
 import numpy as np
 import logging
-from config import CONFIG
 
 class DynamicStructureBlocker:
-    def __init__(self):
-        # Configuration
-        self.lookback = 50          # Look back 50 candles to find the "Ceiling" and "Floor"
-
-        # --- CRITICAL UPDATE: WIDENED TOLERANCE ---
-        # Your High was 6791.75, Entry was 6787.5 (Diff 4.25).
-        # We set tolerance to 5.0 to ensure this 4.25 gap is detected as "Near EQH".
+    def __init__(self, lookback=50, pivot_window=5):
+        """
+        :param lookback: Bars to look back for EQH/EQL detection.
+        :param pivot_window: Bars on left/right to confirm a fractal pivot.
+        """
+        # === OLD LOGIC: EQH/EQL Proximity ===
+        self.lookback = lookback
         self.tolerance = 5.0
-
-        # --- PERSISTENT BLOCKING (The "Penalty Box") ---
-        # If we touch the danger zone, we stay blocked for 3 bars.
-        # This prevents the "19:20" trade where price dipped slightly but was still dangerous.
         self.block_duration = 3
-
-        # State variables
         self.long_block_counter = 0
         self.short_block_counter = 0
         self.last_processed_time = None
+
+        # === NEW LOGIC: Structure Trend + Fade ===
+        self.pivot_window = pivot_window
+        self.df = None  # Stored dataframe for fade checks
+
+    # =========================================================================
+    # OLD LOGIC: EQH/EQL PROXIMITY BLOCKING (Penalty Box)
+    # =========================================================================
 
     def update(self, df):
         """
         Call this on every new candle close to update the blocking state.
         """
-        if df.empty:
+        if df is None or df.empty:
             return
+
+        # Store df for new logic
+        self.df = df.copy()
 
         # 1. State Management: Process each candle exactly once
         current_time = df.index[-1]
@@ -54,36 +58,164 @@ class DynamicStructureBlocker:
             return
 
         # --- LOGIC A: Check EQH (Resistance) -> Blocks Longs ---
-        # We only block if we are BELOW the high (approaching resistance).
-        # If we are above it, it's a breakout (we don't block).
         if current_close < prev_high:
             dist_to_high = prev_high - current_close
-
-            # If within 5.0 points of the high...
             if dist_to_high <= self.tolerance:
-                # ...TRIGGER THE PENALTY BOX
                 self.long_block_counter = self.block_duration
                 logging.info(f"⛔ STRUCTURE: Price {current_close} is within {self.tolerance}pts of EQH {prev_high}. Blocking Longs for {self.block_duration} bars.")
 
         # --- LOGIC B: Check EQL (Support) -> Blocks Shorts ---
-        # We only block if we are ABOVE the low (approaching support).
         if current_close > prev_low:
             dist_to_low = current_close - prev_low
-
-            # If within 5.0 points of the low...
             if dist_to_low <= self.tolerance:
-                # ...TRIGGER THE PENALTY BOX
                 self.short_block_counter = self.block_duration
                 logging.info(f"⛔ STRUCTURE: Price {current_close} is within {self.tolerance}pts of EQL {prev_low}. Blocking Shorts for {self.block_duration} bars.")
 
     def can_long(self):
-        """Returns (Bool, Reason)"""
+        """OLD LOGIC: Returns (Bool, Reason)"""
         if self.long_block_counter > 0:
             return False, f"Blocked by EQH (Wait {self.long_block_counter} bars)"
         return True, "OK"
 
     def can_short(self):
-        """Returns (Bool, Reason)"""
+        """OLD LOGIC: Returns (Bool, Reason)"""
         if self.short_block_counter > 0:
             return False, f"Blocked by EQL (Wait {self.short_block_counter} bars)"
         return True, "OK"
+
+    # =========================================================================
+    # NEW LOGIC: STRUCTURE TREND + FADE DETECTION
+    # =========================================================================
+
+    def _find_pivots(self, df):
+        """Identify fractal swing points."""
+        df = df.copy()
+        df['is_pivot_high'] = df['high'].rolling(window=self.pivot_window*2+1, center=True).max() == df['high']
+        df['is_pivot_low'] = df['low'].rolling(window=self.pivot_window*2+1, center=True).min() == df['low']
+        return df[df['is_pivot_high']], df[df['is_pivot_low']]
+
+    def get_structure_trend(self, df):
+        """Returns 'UP' (HH+HL), 'DOWN' (LH+LL), or 'NEUTRAL'."""
+        if len(df) < 50:
+            return "NEUTRAL"
+        highs, lows = self._find_pivots(df)
+
+        if len(highs) < 2 or len(lows) < 2:
+            return "NEUTRAL"
+
+        last_h, prev_h = highs.iloc[-1]['high'], highs.iloc[-2]['high']
+        last_l, prev_l = lows.iloc[-1]['low'], lows.iloc[-2]['low']
+
+        if last_h < prev_h and last_l < prev_l:
+            return "DOWN"
+        elif last_h > prev_h and last_l > prev_l:
+            return "UP"
+
+        return "NEUTRAL"
+
+    def check_fade_setup(self, df, signal_type):
+        """
+        Detects Bottoms/Tops using PRICE ACTION + VOLUME.
+        Volume Spike (>2x avg) + Rejection Wick or Engulfing pattern.
+        """
+        if len(df) < 20:
+            return False
+
+        current = df.iloc[-1]
+        avg_vol = df['volume'].rolling(window=20).mean().iloc[-1]
+        vol_ratio = current['volume'] / avg_vol if avg_vol > 0 else 1.0
+
+        open_ = current['open']
+        close = current['close']
+        high = current['high']
+        low = current['low']
+        range_ = high - low
+
+        if range_ == 0:
+            return False
+
+        # --- FADE A DOWNTREND (Buy the Bottom) ---
+        if signal_type == "LONG":
+            is_vol_climax = vol_ratio > 2.0
+            lower_wick = min(open_, close) - low
+            is_hammer = (lower_wick / range_) > 0.40
+
+            prev_close = df['close'].iloc[-2]
+            prev_open = df['open'].iloc[-2]
+            is_engulfing = (close > prev_open) and (open_ < prev_close) and (close > open_)
+
+            if is_vol_climax and (is_hammer or is_engulfing):
+                return True
+
+        # --- FADE AN UPTREND (Short the Top) ---
+        elif signal_type == "SHORT":
+            is_vol_climax = vol_ratio > 2.0
+            upper_wick = high - max(open_, close)
+            is_shooting_star = (upper_wick / range_) > 0.40
+
+            prev_close = df['close'].iloc[-2]
+            prev_open = df['open'].iloc[-2]
+            is_engulfing = (close < prev_open) and (open_ > prev_close) and (close < open_)
+
+            if is_vol_climax and (is_shooting_star or is_engulfing):
+                return True
+
+        return False
+
+    def check_trend_block(self, signal_type):
+        """
+        NEW LOGIC: Check if trade is blocked by structure trend.
+        Returns (blocked: bool, reason: str)
+        """
+        if self.df is None or len(self.df) < 50:
+            return False, "OK"
+
+        trend = self.get_structure_trend(self.df)
+
+        # Trend is DOWN, Signal is LONG -> Block unless fade setup
+        if trend == "DOWN" and signal_type == "LONG":
+            if self.check_fade_setup(self.df, "LONG"):
+                logging.info(f"✅ TREND: Fade ALLOWED - Vol Climax + Rejection Wick detected.")
+                return False, "Fade setup valid: Vol Climax + Rejection Wick"
+            else:
+                logging.info(f"⛔ TREND: BLOCKED - Trend is DOWN and no Volume/Wick Rejection.")
+                return True, "Trend is DOWN and no Volume/Wick Rejection"
+
+        # Trend is UP, Signal is SHORT -> Block unless fade setup
+        if trend == "UP" and signal_type == "SHORT":
+            if self.check_fade_setup(self.df, "SHORT"):
+                logging.info(f"✅ TREND: Fade ALLOWED - Vol Climax + Shooting Star detected.")
+                return False, "Fade setup valid: Vol Climax + Shooting Star"
+            else:
+                logging.info(f"⛔ TREND: BLOCKED - Trend is UP and no Volume/Wick Rejection.")
+                return True, "Trend is UP and no Volume/Wick Rejection"
+
+        return False, "OK"
+
+    # =========================================================================
+    # MASTER CHECK: BOTH LOGICS COMBINED
+    # =========================================================================
+
+    def should_block_trade(self, side, current_price):
+        """
+        Master interface for julie001.py. Runs BOTH checks independently.
+        Returns (blocked: bool, reason: str)
+        """
+        signal_type = "LONG" if side.upper() == "LONG" else "SHORT"
+
+        # CHECK 1: Old Logic (EQH/EQL Proximity)
+        if signal_type == "LONG":
+            eqh_allowed, eqh_reason = self.can_long()
+        else:
+            eqh_allowed, eqh_reason = self.can_short()
+
+        if not eqh_allowed:
+            return True, eqh_reason  # Blocked by EQH/EQL
+
+        # CHECK 2: New Logic (Structure Trend + Fade)
+        trend_blocked, trend_reason = self.check_trend_block(signal_type)
+
+        if trend_blocked:
+            return True, trend_reason  # Blocked by Trend
+
+        return False, "OK"
