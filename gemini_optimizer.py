@@ -135,9 +135,6 @@ class GeminiSessionOptimizer:
         Main Optimization Routine with Session-Aligned Metrics.
         Uses "like-for-like" comparison: analyzes only the same session hours
         from the past 13 days for accurate context.
-
-        Args:
-            structure_context: Textual summary of nearby S/R levels and FVGs
         """
         logging.info(f"🧠 Gemini 3.0: Analyzing Session-Aligned Context for {session_name}...")
 
@@ -145,8 +142,6 @@ class GeminiSessionOptimizer:
             return None
 
         # --- STEP 1: TIME SLICING (Session-Aligned Analysis) ---
-        # Instead of looking at continuous time, we only look at "Like-for-Like" sessions
-        # from the last ~14 days (approx 20k bars).
         session_aligned_df = self._slice_dataframe_by_session(master_df, session_name)
 
         if session_aligned_df.empty:
@@ -155,60 +150,45 @@ class GeminiSessionOptimizer:
 
         logging.info(f"📊 Session-aligned data: {len(session_aligned_df)} bars for {session_name}")
 
-        # --- STEP 2: CALCULATE METRICS ON SESSION-ALIGNED DATA ---
+        # --- STEP 2: CALCULATE METRICS ---
 
-        # A. Volatility (Average range of THIS specific session over last 13 days)
-        # Resample by day first to get daily session ranges
+        # Calculate Base Risk:Reward Ratio
+        base_rr = base_tp / base_sl if base_sl > 0 else 0.0
+
+        # A. Volatility
         daily_session_stats = session_aligned_df.resample('D').agg({
-            'high': 'max',
-            'low': 'min',
-            'volume': 'sum'
+            'high': 'max', 'low': 'min', 'volume': 'sum'
         }).dropna()
-
-        # Calculate average range for this session type
         daily_session_stats['range'] = daily_session_stats['high'] - daily_session_stats['low']
         avg_session_range = round(daily_session_stats['range'].mean(), 2) if not daily_session_stats.empty else 0
         num_session_days = len(daily_session_stats)
 
-        # B. Volume Profile (Relative Volume for this session)
+        # B. Volume Profile
         avg_session_volume = int(daily_session_stats['volume'].mean()) if not daily_session_stats.empty else 0
 
-        # C. ADX on session-aligned data (reflects session-specific momentum)
-        df_15m = session_aligned_df.resample('15min').agg({
-            'high': 'max',
-            'low': 'min',
-            'close': 'last'
-        }).dropna()
+        # C. ADX
+        df_15m = session_aligned_df.resample('15min').agg({'high': 'max', 'low': 'min', 'close': 'last'}).dropna()
         adx_score = self._calculate_adx(df_15m) if not df_15m.empty else 0
         trend_status = "TRENDING" if adx_score > 25 else "CHOPPY/RANGING"
 
-        # D. Market Profile on session-aligned data
+        # D. Market Profile
         profile = self._calculate_market_profile(session_aligned_df)
         curr_price = profile.get('current_price', 0)
         vah = profile.get('VAH', 0)
         val = profile.get('VAL', 0)
-
         profile_status = "INSIDE VALUE (Balance)"
-        if curr_price > vah:
-            profile_status = "ABOVE VALUE (Bullish Imbalance)"
-        elif curr_price < val:
-            profile_status = "BELOW VALUE (Bearish Imbalance)"
+        if curr_price > vah: profile_status = "ABOVE VALUE (Bullish Imbalance)"
+        elif curr_price < val: profile_status = "BELOW VALUE (Bearish Imbalance)"
 
-        # --- STEP 3: HISTORICAL CONTEXT (Same Session from CSV) ---
+        # --- STEP 3: HISTORICAL CONTEXT ---
         hist_df = self._load_historical_data()
         hist_session_range = "N/A"
         hist_context = "Historical Data Unavailable"
 
         if hist_df is not None:
-            # Slice historical data by same session hours
             hist_session_df = self._slice_dataframe_by_session(hist_df, session_name)
-
             if not hist_session_df.empty:
-                # Calculate historical session stats
-                hist_daily_stats = hist_session_df.resample('D').agg({
-                    'high': 'max',
-                    'low': 'min'
-                }).dropna()
+                hist_daily_stats = hist_session_df.resample('D').agg({'high': 'max', 'low': 'min'}).dropna()
                 hist_daily_stats['range'] = hist_daily_stats['high'] - hist_daily_stats['low']
                 hist_session_range = round(hist_daily_stats['range'].mean(), 2)
                 hist_context = f"{hist_session_range} pts (from {len(hist_daily_stats)} historical sessions)"
@@ -216,53 +196,38 @@ class GeminiSessionOptimizer:
         # --- STEP 4: CONSTRUCT ADVANCED PROMPT ---
         system_instruction = (
             f"You are a Quantitative Risk Manager optimizing for the {session_name} session.\n"
-            "Use Market Structure (S/R, FVGs), Trend Strength (ADX), and News to adjust TP/SL.\n"
-            "Rules:\n"
-            "- High ADX + Open Space (No S/R nearby): Widen TP significantly (Trend Following).\n"
-            "- Price sandwiched between S/R or inside FVG: Tighten TP, reduce SL multiplier (Chop/Mean Reversion).\n"
-            "- Approaching Major FVG: Conservative TP to front-run the reversal zone.\n"
-            "- High ADX (>30) + Imbalance: Widen TP significantly (Trend Following).\n"
-            "- Low ADX (<20) + Inside Value: Tighten TP, Widen SL slightly (Mean Reversion).\n"
+            "Use Market Structure (S/R, FVGs), Trend Strength (ADX), and News to adjust TP/SL.\n\n"
+            "CRITICAL RULES:\n"
+            "- **CHECK BASE RR:** If Base RR is already High (>3.0), do NOT widen TP multiplier significantly. Prioritize hitting the target over greed.\n"
+            "- **EXTREME RR (>5.0):** If RR is massive, keep TP Multiplier <= 1.0 unless ADX > 50 (Parabolic).\n"
+            "- High ADX + Open Space: Widen TP significantly only if RR < 3.0.\n"
+            "- Price sandwiched between S/R: Tighten TP, reduce SL multiplier.\n"
             "- High Impact Events: Maximize SL (Volatility Protection).\n"
-            "- Compare recent session range to historical norm to detect expansion/contraction."
         )
 
         user_prompt = (
             f"**OPTIMIZATION REQUEST FOR: {session_name}**\n\n"
 
-            f"=== MARKET STRUCTURE (Walls & Magnets) ===\n"
-            f"{structure_context}\n\n"
-
-            f"=== SESSION CONTEXT (Vs. Past {num_session_days} {session_name} Sessions) ===\n"
-            f"Avg Session Range: {avg_session_range} pts\n"
-            f"Avg Session Volume: {avg_session_volume:,}\n"
-            f"Recent Trend (ADX on Session Data): {adx_score} ({trend_status})\n"
-            f"Current Market Profile: {profile_status}\n"
-            f"Price Location: {curr_price} (VAH: {vah} | VAL: {val})\n\n"
-
-            f"=== HISTORICAL CONTEXT (2023-2025 Data) ===\n"
-            f"Long-term Avg {session_name} Range: {hist_context}\n\n"
-
-            f"=== NEWS EVENTS ===\n"
-            f"{events_data}\n\n"
-
             f"=== BASE PARAMETERS ===\n"
-            f"SL: {base_sl} | TP: {base_tp}\n\n"
+            f"SL: {base_sl} | TP: {base_tp}\n"
+            f"BASE RR: {base_rr:.2f}R (Reward/Risk Ratio)\n\n"
+
+            f"=== MARKET STRUCTURE ===\n{structure_context}\n\n"
+
+            f"=== SESSION CONTEXT (Vs. Past {num_session_days} Sessions) ===\n"
+            f"Avg Session Range: {avg_session_range} pts\n"
+            f"Recent Trend: {adx_score} ({trend_status})\n"
+            f"Market Profile: {profile_status}\n\n"
+
+            f"=== HISTORICAL CONTEXT ===\n"
+            f"Long-term Avg Range: {hist_context}\n\n"
+
+            f"=== NEWS EVENTS ===\n{events_data}\n\n"
 
             "**TASK:**\n"
-            "Compare recent session behavior to historical norms. "
-            "Consider Market Structure (S/R walls, FVGs) when setting TP targets. "
-            "If recent sessions are expanding (High Range/Vol) with open space, increase TP multiplier. "
-            "If contracting (Chop) or sandwiched between structure, decrease TP multiplier.\n\n"
-
-            "Output STRICT JSON:\n"
-            "{\n"
-            f'  "session": "{session_name}",\n'
-            '  "regime": "TREND" or "RANGE" or "BREAKOUT",\n'
-            '  "sl_multiplier": number (e.g. 1.1),\n'
-            '  "tp_multiplier": number (e.g. 1.5),\n'
-            '  "reasoning": "Explain using ADX, Value Area, S/R levels, FVGs, and Range comparison"\n'
-            "}"
+            "Provide TP/SL multipliers. "
+            "If Base RR is high, be conservative with TP multiplier to ensure fill."
+            "\nOutput STRICT JSON: {session, regime, sl_multiplier, tp_multiplier, reasoning}"
         )
 
         # --- 4. EXECUTE ---
@@ -275,25 +240,27 @@ class GeminiSessionOptimizer:
         try:
             response = requests.post(self.url, headers=self.headers, json=payload, timeout=45)
             if response.status_code == 200:
-                # 1. Parse the Raw JSON
+                # 1. Parse Response
                 data = json.loads(response.json()['candidates'][0]['content']['parts'][0]['text'])
 
-                # 2. APPLY SAFETY GUARDRAILS (Hard Cap at 1.5x, Floor at 0.5x)
-                # We use .get() to avoid crashing if keys are missing, defaulting to 1.0
                 raw_sl = float(data.get('sl_multiplier', 1.0))
                 raw_tp = float(data.get('tp_multiplier', 1.0))
 
-                # Apply the Cap: Min of (Value, 1.5) and Max of (Value, 0.5)
-                # Lower bound (0.5) prevents stops from becoming too tight
-                data['sl_multiplier'] = max(0.5, min(raw_sl, 1.5))
-                data['tp_multiplier'] = max(0.5, min(raw_tp, 1.5))
+                # --- 2. DYNAMIC RR-BASED GUARDRAILS ---
 
-                # Logging the intervention if it happened
-                if raw_sl > 1.5 or raw_tp > 1.5:
-                    logging.warning(f"⚠️ Gemini output capped! SL: {raw_sl}->{data['sl_multiplier']}, TP: {raw_tp}->{data['tp_multiplier']}")
+                # If RR is already > 4.0, cap TP increase to 10% max (1.1x)
+                # This prevents turning a 25pt target into an impossible 37.5pt target
+                rr_tp_cap = 1.1 if base_rr > 4.0 else 1.5
+
+                # Apply the limits
+                # Floor of 0.5 to prevent stop-outs on entry
+                data['sl_multiplier'] = max(0.5, min(raw_sl, 1.5))
+                data['tp_multiplier'] = max(0.5, min(raw_tp, rr_tp_cap))
+
+                if raw_tp > rr_tp_cap:
+                    logging.warning(f"⚠️ High RR ({base_rr:.1f}R) detected. Capped TP Mult: {raw_tp} -> {data['tp_multiplier']}")
 
                 return data
-
             return None
         except Exception as e:
             logging.error(f"Gemini Optimization Error: {e}")
