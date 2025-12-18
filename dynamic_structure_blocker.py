@@ -20,80 +20,168 @@ class DynamicStructureBlocker:
     def __init__(self):
         # Configuration
         self.lookback = 50          # Look back 50 candles to find the "Ceiling" and "Floor"
-
-        # --- CRITICAL UPDATE: WIDENED TOLERANCE ---
-        # Your High was 6791.75, Entry was 6787.5 (Diff 4.25).
-        # We set tolerance to 5.0 to ensure this 4.25 gap is detected as "Near EQH".
-        self.tolerance = 5.0
-
-        # --- PERSISTENT BLOCKING (The "Penalty Box") ---
-        # If we touch the danger zone, we stay blocked for 3 bars.
-        # This prevents the "19:20" trade where price dipped slightly but was still dangerous.
-        self.block_duration = 3
-
-        # State variables
-        self.long_block_counter = 0
-        self.short_block_counter = 0
-        self.last_processed_time = None
+    def __init__(self, pivot_window=5, lookback=50):
+        """
+        :param pivot_window: Bars on left/right to confirm a fractal pivot.
+        :param lookback: Legacy parameter for backwards compatibility.
+        """
+        self.pivot_window = pivot_window
+        self.lookback = lookback
+        self.df = None  # Stored dataframe from update()
 
     def update(self, df):
+        """Store the latest dataframe for blocking checks."""
+        if df is not None and not df.empty:
+            self.df = df.copy()
+
+    def _find_pivots(self, df):
+        """Identify fractal swing points."""
+        df = df.copy()
+        # Vectorized pivot detection
+        # Rolling max/min with center=True checks left and right neighbors
+        df['is_pivot_high'] = df['high'].rolling(window=self.pivot_window*2+1, center=True).max() == df['high']
+        df['is_pivot_low'] = df['low'].rolling(window=self.pivot_window*2+1, center=True).min() == df['low']
+
+        return df[df['is_pivot_high']], df[df['is_pivot_low']]
+
+    def get_structure_trend(self, df):
         """
-        Call this on every new candle close to update the blocking state.
+        Returns 'UP' (HH+HL), 'DOWN' (LH+LL), or 'NEUTRAL'.
         """
-        if df.empty:
-            return
+        if len(df) < 50:
+            return "NEUTRAL"
+        highs, lows = self._find_pivots(df)
 
-        # 1. State Management: Process each candle exactly once
-        current_time = df.index[-1]
-        if self.last_processed_time == current_time:
-            return
-        self.last_processed_time = current_time
+        if len(highs) < 2 or len(lows) < 2:
+            return "NEUTRAL"
 
-        # 2. Decrement existing blocks (Count down the penalty timer)
-        if self.long_block_counter > 0:
-            self.long_block_counter -= 1
-        if self.short_block_counter > 0:
-            self.short_block_counter -= 1
+        # Compare last two confirmed pivots
+        last_h, prev_h = highs.iloc[-1]['high'], highs.iloc[-2]['high']
+        last_l, prev_l = lows.iloc[-1]['low'], lows.iloc[-2]['low']
 
-        # 3. Detect Structure (Instant Scan)
-        recent_data = df.tail(self.lookback)
-        current_close = recent_data.iloc[-1]['close']
+        if last_h < prev_h and last_l < prev_l:
+            return "DOWN"
+        elif last_h > prev_h and last_l > prev_l:
+            return "UP"
 
-        # Find the absolute High/Low of the recent window (excluding current bar to avoid repainting)
-        if len(recent_data) > 1:
-            prev_high = recent_data.iloc[:-1]['high'].max()
-            prev_low = recent_data.iloc[:-1]['low'].min()
+        return "NEUTRAL"
+
+    def check_fade_setup(self, df, signal_type):
+        """
+        Detects Bottoms/Tops using PRICE ACTION + VOLUME (No RSI).
+
+        Logic for LONG Fade (Bottom Catching):
+        1. Volume Spike: Current Vol > 2.0x Average Vol (Capitulation).
+        2. Rejection Wick: Long lower wick (Hammer pattern).
+        3. Extension: Price is below the Lower Bollinger Band (Overextended).
+        """
+        if len(df) < 20:
+            return False
+
+        current = df.iloc[-1]
+        avg_vol = df['volume'].rolling(window=20).mean().iloc[-1]
+        vol_ratio = current['volume'] / avg_vol if avg_vol > 0 else 1.0
+
+        # Calculate Candle Body & Wicks
+        open_ = current['open']
+        close = current['close']
+        high = current['high']
+        low = current['low']
+        range_ = high - low
+
+        if range_ == 0:
+            return False
+
+        # --- FADE A DOWNTREND (Buy the Bottom) ---
+        if signal_type == "LONG":
+            # 1. VOLUME FILTER: Is this a "Stopping Volume" event?
+            # Data shows bottoms often have spikes > 2.0x normal volume
+            is_vol_climax = vol_ratio > 2.0
+
+            # 2. WICK FILTER: Is there a long lower wick?
+            # Rejection: The candle dipped but buyers pushed it back up into the top 40%
+            lower_wick = min(open_, close) - low
+            is_hammer = (lower_wick / range_) > 0.40  # Wick is 40% of the candle
+
+            # 3. ENGULFING FILTER: Did we totally reverse the previous Red candle?
+            prev_close = df['close'].iloc[-2]
+            prev_open = df['open'].iloc[-2]
+            is_engulfing = (close > prev_open) and (open_ < prev_close) and (close > open_)
+
+            # TRIGGER: Volume Spike + (Hammer OR Engulfing)
+            if is_vol_climax and (is_hammer or is_engulfing):
+                return True
+
+        # --- FADE AN UPTREND (Short the Top) ---
+        elif signal_type == "SHORT":
+            is_vol_climax = vol_ratio > 2.0
+
+            # Upper Wick Rejection (Shooting Star)
+            upper_wick = high - max(open_, close)
+            is_shooting_star = (upper_wick / range_) > 0.40
+
+            # Bearish Engulfing
+            prev_close = df['close'].iloc[-2]
+            prev_open = df['open'].iloc[-2]
+            is_engulfing = (close < prev_open) and (open_ > prev_close) and (close < open_)
+
+            if is_vol_climax and (is_shooting_star or is_engulfing):
+                return True
+
+        return False
+
+    def is_trade_allowed(self, df, signal_type):
+        """
+        Master check:
+        1. Check Macro Structure (HH/LL).
+        2. If Trend opposes Signal, allow ONLY if Fade Setup is valid.
+        """
+        trend = self.get_structure_trend(df)
+
+        # Case 1: Trend says DOWN, Signal is LONG
+        if trend == "DOWN" and signal_type == "LONG":
+            if self.check_fade_setup(df, "LONG"):
+                logging.info(f"✅ Trade ALLOWED (Fade): Vol Climax + Rejection Wick detected.")
+                return True, "Fade setup valid: Vol Climax + Rejection Wick"
+            else:
+                logging.info(f"⛔ Trade BLOCKED: Trend is DOWN and no Volume/Wick Rejection.")
+                return False, "Trend is DOWN and no Volume/Wick Rejection"
+
+        # Case 2: Trend says UP, Signal is SHORT
+        if trend == "UP" and signal_type == "SHORT":
+            if self.check_fade_setup(df, "SHORT"):
+                logging.info(f"✅ Trade ALLOWED (Fade): Vol Climax + Shooting Star detected.")
+                return True, "Fade setup valid: Vol Climax + Shooting Star"
+            else:
+                logging.info(f"⛔ Trade BLOCKED: Trend is UP and no Volume/Wick Rejection.")
+                return False, "Trend is UP and no Volume/Wick Rejection"
+
+        return True, "OK"
+
+    def should_block_trade(self, side, current_price):
+        """
+        Interface method for julie001.py integration.
+        Returns (blocked: bool, reason: str)
+        """
+        if self.df is None or len(self.df) < 20:
+            return False, "OK"
+
+        # Convert side to signal_type
+        signal_type = "LONG" if side.upper() == "LONG" else "SHORT"
+
+        # Use is_trade_allowed and invert for blocking logic
+        allowed, reason = self.is_trade_allowed(self.df, signal_type)
+
+        if allowed:
+            return False, reason  # Not blocked
         else:
-            return
+            return True, reason   # Blocked
 
-        # --- LOGIC A: Check EQH (Resistance) -> Blocks Longs ---
-        # We only block if we are BELOW the high (approaching resistance).
-        # If we are above it, it's a breakout (we don't block).
-        if current_close < prev_high:
-            dist_to_high = prev_high - current_close
-
-            # If within 5.0 points of the high...
-            if dist_to_high <= self.tolerance:
-                # ...TRIGGER THE PENALTY BOX
-                self.long_block_counter = self.block_duration
-                logging.info(f"⛔ STRUCTURE: Price {current_close} is within {self.tolerance}pts of EQH {prev_high}. Blocking Longs for {self.block_duration} bars.")
-
-        # --- LOGIC B: Check EQL (Support) -> Blocks Shorts ---
-        # We only block if we are ABOVE the low (approaching support).
-        if current_close > prev_low:
-            dist_to_low = current_close - prev_low
-
-            # If within 5.0 points of the low...
-            if dist_to_low <= self.tolerance:
-                # ...TRIGGER THE PENALTY BOX
-                self.short_block_counter = self.block_duration
-                logging.info(f"⛔ STRUCTURE: Price {current_close} is within {self.tolerance}pts of EQL {prev_low}. Blocking Shorts for {self.block_duration} bars.")
-
+    # Legacy methods for backwards compatibility
     def can_long(self):
         """Returns (Bool, Reason)"""
-        if self.long_block_counter > 0:
-            return False, f"Blocked by EQH (Wait {self.long_block_counter} bars)"
-        return True, "OK"
+        blocked, reason = self.should_block_trade("LONG", None)
+        return not blocked, reason
 
     def can_short(self):
         """Returns (Bool, Reason)"""
@@ -254,3 +342,5 @@ class RegimeStructureBlocker:
                     return True, f"Blocked: Buying into Weak Resistance EQH ({swing['price']:.2f})"
 
         return False, None
+        blocked, reason = self.should_block_trade("SHORT", None)
+        return not blocked, reason

@@ -809,6 +809,27 @@ def run_bot():
                                 additional_info={"execution_type": "FAST"}
                             )
 
+                            # ==========================================
+                            # LAYER 1: TARGET FEASIBILITY CHECK (Master Gate)
+                            # ==========================================
+                            # The market condition check (chop) already happened globally.
+                            # Now check if the TARGET is realistic before wasting filter cycles.
+                            is_feasible, feasibility_reason = chop_analyzer.check_target_feasibility(
+                                entry_price=current_price,
+                                side=signal['side'],
+                                tp_distance=signal.get('tp_dist', 6.0),
+                                df_1m=new_df
+                            )
+                            if not is_feasible:
+                                logging.info(f"⛔ Signal ignored (FAST): {feasibility_reason}")
+                                event_logger.log_filter_check("ChopFeasibility", signal['side'], False, feasibility_reason)
+                                continue
+                            else:
+                                event_logger.log_filter_check("ChopFeasibility", signal['side'], True)
+
+                            # ==========================================
+                            # LAYER 2: SIGNAL QUALITY FILTERS
+                            # ==========================================
                             # Filters - Rejection Filter
                             rej_blocked, rej_reason = rejection_filter.should_block_trade(signal['side'])
                             if rej_blocked:
@@ -1040,6 +1061,27 @@ def run_bot():
                                 additional_info={"execution_type": "STANDARD"}
                             )
 
+                            # ==========================================
+                            # LAYER 1: TARGET FEASIBILITY CHECK (Master Gate)
+                            # ==========================================
+                            # The market condition check (chop) already happened globally.
+                            # Now check if the TARGET is realistic before wasting filter cycles.
+                            is_feasible, feasibility_reason = chop_analyzer.check_target_feasibility(
+                                entry_price=current_price,
+                                side=signal['side'],
+                                tp_distance=signal.get('tp_dist', 6.0),
+                                df_1m=new_df
+                            )
+                            if not is_feasible:
+                                logging.info(f"⛔ Signal ignored (STANDARD): {feasibility_reason}")
+                                event_logger.log_filter_check("ChopFeasibility", signal['side'], False, feasibility_reason)
+                                continue
+                            else:
+                                event_logger.log_filter_check("ChopFeasibility", signal['side'], True)
+
+                            # ==========================================
+                            # LAYER 2: SIGNAL QUALITY FILTERS
+                            # ==========================================
                             # Rejection Filter
                             rej_blocked, rej_reason = rejection_filter.should_block_trade(signal['side'])
                             if rej_blocked:
@@ -1241,6 +1283,28 @@ def run_bot():
                                     logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {sig['side']} vs Allowed {allowed_chop_side}")
                                     del pending_loose_signals[s_name]
                                     continue
+
+                                # ==========================================
+                                # LAYER 1: TARGET FEASIBILITY CHECK (Master Gate)
+                                # ==========================================
+                                # The market condition check (chop) already happened globally.
+                                # Now check if the TARGET is realistic before wasting filter cycles.
+                                is_feasible, feasibility_reason = chop_analyzer.check_target_feasibility(
+                                    entry_price=current_price,
+                                    side=sig['side'],
+                                    tp_distance=sig.get('tp_dist', 6.0),
+                                    df_1m=new_df
+                                )
+                                if not is_feasible:
+                                    logging.info(f"⛔ Signal ignored (LOOSE): {feasibility_reason}")
+                                    event_logger.log_filter_check("ChopFeasibility", sig['side'], False, feasibility_reason)
+                                    del pending_loose_signals[s_name]; continue
+                                else:
+                                    event_logger.log_filter_check("ChopFeasibility", sig['side'], True)
+
+                                # ==========================================
+                                # LAYER 2: SIGNAL QUALITY FILTERS
+                                # ==========================================
                                 # Re-check filters
                                 rej_blocked, rej_reason = rejection_filter.should_block_trade(sig['side'])
                                 if rej_blocked:
