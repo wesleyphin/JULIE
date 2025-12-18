@@ -92,13 +92,11 @@ CONFIG = {
         "ORB_Long": {"enabled": False},
     },
 
-    # --- BREAK-EVEN LOGIC ---
-    # Move stop to entry when profit reaches X% of TP distance
-    "BREAK_EVEN": {
+    # --- TRAILING STOP LOGIC ---
+    # Pure trailing stop that follows price with minimum distance
+    "TRAILING_STOP": {
         "enabled": True,
-        "trigger_pct": 0.40,  # Trigger at 40% of TP distance
-        "buffer_ticks": 1,    # Add 1 tick buffer above entry for longs (below for shorts)
-        "trail_pct": 0.25,    # Lock in 25% of profit as trailing stop
+        "min_trail_points": 4.0,  # Always trail at least 4 points behind price
     },
 
     # --- GEMINI 3.0 PRO OPTIMIZATION ---
