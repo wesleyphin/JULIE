@@ -804,10 +804,15 @@ def run_bot():
                                 logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
                             # ==========================================
 
-                            # Enforce HTF range fade directional restriction
-                            if allowed_chop_side is not None and signal['side'] != allowed_chop_side:
+                            # [FIX] Enforce HTF range fade directional restriction
+                            # EXCEPTION: Allow "Rev" (Reversal) strategies to bypass this rule
+                            is_reversal = "Rev" in signal.get('strategy', '') or "Rev" in signal.get('id', '')
+
+                            if not is_reversal and allowed_chop_side is not None and signal['side'] != allowed_chop_side:
                                 logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
                                 continue
+                            elif is_reversal and allowed_chop_side is not None and signal['side'] != allowed_chop_side:
+                                logging.info(f"⚡ HTF RULE BYPASS: {signal['strategy']} allowed to fight Range Bias ({allowed_chop_side})")
 
                             # Enhanced event logging: Strategy signal generated
                             event_logger.log_strategy_signal(
@@ -1075,10 +1080,15 @@ def run_bot():
                                 logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
                             # ==========================================
 
-                            # Enforce HTF range fade directional restriction
-                            if allowed_chop_side is not None and signal['side'] != allowed_chop_side:
+                            # [FIX] Enforce HTF range fade directional restriction
+                            # EXCEPTION: Allow "Rev" (Reversal) strategies to bypass this rule
+                            is_reversal = "Rev" in signal.get('strategy', '') or "Rev" in signal.get('id', '')
+
+                            if not is_reversal and allowed_chop_side is not None and signal['side'] != allowed_chop_side:
                                 logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
                                 continue
+                            elif is_reversal and allowed_chop_side is not None and signal['side'] != allowed_chop_side:
+                                logging.info(f"⚡ HTF RULE BYPASS: {signal['strategy']} allowed to fight Range Bias ({allowed_chop_side})")
 
                             # Enhanced event logging: Strategy signal generated
                             event_logger.log_strategy_signal(

@@ -129,7 +129,12 @@ class DynamicChopAnalyzer:
                 )
 
             current_price = df_1m_current["close"].iloc[-1]
-            if current_60m_vol > 0:
+
+            # [FIX] Only enforce Range Rule if the box is large enough (e.g., > 12 points)
+            # This prevents blocking trades inside tight micro-consolidations
+            MIN_RANGE_FOR_FADE = 12.0
+
+            if current_60m_vol > MIN_RANGE_FOR_FADE:
                 position_in_range = (current_price - current_60m_low) / current_60m_vol
 
                 if position_in_range <= 0.15:
