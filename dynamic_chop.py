@@ -7,18 +7,34 @@ import pandas as pd
 
 
 class DynamicChopAnalyzer:
-    """Analyze chop using dynamic thresholds with breakout and HTF fade logic."""
+    """
+    Analyze chop using dynamic thresholds with breakout and HTF fade logic.
+    Now supports Gemini AI optimization via multipliers.
+    """
 
     def __init__(self, client):
         self.client = client
-        self.thresholds: Dict[str, float] = {
+        # Base thresholds (calibrated via historical data)
+        # We rename 'thresholds' to 'base_thresholds' to be explicit
+        self.base_thresholds: Dict[str, float] = {
             "1M": 2.0,  # Default fallback
             "5M": 4.25,
             "15M": 6.75,
             "60M": 12.50,
         }
-        # Rolling window for calculating range (High-Low)
         self.LOOKBACK = 20
+        # Multiplier from Gemini (Default 1.0 = No change)
+        self.gemini_multiplier = 1.0
+
+    def update_gemini_params(self, multiplier: float):
+        """Called by the bot when Gemini returns new optimization."""
+        self.gemini_multiplier = multiplier
+        logging.info(f"[DynamicChop] Updated Gemini Multiplier: {self.gemini_multiplier}x")
+
+    def get_active_threshold(self, timeframe: str) -> float:
+        """Returns the threshold adjusted by Gemini."""
+        base = self.base_thresholds.get(timeframe, 2.0)
+        return base * self.gemini_multiplier
 
     def calibrate(self, days_lookback: int = 30):
         """
@@ -30,40 +46,43 @@ class DynamicChopAnalyzer:
             # 1. Fetch 60-Minute Data (Tier 1)
             df_60 = self.client.fetch_custom_bars(lookback_bars=500, minutes_per_bar=60)
             if not df_60.empty:
+                # FIX: Use rolling(1) for 60m bars to match ~60 min volatility
                 r_60 = (
-                    df_60["high"].rolling(self.LOOKBACK).max()
-                    - df_60["low"].rolling(self.LOOKBACK).min()
+                    df_60["high"].rolling(1).max()
+                    - df_60["low"].rolling(1).min()
                 ).dropna()
-                self.thresholds["60M"] = float(np.percentile(r_60, 20))  # Bottom 20%
+                self.base_thresholds["60M"] = float(np.percentile(r_60, 20))  # Bottom 20%
                 logging.info(
                     "[DynamicChop] Calibrated 60M Threshold: %.2f",
-                    self.thresholds["60M"],
+                    self.base_thresholds["60M"],
                 )
 
             # 2. Fetch 15-Minute Data (Tier 2)
             df_15 = self.client.fetch_custom_bars(lookback_bars=500, minutes_per_bar=15)
             if not df_15.empty:
+                # FIX: Use rolling(2) for 15m bars to match ~30 min volatility
                 r_15 = (
-                    df_15["high"].rolling(self.LOOKBACK).max()
-                    - df_15["low"].rolling(self.LOOKBACK).min()
+                    df_15["high"].rolling(2).max()
+                    - df_15["low"].rolling(2).min()
                 ).dropna()
-                self.thresholds["15M"] = float(np.percentile(r_15, 20))
+                self.base_thresholds["15M"] = float(np.percentile(r_15, 20))
                 logging.info(
                     "[DynamicChop] Calibrated 15M Threshold: %.2f",
-                    self.thresholds["15M"],
+                    self.base_thresholds["15M"],
                 )
 
             # 3. Fetch 1-Minute Data (Tier 3)
             df_1 = self.client.get_market_data(lookback_minutes=1000)
             if not df_1.empty:
+                # 1m bars use full LOOKBACK (20 bars = 20 mins)
                 r_1 = (
                     df_1["high"].rolling(self.LOOKBACK).max()
                     - df_1["low"].rolling(self.LOOKBACK).min()
                 ).dropna()
-                self.thresholds["1M"] = float(np.percentile(r_1, 20))
+                self.base_thresholds["1M"] = float(np.percentile(r_1, 20))
                 logging.info(
                     "[DynamicChop] Calibrated 1M Threshold: %.2f",
-                    self.thresholds["1M"],
+                    self.base_thresholds["1M"],
                 )
 
         except Exception as e:  # pragma: no cover - defensive logging
@@ -73,8 +92,8 @@ class DynamicChopAnalyzer:
         self, df_1m_current: pd.DataFrame, df_60m_current: Optional[pd.DataFrame] = None
     ) -> Tuple[bool, str]:
         """
-        Determines market state with HTF breakout and fade opportunities.
-        Returns: (is_blocked, reason)
+        Determines market state with HTF breakout and fade logic.
+        Uses GEMINI MULTIPLIER to adjust sensitivity.
         """
         if df_1m_current.empty or len(df_1m_current) < 20:
             return False, "Insufficient Data"
@@ -84,7 +103,12 @@ class DynamicChopAnalyzer:
         current_1m_low = df_1m_current["low"].iloc[-self.LOOKBACK :].min()
         current_1m_vol = current_1m_high - current_1m_low
 
-        # --- STEP 2: 60-Min Volatility (using provided DF if available) ---
+        # --- STEP 2: GET ACTIVE THRESHOLDS (SCALED BY GEMINI) ---
+        thresh_1m = self.get_active_threshold("1M")
+        thresh_15m = self.get_active_threshold("15M")
+        thresh_60m = self.get_active_threshold("60M")
+
+        # --- STEP 3: 60-Min Volatility (using provided DF if available) ---
         if df_60m_current is not None and not df_60m_current.empty and len(df_60m_current) >= self.LOOKBACK:
             current_60m_high = df_60m_current["high"].iloc[-self.LOOKBACK :].max()
             current_60m_low = df_60m_current["low"].iloc[-self.LOOKBACK :].min()
@@ -106,29 +130,27 @@ class DynamicChopAnalyzer:
                 if position_in_range >= 0.85:
                     return False, "ALLOW_SHORT_ONLY: At Top of 60M Range (Fade Resistance)"
 
-        # --- STEP 3: CHECK BREAKOUT PROPAGATION ---
-        if current_1m_vol > self.thresholds["60M"]:
+        # --- STEP 4: CHECK BREAKOUT PROPAGATION ---
+        if current_1m_vol > thresh_60m:
             return (
                 False,
                 "🟢 VOLATILITY EXPANSION: 1m Vol "
-                f"({current_1m_vol:.2f}) > 60m Chop ({self.thresholds['60M']:.2f})",
+                f"({current_1m_vol:.2f}) > 60m Chop ({thresh_60m:.2f})",
             )
 
-        # --- STEP 4: TIERED CHECKS ---
-        if current_1m_vol < self.thresholds["1M"]:
-            return True, f"🔴 1M MICRO CHOP: Vol {current_1m_vol:.2f} < {self.thresholds['1M']:.2f}"
+        # --- STEP 5: TIERED CHECKS (Using Scaled Thresholds) ---
+        if current_1m_vol < thresh_1m:
+            return True, f"🔴 1M MICRO CHOP: Vol {current_1m_vol:.2f} < {thresh_1m:.2f} (Mult: {self.gemini_multiplier}x)"
 
-        if current_1m_vol < self.thresholds["15M"]:
-            return True, f"🟠 15M MID CHOP: Vol {current_1m_vol:.2f} < {self.thresholds['15M']:.2f}"
+        if current_1m_vol < thresh_15m:
+            return True, f"🟠 15M MID CHOP: Vol {current_1m_vol:.2f} < {thresh_15m:.2f} (Mult: {self.gemini_multiplier}x)"
 
         return False, "✅ MARKET ACTIVE"
 
     def check_target_feasibility(self, entry_price: float, side: str, tp_distance: float, df_1m: pd.DataFrame) -> Tuple[bool, str]:
         """
         Ensures TP target sits INSIDE the current range (Box) if volatility is low.
-        Now includes 'Micro-Compression' check (Last 2 Bars).
-
-        CRITICAL: This check is skipped if Regime is TRENDING (to allow pullbacks).
+        Also uses the GEMINI SCALED threshold for regime detection.
         """
         if df_1m.empty or len(df_1m) < self.LOOKBACK:
              return True, "Insufficient Data"
@@ -140,9 +162,11 @@ class DynamicChopAnalyzer:
         box_low = df_1m["low"].iloc[-self.LOOKBACK:].min()
         current_vol = box_high - box_low
 
-        # Determine Regime (Using 15M Threshold as the 'Trend' line)
-        # If Vol > 15M Threshold, we are "Active/Trending"
-        if current_vol > self.thresholds.get("15M", 6.75):
+        # Use Scaled Threshold for "Trending" determination
+        # If Multiplier is LOW (Breakout Mode), this threshold drops, making it EASIER to be "Trending"
+        thresh_15m = self.get_active_threshold("15M")
+
+        if current_vol > thresh_15m:
             return True, "Trend/Breakout Regime (Target Check Skipped)"
 
         # =========================================================
