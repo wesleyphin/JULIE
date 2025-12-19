@@ -9,6 +9,7 @@ from event_logger import event_logger
 class TrendFilter:
     """
     Prevents fading strong momentum moves ("Catching a falling knife").
+    Now supports DYNAMIC SENSITIVITY updates from Gemini.
 
     UPDATED to 4-Tier System:
 
@@ -44,13 +45,43 @@ class TrendFilter:
         self.lookback = max(lookback, slow_period + 20)
         self.wick_ratio_threshold = wick_ratio_threshold
 
-        # Tier Params
+        # Dynamic Thresholds (can be updated by Gemini)
         self.t1_vol_mult = tier1_vol_multiplier
         self.t1_body_mult = tier1_body_multiplier
         self.t2_body_mult = tier2_body_multiplier
         self.t3_body_mult = tier3_body_multiplier
         self.fast_period = fast_period
         self.slow_period = slow_period
+
+        # Track current regime for logging
+        self.current_regime = "DEFAULT"
+
+    def update_dynamic_params(self, params: dict):
+        """
+        Dynamically update filter thresholds from Gemini/Optimizer.
+        Logic:
+        - TRENDING Market -> Lower multipliers (Stricter, block more fades)
+        - CHOPPY Market -> Higher multipliers (Looser, allow range fading)
+        """
+        if not params:
+            return
+
+        try:
+            logging.info(f"🌊 UPDATING TREND FILTER ({params.get('regime', 'Custom')}): {params}")
+
+            if 't1_vol' in params:
+                self.t1_vol_mult = float(params['t1_vol'])
+            if 't1_body' in params:
+                self.t1_body_mult = float(params['t1_body'])
+            if 't2_body' in params:
+                self.t2_body_mult = float(params['t2_body'])
+            if 't3_body' in params:
+                self.t3_body_mult = float(params['t3_body'])
+
+            self.current_regime = params.get('regime', 'DYNAMIC')
+
+        except Exception as e:
+            logging.error(f"❌ Error updating TrendFilter params: {e}")
 
     def should_block_trade(self, df: pd.DataFrame, side: str, is_range_fade: bool = False) -> Tuple[bool, Optional[str]]:
         """
