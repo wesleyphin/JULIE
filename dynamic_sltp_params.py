@@ -3064,7 +3064,14 @@ class DynamicSLTPEngine:
             'hierarchy_key': hier_key,
             'source': source
         }
-    
+
+    def calculate_dynamic_sltp(self, df, ts=None) -> Dict:
+        """
+        Legacy alias for calculate_sltp with default strategy name.
+        Used by strategies that don't pass explicit strategy names.
+        """
+        return self.calculate_sltp("Generic", df, ts)
+
     def log_params(self, params: Dict, strategy: str = None):
         """Log formatted params string - accepts params dict, optional strategy name"""
         import logging
