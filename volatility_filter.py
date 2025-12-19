@@ -498,33 +498,45 @@ class HierarchicalVolatilityFilter:
         adj_size = base_size
         adjustment_applied = False
 
+        # --- DYNAMIC MULTIPLIER CALCULATION ---
+        # Instead of fixed numbers, we normalize to the 'Median' (Normal) volatility.
+        # This allows expansion > 2x if volatility is extremely compressed.
+        # Guard against divide-by-zero with a small epsilon.
+        safe_std = max(current_std, 1e-9)
+        dynamic_mult = thresholds['median'] / safe_std
+
+        # Cap the multiplier to prevent insanity (e.g. 100x) on bad data
+        dynamic_mult = min(dynamic_mult, 10.0)
+
         if regime == VolRegime.ULTRA_LOW:
             if self.adjust_low_vol:
-                # Rule: Expand SL to survive noise
-                adj_sl = base_sl * 2.0
+                # Rule: Expand SL dynamically to survive noise
+                # If current_std is 1/5th of median, SL becomes 5x (Normalizing risk)
+                adj_sl = base_sl * dynamic_mult
 
-                # GUARDRAIL: Do not double TP if RR is already High
+                # GUARDRAIL: Do not expand TP if RR is already High (> 3.0)
                 if base_rr > 3.0:
                     adj_tp = base_tp  # Keep original
                 else:
-                    adj_tp = base_tp * 2.0
+                    # FIX: Low/Med RR gets FULL DYNAMIC expansion (Uncapped)
+                    # Can exceed 2.0x if volatility is tiny
+                    adj_tp = base_tp * dynamic_mult
 
                 adj_size = max(1, int(base_size * 0.5))
                 adjustment_applied = True
 
         elif regime == VolRegime.LOW:
             if self.adjust_low_vol:
-                # Rule: Widen SL (1.5x)
-                adj_sl = base_sl * self.low_vol_stop_mult
+                # Rule: Widen SL dynamically (Usually 1.3x - 1.8x)
+                # We use the calculated dynamic_mult instead of fixed 1.5
+                adj_sl = base_sl * dynamic_mult
 
-                # GUARDRAIL: Apply Gemini-style TP Caps based on RR
-                # If RR is already > 3.0, locking in that win rate is priority -> Don't expand TP
+                # GUARDRAIL: Only cap High RR (> 3.0)
                 if base_rr >= 3.0:
                     tp_mult = 1.0
-                elif base_rr >= 2.0:
-                    tp_mult = 1.15  # Slight expansion allowed
                 else:
-                    tp_mult = self.low_vol_stop_mult  # Full expansion (1.5x)
+                    # FIX: Low/Med RR gets FULL DYNAMIC multiplier
+                    tp_mult = dynamic_mult
 
                 adj_tp = base_tp * tp_mult
                 adj_size = max(1, int(base_size * self.low_vol_size_mult))
@@ -544,7 +556,7 @@ class HierarchicalVolatilityFilter:
         # Minimum constraints (MES minimums)
         adj_sl = max(adj_sl, 1.0)  # Absolute minimum stop
         adj_tp = max(adj_tp, 1.0)
-        
+
         return {
             'sl_dist': adj_sl,
             'tp_dist': adj_tp,
@@ -557,6 +569,7 @@ class HierarchicalVolatilityFilter:
             'base_sl': base_sl,
             'base_tp': base_tp,
             'base_size': base_size,
+            'dynamic_mult': dynamic_mult  # Log this for visibility
         }
     
     def log_status(self, adjustments: Dict):
