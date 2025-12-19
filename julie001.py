@@ -474,6 +474,22 @@ def run_bot():
                 data_backfilled = True
                 logging.info("✅ State restored from history.")
 
+            # === UPDATE FILTERS (BEFORE CHOP CHECK - Prevents Stale Filters) ===
+            # These must run before chop check so filters stay current even when choppy
+            current_price = new_df.iloc[-1]['close']
+            current_time = new_df.index[-1]
+            currbar = new_df.iloc[-1]
+            rejection_filter.update(current_time, currbar['high'], currbar['low'], currbar['close'])
+            bank_filter.update(current_time, currbar['high'], currbar['low'], currbar['close'])
+            chop_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
+            extension_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
+            structure_blocker.update(new_df)
+            regime_blocker.update(new_df)
+            penalty_blocker.update(new_df)
+            memory_sr.update(new_df)
+            directional_loss_blocker.update_quarter(current_time)
+            impulse_filter.update(new_df)
+
             # === DYNAMIC CHOP CHECK (Pass Local DFs) ===
             # We pass the locally generated df_60m so the analyzer can use it for breakout shift logic
             is_choppy, chop_reason = chop_analyzer.check_market_state(new_df, df_60m_current=df_60m)
@@ -495,9 +511,9 @@ def run_bot():
                     last_chop_reason = chop_reason
 
             elif is_choppy:
-                if chop_reason != last_chop_reason:
-                    logging.info(f"⛔ TRADE BLOCKED: {chop_reason}")
-                    last_chop_reason = chop_reason
+                # Log every single time
+                logging.info(f"⛔ TRADE BLOCKED: {chop_reason}")
+
                 time.sleep(2)
                 continue
             else:
@@ -507,8 +523,6 @@ def run_bot():
                     last_chop_reason = None
 
             # Heartbeat
-            current_price = new_df.iloc[-1]['close']
-            current_time = new_df.index[-1]
             now_ts = time.time()
             
             if not hasattr(client, '_heartbeat_counter'):
@@ -662,19 +676,6 @@ def run_bot():
                                     profit_points=current_profit
                                 )
 
-            currbar = new_df.iloc[-1]
-            rejection_filter.update(current_time, currbar['high'], currbar['low'], currbar['close'])
-            bank_filter.update(current_time, currbar['high'], currbar['low'], currbar['close'])
-            chop_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
-            extension_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
-            structure_blocker.update(new_df)
-            regime_blocker.update(new_df)
-            penalty_blocker.update(new_df)
-            memory_sr.update(new_df)
-            directional_loss_blocker.update_quarter(current_time)
-            impulse_filter.update(new_df)
-
-
             # Only process signals on NEW bars
             is_new_bar = (last_processed_bar is None or current_time > last_processed_bar)
             
@@ -704,19 +705,6 @@ def run_bot():
                 bar_count += 1
                 logging.info(f"Bar: {current_time.strftime('%Y-%m-%d %H:%M:%S')} ET | Price: {current_price:.2f}")
                 last_processed_bar = current_time
-                
-                # === UPDATE FILTERS ===
-                curr_bar = new_df.iloc[-1]
-                rejection_filter.update(current_time, curr_bar['high'], curr_bar['low'], curr_bar['close'])
-                bank_filter.update(current_time, curr_bar['high'], curr_bar['low'], curr_bar['close'])
-                chop_filter.update(curr_bar['high'], curr_bar['low'], curr_bar['close'], current_time)
-                extension_filter.update(curr_bar['high'], curr_bar['low'], curr_bar['close'], current_time)
-                structure_blocker.update(new_df)
-                regime_blocker.update(new_df)
-                penalty_blocker.update(new_df)
-                memory_sr.update(new_df)
-                directional_loss_blocker.update_quarter(current_time)
-                impulse_filter.update(new_df)
 
                 # === EARLY EXIT CHECK ===
                 if active_trade is not None:
