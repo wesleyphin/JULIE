@@ -478,48 +478,72 @@ class HierarchicalVolatilityFilter:
         
         return False, ""
     
-    def get_adjustments(self, df: pd.DataFrame, 
-                       base_sl: float, 
+    def get_adjustments(self, df: pd.DataFrame,
+                       base_sl: float,
                        base_tp: float,
                        base_size: int = 1,
                        ts=None) -> Dict:
-        """Get adjusted SL/TP/size based on volatility regime."""
+        """Get adjusted SL/TP/size based on volatility regime with SAFETY GUARDRAILS."""
         if ts is None:
             ts = df.index[-1]
-        
+
         regime, current_std, key = self.get_regime(df, ts)
         thresholds, _ = self.get_thresholds(ts)
-        
+
+        # Calculate Base Risk:Reward
+        base_rr = base_tp / base_sl if base_sl > 0 else 0.0
+
         adj_sl = base_sl
         adj_tp = base_tp
         adj_size = base_size
         adjustment_applied = False
-        
+
         if regime == VolRegime.ULTRA_LOW:
             if self.adjust_low_vol:
+                # Rule: Expand SL to survive noise
                 adj_sl = base_sl * 2.0
-                adj_tp = base_tp * 2.0
+
+                # GUARDRAIL: Do not double TP if RR is already High
+                if base_rr > 3.0:
+                    adj_tp = base_tp  # Keep original
+                else:
+                    adj_tp = base_tp * 2.0
+
                 adj_size = max(1, int(base_size * 0.5))
                 adjustment_applied = True
-                
+
         elif regime == VolRegime.LOW:
             if self.adjust_low_vol:
+                # Rule: Widen SL (1.5x)
                 adj_sl = base_sl * self.low_vol_stop_mult
-                adj_tp = base_tp * self.low_vol_stop_mult
+
+                # GUARDRAIL: Apply Gemini-style TP Caps based on RR
+                # If RR is already > 3.0, locking in that win rate is priority -> Don't expand TP
+                if base_rr >= 3.0:
+                    tp_mult = 1.0
+                elif base_rr >= 2.0:
+                    tp_mult = 1.15  # Slight expansion allowed
+                else:
+                    tp_mult = self.low_vol_stop_mult  # Full expansion (1.5x)
+
+                adj_tp = base_tp * tp_mult
                 adj_size = max(1, int(base_size * self.low_vol_size_mult))
                 adjustment_applied = True
-                
+
         elif regime == VolRegime.HIGH:
+            # High Vol: Tighten everything
             adj_sl = base_sl * 0.85
             adj_tp = base_tp * 0.85
             adjustment_applied = True
-        
-        # Snap to MES tick
+
+        # === CRITICAL: ROUNDING TO NEAREST TICK (0.25) ===
+        # This ensures inputs from Gemini (e.g. 4.52) become valid (4.50)
         adj_sl = round(adj_sl * 4) / 4
         adj_tp = round(adj_tp * 4) / 4
-        # Minimum 4.0 points SL required (engine requires minimum 4 ticks)
-        adj_sl = max(adj_sl, 4.0)
-        adj_tp = max(adj_tp, 1.5)
+
+        # Minimum constraints (MES minimums)
+        adj_sl = max(adj_sl, 1.0)  # Absolute minimum stop
+        adj_tp = max(adj_tp, 1.0)
         
         return {
             'sl_dist': adj_sl,

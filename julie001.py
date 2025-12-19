@@ -960,23 +960,31 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("TrendFilter", signal['side'], True)
 
-                            # Volatility
+                            # Volatility & Guardrail Check
+                            # We pass the Gemini-modified params (signal['sl_dist']) into the filter.
+                            # The filter applies Guardrails + Rounding.
                             should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0), base_size=5)
+
                             if not should_trade:
                                 event_logger.log_filter_check("VolatilityFilter", signal['side'], False, "Volatility check failed")
                                 continue
                             else:
                                 event_logger.log_filter_check("VolatilityFilter", signal['side'], True)
 
+                            # === APPLY SANITIZED VALUES ===
+                            # Always update to the rounded version (e.g. 4.52 -> 4.50)
+                            # regardless of whether a 'regime' change happened.
+                            signal['sl_dist'] = vol_adj['sl_dist']
+                            signal['tp_dist'] = vol_adj['tp_dist']
+
+                            # Only apply SIZE adjustment if the regime explicitly demands it (Low Vol)
                             if vol_adj.get('adjustment_applied', False):
-                                signal['sl_dist'] = vol_adj['sl_dist']
-                                signal['tp_dist'] = vol_adj['tp_dist']
-                                signal['size'] = vol_adj['size']  # Apply volatility-adjusted size
+                                signal['size'] = vol_adj['size']
                                 event_logger.log_trade_modified(
                                     "VolatilityAdjustment",
                                     signal.get('tp_dist', 6.0),
                                     vol_adj['tp_dist'],
-                                    f"Volatility regime adjustment (size={vol_adj['size']})"
+                                    f"Volatility/Guardrail adjustment (Regime: {vol_adj['regime']})"
                                 )
 
                             # Bank Filter (RegimeAdaptive Only)
@@ -1216,23 +1224,31 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("TrendFilter", signal['side'], True)
 
-                            # Volatility
+                            # Volatility & Guardrail Check
+                            # We pass the Gemini-modified params (signal['sl_dist']) into the filter.
+                            # The filter applies Guardrails + Rounding.
                             should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0), base_size=5)
+
                             if not should_trade:
                                 event_logger.log_filter_check("VolatilityFilter", signal['side'], False, "Volatility check failed")
                                 continue
                             else:
                                 event_logger.log_filter_check("VolatilityFilter", signal['side'], True)
 
+                            # === APPLY SANITIZED VALUES ===
+                            # Always update to the rounded version (e.g. 4.52 -> 4.50)
+                            # regardless of whether a 'regime' change happened.
+                            signal['sl_dist'] = vol_adj['sl_dist']
+                            signal['tp_dist'] = vol_adj['tp_dist']
+
+                            # Only apply SIZE adjustment if the regime explicitly demands it (Low Vol)
                             if vol_adj.get('adjustment_applied', False):
-                                signal['sl_dist'] = vol_adj['sl_dist']
-                                signal['tp_dist'] = vol_adj['tp_dist']
-                                signal['size'] = vol_adj['size']  # Apply volatility-adjusted size
+                                signal['size'] = vol_adj['size']
                                 event_logger.log_trade_modified(
                                     "VolatilityAdjustment",
                                     signal.get('tp_dist', 6.0),
                                     vol_adj['tp_dist'],
-                                    f"Volatility regime adjustment (size={vol_adj['size']})"
+                                    f"Volatility/Guardrail adjustment (Regime: {vol_adj['regime']})"
                                 )
 
                             # Bank Filter (ML Only)
@@ -1453,23 +1469,31 @@ def run_bot():
                                 else:
                                     event_logger.log_filter_check("TrendFilter", sig['side'], True)
 
-                                # Volatility
+                                # Volatility & Guardrail Check
+                                # We pass the Gemini-modified params (sig['sl_dist']) into the filter.
+                                # The filter applies Guardrails + Rounding.
                                 should_trade, vol_adj = check_volatility(new_df, sig.get('sl_dist', 4.0), sig.get('tp_dist', 6.0), base_size=5)
+
                                 if not should_trade:
                                     event_logger.log_filter_check("VolatilityFilter", sig['side'], False, "Volatility check failed")
                                     del pending_loose_signals[s_name]; continue
                                 else:
                                     event_logger.log_filter_check("VolatilityFilter", sig['side'], True)
 
+                                # === APPLY SANITIZED VALUES ===
+                                # Always update to the rounded version (e.g. 4.52 -> 4.50)
+                                # regardless of whether a 'regime' change happened.
+                                sig['sl_dist'] = vol_adj['sl_dist']
+                                sig['tp_dist'] = vol_adj['tp_dist']
+
+                                # Only apply SIZE adjustment if the regime explicitly demands it (Low Vol)
                                 if vol_adj.get('adjustment_applied', False):
-                                    sig['sl_dist'] = vol_adj['sl_dist']
-                                    sig['tp_dist'] = vol_adj['tp_dist']
-                                    sig['size'] = vol_adj['size']  # Apply volatility-adjusted size
+                                    sig['size'] = vol_adj['size']
                                     event_logger.log_trade_modified(
                                         "VolatilityAdjustment",
                                         sig.get('tp_dist', 6.0),
                                         vol_adj['tp_dist'],
-                                        f"Volatility regime adjustment (size={vol_adj['size']})"
+                                        f"Volatility/Guardrail adjustment (Regime: {vol_adj['regime']})"
                                     )
 
                                 logging.info(f"✅ LOOSE EXEC: {s_name}")
@@ -1645,23 +1669,31 @@ def run_bot():
                                         else:
                                             event_logger.log_filter_check("TrendFilter", signal['side'], True)
 
-                                        # Volatility
+                                        # Volatility & Guardrail Check
+                                        # We pass the Gemini-modified params (signal['sl_dist']) into the filter.
+                                        # The filter applies Guardrails + Rounding.
                                         should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0), base_size=5)
+
                                         if not should_trade:
                                             event_logger.log_filter_check("VolatilityFilter", signal['side'], False, "Volatility check failed")
                                             continue
                                         else:
                                             event_logger.log_filter_check("VolatilityFilter", signal['side'], True)
 
+                                        # === APPLY SANITIZED VALUES ===
+                                        # Always update to the rounded version (e.g. 4.52 -> 4.50)
+                                        # regardless of whether a 'regime' change happened.
+                                        signal['sl_dist'] = vol_adj['sl_dist']
+                                        signal['tp_dist'] = vol_adj['tp_dist']
+
+                                        # Only apply SIZE adjustment if the regime explicitly demands it (Low Vol)
                                         if vol_adj.get('adjustment_applied', False):
-                                            signal['sl_dist'] = vol_adj['sl_dist']
-                                            signal['tp_dist'] = vol_adj['tp_dist']
-                                            signal['size'] = vol_adj['size']  # Apply volatility-adjusted size
+                                            signal['size'] = vol_adj['size']
                                             event_logger.log_trade_modified(
                                                 "VolatilityAdjustment",
                                                 signal.get('tp_dist', 6.0),
                                                 vol_adj['tp_dist'],
-                                                f"Volatility regime adjustment (size={vol_adj['size']})"
+                                                f"Volatility/Guardrail adjustment (Regime: {vol_adj['regime']})"
                                             )
 
                                         logging.info(f"🕐 Queuing {s_name} signal")
