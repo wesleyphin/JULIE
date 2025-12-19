@@ -57,13 +57,15 @@ class DynamicChopAnalyzer:
                     self.base_thresholds["60M"],
                 )
 
-            # 2. Fetch 15-Minute Data (Tier 2)
+            # 2. Fetch 15-Minute Data (Tier 2) - THE FIX
+            # Change rolling(2) to rolling(1).
+            # We want the threshold to represent ~15 mins of volatility.
+            # Your current vol (20 mins) will easily beat this if active.
             df_15 = self.client.fetch_custom_bars(lookback_bars=500, minutes_per_bar=15)
             if not df_15.empty:
-                # FIX: Use rolling(2) for 15m bars to match ~30 min volatility
                 r_15 = (
-                    df_15["high"].rolling(2).max()
-                    - df_15["low"].rolling(2).min()
+                    df_15["high"].rolling(1).max()
+                    - df_15["low"].rolling(1).min()
                 ).dropna()
                 self.base_thresholds["15M"] = float(np.percentile(r_15, 20))
                 logging.info(
