@@ -29,6 +29,7 @@ from dynamic_chop import DynamicChopAnalyzer
 from ict_model_strategy import ICTModelStrategy
 from ml_physics_strategy import MLPhysicsStrategy
 from dynamic_engine_strategy import DynamicEngineStrategy
+from dynamic_engine2_strategy import DynamicEngine2Strategy
 from event_logger import event_logger
 from circuit_breaker import CircuitBreaker
 from news_filter import NewsFilter
@@ -169,11 +170,13 @@ def run_bot():
     # STANDARD PRIORITY - Normal execution
     ml_strategy = MLPhysicsStrategy()
     dynamic_engine_strat = DynamicEngineStrategy()
+    dynamic_engine2_strat = DynamicEngine2Strategy()
     smt_strategy = SMTStrategy()
 
     standard_strategies = [
         ConfluenceStrategy(),
         dynamic_engine_strat,
+        dynamic_engine2_strat,
         smt_strategy,
     ]
     

@@ -89,6 +89,11 @@ CONFIG = {
             "exit_if_not_green_by": 30,   # Give trade room to develop
             "max_profit_crosses": 4,      # Allow some chop
         },
+        "DynamicEngine2": {
+            "enabled": True,
+            "exit_if_not_green_by": 30,   # Give trade room to develop
+            "max_profit_crosses": 4,      # Allow some chop
+        },
         "ORB_Long": {"enabled": False},
     },
 
