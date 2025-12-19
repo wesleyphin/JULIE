@@ -194,6 +194,9 @@ def run_bot():
     bank_filter = BankLevelQuarterFilter()
     chop_filter = ChopFilter(lookback=20)
     extension_filter = ExtensionFilter()
+    # 4-Tier Trend Filter (merged with Impulse logic)
+    # Tier 1: Volume-supported impulse, Tier 2: Standard breakout, Tier 3: Extreme capitulation
+    # Tier 4: Macro trend (50/200 EMA alignment) - bypassed by Range Fade logic
     trend_filter = TrendFilter()
     htf_fvg_filter = HTFFVGFilter() # Now uses Memory-Based Class
     structure_blocker = DynamicStructureBlocker(lookback=50)  # Macro trend + fade detection
@@ -203,10 +206,7 @@ def run_bot():
     news_filter = NewsFilter()
     circuit_breaker = CircuitBreaker(max_daily_loss=600, max_consecutive_losses=7)
     directional_loss_blocker = DirectionalLossBlocker(consecutive_loss_limit=3, block_minutes=15)
-    # 4-Tier Impulse Filter (merged with Trend logic)
-    # Tier 1: Volume-supported impulse, Tier 2: Standard breakout, Tier 3: Extreme capitulation
-    # Tier 4: Macro trend (50/200 EMA alignment) - bypassed by Range Fade logic
-    impulse_filter = ImpulseFilter()
+    impulse_filter = ImpulseFilter(lookback=20, impulse_multiplier=2.5)
 
     # Initialize Gemini Session Optimizer
     optimizer = GeminiSessionOptimizer()
@@ -853,13 +853,8 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], True)
 
-                            # Determine if this is a Range Fade setup (used by Impulse Filter's Tier 4 bypass)
-                            is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
-
                             # Impulse Filter (Prevent catching falling knife / fading rocket ship)
-                            # 4-Tier System: Tier 1 (Volume), Tier 2 (Standard), Tier 3 (Extreme), Tier 4 (Macro Trend)
-                            # is_range_fade bypasses Tier 4 to allow fading at structure extremes
-                            impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'], is_range_fade=is_range_fade)
+                            impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])
                             if impulse_blocked:
                                 event_logger.log_filter_check("ImpulseFilter", signal['side'], False, impulse_reason)
                                 continue
@@ -874,9 +869,9 @@ def run_bot():
                             # If Chop says "Long Only" and we are going Long, we expect to break resistance.
                             # We reduce the effective TP distance passed to the filter, making it less strict.
                             effective_tp_dist = tp_dist
-                            if is_range_fade:
+                            if allowed_chop_side is not None and signal['side'] == allowed_chop_side:
                                 effective_tp_dist = tp_dist * 0.5  # Require 50% less room
-                                logging.info(f"🔓 RELAXING FVG CHECK (Fast): Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
+                                logging.info(f"🔓 RELAXING FVG CHECK (Standard): Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
 
                             fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
                                 signal['side'], current_price, None, None, tp_dist=effective_tp_dist
@@ -924,10 +919,13 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("MemorySR", signal['side'], True)
 
-                            # Context for Chop Filter
-                            trend_blocked_ctx, trend_reason_ctx = trend_filter.should_block_trade(new_df, signal['side'])
-                            trend_state = ("Strong Bearish" if (trend_reason_ctx and "Bearish" in trend_reason_ctx)
-                                           else ("Strong Bullish" if (trend_reason_ctx and "Bullish" in trend_reason_ctx)
+                            # Determine if this is a Range Fade setup (used for filter bypasses)
+                            is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
+
+                            # 4-Tier Trend Filter (Tier 4 bypassed if is_range_fade, Tiers 1-3 check impulse candles)
+                            trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'], is_range_fade=is_range_fade)
+                            trend_state = ("Strong Bearish" if (trend_reason and "Bearish" in trend_reason)
+                                           else ("Strong Bullish" if (trend_reason and "Bullish" in trend_reason)
                                                  else "NEUTRAL"))
                             vol_regime, _, _ = volatility_filter.get_regime(new_df)
 
@@ -954,18 +952,8 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("ExtensionFilter", signal['side'], True)
 
-                            # Trend Filter
-                            trend_blocked = trend_blocked_ctx
-                            trend_reason = trend_reason_ctx
-
-                            # === FIX: Bypass Trend Filter if we are Fading the Range ===
-                            # If Chop Analyzer says "Long Only" (Bottom of Range), we ignore "Bearish Trend" warnings.
-                            is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
-
-                            if is_range_fade and trend_blocked:
-                                logging.info(f"🔓 BYPASSING TREND FILTER: Range Fade {signal['side']} play at structure extreme")
-                                event_logger.log_filter_check("TrendFilter", signal['side'], True, "Bypassed (Range Fade)")
-                            elif trend_blocked:
+                            # Trend Filter (already checked above with is_range_fade)
+                            if trend_blocked:
                                 event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason)
                                 continue
                             else:
@@ -1128,13 +1116,8 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], True)
 
-                            # Determine if this is a Range Fade setup (used by Impulse Filter's Tier 4 bypass)
-                            is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
-
                             # Impulse Filter (Prevent catching falling knife / fading rocket ship)
-                            # 4-Tier System: Tier 1 (Volume), Tier 2 (Standard), Tier 3 (Extreme), Tier 4 (Macro Trend)
-                            # is_range_fade bypasses Tier 4 to allow fading at structure extremes
-                            impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'], is_range_fade=is_range_fade)
+                            impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])
                             if impulse_blocked:
                                 event_logger.log_filter_check("ImpulseFilter", signal['side'], False, impulse_reason)
                                 continue
@@ -1149,7 +1132,7 @@ def run_bot():
                             # If Chop says "Long Only" and we are going Long, we expect to break resistance.
                             # We reduce the effective TP distance passed to the filter, making it less strict.
                             effective_tp_dist = tp_dist
-                            if is_range_fade:
+                            if allowed_chop_side is not None and signal['side'] == allowed_chop_side:
                                 effective_tp_dist = tp_dist * 0.5  # Require 50% less room
                                 logging.info(f"🔓 RELAXING FVG CHECK (Standard): Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
 
@@ -1191,9 +1174,13 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("PenaltyBoxBlocker", signal['side'], True)
 
-                            trend_blocked_ctx, trend_reason_ctx = trend_filter.should_block_trade(new_df, signal['side'])
-                            trend_state = ("Strong Bearish" if (trend_reason_ctx and "Bearish" in trend_reason_ctx)
-                                           else ("Strong Bullish" if (trend_reason_ctx and "Bullish" in trend_reason_ctx)
+                            # Determine if this is a Range Fade setup (used for filter bypasses)
+                            is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
+
+                            # 4-Tier Trend Filter (Tier 4 bypassed if is_range_fade, Tiers 1-3 check impulse candles)
+                            trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'], is_range_fade=is_range_fade)
+                            trend_state = ("Strong Bearish" if (trend_reason and "Bearish" in trend_reason)
+                                           else ("Strong Bullish" if (trend_reason and "Bullish" in trend_reason)
                                                  else "NEUTRAL"))
                             vol_regime, _, _ = volatility_filter.get_regime(new_df)
 
@@ -1221,18 +1208,8 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("ExtensionFilter", signal['side'], True)
 
-                            # Trend Filter
-                            trend_blocked = trend_blocked_ctx
-                            trend_reason = trend_reason_ctx
-
-                            # === FIX: Bypass Trend Filter if we are Fading the Range ===
-                            # If Chop Analyzer says "Long Only" (Bottom of Range), we ignore "Bearish Trend" warnings.
-                            is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
-
-                            if is_range_fade and trend_blocked:
-                                logging.info(f"🔓 BYPASSING TREND FILTER: Range Fade {signal['side']} play at structure extreme")
-                                event_logger.log_filter_check("TrendFilter", signal['side'], True, "Bypassed (Range Fade)")
-                            elif trend_blocked:
+                            # Trend Filter (already checked above with is_range_fade)
+                            if trend_blocked:
                                 event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason)
                                 continue
                             else:
@@ -1374,13 +1351,8 @@ def run_bot():
                                 else:
                                     event_logger.log_filter_check("DirectionalLossBlocker", sig['side'], True)
 
-                                # Determine if this is a Range Fade setup (used by Impulse Filter's Tier 4 bypass)
-                                is_range_fade = (allowed_chop_side is not None and sig['side'] == allowed_chop_side)
-
                                 # Impulse Filter (Prevent catching falling knife / fading rocket ship)
-                                # 4-Tier System: Tier 1 (Volume), Tier 2 (Standard), Tier 3 (Extreme), Tier 4 (Macro Trend)
-                                # is_range_fade bypasses Tier 4 to allow fading at structure extremes
-                                impulse_blocked, impulse_reason = impulse_filter.should_block_trade(sig['side'], is_range_fade=is_range_fade)
+                                impulse_blocked, impulse_reason = impulse_filter.should_block_trade(sig['side'])
                                 if impulse_blocked:
                                     event_logger.log_filter_check("ImpulseFilter", sig['side'], False, impulse_reason)
                                     del pending_loose_signals[s_name]; continue
@@ -1395,7 +1367,7 @@ def run_bot():
                                 # If Chop says "Long Only" and we are going Long, we expect to break resistance.
                                 # We reduce the effective TP distance passed to the filter, making it less strict.
                                 effective_tp_dist = tp_dist
-                                if is_range_fade:
+                                if allowed_chop_side is not None and sig['side'] == allowed_chop_side:
                                     effective_tp_dist = tp_dist * 0.5  # Require 50% less room
                                     logging.info(f"🔓 RELAXING FVG CHECK (Loose): Fading Range {sig['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
 
@@ -1443,9 +1415,13 @@ def run_bot():
                                     event_logger.log_filter_check("MemorySR", sig['side'], True)
                                 # =====================================
 
-                                trend_blocked_ctx, trend_reason_ctx = trend_filter.should_block_trade(new_df, sig['side'])
-                                trend_state = ("Strong Bearish" if (trend_reason_ctx and "Bearish" in trend_reason_ctx)
-                                               else ("Strong Bullish" if (trend_reason_ctx and "Bullish" in trend_reason_ctx)
+                                # Determine if this is a Range Fade setup (used for filter bypasses)
+                                is_range_fade = (allowed_chop_side is not None and sig['side'] == allowed_chop_side)
+
+                                # 4-Tier Trend Filter (Tier 4 bypassed if is_range_fade, Tiers 1-3 check impulse candles)
+                                trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, sig['side'], is_range_fade=is_range_fade)
+                                trend_state = ("Strong Bearish" if (trend_reason and "Bearish" in trend_reason)
+                                               else ("Strong Bullish" if (trend_reason and "Bullish" in trend_reason)
                                                      else "NEUTRAL"))
                                 vol_regime, _, _ = volatility_filter.get_regime(new_df)
 
@@ -1469,18 +1445,8 @@ def run_bot():
                                 else:
                                     event_logger.log_filter_check("ExtensionFilter", sig['side'], True)
 
-                                # Trend Filter
-                                trend_blocked = trend_blocked_ctx
-                                trend_reason = trend_reason_ctx
-
-                                # === FIX: Bypass Trend Filter if we are Fading the Range ===
-                                # If Chop Analyzer says "Long Only" (Bottom of Range), we ignore "Bearish Trend" warnings.
-                                is_range_fade = (allowed_chop_side is not None and sig['side'] == allowed_chop_side)
-
-                                if is_range_fade and trend_blocked:
-                                    logging.info(f"🔓 BYPASSING TREND FILTER: Range Fade {sig['side']} play at structure extreme")
-                                    event_logger.log_filter_check("TrendFilter", sig['side'], True, "Bypassed (Range Fade)")
-                                elif trend_blocked:
+                                # Trend Filter (already checked above with is_range_fade)
+                                if trend_blocked:
                                     event_logger.log_filter_check("TrendFilter", sig['side'], False, trend_reason)
                                     del pending_loose_signals[s_name]; continue
                                 else:
@@ -1641,9 +1607,13 @@ def run_bot():
                                             event_logger.log_filter_check("MemorySR", signal['side'], True)
                                         # =====================================
 
-                                        trend_blocked_ctx, trend_reason_ctx = trend_filter.should_block_trade(new_df, signal['side'])
-                                        trend_state = ("Strong Bearish" if (trend_reason_ctx and "Bearish" in trend_reason_ctx)
-                                                       else ("Strong Bullish" if (trend_reason_ctx and "Bullish" in trend_reason_ctx)
+                                        # Determine if this is a Range Fade setup (used for filter bypasses)
+                                        is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
+
+                                        # 4-Tier Trend Filter (Tier 4 bypassed if is_range_fade, Tiers 1-3 check impulse candles)
+                                        trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'], is_range_fade=is_range_fade)
+                                        trend_state = ("Strong Bearish" if (trend_reason and "Bearish" in trend_reason)
+                                                       else ("Strong Bullish" if (trend_reason and "Bullish" in trend_reason)
                                                              else "NEUTRAL"))
                                         vol_regime, _, _ = volatility_filter.get_regime(new_df)
 
@@ -1667,18 +1637,8 @@ def run_bot():
                                         else:
                                             event_logger.log_filter_check("ExtensionFilter", signal['side'], True)
 
-                                        # Trend Filter
-                                        trend_blocked = trend_blocked_ctx
-                                        trend_reason = trend_reason_ctx
-
-                                        # === FIX: Bypass Trend Filter if we are Fading the Range ===
-                                        # If Chop Analyzer says "Long Only" (Bottom of Range), we ignore "Bearish Trend" warnings.
-                                        is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
-
-                                        if is_range_fade and trend_blocked:
-                                            logging.info(f"🔓 BYPASSING TREND FILTER: Range Fade {signal['side']} play at structure extreme")
-                                            event_logger.log_filter_check("TrendFilter", signal['side'], True, "Bypassed (Range Fade)")
-                                        elif trend_blocked:
+                                        # Trend Filter (already checked above with is_range_fade)
+                                        if trend_blocked:
                                             event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason)
                                             continue
                                         else:
