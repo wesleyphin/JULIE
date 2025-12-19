@@ -15,7 +15,6 @@ class DynamicChopAnalyzer:
     def __init__(self, client):
         self.client = client
         # Base thresholds (calibrated via historical data)
-        # We rename 'thresholds' to 'base_thresholds' to be explicit
         self.base_thresholds: Dict[str, float] = {
             "1M": 2.0,  # Default fallback
             "5M": 4.25,
@@ -39,13 +38,16 @@ class DynamicChopAnalyzer:
     def calibrate(self, days_lookback: int = 30):
         """
         Calibrates thresholds using the 20th percentile of recent data.
-        REVERTED to 'Old Logic' for HTF (High Thresholds) for ALL sessions.
+        HYBRID LOGIC:
+        - 60M: Old Logic (High Ceiling)
+        - 15M: Compromise Logic (1 Hour Window)
+        - 1M: Standard Logic (20 Min Window)
         """
         del days_lookback
         try:
             # 1. Fetch 60-Minute Data (Tier 1)
             # OLD LOGIC: Use LOOKBACK (20) -> 20 hours of data.
-            # This creates a HIGH threshold (e.g., 60-70pts), forcing "Chop Mode" often.
+            # Keeps the Macro Ceiling HIGH to allow fades.
             df_60 = self.client.fetch_custom_bars(lookback_bars=500, minutes_per_bar=60)
             if not df_60.empty:
                 r_60 = (
@@ -58,22 +60,27 @@ class DynamicChopAnalyzer:
                     self.base_thresholds["60M"],
                 )
 
-            # 2. Fetch 15-Minute Data (Tier 2)
-            # OLD LOGIC: Use LOOKBACK (20) -> 5 hours of data.
-            # This creates a HIGH threshold (e.g., 20-25pts).
+            # 2. Fetch 15-Minute Data (Tier 2) - THE COMPROMISE
+            # -----------------------------------------------------------------
+            # rolling(4) = 4 * 15m = 60 Minutes of Data.
+            # - Old (rolling 20) = 300 Mins (Too High/Loose)
+            # - New (rolling 2)  = 30 Mins (Too Low/Tight)
+            # - This (rolling 4) = 60 Mins (Just Right)
+            # -----------------------------------------------------------------
             df_15 = self.client.fetch_custom_bars(lookback_bars=500, minutes_per_bar=15)
             if not df_15.empty:
                 r_15 = (
-                    df_15["high"].rolling(self.LOOKBACK).max()
-                    - df_15["low"].rolling(self.LOOKBACK).min()
+                    df_15["high"].rolling(4).max()
+                    - df_15["low"].rolling(4).min()
                 ).dropna()
                 self.base_thresholds["15M"] = float(np.percentile(r_15, 20))
                 logging.info(
-                    "[DynamicChop] Calibrated 15M Threshold: %.2f (Old Logic)",
+                    "[DynamicChop] Calibrated 15M Threshold: %.2f (Hybrid Logic: 1H Window)",
                     self.base_thresholds["15M"],
                 )
 
             # 3. Fetch 1-Minute Data (Tier 3)
+            # STANDARD LOGIC: Use LOOKBACK (20) -> 20 minutes of data.
             df_1 = self.client.get_market_data(lookback_minutes=1000)
             if not df_1.empty:
                 r_1 = (
@@ -86,7 +93,7 @@ class DynamicChopAnalyzer:
                     self.base_thresholds["1M"],
                 )
 
-        except Exception as e:  # pragma: no cover - defensive logging
+        except Exception as e:
             logging.error("[DynamicChop] Calibration Error: %s", e)
 
     def check_market_state(
