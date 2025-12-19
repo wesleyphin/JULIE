@@ -124,7 +124,7 @@ class GeminiSessionOptimizer:
             f"News: {events_data}\n"
         )
 
-        # --- STEP 2: EXECUTE DUAL PROMPTS ---
+        # --- STEP 2: EXECUTE TRIPLE PROMPTS ---
 
         # Call 1: Risk Engine (SL/TP)
         sltp_data = self._fetch_sltp_optimization(session_name, context_str, base_sl, base_tp, base_rr)
@@ -132,12 +132,20 @@ class GeminiSessionOptimizer:
         # Call 2: Trend Engine (Filter Params)
         trend_data = self._fetch_trend_optimization(session_name, context_str)
 
+        # Call 3: Chop Engine (Thresholds) - NEW
+        chop_data = self._fetch_chop_optimization(session_name, context_str)
+
         # --- STEP 3: MERGE & RETURN ---
         final_result = {
             "sl_multiplier": sltp_data.get('sl_multiplier', 1.0),
             "tp_multiplier": sltp_data.get('tp_multiplier', 1.0),
             "trend_params": trend_data.get('trend_params', {}),
-            "reasoning": f"RISK: {sltp_data.get('reasoning', '')} | TREND: {trend_data.get('reasoning', '')}"
+            "chop_multiplier": chop_data.get('chop_multiplier', 1.0),
+            "reasoning": (
+                f"RISK: {sltp_data.get('reasoning', 'None')} | "
+                f"TREND: {trend_data.get('reasoning', 'None')} | "
+                f"CHOP: {chop_data.get('reasoning', 'None')}"
+            )
         }
 
         return final_result
@@ -209,6 +217,43 @@ class GeminiSessionOptimizer:
         except Exception as e:
             logging.error(f"Gemini Trend Error: {e}")
             return {'trend_params': {}, 'reasoning': 'Error'}
+
+    # -------------------------------------------------------------------------
+    # PROMPT 3: CHOP ENGINE (THRESHOLDS) - NEW
+    # -------------------------------------------------------------------------
+    def _fetch_chop_optimization(self, session_name, context_str):
+        system_instruction = (
+            f"You are a Volatility Manager for {session_name}. Adjust the 'Chop Threshold' multiplier.\n"
+            "THEORY:\n"
+            "- The 'Chop Threshold' is the ceiling for volatility. Below this = CHOP. Above this = ACTIVE.\n"
+            "LOGIC:\n"
+            "- **EXPECTING EXPLOSIVE MOVE (News/Breakout):** LOWER the multiplier (0.6x - 0.9x). "
+            "We want the ceiling LOW so the market easily breaks out of 'Chop' status and allows trend trades.\n"
+            "- **EXPECTING ROTATION/RANGE:** RAISE the multiplier (1.2x - 2.0x). "
+            "We want the ceiling HIGH so the market stays 'In Chop', enabling Fade strategies (Buy Low/Sell High).\n"
+            "- **DEFAULT:** 1.0"
+        )
+
+        user_prompt = (
+            f"**OPTIMIZE CHOP THRESHOLD FOR: {session_name}**\n\n"
+            f"=== CONTEXT ===\n"
+            f"{context_str}\n"
+            "**TASK:** Return JSON:\n"
+            "{\n"
+            ' "chop_multiplier": float,\n'
+            ' "reasoning": string\n'
+            "}"
+        )
+
+        try:
+            response = self._call_gemini(system_instruction, user_prompt)
+            data = json.loads(response)
+            # Safety clamp (0.5x to 3.0x)
+            data['chop_multiplier'] = max(0.5, min(float(data.get('chop_multiplier', 1.0)), 3.0))
+            return data
+        except Exception as e:
+            logging.error(f"Gemini Chop Error: {e}")
+            return {'chop_multiplier': 1.0, 'reasoning': 'Error'}
 
     def _call_gemini(self, sys_instr, user_prompt):
         payload = {

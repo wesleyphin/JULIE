@@ -389,6 +389,9 @@ def run_bot():
                     if opt_result:
                         sl_mult = float(opt_result.get('sl_multiplier', 1.0))
                         tp_mult = float(opt_result.get('tp_multiplier', 1.0))
+                        # NEW: Extract Chop Multiplier
+                        chop_mult = float(opt_result.get('chop_multiplier', 1.0))
+
                         reason = opt_result.get('reasoning', '')
                         trend_params = opt_result.get('trend_params', {})
 
@@ -396,16 +399,20 @@ def run_bot():
                         CONFIG['DYNAMIC_SL_MULTIPLIER'] = sl_mult
                         CONFIG['DYNAMIC_TP_MULTIPLIER'] = tp_mult
 
+                        # NEW: Update DynamicChop Analyzer
+                        chop_analyzer.update_gemini_params(chop_mult)
+
                         # Update Trend Filter with dynamic parameters from Gemini
                         if trend_params:
                             trend_filter.update_dynamic_params(trend_params)
 
-                        print(f"🎯 NEW MULTIPLIERS | SL: {sl_mult}x | TP: {tp_mult}x")
+                        print(f"🎯 NEW MULTIPLIERS | SL: {sl_mult}x | TP: {tp_mult}x | CHOP: {chop_mult}x")
                         print(f"🌊 TREND REGIME: {trend_params.get('regime', 'DEFAULT')}")
                         print(f"📝 Reasoning: {reason}")
                     else:
                         CONFIG['DYNAMIC_SL_MULTIPLIER'] = 1.0
                         CONFIG['DYNAMIC_TP_MULTIPLIER'] = 1.0
+                        chop_analyzer.update_gemini_params(1.0)  # Reset on failure
 
                 last_processed_session = current_session_name
 
