@@ -155,9 +155,20 @@ def run_bot():
 
     # Initialize all strategies
 
+    # --- NEW: DETERMINE INITIAL SESSION FOR CALIBRATION ---
+    current_time_et = datetime.datetime.now(NY_TZ)
+    hour = current_time_et.hour
+    if 18 <= hour or hour < 3: initial_session = "ASIA"
+    elif 3 <= hour < 8: initial_session = "LONDON"
+    elif 8 <= hour < 12: initial_session = "NY_AM"
+    elif 12 <= hour < 17: initial_session = "NY_PM"
+    else: initial_session = "POST_MARKET"
+    # ------------------------------------------------------
+
     # Dynamic chop analyzer (tiered thresholds with LTF breakout override)
     chop_analyzer = DynamicChopAnalyzer(client)
-    chop_analyzer.calibrate()
+    # Pass the initial session so it uses the correct window (1 vs 2)
+    chop_analyzer.calibrate(session_name=initial_session)
     last_chop_calibration = time.time()
     
     # HIGH PRIORITY - Execute immediately on signal
@@ -281,7 +292,8 @@ def run_bot():
 
             # Periodic chop threshold recalibration (default every 4 hours)
             if chop_analyzer.should_recalibrate(last_chop_calibration):
-                chop_analyzer.calibrate()
+                # Pass the current session name to ensure we use the right logic
+                chop_analyzer.calibrate(session_name=current_session_name if 'current_session_name' in locals() else "NY_AM")
                 last_chop_calibration = time.time()
 
             # === GLOBAL RISK & NEWS FILTERS ===
