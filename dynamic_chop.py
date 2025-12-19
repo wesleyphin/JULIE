@@ -36,48 +36,40 @@ class DynamicChopAnalyzer:
         base = self.base_thresholds.get(timeframe, 2.0)
         return base * self.gemini_multiplier
 
-    def calibrate(self, days_lookback: int = 30, session_name: str = "NY_AM"):
+    def calibrate(self, days_lookback: int = 30):
         """
         Calibrates thresholds using the 20th percentile of recent data.
-        Adjusts sensitivity based on the Session.
+        REVERTED to 'Old Logic' for HTF (High Thresholds) for ALL sessions.
         """
         del days_lookback
         try:
             # 1. Fetch 60-Minute Data (Tier 1)
-            # Always use rolling(1) for 60M (Standard "Hour Range")
+            # OLD LOGIC: Use LOOKBACK (20) -> 20 hours of data.
+            # This creates a HIGH threshold (e.g., 60-70pts), forcing "Chop Mode" often.
             df_60 = self.client.fetch_custom_bars(lookback_bars=500, minutes_per_bar=60)
             if not df_60.empty:
                 r_60 = (
-                    df_60["high"].rolling(1).max()
-                    - df_60["low"].rolling(1).min()
+                    df_60["high"].rolling(self.LOOKBACK).max()
+                    - df_60["low"].rolling(self.LOOKBACK).min()
                 ).dropna()
                 self.base_thresholds["60M"] = float(np.percentile(r_60, 20))
                 logging.info(
-                    "[DynamicChop] Calibrated 60M Threshold: %.2f",
+                    "[DynamicChop] Calibrated 60M Threshold: %.2f (Old Logic)",
                     self.base_thresholds["60M"],
                 )
 
-            # 2. Fetch 15-Minute Data (Tier 2) - SESSION SENSITIVE
-            # -----------------------------------------------------------------
-            # IF Low Volatility Session (Asia/NY_PM): Use rolling(1) [~3.5 pts]
-            # IF High Volatility Session (London/NY_AM): Use rolling(2) [~7.0 pts]
-            # -----------------------------------------------------------------
-            if session_name in ["ASIA", "NY_PM", "POST_MARKET"]:
-                rolling_window = 1
-                logging.info(f"[DynamicChop] Low Vol Session ({session_name}): Using Aggressive Calibration (Window=1)")
-            else:
-                rolling_window = 2
-                logging.info(f"[DynamicChop] Active Session ({session_name}): Using Standard Calibration (Window=2)")
-
+            # 2. Fetch 15-Minute Data (Tier 2)
+            # OLD LOGIC: Use LOOKBACK (20) -> 5 hours of data.
+            # This creates a HIGH threshold (e.g., 20-25pts).
             df_15 = self.client.fetch_custom_bars(lookback_bars=500, minutes_per_bar=15)
             if not df_15.empty:
                 r_15 = (
-                    df_15["high"].rolling(rolling_window).max()
-                    - df_15["low"].rolling(rolling_window).min()
+                    df_15["high"].rolling(self.LOOKBACK).max()
+                    - df_15["low"].rolling(self.LOOKBACK).min()
                 ).dropna()
                 self.base_thresholds["15M"] = float(np.percentile(r_15, 20))
                 logging.info(
-                    "[DynamicChop] Calibrated 15M Threshold: %.2f",
+                    "[DynamicChop] Calibrated 15M Threshold: %.2f (Old Logic)",
                     self.base_thresholds["15M"],
                 )
 
