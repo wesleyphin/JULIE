@@ -203,7 +203,10 @@ def run_bot():
     news_filter = NewsFilter()
     circuit_breaker = CircuitBreaker(max_daily_loss=600, max_consecutive_losses=7)
     directional_loss_blocker = DirectionalLossBlocker(consecutive_loss_limit=3, block_minutes=15)
-    impulse_filter = ImpulseFilter(lookback=20, impulse_multiplier=2.5)
+    # 4-Tier Impulse Filter (merged with Trend logic)
+    # Tier 1: Volume-supported impulse, Tier 2: Standard breakout, Tier 3: Extreme capitulation
+    # Tier 4: Macro trend (50/200 EMA alignment) - bypassed by Range Fade logic
+    impulse_filter = ImpulseFilter()
 
     # Initialize Gemini Session Optimizer
     optimizer = GeminiSessionOptimizer()
@@ -850,8 +853,13 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], True)
 
+                            # Determine if this is a Range Fade setup (used by Impulse Filter's Tier 4 bypass)
+                            is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
+
                             # Impulse Filter (Prevent catching falling knife / fading rocket ship)
-                            impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])
+                            # 4-Tier System: Tier 1 (Volume), Tier 2 (Standard), Tier 3 (Extreme), Tier 4 (Macro Trend)
+                            # is_range_fade bypasses Tier 4 to allow fading at structure extremes
+                            impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'], is_range_fade=is_range_fade)
                             if impulse_blocked:
                                 event_logger.log_filter_check("ImpulseFilter", signal['side'], False, impulse_reason)
                                 continue
@@ -866,9 +874,9 @@ def run_bot():
                             # If Chop says "Long Only" and we are going Long, we expect to break resistance.
                             # We reduce the effective TP distance passed to the filter, making it less strict.
                             effective_tp_dist = tp_dist
-                            if allowed_chop_side is not None and signal['side'] == allowed_chop_side:
+                            if is_range_fade:
                                 effective_tp_dist = tp_dist * 0.5  # Require 50% less room
-                                logging.info(f"🔓 RELAXING FVG CHECK (Standard): Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
+                                logging.info(f"🔓 RELAXING FVG CHECK (Fast): Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
 
                             fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
                                 signal['side'], current_price, None, None, tp_dist=effective_tp_dist
@@ -1120,8 +1128,13 @@ def run_bot():
                             else:
                                 event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], True)
 
+                            # Determine if this is a Range Fade setup (used by Impulse Filter's Tier 4 bypass)
+                            is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
+
                             # Impulse Filter (Prevent catching falling knife / fading rocket ship)
-                            impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])
+                            # 4-Tier System: Tier 1 (Volume), Tier 2 (Standard), Tier 3 (Extreme), Tier 4 (Macro Trend)
+                            # is_range_fade bypasses Tier 4 to allow fading at structure extremes
+                            impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'], is_range_fade=is_range_fade)
                             if impulse_blocked:
                                 event_logger.log_filter_check("ImpulseFilter", signal['side'], False, impulse_reason)
                                 continue
@@ -1136,7 +1149,7 @@ def run_bot():
                             # If Chop says "Long Only" and we are going Long, we expect to break resistance.
                             # We reduce the effective TP distance passed to the filter, making it less strict.
                             effective_tp_dist = tp_dist
-                            if allowed_chop_side is not None and signal['side'] == allowed_chop_side:
+                            if is_range_fade:
                                 effective_tp_dist = tp_dist * 0.5  # Require 50% less room
                                 logging.info(f"🔓 RELAXING FVG CHECK (Standard): Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
 
@@ -1361,8 +1374,13 @@ def run_bot():
                                 else:
                                     event_logger.log_filter_check("DirectionalLossBlocker", sig['side'], True)
 
+                                # Determine if this is a Range Fade setup (used by Impulse Filter's Tier 4 bypass)
+                                is_range_fade = (allowed_chop_side is not None and sig['side'] == allowed_chop_side)
+
                                 # Impulse Filter (Prevent catching falling knife / fading rocket ship)
-                                impulse_blocked, impulse_reason = impulse_filter.should_block_trade(sig['side'])
+                                # 4-Tier System: Tier 1 (Volume), Tier 2 (Standard), Tier 3 (Extreme), Tier 4 (Macro Trend)
+                                # is_range_fade bypasses Tier 4 to allow fading at structure extremes
+                                impulse_blocked, impulse_reason = impulse_filter.should_block_trade(sig['side'], is_range_fade=is_range_fade)
                                 if impulse_blocked:
                                     event_logger.log_filter_check("ImpulseFilter", sig['side'], False, impulse_reason)
                                     del pending_loose_signals[s_name]; continue
@@ -1377,7 +1395,7 @@ def run_bot():
                                 # If Chop says "Long Only" and we are going Long, we expect to break resistance.
                                 # We reduce the effective TP distance passed to the filter, making it less strict.
                                 effective_tp_dist = tp_dist
-                                if allowed_chop_side is not None and sig['side'] == allowed_chop_side:
+                                if is_range_fade:
                                     effective_tp_dist = tp_dist * 0.5  # Require 50% less room
                                     logging.info(f"🔓 RELAXING FVG CHECK (Loose): Fading Range {sig['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
 
