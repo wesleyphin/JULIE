@@ -142,11 +142,13 @@ class GeminiSessionOptimizer:
 
         # --- STEP 4: PROMPT ---
         system_instruction = (
-            f"You are a Risk Manager optimizing {session_name}. Adjust TP/SL based on Market Structure & Volatility.\n"
+            f"You are a Risk Manager optimizing {session_name}. Adjust TP/SL & Trend Filters based on Context.\n"
             "CRITICAL RULES:\n"
-            "- **PROTECT HIGH RR:** If Base RR > 3.0, DO NOT increase TP multiplier. Prioritize win rate.\n"
-            "- **REDUCE TP** if market is choppy (ADX < 20) or Inside Value.\n"
-            "- **EXPAND TP** only if RR < 2.0 AND ADX > 30.\n"
+            "1. **SL/TP:** If Base RR > 3.0, DO NOT increase TP. Reduce TP if Choppy (ADX<20).\n"
+            "2. **TREND FILTER:** Prevents fading impulses (Counter-Trend Block).\n"
+            "   - **TRENDING (ADX>30):** LOWER multipliers (e.g., 1.2x, 1.5x) to BLOCK fades aggressively.\n"
+            "   - **CHOPPY (ADX<20):** HIGHER multipliers (e.g., 2.5x, 4.0x) to ALLOW mean reversion fades.\n"
+            "   - **DEFAULT:** Vol 1.5x, Body 1.5x/2.0x/3.0x."
         )
 
         user_prompt = (
@@ -159,8 +161,15 @@ class GeminiSessionOptimizer:
             f"ADX: {adx_score} ({trend_status})\n"
             f"Profile: {profile_status}\n"
             f"News: {events_data}\n\n"
-            "**TASK:** Return JSON {sl_multiplier, tp_multiplier, reasoning}. "
-            "If RR is high, keep TP multiplier <= 1.0."
+            "**TASK:** Return JSON:\n"
+            "{\n"
+            '  "sl_multiplier": float,\n'
+            '  "tp_multiplier": float,\n'
+            '  "trend_params": {\n'
+            '      "t1_vol": float, "t1_body": float, "t2_body": float, "t3_body": float, "regime": "TRENDING/CHOPPY"\n'
+            '  },\n'
+            '  "reasoning": string\n'
+            "}"
         )
 
         payload = {
@@ -196,6 +205,10 @@ class GeminiSessionOptimizer:
                 # Log if cap was hit
                 if raw_tp > tp_cap:
                     logging.warning(f"🛡️ High RR Protection ({base_rr:.1f}R): Capped TP {raw_tp} -> {final_tp}")
+
+                # Ensure trend_params exists in response
+                if 'trend_params' not in data:
+                    data['trend_params'] = {}
 
                 return data
             return None

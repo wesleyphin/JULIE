@@ -390,12 +390,18 @@ def run_bot():
                         sl_mult = float(opt_result.get('sl_multiplier', 1.0))
                         tp_mult = float(opt_result.get('tp_multiplier', 1.0))
                         reason = opt_result.get('reasoning', '')
+                        trend_params = opt_result.get('trend_params', {})
 
-                        # 4. Update Global Config
+                        # 4. Update Global Config & Filters
                         CONFIG['DYNAMIC_SL_MULTIPLIER'] = sl_mult
                         CONFIG['DYNAMIC_TP_MULTIPLIER'] = tp_mult
 
+                        # Update Trend Filter with dynamic parameters from Gemini
+                        if trend_params:
+                            trend_filter.update_dynamic_params(trend_params)
+
                         print(f"🎯 NEW MULTIPLIERS | SL: {sl_mult}x | TP: {tp_mult}x")
+                        print(f"🌊 TREND REGIME: {trend_params.get('regime', 'DEFAULT')}")
                         print(f"📝 Reasoning: {reason}")
                     else:
                         CONFIG['DYNAMIC_SL_MULTIPLIER'] = 1.0
