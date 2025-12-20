@@ -130,10 +130,10 @@ class JulieUI:
         login_btn = tk.Button(panel_frame,
                              text="LOGIN",
                              font=("Helvetica", 16, "bold"),
-                             bg=self.colors['green'],
-                             fg='white',
-                             activebackground=self.colors['green_light'],
-                             activeforeground='white',
+                             bg='#2d2d2d',  # Dark grey
+                             fg='#ffffff',  # White for contrast
+                             activebackground='#3d3d3d',  # Lighter grey on hover
+                             activeforeground='#ffffff',
                              relief='flat',
                              cursor='hand2',
                              command=self.handle_login)
