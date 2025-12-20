@@ -187,14 +187,6 @@ class JulieUI:
                              command=self.handle_login)
         login_btn.pack(pady=(0, 25), padx=60, fill='x', ipady=12)
 
-        # Forgot Password Link
-        forgot = tk.Label(panel_frame, text="FORGOT PASSWORD?",
-                         font=("Helvetica", 10, "underline"),
-                         fg=self.colors['text_gray'],
-                         bg=self.colors['panel_bg'],
-                         cursor='hand2')
-        forgot.pack(pady=(15, 0))
-
     def animate_logo(self):
         """Animate the logo GIF by cycling through frames"""
         if self.logo_label and self.logo_frames:
