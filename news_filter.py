@@ -27,6 +27,9 @@ class NewsFilter:
         self.calendar_blackouts = [] # Future/Active events (for blocking trades)
         self.recent_events = []      # All events in current month (for Gemini context)
 
+        # 3. Holiday Calendar
+        self.holiday_cal = USFederalHolidayCalendar()
+
         # Load the calendar immediately
         self.refresh_calendar()
 
@@ -141,44 +144,44 @@ class NewsFilter:
 
         return [f"{e['date_str']} | {e['title']}" for e in sorted_events]
 
-    def get_holiday_context(self) -> str:
+    def get_holiday_context(self, current_time: datetime.datetime) -> str:
         """
-        Detects if today or upcoming days fall on a US Federal Bank Holiday.
-        Returns context string for GeminiSessionOptimizer to adjust risk parameters.
-        """
-        cal = USFederalHolidayCalendar()
-        today = datetime.datetime.now(self.et).date()
+        Determines if a bank holiday is approaching or just passed.
+        Returns status codes for GeminiSessionOptimizer to adjust risk parameters.
 
-        # Check next 3 days for proximity to holidays
-        start_date = pd.Timestamp(today)
+        Status Codes:
+        - NORMAL_LIQUIDITY: No holidays nearby
+        - HOLIDAY_TODAY: Market is closed or extremely low volume
+        - PRE_HOLIDAY_1_DAYS, PRE_HOLIDAY_2_DAYS, PRE_HOLIDAY_3_DAYS: Approaching holiday
+        - POST_HOLIDAY_RECOVERY: Day after holiday (volume returning)
+        """
+        # Ensure time is in ET timezone
+        if current_time.tzinfo is None:
+            current_time = current_time.replace(tzinfo=dt_timezone.utc).astimezone(self.et)
+        else:
+            current_time = current_time.astimezone(self.et)
+
+        today = current_time.date()
+
+        # Look for holidays within 1 day before and 3 days after
+        start_date = pd.Timestamp(today - datetime.timedelta(days=1))
         end_date = pd.Timestamp(today + datetime.timedelta(days=3))
-        holidays = cal.holidays(start=start_date, end=end_date)
+        holidays = self.holiday_cal.holidays(start=start_date, end=end_date)
 
-        if not holidays.empty:
-            # Get the nearest holiday
-            holiday_date = holidays[0].date()
-            days_away = (holiday_date - today).days
+        if holidays.empty:
+            return "NORMAL_LIQUIDITY"
 
-            # Try to get the holiday name from the calendar
-            holiday_name = "Bank Holiday"
-            try:
-                # Get all holiday rules and find the matching one
-                for rule in cal.rules:
-                    rule_dates = rule.dates(start_date, end_date, return_name=True)
-                    if not rule_dates.empty and rule_dates[0].date() == holiday_date:
-                        holiday_name = rule.name
-                        break
-            except Exception as e:
-                logging.debug(f"Could not extract holiday name: {e}")
+        # Get the nearest holiday
+        h_date = holidays[0].date()
 
-            if days_away == 0:
-                return f"HOLIDAY TODAY: {holiday_name} ({holiday_date})"
-            elif days_away == 1:
-                return f"HOLIDAY TOMORROW: {holiday_name} ({holiday_date})"
-            else:
-                return f"NEAR HOLIDAY: {holiday_name} on {holiday_date} ({days_away} days away)"
-
-        return "No major holidays in next 3 days."
+        if h_date == today:
+            return "HOLIDAY_TODAY"
+        elif h_date > today:
+            days_away = (h_date - today).days
+            return f"PRE_HOLIDAY_{days_away}_DAYS"
+        else:
+            # Holiday was yesterday
+            return "POST_HOLIDAY_RECOVERY"
 
     def should_block_trade(self, current_time: datetime.datetime) -> tuple[bool, str]:
         # Ensure time is ET

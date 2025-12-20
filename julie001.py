@@ -332,10 +332,10 @@ def run_bot():
 
                     # 1b. Get Holiday Context
                     try:
-                        holiday_context = news_filter.get_holiday_context()
+                        holiday_context = news_filter.get_holiday_context(current_time)
                     except Exception as e:
                         logging.warning(f"Failed to get holiday context: {e}")
-                        holiday_context = "Holiday data unavailable."
+                        holiday_context = "NORMAL_LIQUIDITY"
 
                     # 2. Get Hardcoded Base Params for Session
                     session_cfg = CONFIG['SESSIONS'].get(current_session_name, {})

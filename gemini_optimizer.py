@@ -189,10 +189,12 @@ class GeminiSessionOptimizer:
             "STRUCTURAL BOUNDARY RULES:\n"
             "- HTF FVG Hard Boundaries: If a trade's TP target lies beyond an overhead Bearish FVG, you MUST reduce the tp_multiplier to exit before that resistance.\n"
             "- SL Tightening: If the current price is supported by a Bullish HTF FVG, you may tighten the sl_multiplier to 0.7x - 0.9x.\n\n"
-            "HOLIDAY PLAYBOOK:\n"
-            "- If a Bank Holiday is TODAY or TOMORROW (within 24 hours), aggressively reduce TP multipliers (0.5x - 0.7x) to account for potential volume drop-off and erratic spreads.\n"
-            "- If a Bank Holiday is within 2-3 days, apply moderate TP reduction (0.8x - 0.9x) as institutional participation begins to decline.\n"
-            "- During holiday periods, prioritize capital preservation over profit maximization."
+            "HOLIDAY PLAYBOOK (CRITICAL):\n"
+            "- HOLIDAY_TODAY: Market is dead. DO NOT trade or set tp_multiplier to 0.5x minimum.\n"
+            "- PRE_HOLIDAY (1-3 days): Price action tightens by ~40%. You MUST reduce tp_multiplier to 0.6x - 0.7x to avoid targets that low-volume markets cannot reach.\n"
+            "- POST_HOLIDAY_RECOVERY: Volatility expands by ~12%. Allow wider stops (sl_multiplier 1.2x) to survive the initial liquidity rush as institutions return.\n"
+            "- NORMAL_LIQUIDITY: Apply standard rules. No holiday adjustments needed.\n"
+            "- During all holiday periods, prioritize capital preservation over profit maximization."
         )
 
         user_prompt = (
@@ -230,7 +232,11 @@ class GeminiSessionOptimizer:
             "MERGED EXECUTION RULES:\n"
             "- HTF FVG ROADBLOCKS: Treat HTF FVGs as structural barriers. If price is approaching a Bearish FVG from below or a Bullish FVG from above, increase the t1_body multiplier (e.g., 2.5x+) to ensure only high-momentum impulses trigger entry.\n"
             "- VALUE AREA & IB LOGIC: If price is inside the Value Area (VAH/VAL) and below the IB High, maintain HIGHER multipliers (2.5x - 4.0x) to allow for rotational/mean-reversion trades.\n"
-            "- TREND CONFIRMATION: If price breaks the IB High/Low with an ADX > 25, switch to aggressive 'Trending' mode with LOWER multipliers (1.2x - 1.5x)."
+            "- TREND CONFIRMATION: If price breaks the IB High/Low with an ADX > 25, switch to aggressive 'Trending' mode with LOWER multipliers (1.2x - 1.5x).\n\n"
+            "HOLIDAY PLAYBOOK (CRITICAL):\n"
+            "- PRE_HOLIDAY Status: Breakouts are frequently 'low-volume drifts' or bull/bear traps. INCREASE t1_body and t1_vol requirements significantly (e.g., 3.0x - 4.0x) to ensure only high-conviction moves trigger entry.\n"
+            "- POST_HOLIDAY_RECOVERY: First few hours see erratic whipsaws. Maintain elevated filters (2.5x+) until clear directional flow emerges.\n"
+            "- NORMAL_LIQUIDITY: Apply standard execution rules based on structure and ADX."
         )
 
         user_prompt = (
@@ -261,9 +267,11 @@ class GeminiSessionOptimizer:
             "- EXPECTING EXPLOSIVE MOVE: LOWER the multiplier to 0.6x - 0.9x to allow for trend breakouts.\n"
             "- EXPECTING ROTATION/RANGE: RAISE the multiplier to 1.2x - 2.0x to prioritize Fade strategies.\n"
             "- POC & IB CONFLUENCE: If the current price is hovering at the POC and is inside the IB Range with no HTF FVGs nearby, RAISE the multiplier to 1.5x - 2.0x to signal a high-probability range-bound environment.\n\n"
-            "HOLIDAY PLAYBOOK:\n"
-            "- If a Bank Holiday is near (within 1-3 days), favor mean-reversion by RAISING the Chop Multiplier (1.5x - 2.0x+), as institutional trend-following volume is typically absent.\n"
-            "- Holiday periods create range-bound, choppy conditions. Prioritize fade strategies over breakout plays during these times."
+            "HOLIDAY PLAYBOOK (CRITICAL):\n"
+            "- PRE_HOLIDAY Status: This is 'Dead Market' chop. Set chop_multiplier to 1.5x - 2.0x to prioritize mean-reversion and prevent trend-following churn.\n"
+            "- HOLIDAY_TODAY: Extreme chop. Set chop_multiplier to 2.0x - 3.0x. Market is essentially a random walk.\n"
+            "- POST_HOLIDAY_RECOVERY: Volume returning but directionality uncertain. Use moderate multiplier (1.2x - 1.5x) until clear trends establish.\n"
+            "- NORMAL_LIQUIDITY: Apply standard chop rules based on ADX and structure."
         )
 
         user_prompt = (

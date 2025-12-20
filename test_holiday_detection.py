@@ -5,6 +5,8 @@ Test script to verify bank holiday detection functionality.
 
 import sys
 import logging
+import datetime
+from datetime import timezone as dt_timezone
 from news_filter import NewsFilter
 
 # Set up logging
@@ -25,29 +27,41 @@ def test_holiday_detection():
         news_filter = NewsFilter()
         print("   ✅ NewsFilter initialized successfully")
 
-        # Test holiday context
+        # Test holiday context with current time
         print("\n2. Getting Holiday Context...")
-        holiday_context = news_filter.get_holiday_context()
-        print(f"   Holiday Context: {holiday_context}")
+        current_time = datetime.datetime.now(dt_timezone.utc)
+        holiday_status = news_filter.get_holiday_context(current_time)
+        print(f"   Holiday Status: {holiday_status}")
 
         # Display the result
         print("\n" + "=" * 60)
         print("RESULT:")
         print("=" * 60)
-        print(f"Holiday Status: {holiday_context}")
+        print(f"Holiday Status Code: {holiday_status}")
         print("=" * 60)
 
-        if "HOLIDAY TODAY" in holiday_context or "HOLIDAY TOMORROW" in holiday_context:
-            print("\n⚠️  CRITICAL: Bank Holiday detected within 24 hours!")
-            print("   Risk Engine will reduce TP multipliers to 0.5x - 0.7x")
-            print("   Chop Engine will raise multiplier to 1.5x - 2.0x")
-        elif "NEAR HOLIDAY" in holiday_context:
-            print("\n📅 Bank Holiday detected within 2-3 days")
-            print("   Risk Engine will moderately reduce TP to 0.8x - 0.9x")
-            print("   Chop Engine will favor mean-reversion strategies")
+        # Interpret status codes
+        if holiday_status == "HOLIDAY_TODAY":
+            print("\n⚠️  CRITICAL: Bank Holiday TODAY!")
+            print("   Risk Engine: Market is dead. TP multiplier → 0.5x minimum")
+            print("   Chop Engine: Extreme chop. Chop multiplier → 2.0x - 3.0x")
+            print("   Trend Engine: Standard filters apply")
+        elif holiday_status.startswith("PRE_HOLIDAY"):
+            days = holiday_status.split("_")[-2]
+            print(f"\n📅 Bank Holiday in {days} day(s)")
+            print("   Risk Engine: Price action tightens ~40%. TP multiplier → 0.6x - 0.7x")
+            print("   Chop Engine: Dead market chop. Chop multiplier → 1.5x - 2.0x")
+            print("   Trend Engine: Increase t1_body/t1_vol to 3.0x - 4.0x (trap avoidance)")
+        elif holiday_status == "POST_HOLIDAY_RECOVERY":
+            print("\n🔄 Post-Holiday Recovery (Day After)")
+            print("   Risk Engine: Volatility expands ~12%. SL multiplier → 1.2x")
+            print("   Chop Engine: Moderate multiplier → 1.2x - 1.5x")
+            print("   Trend Engine: Maintain elevated filters (2.5x+) until clear flow")
+        elif holiday_status == "NORMAL_LIQUIDITY":
+            print("\n✅ Normal Market Liquidity")
+            print("   All engines: Apply standard rules based on ADX and structure")
         else:
-            print("\n✅ No bank holidays detected in the next 3 days")
-            print("   Normal trading parameters will be used")
+            print(f"\n⚠️  Unknown status: {holiday_status}")
 
         print("\n✅ Test completed successfully!")
         return True
