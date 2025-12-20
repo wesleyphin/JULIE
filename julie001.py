@@ -409,9 +409,9 @@ def run_bot():
                         if trend_params:
                             trend_filter.update_dynamic_params(trend_params)
 
-                        print(f"🎯 NEW MULTIPLIERS | SL: {sl_mult}x | TP: {tp_mult}x | CHOP: {chop_mult}x")
-                        print(f"🌊 TREND REGIME: {trend_params.get('regime', 'DEFAULT')}")
-                        print(f"📝 Reasoning: {reason}")
+                        logging.info(f"🎯 NEW MULTIPLIERS | SL: {sl_mult}x | TP: {tp_mult}x | CHOP: {chop_mult}x")
+                        logging.info(f"🌊 TREND REGIME: {trend_params.get('regime', 'DEFAULT')}")
+                        logging.info(f"📝 REASONING: {reason}")
                     else:
                         CONFIG['DYNAMIC_SL_MULTIPLIER'] = 1.0
                         CONFIG['DYNAMIC_TP_MULTIPLIER'] = 1.0

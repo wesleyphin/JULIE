@@ -823,46 +823,45 @@ class JulieUI:
             '🏦', 'ORB', 'BANK', 'Prev PM', 'Prev Session',
             '📅 New day', 'QUARTER CHANGE',
             '⚠️ CHOP', '⚠️ PENALTY', 'CEILING', 'FLOOR',
-            'HTF FVG Memory', 'Bar:', 'Price:',
+            '🧠 HTF FVG Memory', 'Bar:', 'Price:',  # HTF FVG Memory goes here
             '📈 CONTINUATION', '📉 CONTINUATION',
             '🔁 BIAS FLIP', '🔄 QUARTER',
             'Backfill Complete', 'ExtFilter',
             '🌊 DRIFT DETECTED', 'CALIBRATION COMPLETE', 'DynamicChop',
-            'Calibrated', 'Threshold'
+            'Calibrated', 'Threshold',
+            '⚙️ STARTUP CALIBRATION',  # Startup calibration goes here
+            '🌊 UPDATING TREND FILTER',  # Trend filter updates go here
+            '📉 Tightening Risk', '📈 Tightening Risk',  # Risk management goes here
         ])
 
         # Determine if this is Gemini LLM activity (case-insensitive)
         line_upper = line.upper()
-        is_gemini_log = any(keyword in line_upper for keyword in [
-            # Core Gemini/AI keywords
-            'GEMINI', 'LLM', 'AI ',  # AI with space to avoid false matches
-            '🧠 GEMINI', '🧠',  # Gemini brain emoji
-            'GEMINI 3.0', 'GEMINI MULTIPLIER',
 
-            # Reasoning keywords
-            'REASONING', 'REASON:', '📝 REASONING',
-            'THINK', 'THINKING', 'THOUGHT',
-            'RATIONALE', 'DECISION', 'DECIDE', 'CONCLUSION',
-            'INFERENCE', 'INFER', 'EVALUATE', 'EVALUATION',
-
-            # Analysis keywords
-            'ANALYZING', 'ANALYSIS', 'ANALYZING SESSION',
-            'CONTEXT FOR', 'SESSION-ALIGNED CONTEXT',
-
-            # AI decision indicators
-            '🎯 NEW MULTIPLIERS', 'MULTIPLIERS', 'MULTIPLIER:',
-            'UPDATED GEMINI', 'DYNAMICCHOP] UPDATED',
-
-            # Technical AI terms
-            'NEURAL', 'LANGUAGE MODEL', 'ML ', 'MACHINE LEARNING',
-            'MODEL', 'PREDICTION', 'RECOMMENDATION',
-
-            # Environment analysis
-            'CHOPPY', 'RANGING', 'ROTATIONAL ENVIRONMENT',
-            'ADX IS', 'INSIDE VALUE', 'WIN RATE',
-            'RISK:', 'TREND:', 'CHOP:',
-            'BASE RR', 'VOLATILITY'
+        # First, check if it's explicitly NOT a Gemini log (exclusions)
+        is_excluded = any(keyword in line_upper for keyword in [
+            'HTF FVG MEMORY',  # This uses 🧠 but is not Gemini
+            'STARTUP CALIBRATION',  # This uses "Analyzing" but is not Gemini
         ])
+
+        # Only check Gemini keywords if not excluded
+        is_gemini_log = False
+        if not is_excluded:
+            is_gemini_log = any(keyword in line_upper for keyword in [
+                # Explicit Gemini mentions (most specific)
+                'GEMINI', 'GEMINI 3.0', 'GEMINI MULTIPLIER', 'GEMINI CONTEXT',
+                '🧠 GEMINI', 'GEMINI OPTIMIZED',
+                'UPDATED GEMINI MULTIPLIER', '[DYNAMICCHOP] UPDATED GEMINI',
+
+                # Neural Network initialization (Gemini-specific)
+                'INITIALIZING NEURAL NETWORK ARRAY',
+
+                # Gemini output markers
+                '📝 REASONING:', '🎯 NEW MULTIPLIERS',
+                '🌊 TREND REGIME:',
+
+                # Session analysis by Gemini
+                'ANALYZING SESSION-ALIGNED CONTEXT',
+            ])
 
         # Route to appropriate log
         if is_gemini_log:
