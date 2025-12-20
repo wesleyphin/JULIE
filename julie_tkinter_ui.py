@@ -647,7 +647,17 @@ class JulieUI:
         if not line:
             return
 
-        # Determine if this is market context or general event
+        # Determine if this is event log content (heartbeats, trades, blocks, API)
+        is_event_log = any(keyword in line for keyword in [
+            '💓', 'heartbeat', 'Heartbeat',  # Heartbeats
+            '🚀 SENDING ORDER', 'ORDER PLACED', 'FILL', 'EXECUTED',  # Trade execution
+            '⛔ Signal ignored', 'BLOCKED', 'FILTER_CHECK', '✗ BLOCK',  # Blocked trades
+            'API', 'returned no bars', 'No bars', 'rate limit',  # API logs
+            'Trade closed', 'Position', 'P&L',  # Trade results
+            'STRATEGY_SIGNAL'  # Strategy signals
+        ])
+
+        # Determine if this is market context
         is_market_context = any(keyword in line for keyword in [
             '🕒 Session', 'SESSION CHANGE', 'SESSION change', 'SESSION HANDOVER',
             '🎯 REJECTION', 'REJECTION_DETECTED', 'REJECTION CONFIRMED',
@@ -663,10 +673,11 @@ class JulieUI:
         ])
 
         # Route to appropriate log
-        if is_market_context:
-            self.add_market_log(line)
-        else:
+        if is_event_log:
             self.add_log(line)
+        elif is_market_context:
+            self.add_market_log(line)
+        # Otherwise, don't display (filter out noise)
 
         # Parse strategy signals
         for strategy in self.strategy_labels.keys():
