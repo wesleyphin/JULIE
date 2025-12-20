@@ -363,7 +363,7 @@ class JulieUI:
         section = tk.Frame(parent, bg=self.colors['panel_bg'],
                           highlightbackground=self.colors['panel_border'],
                           highlightthickness=1)
-        section.pack(fill='x', pady=(0, 10))
+        section.pack(fill='both', expand=True)  # Fill entire right panel height
 
         # Header
         header = tk.Label(section, text="SIGNAL MONITOR & MARKET CONTEXT",
