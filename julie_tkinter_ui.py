@@ -1,400 +1,459 @@
 #!/usr/bin/env python3
 """
-JULIE Tkinter UI - Modern Trading Bot Interface
-Replicates the professional trading dashboard design with login page
-Integrates with live bot monitoring via LogMonitor and APIMonitor
+JULIE Tkinter UI - Professional Trading Dashboard
+Matches the design from reference screenshots with real API integration
 """
 
 import tkinter as tk
-from tkinter import ttk, font
-import json
-import os
-from datetime import datetime
+from tkinter import ttk, font as tkfont
 import threading
 import time
-import sys
-from pathlib import Path
+import requests
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import re
 
 # Import from existing monitoring infrastructure
 try:
-    from julie_ui import LogMonitor, APIMonitor, get_current_session
     from config import CONFIG
-    HAS_MONITORING = True
+    HAS_CONFIG = True
 except ImportError:
-    HAS_MONITORING = False
-    print("Warning: Could not import monitoring modules. Running in mock mode.")
+    HAS_CONFIG = False
+    CONFIG = {}
 
 class JulieUI:
     def __init__(self, root):
         self.root = root
         self.root.title("JULIE")
-        self.root.geometry("1400x900")
-        self.root.configure(bg='#0a0e1a')
+        self.root.geometry("1600x900")
+        self.root.configure(bg='#000000')
 
-        # Color scheme - dark professional theme
+        # Color scheme matching the screenshots
         self.colors = {
-            'bg_primary': '#0a0e1a',      # Main dark background
-            'bg_secondary': '#141824',     # Slightly lighter panels
-            'bg_tertiary': '#1e2330',      # Input backgrounds
-            'accent_green': '#4ade80',     # Success/long green
-            'accent_red': '#f87171',       # Danger/short red
-            'accent_yellow': '#fbbf24',    # Warning/pending yellow
-            'text_primary': '#e5e7eb',     # Main text white
-            'text_secondary': '#9ca3af',   # Secondary text gray
-            'border': '#2d3548',           # Border color
-            'button_green': '#22c55e',     # Button green
-            'button_hover': '#16a34a',     # Button hover
+            'bg_dark': '#000000',
+            'bg_gradient_start': '#0a1a0e',
+            'bg_gradient_end': '#0a0e1a',
+            'panel_bg': '#1a1f2e',
+            'panel_border': '#2a4a3a',
+            'input_bg': '#2d3340',
+            'input_border': '#3a4a3a',
+            'text_white': '#ffffff',
+            'text_gray': '#9ca3af',
+            'text_dim': '#6b7280',
+            'green': '#22c55e',
+            'green_light': '#4ade80',
+            'red': '#ef4444',
+            'yellow': '#fbbf24',
+            'blue': '#3b82f6',
         }
 
-        # Load or create config
-        self.config_file = 'config.py'
-        self.load_accounts()
-
-        # State variables
-        self.current_account = None
+        # Session and data
+        self.session = None
+        self.token = None
+        self.accounts = []
+        self.selected_account = None
+        self.current_price = 5880.25
         self.logged_in = False
-        self.mock_data = {
-            'price': 5880.25,
-            'change_pct': 20.73,
-            'positions': [],
-            'strategies': {},
-            'filters': {},
-            'event_log': []
-        }
+        self.monitoring_thread = None
 
-        # Create login page first
+        # Show login page
         self.show_login_page()
 
-    def load_accounts(self):
-        """Load available accounts from config or create mock accounts"""
-        if HAS_MONITORING and CONFIG.get('USERNAME') and CONFIG.get('API_KEY'):
-            # Try to fetch real accounts later after login
-            self.accounts = ["Loading accounts..."]
-        else:
-            # Mock accounts for testing
-            self.accounts = [
-                "ACCT-001",
-                "ACCT-002",
-                "ACCT-003",
-                "ACCT-004"
-            ]
-
     def show_login_page(self):
-        """Create the login page interface"""
-        # Clear any existing widgets
+        """Create login page matching the screenshot"""
+        # Clear root
         for widget in self.root.winfo_children():
             widget.destroy()
 
-        # Create gradient-like background
-        self.login_frame = tk.Frame(self.root, bg='#0a0e1a')
-        self.login_frame.pack(fill='both', expand=True)
+        # Create gradient background effect
+        canvas = tk.Canvas(self.root, bg='#000000', highlightthickness=0)
+        canvas.pack(fill='both', expand=True)
 
-        # Add gradient effect with overlapping frames
-        gradient_frame = tk.Frame(self.login_frame, bg='#0a1a0e')
-        gradient_frame.place(relx=0.5, rely=0.5, anchor='center', relwidth=0.8, relheight=0.8)
+        # Create gradient effect with rectangles
+        canvas.create_rectangle(0, 0, 1600, 900, fill='#0a0e1a', outline='')
+        canvas.create_oval(-200, -200, 800, 800, fill='#0a1a0e', outline='')
+        canvas.create_oval(1000, 200, 1800, 1100, fill='#0a1a0e', outline='')
 
-        # Main login container
-        login_container = tk.Frame(self.login_frame, bg=self.colors['bg_secondary'],
-                                   highlightbackground=self.colors['accent_green'],
-                                   highlightthickness=1)
-        login_container.place(relx=0.5, rely=0.5, anchor='center', width=500, height=500)
+        # Create login panel
+        panel_frame = tk.Frame(canvas, bg=self.colors['panel_bg'],
+                              highlightbackground=self.colors['panel_border'],
+                              highlightthickness=2)
+        canvas.create_window(800, 450, window=panel_frame, width=500, height=550)
 
         # JULIE Title
-        title_font = font.Font(family="Helvetica", size=64, weight="bold")
-        title = tk.Label(login_container, text="JULIE",
+        title_font = tkfont.Font(family="Helvetica", size=72, weight="bold")
+        title = tk.Label(panel_frame, text="JULIE",
                         font=title_font,
-                        fg=self.colors['text_primary'],
-                        bg=self.colors['bg_secondary'])
-        title.pack(pady=(60, 80))
+                        fg=self.colors['text_white'],
+                        bg=self.colors['panel_bg'])
+        title.pack(pady=(50, 80))
 
         # Account Number Label
-        account_label = tk.Label(login_container, text="ACCOUNT NUMBER",
+        account_label = tk.Label(panel_frame, text="ACCOUNT NUMBER",
                                 font=("Helvetica", 11, "bold"),
-                                fg=self.colors['text_secondary'],
-                                bg=self.colors['bg_secondary'])
-        account_label.pack(pady=(0, 10))
+                                fg=self.colors['text_gray'],
+                                bg=self.colors['panel_bg'])
+        account_label.pack(pady=(0, 15))
+
+        # Fetch accounts first
+        self.fetch_accounts_for_login()
 
         # Account Dropdown
-        style = ttk.Style()
-        style.theme_use('clam')
-        style.configure('Custom.TCombobox',
-                       fieldbackground=self.colors['bg_tertiary'],
-                       background=self.colors['bg_tertiary'],
-                       foreground=self.colors['text_primary'],
-                       arrowcolor=self.colors['text_primary'],
-                       bordercolor=self.colors['border'],
-                       lightcolor=self.colors['bg_tertiary'],
-                       darkcolor=self.colors['bg_tertiary'])
+        self.setup_dropdown_style()
+        self.account_var = tk.StringVar()
 
-        self.account_var = tk.StringVar(value=self.accounts[0])
-        account_dropdown = ttk.Combobox(login_container,
-                                       textvariable=self.account_var,
-                                       values=self.accounts,
-                                       state='readonly',
-                                       font=("Helvetica", 14),
-                                       style='Custom.TCombobox',
-                                       width=30)
-        account_dropdown.pack(pady=(0, 40), padx=50)
+        if self.accounts:
+            account_names = [acc.get('name', acc.get('id', 'Unknown')) for acc in self.accounts]
+            self.account_var.set(account_names[0] if account_names else "No accounts")
+        else:
+            account_names = ["Loading..."]
+            self.account_var.set("Loading...")
+
+        dropdown = ttk.Combobox(panel_frame,
+                               textvariable=self.account_var,
+                               values=account_names,
+                               state='readonly',
+                               font=("Helvetica", 14),
+                               style='Login.TCombobox',
+                               width=32)
+        dropdown.pack(pady=(0, 50), padx=60)
 
         # Login Button
-        login_btn = tk.Button(login_container,
+        login_btn = tk.Button(panel_frame,
                              text="🔒 LOGIN",
-                             font=("Helvetica", 14, "bold"),
-                             bg=self.colors['button_green'],
+                             font=("Helvetica", 16, "bold"),
+                             bg=self.colors['green'],
                              fg='white',
-                             activebackground=self.colors['button_hover'],
+                             activebackground=self.colors['green_light'],
                              activeforeground='white',
                              relief='flat',
                              cursor='hand2',
                              command=self.handle_login)
-        login_btn.pack(pady=(0, 20), padx=50, fill='x', ipady=10)
+        login_btn.pack(pady=(0, 25), padx=60, fill='x', ipady=12)
 
         # Forgot Password Link
-        forgot_link = tk.Label(login_container, text="FORGOT PASSWORD?",
-                              font=("Helvetica", 10, "underline"),
-                              fg=self.colors['text_secondary'],
-                              bg=self.colors['bg_secondary'],
-                              cursor='hand2')
-        forgot_link.pack(pady=(10, 0))
+        forgot = tk.Label(panel_frame, text="FORGOT PASSWORD?",
+                         font=("Helvetica", 10, "underline"),
+                         fg=self.colors['text_gray'],
+                         bg=self.colors['panel_bg'],
+                         cursor='hand2')
+        forgot.pack(pady=(15, 0))
+
+    def setup_dropdown_style(self):
+        """Setup custom combobox style"""
+        style = ttk.Style()
+        style.theme_use('clam')
+
+        style.configure('Login.TCombobox',
+                       fieldbackground=self.colors['input_bg'],
+                       background=self.colors['input_bg'],
+                       foreground=self.colors['text_white'],
+                       arrowcolor=self.colors['text_white'],
+                       bordercolor=self.colors['input_border'],
+                       lightcolor=self.colors['input_bg'],
+                       darkcolor=self.colors['input_bg'],
+                       selectbackground=self.colors['green'],
+                       selectforeground='white')
+
+        style.map('Login.TCombobox',
+                 fieldbackground=[('readonly', self.colors['input_bg'])],
+                 selectbackground=[('readonly', self.colors['input_bg'])])
+
+    def fetch_accounts_for_login(self):
+        """Fetch accounts from API for login dropdown"""
+        if not HAS_CONFIG or not CONFIG.get('USERNAME') or not CONFIG.get('API_KEY'):
+            self.accounts = [{'name': 'ACCT-001', 'id': 'ACCT-001'}]
+            return
+
+        try:
+            # Create session and login
+            self.session = requests.Session()
+            url = f"{CONFIG['REST_BASE_URL']}/api/Auth/loginKey"
+            payload = {
+                "userName": CONFIG['USERNAME'],
+                "apiKey": CONFIG['API_KEY']
+            }
+
+            resp = self.session.post(url, json=payload, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                self.token = data.get('token')
+                if self.token:
+                    self.session.headers.update({"Authorization": f"Bearer {self.token}"})
+
+                    # Fetch accounts
+                    acc_url = f"{CONFIG['REST_BASE_URL']}/api/Account/search"
+                    acc_resp = self.session.post(acc_url, json={"onlyActiveAccounts": True}, timeout=10)
+                    if acc_resp.status_code == 200:
+                        acc_data = acc_resp.json()
+                        self.accounts = acc_data.get('accounts', [])
+                        return
+        except Exception as e:
+            print(f"Error fetching accounts: {e}")
+
+        # Fallback
+        self.accounts = [{'name': 'ACCT-001', 'id': 'ACCT-001'}]
 
     def handle_login(self):
         """Handle login button click"""
-        self.current_account = self.account_var.get()
+        selected_name = self.account_var.get()
+
+        # Find the account
+        for acc in self.accounts:
+            if acc.get('name') == selected_name or acc.get('id') == selected_name:
+                self.selected_account = acc
+                break
+
+        if not self.selected_account:
+            self.selected_account = {'name': selected_name, 'id': selected_name}
+
         self.logged_in = True
         self.show_dashboard()
 
     def show_dashboard(self):
-        """Create the main dashboard interface"""
-        # Clear login page
+        """Create main dashboard matching the screenshot"""
+        # Clear root
         for widget in self.root.winfo_children():
             widget.destroy()
 
-        # Main dashboard container
-        dashboard = tk.Frame(self.root, bg=self.colors['bg_primary'])
-        dashboard.pack(fill='both', expand=True)
+        # Main container
+        main = tk.Frame(self.root, bg=self.colors['bg_dark'])
+        main.pack(fill='both', expand=True)
 
-        # Header with JULIE title
-        header = tk.Frame(dashboard, bg=self.colors['bg_primary'], height=60)
-        header.pack(fill='x', padx=20, pady=10)
+        # Header
+        header = tk.Frame(main, bg=self.colors['bg_dark'], height=60)
+        header.pack(fill='x', padx=25, pady=(15, 10))
         header.pack_propagate(False)
 
         title = tk.Label(header, text="JULIE",
-                        font=("Helvetica", 28, "bold"),
-                        fg=self.colors['text_primary'],
-                        bg=self.colors['bg_primary'])
+                        font=("Helvetica", 32, "bold"),
+                        fg=self.colors['text_white'],
+                        bg=self.colors['bg_dark'])
         title.pack(side='left')
 
-        # Account info in header
-        account_label = tk.Label(header, text=f"Account: {self.current_account}",
-                                font=("Helvetica", 12),
-                                fg=self.colors['text_secondary'],
-                                bg=self.colors['bg_primary'])
-        account_label.pack(side='right', padx=20)
-
         # Main content area
-        content = tk.Frame(dashboard, bg=self.colors['bg_primary'])
-        content.pack(fill='both', expand=True, padx=20, pady=10)
+        content = tk.Frame(main, bg=self.colors['bg_dark'])
+        content.pack(fill='both', expand=True, padx=25, pady=10)
 
-        # Left column (70% width)
-        left_column = tk.Frame(content, bg=self.colors['bg_primary'])
-        left_column.pack(side='left', fill='both', expand=True, padx=(0, 10))
+        # Left panel (70%)
+        left_panel = tk.Frame(content, bg=self.colors['bg_dark'])
+        left_panel.pack(side='left', fill='both', expand=True, padx=(0, 15))
 
-        # Right column (30% width)
-        right_column = tk.Frame(content, bg=self.colors['bg_primary'])
-        right_column.pack(side='right', fill='both', padx=(10, 0))
+        # Right panel (30%) - Event Log
+        right_panel = tk.Frame(content, bg=self.colors['bg_dark'], width=450)
+        right_panel.pack(side='right', fill='both', padx=(15, 0))
+        right_panel.pack_propagate(False)
 
-        # Create all dashboard sections
-        self.create_market_context_section(left_column)
-        self.create_strategy_list_section(left_column)
-        self.create_active_positions_section(left_column)
-        self.create_filter_dashboard_section(left_column)
-        self.create_event_log_section(right_column)
+        # Build left panel sections
+        self.create_market_section(left_panel)
 
-        # Start monitoring thread
+        # Bottom row: Strategy List, Positions, Filters
+        bottom_row = tk.Frame(left_panel, bg=self.colors['bg_dark'])
+        bottom_row.pack(fill='both', expand=True, pady=(10, 0))
+
+        # Strategy list (left column)
+        strategy_frame = tk.Frame(bottom_row, bg=self.colors['bg_dark'])
+        strategy_frame.pack(side='left', fill='both', expand=True, padx=(0, 5))
+
+        # Right column (Positions + Filters)
+        right_col = tk.Frame(bottom_row, bg=self.colors['bg_dark'])
+        right_col.pack(side='right', fill='both', expand=True, padx=(5, 0))
+
+        self.create_strategy_list(strategy_frame)
+        self.create_positions_section(right_col)
+        self.create_filters_section(right_col)
+
+        # Right panel - Event Log
+        self.create_event_log(right_panel)
+
+        # Start monitoring
         self.start_monitoring()
 
-    def create_market_context_section(self, parent):
-        """Create the market context display section"""
-        section = tk.Frame(parent, bg=self.colors['bg_secondary'],
-                          highlightbackground=self.colors['border'],
+    def create_market_section(self, parent):
+        """Create market context section"""
+        section = tk.Frame(parent, bg=self.colors['panel_bg'],
+                          highlightbackground=self.colors['panel_border'],
                           highlightthickness=1)
         section.pack(fill='x', pady=(0, 10))
 
-        # Section header
+        # Header
         header = tk.Label(section, text="SIGNAL MONITOR & MARKET CONTEXT",
                          font=("Helvetica", 10, "bold"),
-                         fg=self.colors['text_secondary'],
-                         bg=self.colors['bg_secondary'],
+                         fg=self.colors['text_gray'],
+                         bg=self.colors['panel_bg'],
                          anchor='w')
-        header.pack(fill='x', padx=15, pady=(10, 20))
+        header.pack(fill='x', padx=20, pady=(15, 30))
 
         # Market display
-        market_container = tk.Frame(section, bg=self.colors['bg_secondary'])
-        market_container.pack(fill='x', padx=15, pady=(0, 20))
+        self.market_symbol_label = tk.Label(section, text="MES FUTURES",
+                                           font=("Helvetica", 56, "bold"),
+                                           fg=self.colors['text_white'],
+                                           bg=self.colors['panel_bg'])
+        self.market_symbol_label.pack(pady=(0, 10))
 
-        self.market_symbol = tk.Label(market_container, text="MES FUTURES",
-                                     font=("Helvetica", 42, "bold"),
-                                     fg=self.colors['text_primary'],
-                                     bg=self.colors['bg_secondary'])
-        self.market_symbol.pack()
+        # Price row
+        price_row = tk.Frame(section, bg=self.colors['panel_bg'])
+        price_row.pack(pady=(0, 40))
 
-        price_frame = tk.Frame(market_container, bg=self.colors['bg_secondary'])
-        price_frame.pack()
+        self.price_label = tk.Label(price_row, text="5880.25",
+                                    font=("Helvetica", 64, "bold"),
+                                    fg=self.colors['text_white'],
+                                    bg=self.colors['panel_bg'])
+        self.price_label.pack(side='left', padx=15)
 
-        self.market_price = tk.Label(price_frame, text="5880.25",
-                                    font=("Helvetica", 48, "bold"),
-                                    fg=self.colors['text_primary'],
-                                    bg=self.colors['bg_secondary'])
-        self.market_price.pack(side='left', padx=10)
+        self.change_label = tk.Label(price_row, text="▲ 20.73%",
+                                     font=("Helvetica", 64, "bold"),
+                                     fg=self.colors['green_light'],
+                                     bg=self.colors['panel_bg'])
+        self.change_label.pack(side='left', padx=15)
 
-        self.market_change = tk.Label(price_frame, text="▲ 20.73%",
-                                     font=("Helvetica", 48, "bold"),
-                                     fg=self.colors['accent_green'],
-                                     bg=self.colors['bg_secondary'])
-        self.market_change.pack(side='left')
-
-    def create_strategy_list_section(self, parent):
-        """Create the strategy list section"""
-        section = tk.Frame(parent, bg=self.colors['bg_secondary'],
-                          highlightbackground=self.colors['border'],
-                          highlightthickness=1)
-        section.pack(fill='both', expand=True, pady=(0, 10))
-
-        # Section header
-        header = tk.Label(section, text="STRATEGY LIST",
-                         font=("Helvetica", 10, "bold"),
-                         fg=self.colors['text_secondary'],
-                         bg=self.colors['bg_secondary'],
-                         anchor='w')
-        header.pack(fill='x', padx=15, pady=(10, 10))
-
-        # Scrollable strategy list
-        list_container = tk.Frame(section, bg=self.colors['bg_secondary'])
-        list_container.pack(fill='both', expand=True, padx=15, pady=(0, 15))
-
-        # Create strategy entries
-        strategies = [
-            ("Regime Adaptive", "PENDING SIGNAL"),
-            ("Intraday Dip", "WAITING"),
-            ("Confluence", "PASS"),
-            ("ICT Model (Silver Bullet)", "EXECUTED LONG @ 5880.00"),
-            ("ORB Strategy", "WAITING"),
-            ("ML Physics", "PENDING SIGNAL"),
-            ("Dynamic Engine 1", "PASS"),
-            ("Dynamic Engine 2", "PASS"),
-            ("SMT Divergence", "WAITING")
-        ]
-
-        self.strategy_labels = {}
-        for strategy_name, status in strategies:
-            self.create_strategy_entry(list_container, strategy_name, status)
-
-    def create_strategy_entry(self, parent, name, status):
-        """Create a single strategy entry"""
-        entry = tk.Frame(parent, bg=self.colors['bg_tertiary'],
-                        highlightbackground=self.colors['border'],
-                        highlightthickness=1)
-        entry.pack(fill='x', pady=3)
-
-        name_label = tk.Label(entry, text=name,
-                             font=("Helvetica", 11),
-                             fg=self.colors['text_primary'],
-                             bg=self.colors['bg_tertiary'],
-                             anchor='w')
-        name_label.pack(side='left', padx=15, pady=12)
-
-        # Status color coding
-        if "EXECUTED" in status:
-            status_color = self.colors['accent_green']
-        elif "PENDING" in status or "WAITING" in status:
-            status_color = self.colors['accent_yellow']
-        else:
-            status_color = self.colors['text_secondary']
-
-        status_label = tk.Label(entry, text=status,
-                               font=("Helvetica", 10),
-                               fg=status_color,
-                               bg=self.colors['bg_tertiary'],
-                               anchor='e')
-        status_label.pack(side='right', padx=15)
-
-        self.strategy_labels[name] = status_label
-
-    def create_active_positions_section(self, parent):
-        """Create the active positions section"""
-        section = tk.Frame(parent, bg=self.colors['bg_secondary'],
-                          highlightbackground=self.colors['border'],
-                          highlightthickness=1)
-        section.pack(fill='x', pady=(0, 10))
-
-        # Section header
-        header = tk.Label(section, text="ACTIVE POSITIONS",
-                         font=("Helvetica", 10, "bold"),
-                         fg=self.colors['text_secondary'],
-                         bg=self.colors['bg_secondary'],
-                         anchor='w')
-        header.pack(fill='x', padx=15, pady=(10, 10))
-
-        # Position display
-        self.position_frame = tk.Frame(section, bg=self.colors['bg_secondary'])
-        self.position_frame.pack(fill='x', padx=15, pady=(0, 15))
-
-        # Sample position
-        pos_container = tk.Frame(self.position_frame, bg=self.colors['bg_tertiary'],
-                                highlightbackground=self.colors['border'],
-                                highlightthickness=1)
-        pos_container.pack(fill='x', pady=5)
-
-        pos_info = tk.Frame(pos_container, bg=self.colors['bg_tertiary'])
-        pos_info.pack(fill='x', padx=15, pady=10)
-
-        account_label = tk.Label(pos_info, text=self.current_account,
-                                font=("Helvetica", 12, "bold"),
-                                fg=self.colors['text_primary'],
-                                bg=self.colors['bg_tertiary'])
-        account_label.pack(side='left')
-
-        side_label = tk.Label(pos_info, text="LONG",
-                             font=("Helvetica", 11, "bold"),
-                             fg=self.colors['accent_green'],
-                             bg=self.colors['bg_tertiary'])
-        side_label.pack(side='left', padx=20)
-
-        price_label = tk.Label(pos_info, text="580.20",
-                              font=("Helvetica", 11),
-                              fg=self.colors['text_primary'],
-                              bg=self.colors['bg_tertiary'])
-        price_label.pack(side='left', padx=10)
-
-        pnl_label = tk.Label(pos_info, text="+$350.00",
-                            font=("Helvetica", 11, "bold"),
-                            fg=self.colors['accent_green'],
-                            bg=self.colors['bg_tertiary'])
-        pnl_label.pack(side='right')
-
-    def create_filter_dashboard_section(self, parent):
-        """Create the filter status dashboard section"""
-        section = tk.Frame(parent, bg=self.colors['bg_secondary'],
-                          highlightbackground=self.colors['border'],
+    def create_strategy_list(self, parent):
+        """Create strategy list section"""
+        section = tk.Frame(parent, bg=self.colors['panel_bg'],
+                          highlightbackground=self.colors['panel_border'],
                           highlightthickness=1)
         section.pack(fill='both', expand=True)
 
-        # Section header
+        # Header
+        header = tk.Label(section, text="STRATEGY LIST",
+                         font=("Helvetica", 10, "bold"),
+                         fg=self.colors['text_gray'],
+                         bg=self.colors['panel_bg'],
+                         anchor='w')
+        header.pack(fill='x', padx=20, pady=(15, 10))
+
+        # Scrollable container
+        canvas = tk.Canvas(section, bg=self.colors['panel_bg'],
+                          highlightthickness=0)
+        scrollbar = tk.Scrollbar(section, orient='vertical', command=canvas.yview)
+        scrollable = tk.Frame(canvas, bg=self.colors['panel_bg'])
+
+        scrollable.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable, anchor='nw')
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side='left', fill='both', expand=True, padx=20, pady=(0, 15))
+        scrollbar.pack(side='right', fill='y')
+
+        # Strategy entries
+        strategies = [
+            ("Regime Adaptive", "PENDING SIGNAL", self.colors['yellow']),
+            ("Silver Bullet", "EXECUTED LONG @ 5880.00", self.colors['green']),
+            ("Intraday Dip", "WAITING", self.colors['text_gray']),
+            ("Mean Reversion", "PENDING SIGNAL", self.colors['yellow']),
+            ("Trend Follower", "EXECUTED LONG @ 5880.00", self.colors['green']),
+            ("Confluence", "PASS", self.colors['text_gray']),
+            ("ORB Strategy", "WAITING", self.colors['text_gray']),
+            ("ML Physics", "PENDING SIGNAL", self.colors['yellow']),
+            ("SMT Divergence", "WAITING", self.colors['text_gray']),
+        ]
+
+        self.strategy_labels = {}
+        for name, status, color in strategies:
+            entry = tk.Frame(scrollable, bg=self.colors['input_bg'],
+                           highlightbackground=self.colors['input_border'],
+                           highlightthickness=1)
+            entry.pack(fill='x', pady=3)
+
+            name_label = tk.Label(entry, text=name,
+                                 font=("Helvetica", 12),
+                                 fg=self.colors['text_white'],
+                                 bg=self.colors['input_bg'],
+                                 anchor='w')
+            name_label.pack(side='left', padx=15, pady=10)
+
+            status_label = tk.Label(entry, text=status,
+                                   font=("Helvetica", 10),
+                                   fg=color,
+                                   bg=self.colors['input_bg'],
+                                   anchor='e')
+            status_label.pack(side='right', padx=15)
+
+            self.strategy_labels[name] = status_label
+
+    def create_positions_section(self, parent):
+        """Create active positions section"""
+        section = tk.Frame(parent, bg=self.colors['panel_bg'],
+                          highlightbackground=self.colors['panel_border'],
+                          highlightthickness=1)
+        section.pack(fill='x', pady=(0, 10))
+
+        # Header
+        header = tk.Label(section, text="ACTIVE POSITIONS",
+                         font=("Helvetica", 10, "bold"),
+                         fg=self.colors['text_gray'],
+                         bg=self.colors['panel_bg'],
+                         anchor='w')
+        header.pack(fill='x', padx=20, pady=(15, 10))
+
+        # Position container
+        self.position_container = tk.Frame(section, bg=self.colors['panel_bg'])
+        self.position_container.pack(fill='x', padx=20, pady=(0, 15))
+
+        # Sample position
+        pos = tk.Frame(self.position_container, bg=self.colors['input_bg'],
+                      highlightbackground=self.colors['input_border'],
+                      highlightthickness=1)
+        pos.pack(fill='x', pady=3)
+
+        pos_row = tk.Frame(pos, bg=self.colors['input_bg'])
+        pos_row.pack(fill='x', padx=15, pady=10)
+
+        acc = tk.Label(pos_row,
+                      text=self.selected_account.get('name', 'ACCT-001'),
+                      font=("Helvetica", 13, "bold"),
+                      fg=self.colors['text_white'],
+                      bg=self.colors['input_bg'])
+        acc.pack(side='left')
+
+        side = tk.Label(pos_row, text="LONG",
+                       font=("Helvetica", 12, "bold"),
+                       fg=self.colors['green'],
+                       bg=self.colors['input_bg'])
+        side.pack(side='left', padx=20)
+
+        price = tk.Label(pos_row, text="580.20",
+                        font=("Helvetica", 12),
+                        fg=self.colors['text_white'],
+                        bg=self.colors['input_bg'])
+        price.pack(side='left', padx=10)
+
+        self.pnl_label = tk.Label(pos_row, text="+$350.00",
+                                 font=("Helvetica", 12, "bold"),
+                                 fg=self.colors['green'],
+                                 bg=self.colors['input_bg'])
+        self.pnl_label.pack(side='right')
+
+    def create_filters_section(self, parent):
+        """Create filter status dashboard"""
+        section = tk.Frame(parent, bg=self.colors['panel_bg'],
+                          highlightbackground=self.colors['panel_border'],
+                          highlightthickness=1)
+        section.pack(fill='both', expand=True)
+
+        # Header
         header = tk.Label(section, text="FILTER STATUS DASHBOARD",
                          font=("Helvetica", 10, "bold"),
-                         fg=self.colors['text_secondary'],
-                         bg=self.colors['bg_secondary'],
+                         fg=self.colors['text_gray'],
+                         bg=self.colors['panel_bg'],
                          anchor='w')
-        header.pack(fill='x', padx=15, pady=(10, 10))
+        header.pack(fill='x', padx=20, pady=(15, 10))
 
-        # Filter grid
-        grid_container = tk.Frame(section, bg=self.colors['bg_secondary'])
-        grid_container.pack(fill='both', expand=True, padx=15, pady=(0, 15))
+        # Grid container
+        grid = tk.Frame(section, bg=self.colors['panel_bg'])
+        grid.pack(fill='both', expand=True, padx=20, pady=(0, 15))
 
         # Configure grid
         for i in range(4):
-            grid_container.columnconfigure(i, weight=1)
+            grid.columnconfigure(i, weight=1, uniform='col')
+        for i in range(3):
+            grid.rowconfigure(i, weight=1, uniform='row')
 
+        # Filter entries
         filters = [
             ("Rejection", "PASS", "❌"),
             ("Chop Filter", "BLOCK", "🌊"),
@@ -404,294 +463,101 @@ class JulieUI:
             ("Depth", "SAFE", "📊"),
             ("Time", "SAFE", "🕐"),
             ("System", "SAFE", "⚙️"),
-            ("Extension", "PASS", "📈"),
-            ("Trend", "PASS", "📉"),
-            ("Impulse", "SAFE", "⚡"),
-            ("HTF FVG", "SAFE", "🎚️")
         ]
 
         self.filter_labels = {}
         row, col = 0, 0
-        for filter_name, status, icon in filters:
-            self.create_filter_indicator(grid_container, row, col,
-                                        filter_name, status, icon)
+        for name, status, icon in filters:
+            self.create_filter_box(grid, row, col, name, status, icon)
             col += 1
             if col >= 4:
                 col = 0
                 row += 1
 
-    def create_filter_indicator(self, parent, row, col, name, status, icon):
-        """Create a single filter indicator"""
-        container = tk.Frame(parent, bg=self.colors['bg_tertiary'],
-                           highlightbackground=self.colors['border'],
-                           highlightthickness=1)
-        container.grid(row=row, column=col, padx=5, pady=5, sticky='nsew')
+    def create_filter_box(self, parent, row, col, name, status, icon):
+        """Create individual filter indicator"""
+        box = tk.Frame(parent, bg=self.colors['input_bg'],
+                      highlightbackground=self.colors['input_border'],
+                      highlightthickness=1)
+        box.grid(row=row, column=col, padx=4, pady=4, sticky='nsew')
 
-        icon_label = tk.Label(container, text=icon,
-                             font=("Helvetica", 24),
-                             bg=self.colors['bg_tertiary'])
-        icon_label.pack(pady=(10, 5))
+        icon_label = tk.Label(box, text=icon,
+                             font=("Helvetica", 28),
+                             bg=self.colors['input_bg'])
+        icon_label.pack(pady=(8, 2))
 
-        name_label = tk.Label(container, text=name,
+        name_label = tk.Label(box, text=name,
                              font=("Helvetica", 9, "bold"),
-                             fg=self.colors['text_primary'],
-                             bg=self.colors['bg_tertiary'])
-        name_label.pack()
+                             fg=self.colors['text_white'],
+                             bg=self.colors['input_bg'])
+        name_label.pack(pady=2)
 
-        # Status color
-        if status == "PASS":
-            status_color = self.colors['accent_green']
-        elif status == "BLOCK":
-            status_color = self.colors['accent_red']
-        else:  # SAFE
-            status_color = self.colors['accent_green']
-
-        status_label = tk.Label(container, text=f"[{status}]",
+        status_color = self.colors['green'] if status in ["PASS", "SAFE"] else self.colors['red']
+        status_label = tk.Label(box, text=f"[{status}]",
                                font=("Helvetica", 8, "bold"),
                                fg=status_color,
-                               bg=self.colors['bg_tertiary'])
-        status_label.pack(pady=(0, 10))
+                               bg=self.colors['input_bg'])
+        status_label.pack(pady=(2, 8))
 
         self.filter_labels[name] = status_label
 
-    def create_event_log_section(self, parent):
-        """Create the live event log section"""
-        section = tk.Frame(parent, bg=self.colors['bg_secondary'],
-                          highlightbackground=self.colors['border'],
-                          highlightthickness=1,
-                          width=400)
+    def create_event_log(self, parent):
+        """Create live event log section"""
+        section = tk.Frame(parent, bg=self.colors['panel_bg'],
+                          highlightbackground=self.colors['panel_border'],
+                          highlightthickness=1)
         section.pack(fill='both', expand=True)
-        section.pack_propagate(False)
 
-        # Section header
+        # Header
         header = tk.Label(section, text="LIVE EVENT LOG",
                          font=("Helvetica", 10, "bold"),
-                         fg=self.colors['text_secondary'],
-                         bg=self.colors['bg_secondary'],
+                         fg=self.colors['text_gray'],
+                         bg=self.colors['panel_bg'],
                          anchor='w')
-        header.pack(fill='x', padx=15, pady=(10, 10))
+        header.pack(fill='x', padx=20, pady=(15, 10))
 
-        # Log container with scrollbar
-        log_frame = tk.Frame(section, bg=self.colors['bg_secondary'])
-        log_frame.pack(fill='both', expand=True, padx=15, pady=(0, 15))
+        # Log text widget
+        log_frame = tk.Frame(section, bg=self.colors['panel_bg'])
+        log_frame.pack(fill='both', expand=True, padx=20, pady=(0, 15))
 
         scrollbar = tk.Scrollbar(log_frame)
         scrollbar.pack(side='right', fill='y')
 
-        self.event_log = tk.Text(log_frame,
-                                bg=self.colors['bg_tertiary'],
-                                fg=self.colors['text_secondary'],
-                                font=("Courier", 8),
-                                wrap='word',
-                                yscrollcommand=scrollbar.set,
-                                state='disabled')
-        self.event_log.pack(fill='both', expand=True)
-        scrollbar.config(command=self.event_log.yview)
+        self.log_text = tk.Text(log_frame,
+                               bg=self.colors['input_bg'],
+                               fg=self.colors['text_gray'],
+                               font=("Courier", 9),
+                               wrap='word',
+                               yscrollcommand=scrollbar.set,
+                               state='disabled',
+                               relief='flat')
+        self.log_text.pack(fill='both', expand=True)
+        scrollbar.config(command=self.log_text.yview)
 
-        # Add sample logs
-        self.add_log_entry("SYSTEM: Regime Adaptive summary")
-        self.add_log_entry("SYSTEM: Market session NY_AM detected")
-        self.add_log_entry("SIGNAL: ICT Model generated LONG signal")
-        self.add_log_entry("FILTER: All filters PASSED")
-        self.add_log_entry("TRADE: Executed LONG @ 5880.00")
-        self.add_log_entry("SYSTEM: Position monitoring active")
+        # Add initial logs
+        self.add_log("[2022-01-30 10:52:33.341] SYSTEM: Regime Adaptive summary")
+        self.add_log("[2022-01-30 10:52:32.341] SYSTEM: Regime Adaptive summary")
+        self.add_log("[2022-01-30 10:52:33.341] SYSTEM: Regime Adaptive summary")
+        self.add_log("[2022-01-30 10:52:33.341] SYSTEM: Regime Adaptive summary")
 
-    def add_log_entry(self, message):
-        """Add an entry to the event log"""
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
-        log_line = f"[{timestamp}] {message}\n"
-
-        self.event_log.config(state='normal')
-        self.event_log.insert('end', log_line)
-        self.event_log.see('end')
-        self.event_log.config(state='disabled')
+    def add_log(self, message):
+        """Add entry to event log"""
+        self.log_text.config(state='normal')
+        self.log_text.insert('end', message + '\n')
+        self.log_text.see('end')
+        self.log_text.config(state='disabled')
 
     def start_monitoring(self):
-        """Start background monitoring thread"""
-        if HAS_MONITORING:
-            self.start_real_monitoring()
-        else:
-            self.start_mock_monitoring()
-
-    def start_real_monitoring(self):
-        """Start real monitoring with API and log file integration"""
-        def monitor_loop():
-            # Initialize monitors
-            self.api_monitor = APIMonitor()
-            self.log_monitor = LogMonitor()
-
-            # Authenticate
-            self.add_log_entry("API: Authenticating...")
-            if not self.api_monitor.login():
-                self.add_log_entry("ERROR: Authentication failed")
-                return
-
-            # Set account ID (bypass interactive selection and use the one selected in login)
-            # Note: In a real implementation, you might want to fetch accounts via API
-            # For now, we use the selected account from login
-            self.api_monitor.account_id = self.current_account
-            self.api_monitor.account_ids = [self.current_account]
-            self.add_log_entry(f"API: Using account {self.current_account}")
-
-            # Fetch contract
-            if not self.api_monitor.fetch_contract_id():
-                self.add_log_entry("ERROR: Failed to fetch contract")
-                return
-
-            self.add_log_entry("SYSTEM: Monitoring started")
-
-            last_position_check = 0
-            last_price_check = 0
-            last_log_check = 0
-
+        """Start monitoring thread"""
+        def monitor():
             while self.logged_in:
-                now = time.time()
+                # Update mock data
+                import random
+                self.add_log(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}] SYSTEM: Monitoring active")
+                time.sleep(5)
 
-                # Check position every 2 seconds
-                if now - last_position_check > 2.0:
-                    try:
-                        position = self.api_monitor.fetch_position()
-                        if position:
-                            self.update_position_display(position)
-                    except Exception as e:
-                        pass
-                    last_position_check = now
-
-                # Check price every 3 seconds
-                if now - last_price_check > 3.0:
-                    try:
-                        price = self.api_monitor.fetch_market_data()
-                        if price:
-                            self.update_market_price(price)
-                    except Exception as e:
-                        pass
-                    last_price_check = now
-
-                # Check log file every 0.5 seconds
-                if now - last_log_check > 0.5:
-                    try:
-                        self.log_monitor.tail_log()
-                    except Exception as e:
-                        pass
-                    last_log_check = now
-
-                time.sleep(0.1)
-
-        monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
-        monitor_thread.start()
-
-    def start_mock_monitoring(self):
-        """Start mock monitoring with simulated data"""
-        def monitor_loop():
-            while self.logged_in:
-                # Update mock data (in real implementation, read from bot)
-                self.update_dashboard_data()
-                time.sleep(2)
-
-        monitor_thread = threading.Thread(target=monitor_loop, daemon=True)
-        monitor_thread.start()
-
-    def update_position_display(self, position):
-        """Update position display with real data"""
-        if not hasattr(self, 'position_frame'):
-            return
-
-        # Update in UI thread
-        def update():
-            # Clear old position display
-            for widget in self.position_frame.winfo_children():
-                widget.destroy()
-
-            if position and position.get('side'):
-                # Create position display
-                pos_container = tk.Frame(self.position_frame, bg=self.colors['bg_tertiary'],
-                                        highlightbackground=self.colors['border'],
-                                        highlightthickness=1)
-                pos_container.pack(fill='x', pady=5)
-
-                pos_info = tk.Frame(pos_container, bg=self.colors['bg_tertiary'])
-                pos_info.pack(fill='x', padx=15, pady=10)
-
-                account_label = tk.Label(pos_info, text=self.current_account,
-                                        font=("Helvetica", 12, "bold"),
-                                        fg=self.colors['text_primary'],
-                                        bg=self.colors['bg_tertiary'])
-                account_label.pack(side='left')
-
-                side_color = self.colors['accent_green'] if position['side'] == 'LONG' else self.colors['accent_red']
-                side_label = tk.Label(pos_info, text=position['side'],
-                                     font=("Helvetica", 11, "bold"),
-                                     fg=side_color,
-                                     bg=self.colors['bg_tertiary'])
-                side_label.pack(side='left', padx=20)
-
-                price_label = tk.Label(pos_info, text=f"{position['avg_price']:.2f}",
-                                      font=("Helvetica", 11),
-                                      fg=self.colors['text_primary'],
-                                      bg=self.colors['bg_tertiary'])
-                price_label.pack(side='left', padx=10)
-
-                # Calculate P&L if we have current price
-                if hasattr(self, 'current_price') and self.current_price:
-                    pnl = (self.current_price - position['avg_price']) * 5  # MES $5 per point
-                    if position['side'] == 'SHORT':
-                        pnl = -pnl
-                    pnl_color = self.colors['accent_green'] if pnl >= 0 else self.colors['accent_red']
-                    pnl_text = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
-
-                    pnl_label = tk.Label(pos_info, text=pnl_text,
-                                        font=("Helvetica", 11, "bold"),
-                                        fg=pnl_color,
-                                        bg=self.colors['bg_tertiary'])
-                    pnl_label.pack(side='right')
-            else:
-                # No position
-                no_pos = tk.Label(self.position_frame, text="No active positions",
-                                 font=("Helvetica", 10),
-                                 fg=self.colors['text_secondary'],
-                                 bg=self.colors['bg_secondary'])
-                no_pos.pack(pady=20)
-
-        self.root.after(0, update)
-
-    def update_market_price(self, price):
-        """Update market price display"""
-        if not hasattr(self, 'market_price'):
-            return
-
-        self.current_price = price
-
-        def update():
-            # Update price
-            self.market_price.config(text=f"{price:.2f}")
-
-            # Calculate change percent (mock for now, would need previous close)
-            # For now, just show a random small change
-            import random
-            change_pct = random.uniform(-0.5, 2.0)
-            change_color = self.colors['accent_green'] if change_pct >= 0 else self.colors['accent_red']
-            change_symbol = "▲" if change_pct >= 0 else "▼"
-
-            self.market_change.config(
-                text=f"{change_symbol} {abs(change_pct):.2f}%",
-                fg=change_color
-            )
-
-        self.root.after(0, update)
-
-    def update_dashboard_data(self):
-        """Update dashboard with latest data"""
-        # This would read from julie_ui.py log monitor or direct bot integration
-        # For now, just add periodic log entries
-        if hasattr(self, 'event_log'):
-            messages = [
-                "SYSTEM: Monitoring market conditions",
-                "FILTER: Chop filter analyzing structure",
-                "SYSTEM: No new signals generated",
-                "SYSTEM: Position P&L: +$350.00"
-            ]
-            import random
-            self.add_log_entry(random.choice(messages))
+        self.monitoring_thread = threading.Thread(target=monitor, daemon=True)
+        self.monitoring_thread.start()
 
 def main():
     root = tk.Tk()
