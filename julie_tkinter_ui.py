@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 JULIE Tkinter UI - Professional Trading Dashboard
-Matches the design from reference screenshots with real API integration
+Real integration with julie001.py bot via log monitoring and API
 """
 
 import tkinter as tk
@@ -10,7 +10,7 @@ import threading
 import time
 import requests
 from datetime import datetime
-from zoneinfo import ZoneInfo
+from pathlib import Path
 import re
 
 # Import from existing monitoring infrastructure
@@ -54,7 +54,12 @@ class JulieUI:
         self.selected_account = None
         self.current_price = 5880.25
         self.logged_in = False
-        self.monitoring_thread = None
+        self.monitoring_active = False
+
+        # Bot integration
+        self.log_file = Path("topstep_live_bot.log")
+        self.log_position = 0
+        self.contract_id = None
 
         # Show login page
         self.show_login_page()
@@ -266,6 +271,9 @@ class JulieUI:
         # Right panel - Event Log
         self.create_event_log(right_panel)
 
+        # Fetch contract ID
+        self.fetch_contract_id()
+
         # Start monitoring
         self.start_monitoring()
 
@@ -339,21 +347,21 @@ class JulieUI:
         canvas.pack(side='left', fill='both', expand=True, padx=20, pady=(0, 15))
         scrollbar.pack(side='right', fill='y')
 
-        # Strategy entries
+        # Strategy entries - All 9 from JULIE
         strategies = [
-            ("Regime Adaptive", "PENDING SIGNAL", self.colors['yellow']),
-            ("Silver Bullet", "EXECUTED LONG @ 5880.00", self.colors['green']),
-            ("Intraday Dip", "WAITING", self.colors['text_gray']),
-            ("Mean Reversion", "PENDING SIGNAL", self.colors['yellow']),
-            ("Trend Follower", "EXECUTED LONG @ 5880.00", self.colors['green']),
-            ("Confluence", "PASS", self.colors['text_gray']),
-            ("ORB Strategy", "WAITING", self.colors['text_gray']),
-            ("ML Physics", "PENDING SIGNAL", self.colors['yellow']),
-            ("SMT Divergence", "WAITING", self.colors['text_gray']),
+            "Regime Adaptive",
+            "Intraday Dip",
+            "Confluence",
+            "ICT Model",
+            "ORB Strategy",
+            "ML Physics",
+            "Dynamic Engine 1",
+            "Dynamic Engine 2",
+            "SMT Divergence"
         ]
 
         self.strategy_labels = {}
-        for name, status, color in strategies:
+        for name in strategies:
             entry = tk.Frame(scrollable, bg=self.colors['input_bg'],
                            highlightbackground=self.colors['input_border'],
                            highlightthickness=1)
@@ -366,9 +374,9 @@ class JulieUI:
                                  anchor='w')
             name_label.pack(side='left', padx=15, pady=10)
 
-            status_label = tk.Label(entry, text=status,
+            status_label = tk.Label(entry, text="WAITING",
                                    font=("Helvetica", 10),
-                                   fg=color,
+                                   fg=self.colors['text_gray'],
                                    bg=self.colors['input_bg'],
                                    anchor='e')
             status_label.pack(side='right', padx=15)
@@ -394,42 +402,16 @@ class JulieUI:
         self.position_container = tk.Frame(section, bg=self.colors['panel_bg'])
         self.position_container.pack(fill='x', padx=20, pady=(0, 15))
 
-        # Sample position
-        pos = tk.Frame(self.position_container, bg=self.colors['input_bg'],
-                      highlightbackground=self.colors['input_border'],
-                      highlightthickness=1)
-        pos.pack(fill='x', pady=3)
-
-        pos_row = tk.Frame(pos, bg=self.colors['input_bg'])
-        pos_row.pack(fill='x', padx=15, pady=10)
-
-        acc = tk.Label(pos_row,
-                      text=self.selected_account.get('name', 'ACCT-001'),
-                      font=("Helvetica", 13, "bold"),
-                      fg=self.colors['text_white'],
-                      bg=self.colors['input_bg'])
-        acc.pack(side='left')
-
-        side = tk.Label(pos_row, text="LONG",
-                       font=("Helvetica", 12, "bold"),
-                       fg=self.colors['green'],
-                       bg=self.colors['input_bg'])
-        side.pack(side='left', padx=20)
-
-        price = tk.Label(pos_row, text="580.20",
-                        font=("Helvetica", 12),
-                        fg=self.colors['text_white'],
-                        bg=self.colors['input_bg'])
-        price.pack(side='left', padx=10)
-
-        self.pnl_label = tk.Label(pos_row, text="+$350.00",
-                                 font=("Helvetica", 12, "bold"),
-                                 fg=self.colors['green'],
-                                 bg=self.colors['input_bg'])
-        self.pnl_label.pack(side='right')
+        # Initially empty
+        self.no_position_label = tk.Label(self.position_container,
+                                          text="No active positions",
+                                          font=("Helvetica", 10),
+                                          fg=self.colors['text_dim'],
+                                          bg=self.colors['panel_bg'])
+        self.no_position_label.pack(pady=10)
 
     def create_filters_section(self, parent):
-        """Create filter status dashboard"""
+        """Create filter status dashboard - ALL 12 filters"""
         section = tk.Frame(parent, bg=self.colors['panel_bg'],
                           highlightbackground=self.colors['panel_border'],
                           highlightthickness=1)
@@ -447,22 +429,26 @@ class JulieUI:
         grid = tk.Frame(section, bg=self.colors['panel_bg'])
         grid.pack(fill='both', expand=True, padx=20, pady=(0, 15))
 
-        # Configure grid
+        # Configure grid (4 columns x 3 rows for 12 filters)
         for i in range(4):
             grid.columnconfigure(i, weight=1, uniform='col')
         for i in range(3):
             grid.rowconfigure(i, weight=1, uniform='row')
 
-        # Filter entries
+        # ALL 12 filter entries (10 filters + 2 blockers)
         filters = [
-            ("Rejection", "PASS", "❌"),
-            ("Chop Filter", "BLOCK", "🌊"),
-            ("News", "SAFE", "📰"),
+            ("Rejection", "SAFE", "❌"),
+            ("Chop", "SAFE", "🌊"),
+            ("Extension", "SAFE", "📈"),
             ("Volatility", "SAFE", "🎯"),
-            ("Correlation", "SAFE", "🔄"),
-            ("Depth", "SAFE", "📊"),
-            ("Time", "SAFE", "🕐"),
-            ("System", "SAFE", "⚙️"),
+            ("Trend", "SAFE", "📉"),
+            ("Impulse", "SAFE", "⚡"),
+            ("HTF FVG", "SAFE", "🎚️"),
+            ("Bank Level", "SAFE", "💰"),
+            ("Memory S/R", "SAFE", "🧠"),
+            ("News", "SAFE", "📰"),
+            ("Structure", "SAFE", "🏗️"),
+            ("Loss Block", "SAFE", "🛡️"),
         ]
 
         self.filter_labels = {}
@@ -482,22 +468,22 @@ class JulieUI:
         box.grid(row=row, column=col, padx=4, pady=4, sticky='nsew')
 
         icon_label = tk.Label(box, text=icon,
-                             font=("Helvetica", 28),
+                             font=("Helvetica", 24),
                              bg=self.colors['input_bg'])
-        icon_label.pack(pady=(8, 2))
+        icon_label.pack(pady=(6, 2))
 
         name_label = tk.Label(box, text=name,
-                             font=("Helvetica", 9, "bold"),
+                             font=("Helvetica", 8, "bold"),
                              fg=self.colors['text_white'],
                              bg=self.colors['input_bg'])
         name_label.pack(pady=2)
 
         status_color = self.colors['green'] if status in ["PASS", "SAFE"] else self.colors['red']
         status_label = tk.Label(box, text=f"[{status}]",
-                               font=("Helvetica", 8, "bold"),
+                               font=("Helvetica", 7, "bold"),
                                fg=status_color,
                                bg=self.colors['input_bg'])
-        status_label.pack(pady=(2, 8))
+        status_label.pack(pady=(2, 6))
 
         self.filter_labels[name] = status_label
 
@@ -534,30 +520,276 @@ class JulieUI:
         self.log_text.pack(fill='both', expand=True)
         scrollbar.config(command=self.log_text.yview)
 
-        # Add initial logs
-        self.add_log("[2022-01-30 10:52:33.341] SYSTEM: Regime Adaptive summary")
-        self.add_log("[2022-01-30 10:52:32.341] SYSTEM: Regime Adaptive summary")
-        self.add_log("[2022-01-30 10:52:33.341] SYSTEM: Regime Adaptive summary")
-        self.add_log("[2022-01-30 10:52:33.341] SYSTEM: Regime Adaptive summary")
+        self.add_log("Waiting for bot activity...")
 
     def add_log(self, message):
         """Add entry to event log"""
-        self.log_text.config(state='normal')
-        self.log_text.insert('end', message + '\n')
-        self.log_text.see('end')
-        self.log_text.config(state='disabled')
+        def update():
+            self.log_text.config(state='normal')
+            self.log_text.insert('end', message + '\n')
+            self.log_text.see('end')
+            self.log_text.config(state='disabled')
+
+        if threading.current_thread() != threading.main_thread():
+            self.root.after(0, update)
+        else:
+            update()
+
+    def fetch_contract_id(self):
+        """Fetch contract ID for position monitoring"""
+        if not self.session or not self.token:
+            return
+
+        try:
+            from config import refresh_target_symbol
+            refresh_target_symbol()
+
+            url = f"{CONFIG['REST_BASE_URL']}/api/Contract/search"
+            payload = {
+                "live": False,
+                "searchText": CONFIG.get('TARGET_SYMBOL', 'MES.Z25')
+            }
+
+            resp = self.session.post(url, json=payload, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                if 'contracts' in data and data['contracts']:
+                    self.contract_id = data['contracts'][0].get('id')
+                    self.add_log(f"Contract: {CONFIG.get('TARGET_SYMBOL')}")
+        except Exception as e:
+            self.add_log(f"Error fetching contract: {e}")
 
     def start_monitoring(self):
-        """Start monitoring thread"""
-        def monitor():
-            while self.logged_in:
-                # Update mock data
-                import random
-                self.add_log(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]}] SYSTEM: Monitoring active")
-                time.sleep(5)
+        """Start real-time monitoring of bot log and API"""
+        self.monitoring_active = True
 
-        self.monitoring_thread = threading.Thread(target=monitor, daemon=True)
-        self.monitoring_thread.start()
+        # Thread 1: Monitor log file
+        def monitor_log():
+            while self.monitoring_active:
+                self.tail_log_file()
+                time.sleep(0.5)
+
+        # Thread 2: Monitor positions
+        def monitor_positions():
+            while self.monitoring_active:
+                self.fetch_position()
+                time.sleep(2)
+
+        # Thread 3: Monitor market price
+        def monitor_price():
+            while self.monitoring_active:
+                self.fetch_price()
+                time.sleep(3)
+
+        threading.Thread(target=monitor_log, daemon=True).start()
+        threading.Thread(target=monitor_positions, daemon=True).start()
+        threading.Thread(target=monitor_price, daemon=True).start()
+
+        self.add_log("Monitoring started")
+
+    def tail_log_file(self):
+        """Monitor bot log file for updates"""
+        if not self.log_file.exists():
+            return
+
+        try:
+            with open(self.log_file, 'r') as f:
+                if self.log_position == 0:
+                    # First time - seek to end
+                    f.seek(0, 2)
+                    self.log_position = f.tell()
+                else:
+                    f.seek(self.log_position)
+
+                lines = f.readlines()
+                self.log_position = f.tell()
+
+                for line in lines:
+                    self.parse_log_line(line.strip())
+        except Exception as e:
+            pass
+
+    def parse_log_line(self, line):
+        """Parse bot log line and update UI"""
+        if not line:
+            return
+
+        # Add to event log
+        self.add_log(line)
+
+        # Parse strategy signals
+        for strategy in self.strategy_labels.keys():
+            if strategy in line or strategy.replace(" ", "") in line:
+                if "EXEC" in line or "EXECUTED" in line:
+                    match = re.search(r'(LONG|SHORT).*?(\d+\.?\d*)', line)
+                    if match:
+                        side = match.group(1)
+                        price = match.group(2)
+                        self.update_strategy(strategy, f"EXECUTED {side} @ {price}", self.colors['green'])
+                elif "SIGNAL" in line or "signal" in line:
+                    self.update_strategy(strategy, "PENDING SIGNAL", self.colors['yellow'])
+                elif "BLOCK" in line:
+                    self.update_strategy(strategy, "BLOCKED", self.colors['red'])
+
+        # Parse filter status
+        filter_map = {
+            "Rejection": "Rejection",
+            "Chop": "Chop",
+            "Extension": "Extension",
+            "Volatility": "Volatility",
+            "Trend": "Trend",
+            "Impulse": "Impulse",
+            "HTF FVG": "HTF FVG",
+            "Bank": "Bank Level",
+            "Memory": "Memory S/R",
+            "News": "News",
+            "Structure": "Structure",
+            "Loss": "Loss Block"
+        }
+
+        for keyword, filter_name in filter_map.items():
+            if keyword in line:
+                if "BLOCK" in line or "blocked" in line:
+                    self.update_filter(filter_name, "BLOCK", self.colors['red'])
+                elif "PASS" in line:
+                    self.update_filter(filter_name, "PASS", self.colors['green'])
+
+    def update_strategy(self, name, status, color):
+        """Update strategy status"""
+        def update():
+            if name in self.strategy_labels:
+                self.strategy_labels[name].config(text=status, fg=color)
+        self.root.after(0, update)
+
+    def update_filter(self, name, status, color):
+        """Update filter status"""
+        def update():
+            if name in self.filter_labels:
+                self.filter_labels[name].config(text=f"[{status}]", fg=color)
+        self.root.after(0, update)
+
+    def fetch_position(self):
+        """Fetch current position from API"""
+        if not self.session or not self.selected_account:
+            return
+
+        try:
+            url = f"{CONFIG['REST_BASE_URL']}/api/Position/search"
+            payload = {"accountId": self.selected_account.get('id')}
+
+            resp = self.session.post(url, json=payload, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                positions = data.get('positions', [])
+
+                # Update UI with position
+                def update():
+                    # Clear container
+                    for widget in self.position_container.winfo_children():
+                        widget.destroy()
+
+                    active_pos = None
+                    for pos in positions:
+                        if pos.get('contractId') == self.contract_id:
+                            size = pos.get('size', 0)
+                            if size != 0:
+                                active_pos = pos
+                                break
+
+                    if active_pos:
+                        size = active_pos.get('size', 0)
+                        avg_price = active_pos.get('averagePrice', 0.0)
+                        side = "LONG" if size > 0 else "SHORT"
+
+                        # Calculate P&L
+                        pnl = (self.current_price - avg_price) * 5 * abs(size)
+                        if side == "SHORT":
+                            pnl = -pnl
+
+                        # Create position display
+                        pos_frame = tk.Frame(self.position_container, bg=self.colors['input_bg'],
+                                           highlightbackground=self.colors['input_border'],
+                                           highlightthickness=1)
+                        pos_frame.pack(fill='x', pady=3)
+
+                        pos_row = tk.Frame(pos_frame, bg=self.colors['input_bg'])
+                        pos_row.pack(fill='x', padx=15, pady=10)
+
+                        acc = tk.Label(pos_row,
+                                      text=self.selected_account.get('name', 'ACCT'),
+                                      font=("Helvetica", 13, "bold"),
+                                      fg=self.colors['text_white'],
+                                      bg=self.colors['input_bg'])
+                        acc.pack(side='left')
+
+                        side_label = tk.Label(pos_row, text=side,
+                                             font=("Helvetica", 12, "bold"),
+                                             fg=self.colors['green'] if side == "LONG" else self.colors['red'],
+                                             bg=self.colors['input_bg'])
+                        side_label.pack(side='left', padx=20)
+
+                        price_label = tk.Label(pos_row, text=f"{avg_price:.2f}",
+                                              font=("Helvetica", 12),
+                                              fg=self.colors['text_white'],
+                                              bg=self.colors['input_bg'])
+                        price_label.pack(side='left', padx=10)
+
+                        pnl_color = self.colors['green'] if pnl >= 0 else self.colors['red']
+                        pnl_text = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
+                        pnl_label = tk.Label(pos_row, text=pnl_text,
+                                            font=("Helvetica", 12, "bold"),
+                                            fg=pnl_color,
+                                            bg=self.colors['input_bg'])
+                        pnl_label.pack(side='right')
+                    else:
+                        # No position
+                        no_pos = tk.Label(self.position_container,
+                                         text="No active positions",
+                                         font=("Helvetica", 10),
+                                         fg=self.colors['text_dim'],
+                                         bg=self.colors['panel_bg'])
+                        no_pos.pack(pady=10)
+
+                self.root.after(0, update)
+        except Exception as e:
+            pass
+
+    def fetch_price(self):
+        """Fetch current market price"""
+        if not self.session or not self.contract_id:
+            return
+
+        try:
+            from datetime import timezone, timedelta
+            end_time = datetime.now(timezone.utc)
+            start_time = end_time - timedelta(minutes=10)
+
+            url = f"{CONFIG['REST_BASE_URL']}/api/History/retrieveBars"
+            payload = {
+                "accountId": self.selected_account.get('id'),
+                "contractId": self.contract_id,
+                "live": False,
+                "limit": 10,
+                "startTime": start_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                "endTime": end_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                "unit": 2,
+                "unitNumber": 1
+            }
+
+            resp = self.session.post(url, json=payload, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                if 'bars' in data and data['bars']:
+                    latest_bar = data['bars'][0]
+                    price = float(latest_bar.get('c', 0.0))
+                    self.current_price = price
+
+                    # Update UI
+                    def update():
+                        self.price_label.config(text=f"{price:.2f}")
+                    self.root.after(0, update)
+        except Exception as e:
+            pass
 
 def main():
     root = tk.Tk()
