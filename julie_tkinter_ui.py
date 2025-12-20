@@ -437,18 +437,18 @@ class JulieUI:
 
         # ALL 12 filter entries (10 filters + 2 blockers)
         filters = [
-            ("Rejection", "SAFE"),
-            ("Chop", "SAFE"),
-            ("Extension", "SAFE"),
-            ("Volatility", "SAFE"),
-            ("Trend", "SAFE"),
-            ("Impulse", "SAFE"),
-            ("HTF FVG", "SAFE"),
-            ("Bank Level", "SAFE"),
-            ("Memory S/R", "SAFE"),
-            ("News", "SAFE"),
-            ("Structure", "SAFE"),
-            ("Loss Block", "SAFE"),
+            ("Rejection", "IDLE"),
+            ("Chop", "IDLE"),
+            ("Extension", "IDLE"),
+            ("Volatility", "IDLE"),
+            ("Trend", "IDLE"),
+            ("Impulse", "IDLE"),
+            ("HTF FVG", "IDLE"),
+            ("Bank Level", "IDLE"),
+            ("Memory S/R", "IDLE"),
+            ("News", "IDLE"),
+            ("Structure", "IDLE"),
+            ("Loss Block", "IDLE"),
         ]
 
         self.filter_labels = {}
@@ -466,9 +466,12 @@ class JulieUI:
         if status in ["PASS", "SAFE"]:
             bg_color = '#1a3d2e'  # Dark green
             status_color = self.colors['green_light']
-        else:
+        elif status in ["BLOCK", "FAIL"]:
             bg_color = '#3d1a1a'  # Dark red
             status_color = self.colors['red']
+        else:  # IDLE or neutral
+            bg_color = self.colors['input_bg']  # Neutral gray
+            status_color = self.colors['text_gray']
 
         box = tk.Frame(parent, bg=bg_color,
                       highlightbackground=self.colors['input_border'],
@@ -734,9 +737,12 @@ class JulieUI:
                 if status in ["PASS", "SAFE"]:
                     bg_color = '#1a3d2e'  # Dark green
                     status_color = self.colors['green_light']
-                else:
+                elif status in ["BLOCK", "FAIL"]:
                     bg_color = '#3d1a1a'  # Dark red
                     status_color = self.colors['red']
+                else:  # IDLE or neutral
+                    bg_color = self.colors['input_bg']  # Neutral gray
+                    status_color = self.colors['text_gray']
 
                 # Update all components
                 filter_info['box'].config(bg=bg_color)
