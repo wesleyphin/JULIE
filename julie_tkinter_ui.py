@@ -336,22 +336,13 @@ class JulieUI:
                          anchor='w')
         header.pack(fill='x', padx=20, pady=(15, 10))
 
-        # Scrollable container
-        canvas = tk.Canvas(section, bg=self.colors['panel_bg'],
-                          highlightthickness=0)
-        scrollbar = tk.Scrollbar(section, orient='vertical', command=canvas.yview)
-        scrollable = tk.Frame(canvas, bg=self.colors['panel_bg'])
+        # Grid container (2 columns)
+        grid = tk.Frame(section, bg=self.colors['panel_bg'])
+        grid.pack(fill='both', expand=True, padx=20, pady=(0, 15))
 
-        scrollable.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable, anchor='nw')
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side='left', fill='both', expand=True, padx=20, pady=(0, 15))
-        scrollbar.pack(side='right', fill='y')
+        # Configure grid
+        grid.columnconfigure(0, weight=1, uniform='col')
+        grid.columnconfigure(1, weight=1, uniform='col')
 
         # Strategy entries - All 9 from JULIE
         strategies = [
@@ -367,25 +358,28 @@ class JulieUI:
         ]
 
         self.strategy_labels = {}
-        for name in strategies:
-            entry = tk.Frame(scrollable, bg=self.colors['input_bg'],
+        for idx, name in enumerate(strategies):
+            row = idx // 2
+            col = idx % 2
+
+            entry = tk.Frame(grid, bg=self.colors['input_bg'],
                            highlightbackground=self.colors['input_border'],
                            highlightthickness=1)
-            entry.pack(fill='x', pady=3)
+            entry.grid(row=row, column=col, padx=3, pady=3, sticky='ew')
 
             name_label = tk.Label(entry, text=name,
-                                 font=("Helvetica", 12),
+                                 font=("Helvetica", 11),
                                  fg=self.colors['text_white'],
                                  bg=self.colors['input_bg'],
                                  anchor='w')
-            name_label.pack(side='left', padx=15, pady=10)
+            name_label.pack(side='left', padx=12, pady=8)
 
             status_label = tk.Label(entry, text="WAITING",
-                                   font=("Helvetica", 10),
+                                   font=("Helvetica", 9),
                                    fg=self.colors['text_gray'],
                                    bg=self.colors['input_bg'],
                                    anchor='e')
-            status_label.pack(side='right', padx=15)
+            status_label.pack(side='right', padx=12)
 
             self.strategy_labels[name] = status_label
 
@@ -468,7 +462,15 @@ class JulieUI:
 
     def create_filter_box(self, parent, row, col, name, status):
         """Create individual filter indicator"""
-        box = tk.Frame(parent, bg=self.colors['input_bg'],
+        # Determine initial background color
+        if status in ["PASS", "SAFE"]:
+            bg_color = '#1a3d2e'  # Dark green
+            status_color = self.colors['green_light']
+        else:
+            bg_color = '#3d1a1a'  # Dark red
+            status_color = self.colors['red']
+
+        box = tk.Frame(parent, bg=bg_color,
                       highlightbackground=self.colors['input_border'],
                       highlightthickness=1)
         box.grid(row=row, column=col, padx=4, pady=4, sticky='nsew')
@@ -476,17 +478,21 @@ class JulieUI:
         name_label = tk.Label(box, text=name,
                              font=("Helvetica", 10, "bold"),
                              fg=self.colors['text_white'],
-                             bg=self.colors['input_bg'])
+                             bg=bg_color)
         name_label.pack(pady=(12, 4))
 
-        status_color = self.colors['green'] if status in ["PASS", "SAFE"] else self.colors['red']
         status_label = tk.Label(box, text=f"[{status}]",
                                font=("Helvetica", 9, "bold"),
                                fg=status_color,
-                               bg=self.colors['input_bg'])
+                               bg=bg_color)
         status_label.pack(pady=(4, 12))
 
-        self.filter_labels[name] = status_label
+        # Store both the box frame, labels, and status label for updates
+        self.filter_labels[name] = {
+            'box': box,
+            'name_label': name_label,
+            'status_label': status_label
+        }
 
     def create_event_log(self, parent):
         """Create live event log section"""
@@ -719,10 +725,24 @@ class JulieUI:
         self.root.after(0, update)
 
     def update_filter(self, name, status, color):
-        """Update filter status"""
+        """Update filter status and background color"""
         def update():
             if name in self.filter_labels:
-                self.filter_labels[name].config(text=f"[{status}]", fg=color)
+                filter_info = self.filter_labels[name]
+
+                # Determine background color based on status
+                if status in ["PASS", "SAFE"]:
+                    bg_color = '#1a3d2e'  # Dark green
+                    status_color = self.colors['green_light']
+                else:
+                    bg_color = '#3d1a1a'  # Dark red
+                    status_color = self.colors['red']
+
+                # Update all components
+                filter_info['box'].config(bg=bg_color)
+                filter_info['name_label'].config(bg=bg_color)
+                filter_info['status_label'].config(text=f"[{status}]", fg=status_color, bg=bg_color)
+
         self.root.after(0, update)
 
     def fetch_position(self):
