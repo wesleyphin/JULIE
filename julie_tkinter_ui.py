@@ -345,6 +345,7 @@ class JulieUI:
         right_col.pack(side='right', fill='both', expand=True, padx=(5, 0))
 
         self.create_strategy_list(strategy_frame)
+        self.create_gemini_logs_section(strategy_frame)
         self.create_positions_section(right_col)
         self.create_filters_section(right_col)
 
@@ -462,6 +463,48 @@ class JulieUI:
             status_label.pack(side='right', padx=12)
 
             self.strategy_labels[name] = status_label
+
+    def create_gemini_logs_section(self, parent):
+        """Create Gemini LLM logs section"""
+        section = tk.Frame(parent, bg=self.colors['panel_bg'],
+                          highlightbackground=self.colors['panel_border'],
+                          highlightthickness=1)
+        section.pack(fill='both', expand=True, pady=(10, 0))
+
+        # Header
+        header = tk.Label(section, text="GEMINI LLM LOGS",
+                         font=("Helvetica", 10, "bold"),
+                         fg=self.colors['text_gray'],
+                         bg=self.colors['panel_bg'],
+                         anchor='w')
+        header.pack(fill='x', padx=20, pady=(15, 10))
+
+        # Log text widget
+        log_frame = tk.Frame(section, bg=self.colors['panel_bg'])
+        log_frame.pack(fill='both', expand=True, padx=20, pady=(0, 15))
+
+        scrollbar = tk.Scrollbar(log_frame)
+        scrollbar.pack(side='right', fill='y')
+
+        self.gemini_log_text = tk.Text(log_frame,
+                                       bg=self.colors['input_bg'],
+                                       fg=self.colors['text_gray'],
+                                       font=("Courier", 9),
+                                       wrap='word',
+                                       yscrollcommand=scrollbar.set,
+                                       state='disabled',
+                                       relief='flat')
+        self.gemini_log_text.pack(fill='both', expand=True)
+        scrollbar.config(command=self.gemini_log_text.yview)
+
+        # Configure text tags for color coding
+        self.gemini_log_text.tag_config('gemini', foreground=self.colors['blue'])
+        self.gemini_log_text.tag_config('info', foreground=self.colors['text_gray'])
+        self.gemini_log_text.tag_config('success', foreground=self.colors['green_light'])
+        self.gemini_log_text.tag_config('warning', foreground=self.colors['yellow'])
+        self.gemini_log_text.tag_config('error', foreground=self.colors['red'])
+
+        self.add_gemini_log("Waiting for Gemini LLM activity...")
 
     def create_positions_section(self, parent):
         """Create active positions section"""
@@ -652,6 +695,31 @@ class JulieUI:
         else:
             update()
 
+    def add_gemini_log(self, message):
+        """Add entry to Gemini LLM log with color coding"""
+        def update():
+            self.gemini_log_text.config(state='normal')
+
+            # Determine tag based on content
+            tag = 'info'
+            if 'GEMINI' in message.upper() or 'LLM' in message.upper():
+                tag = 'gemini'
+            elif 'SUCCESS' in message.upper() or 'APPROVED' in message.upper():
+                tag = 'success'
+            elif 'WARNING' in message.upper() or 'CAUTION' in message.upper():
+                tag = 'warning'
+            elif 'ERROR' in message.upper() or 'FAILED' in message.upper():
+                tag = 'error'
+
+            self.gemini_log_text.insert('end', message + '\n', tag)
+            self.gemini_log_text.see('end')
+            self.gemini_log_text.config(state='disabled')
+
+        if threading.current_thread() != threading.main_thread():
+            self.root.after(0, update)
+        else:
+            update()
+
     def fetch_contract_id(self):
         """Fetch contract ID for position monitoring"""
         if not self.session or not self.token:
@@ -756,8 +824,16 @@ class JulieUI:
             'Calibrated', 'Threshold'
         ])
 
+        # Determine if this is Gemini LLM activity
+        is_gemini_log = any(keyword in line for keyword in [
+            'GEMINI', 'Gemini', 'LLM', 'AI', 'gemini',
+            'MODEL', 'PREDICTION', 'ANALYSIS', 'RECOMMENDATION'
+        ])
+
         # Route to appropriate log
-        if is_event_log:
+        if is_gemini_log:
+            self.add_gemini_log(line)
+        elif is_event_log:
             self.add_log(line)
         elif is_market_context:
             self.add_market_log(line)
