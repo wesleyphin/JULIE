@@ -10,7 +10,7 @@ class GeminiSessionOptimizer:
     def __init__(self):
         self.config = CONFIG.get('GEMINI', {})
         self.api_key = self.config.get('api_key', '')
-        self.model = "gemini-3-pro-preview"
+        self.model = self.config.get('model', 'gemini-3-pro-preview')
         self.url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
         self.headers = {"Content-Type": "application/json"}
         self.csv_path = 'es_2023_2024_2025.csv'
@@ -282,11 +282,13 @@ class GeminiSessionOptimizer:
     def _call_gemini(self, sys_instr, user_prompt):
         payload = {
             "contents": [{"parts": [{"text": user_prompt}]}],
-            "system_instruction": {"parts": [{"text": sys_instr}]},
+            "systemInstruction": {"parts": [{"text": sys_instr}]},
             "generationConfig": {
-                "response_mime_type": "application/json",
-                "temperature": 1.0,           # Recommended for Gemini 3 reasoning
-                "thinking_level": "high"       # Enables deep internal chain-of-thought
+                "responseMimeType": "application/json",
+                "temperature": 1.0,
+                "thinkingConfig": {
+                    "thinkingLevel": "high"
+                }
             }
         }
         response = requests.post(self.url, headers=self.headers, json=payload, timeout=45)
