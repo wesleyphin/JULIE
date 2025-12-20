@@ -66,6 +66,12 @@ class JulieUI:
         self.contract_id = None
         self.bot_process = None  # Track the julie001.py subprocess
 
+        # Animated logo tracking
+        self.logo_frames = []
+        self.logo_frame_index = 0
+        self.logo_label = None
+        self.logo_animation_id = None
+
         # Setup cleanup on window close
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -88,17 +94,39 @@ class JulieUI:
                               highlightthickness=2)
         canvas.create_window(800, 450, window=panel_frame, width=500, height=550)
 
-        # JULIE Logo (GIF)
+        # JULIE Logo (Animated GIF)
         try:
             logo_path = Path(__file__).parent / "logo.gif"
             if logo_path.exists():
-                # Use tkinter's built-in PhotoImage for GIF support
-                logo_photo = tk.PhotoImage(file=str(logo_path))
-                # Subsample to resize if needed (reduce by factor of 2)
-                # logo_photo = logo_photo.subsample(2, 2)
-                logo_label = tk.Label(panel_frame, image=logo_photo, bg=self.colors['panel_bg'])
-                logo_label.image = logo_photo  # Keep a reference to prevent garbage collection
-                logo_label.pack(pady=(50, 80))
+                from PIL import Image, ImageTk
+
+                # Load all frames from the animated GIF
+                gif = Image.open(logo_path)
+                self.logo_frames = []
+
+                try:
+                    while True:
+                        # Copy the frame and convert to PhotoImage
+                        frame = gif.copy()
+                        # Resize if needed (max 300px wide)
+                        if frame.width > 300:
+                            ratio = 300 / frame.width
+                            new_height = int(frame.height * ratio)
+                            frame = frame.resize((300, new_height), Image.Resampling.LANCZOS)
+                        photo = ImageTk.PhotoImage(frame)
+                        self.logo_frames.append(photo)
+                        gif.seek(len(self.logo_frames))  # Move to next frame
+                except EOFError:
+                    pass  # End of frames
+
+                # Create label and start animation
+                if self.logo_frames:
+                    self.logo_label = tk.Label(panel_frame, bg=self.colors['panel_bg'])
+                    self.logo_label.pack(pady=(50, 80))
+                    self.logo_frame_index = 0
+                    self.animate_logo()
+                else:
+                    raise ValueError("No frames found in GIF")
             else:
                 # Fallback to text if logo.gif not found
                 title_font = tkfont.Font(family="Helvetica", size=72, weight="bold")
@@ -167,6 +195,22 @@ class JulieUI:
                          bg=self.colors['panel_bg'],
                          cursor='hand2')
         forgot.pack(pady=(15, 0))
+
+    def animate_logo(self):
+        """Animate the logo GIF by cycling through frames"""
+        if self.logo_label and self.logo_frames:
+            # Update to next frame
+            self.logo_label.config(image=self.logo_frames[self.logo_frame_index])
+            self.logo_frame_index = (self.logo_frame_index + 1) % len(self.logo_frames)
+
+            # Schedule next frame (50ms = ~20 FPS)
+            self.logo_animation_id = self.root.after(50, self.animate_logo)
+
+    def stop_logo_animation(self):
+        """Stop the logo animation"""
+        if self.logo_animation_id:
+            self.root.after_cancel(self.logo_animation_id)
+            self.logo_animation_id = None
 
     def setup_dropdown_style(self):
         """Setup custom combobox style"""
@@ -297,6 +341,9 @@ class JulieUI:
 
     def on_closing(self):
         """Clean up when window is closed"""
+        # Stop logo animation
+        self.stop_logo_animation()
+
         # Stop monitoring
         self.monitoring_active = False
 
@@ -318,6 +365,9 @@ class JulieUI:
 
     def show_dashboard(self):
         """Create main dashboard matching the screenshot"""
+        # Stop logo animation before clearing widgets
+        self.stop_logo_animation()
+
         # Clear root
         for widget in self.root.winfo_children():
             widget.destroy()
