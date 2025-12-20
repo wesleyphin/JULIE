@@ -330,6 +330,13 @@ def run_bot():
                     except Exception as e:
                         events_str = "Events data unavailable."
 
+                    # 1b. Get Holiday Context
+                    try:
+                        holiday_context = news_filter.get_holiday_context()
+                    except Exception as e:
+                        logging.warning(f"Failed to get holiday context: {e}")
+                        holiday_context = "Holiday data unavailable."
+
                     # 2. Get Hardcoded Base Params for Session
                     session_cfg = CONFIG['SESSIONS'].get(current_session_name, {})
                     base_sl = session_cfg.get('SL', 4.0)
@@ -386,7 +393,9 @@ def run_bot():
                         events_str,
                         base_sl,
                         base_tp,
-                        structure_context=full_structure_context
+                        structure_context=full_structure_context,
+                        active_fvgs=active_fvgs,
+                        holiday_context=holiday_context
                     )
 
                     if opt_result:

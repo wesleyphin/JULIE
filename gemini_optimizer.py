@@ -96,7 +96,7 @@ class GeminiSessionOptimizer:
     # =========================================================================
     # CORE OPTIMIZATION LOGIC
     # =========================================================================
-    def optimize_new_session(self, master_df, session_name, events_data, base_sl, base_tp, structure_context="", active_fvgs=None):
+    def optimize_new_session(self, master_df, session_name, events_data, base_sl, base_tp, structure_context="", active_fvgs=None, holiday_context=""):
         logging.info(f"🧠 Gemini 3.0: Analyzing Session-Aligned Context for {session_name}...")
 
         if master_df.empty: return None
@@ -142,6 +142,7 @@ class GeminiSessionOptimizer:
         # NEW: High-Resolution Context String
         context_str = (
             f"Structure: {structure_context}\n"
+            f"Holiday Status: {holiday_context}\n"
             f"Levels: VAH({profile.get('VAH')}), VAL({profile.get('VAL')}), POC({profile.get('POC')})\n"
             f"IB Range: {profile.get('IB_Low')} - {profile.get('IB_High')}\n"
             f"HTF FVGs: {fvg_summary}\n"
@@ -187,7 +188,11 @@ class GeminiSessionOptimizer:
             "- If the market is Trending (ADX > 30), you may allow TP expansion up to 1.5x, but ONLY if the current Base RR is < 2.5.\n\n"
             "STRUCTURAL BOUNDARY RULES:\n"
             "- HTF FVG Hard Boundaries: If a trade's TP target lies beyond an overhead Bearish FVG, you MUST reduce the tp_multiplier to exit before that resistance.\n"
-            "- SL Tightening: If the current price is supported by a Bullish HTF FVG, you may tighten the sl_multiplier to 0.7x - 0.9x."
+            "- SL Tightening: If the current price is supported by a Bullish HTF FVG, you may tighten the sl_multiplier to 0.7x - 0.9x.\n\n"
+            "HOLIDAY PLAYBOOK:\n"
+            "- If a Bank Holiday is TODAY or TOMORROW (within 24 hours), aggressively reduce TP multipliers (0.5x - 0.7x) to account for potential volume drop-off and erratic spreads.\n"
+            "- If a Bank Holiday is within 2-3 days, apply moderate TP reduction (0.8x - 0.9x) as institutional participation begins to decline.\n"
+            "- During holiday periods, prioritize capital preservation over profit maximization."
         )
 
         user_prompt = (
@@ -255,7 +260,10 @@ class GeminiSessionOptimizer:
             "LOGIC & STRUCTURAL RULES:\n"
             "- EXPECTING EXPLOSIVE MOVE: LOWER the multiplier to 0.6x - 0.9x to allow for trend breakouts.\n"
             "- EXPECTING ROTATION/RANGE: RAISE the multiplier to 1.2x - 2.0x to prioritize Fade strategies.\n"
-            "- POC & IB CONFLUENCE: If the current price is hovering at the POC and is inside the IB Range with no HTF FVGs nearby, RAISE the multiplier to 1.5x - 2.0x to signal a high-probability range-bound environment."
+            "- POC & IB CONFLUENCE: If the current price is hovering at the POC and is inside the IB Range with no HTF FVGs nearby, RAISE the multiplier to 1.5x - 2.0x to signal a high-probability range-bound environment.\n\n"
+            "HOLIDAY PLAYBOOK:\n"
+            "- If a Bank Holiday is near (within 1-3 days), favor mean-reversion by RAISING the Chop Multiplier (1.5x - 2.0x+), as institutional trend-following volume is typically absent.\n"
+            "- Holiday periods create range-bound, choppy conditions. Prioritize fade strategies over breakout plays during these times."
         )
 
         user_prompt = (

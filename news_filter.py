@@ -4,6 +4,7 @@ import requests
 import pandas as pd
 from datetime import timezone as dt_timezone
 from zoneinfo import ZoneInfo
+from pandas.tseries.holiday import USFederalHolidayCalendar
 
 
 class NewsFilter:
@@ -139,6 +140,45 @@ class NewsFilter:
             return ["No major high-impact events detected this month."]
 
         return [f"{e['date_str']} | {e['title']}" for e in sorted_events]
+
+    def get_holiday_context(self) -> str:
+        """
+        Detects if today or upcoming days fall on a US Federal Bank Holiday.
+        Returns context string for GeminiSessionOptimizer to adjust risk parameters.
+        """
+        cal = USFederalHolidayCalendar()
+        today = datetime.datetime.now(self.et).date()
+
+        # Check next 3 days for proximity to holidays
+        start_date = pd.Timestamp(today)
+        end_date = pd.Timestamp(today + datetime.timedelta(days=3))
+        holidays = cal.holidays(start=start_date, end=end_date)
+
+        if not holidays.empty:
+            # Get the nearest holiday
+            holiday_date = holidays[0].date()
+            days_away = (holiday_date - today).days
+
+            # Try to get the holiday name from the calendar
+            holiday_name = "Bank Holiday"
+            try:
+                # Get all holiday rules and find the matching one
+                for rule in cal.rules:
+                    rule_dates = rule.dates(start_date, end_date, return_name=True)
+                    if not rule_dates.empty and rule_dates[0].date() == holiday_date:
+                        holiday_name = rule.name
+                        break
+            except Exception as e:
+                logging.debug(f"Could not extract holiday name: {e}")
+
+            if days_away == 0:
+                return f"HOLIDAY TODAY: {holiday_name} ({holiday_date})"
+            elif days_away == 1:
+                return f"HOLIDAY TOMORROW: {holiday_name} ({holiday_date})"
+            else:
+                return f"NEAR HOLIDAY: {holiday_name} on {holiday_date} ({days_away} days away)"
+
+        return "No major holidays in next 3 days."
 
     def should_block_trade(self, current_time: datetime.datetime) -> tuple[bool, str]:
         # Ensure time is ET
