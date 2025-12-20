@@ -324,13 +324,13 @@ class JulieUI:
         left_panel = tk.Frame(content, bg=self.colors['bg_dark'])
         left_panel.pack(side='left', fill='both', expand=True, padx=(0, 15))
 
-        # Right panel (30%) - Event Log
+        # Right panel (30%) - Market Context
         right_panel = tk.Frame(content, bg=self.colors['bg_dark'], width=450)
         right_panel.pack(side='right', fill='both', padx=(15, 0))
         right_panel.pack_propagate(False)
 
-        # Build left panel sections
-        self.create_market_section(left_panel)
+        # Build left panel sections - Event Log at top
+        self.create_event_log(left_panel)
 
         # Bottom row: Strategy List, Positions, Filters
         bottom_row = tk.Frame(left_panel, bg=self.colors['bg_dark'])
@@ -349,8 +349,8 @@ class JulieUI:
         self.create_positions_section(right_col)
         self.create_filters_section(right_col)
 
-        # Right panel - Event Log
-        self.create_event_log(right_panel)
+        # Right panel - Market Context
+        self.create_market_section(right_panel)
 
         # Fetch contract ID
         self.fetch_contract_id()
