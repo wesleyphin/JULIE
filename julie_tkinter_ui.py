@@ -88,13 +88,34 @@ class JulieUI:
                               highlightthickness=2)
         canvas.create_window(800, 450, window=panel_frame, width=500, height=550)
 
-        # JULIE Title
-        title_font = tkfont.Font(family="Helvetica", size=72, weight="bold")
-        title = tk.Label(panel_frame, text="JULIE",
-                        font=title_font,
-                        fg=self.colors['text_white'],
-                        bg=self.colors['panel_bg'])
-        title.pack(pady=(50, 80))
+        # JULIE Logo (GIF)
+        try:
+            logo_path = Path(__file__).parent / "logo.gif"
+            if logo_path.exists():
+                # Use tkinter's built-in PhotoImage for GIF support
+                logo_photo = tk.PhotoImage(file=str(logo_path))
+                # Subsample to resize if needed (reduce by factor of 2)
+                # logo_photo = logo_photo.subsample(2, 2)
+                logo_label = tk.Label(panel_frame, image=logo_photo, bg=self.colors['panel_bg'])
+                logo_label.image = logo_photo  # Keep a reference to prevent garbage collection
+                logo_label.pack(pady=(50, 80))
+            else:
+                # Fallback to text if logo.gif not found
+                title_font = tkfont.Font(family="Helvetica", size=72, weight="bold")
+                title = tk.Label(panel_frame, text="JULIE",
+                                font=title_font,
+                                fg=self.colors['text_white'],
+                                bg=self.colors['panel_bg'])
+                title.pack(pady=(50, 80))
+        except Exception as e:
+            # Fallback if logo cannot be loaded
+            print(f"Could not load logo.gif: {e}")
+            title_font = tkfont.Font(family="Helvetica", size=72, weight="bold")
+            title = tk.Label(panel_frame, text="JULIE",
+                            font=title_font,
+                            fg=self.colors['text_white'],
+                            bg=self.colors['panel_bg'])
+            title.pack(pady=(50, 80))
 
         # Account Number Label
         account_label = tk.Label(panel_frame, text="ACCOUNT NUMBER",
@@ -131,9 +152,9 @@ class JulieUI:
                              text="LOGIN",
                              font=("Helvetica", 16, "bold"),
                              bg='#2d2d2d',  # Dark grey
-                             fg='#ffffff',  # White for contrast
+                             fg='#000000',  # Black font
                              activebackground='#3d3d3d',  # Lighter grey on hover
-                             activeforeground='#ffffff',
+                             activeforeground='#000000',  # Black font on hover
                              relief='flat',
                              cursor='hand2',
                              command=self.handle_login)
