@@ -316,6 +316,7 @@ class JulieUI:
         self.market_log.tag_config('rejection', foreground=self.colors['yellow'])
         self.market_log.tag_config('bank', foreground=self.colors['green_light'])
         self.market_log.tag_config('warning', foreground=self.colors['red'])
+        self.market_log.tag_config('drift', foreground='#00d4ff')  # Cyan for drift/calibration
         self.market_log.tag_config('info', foreground=self.colors['text_gray'])
 
         self.add_market_log("Waiting for bot market context...")
@@ -547,7 +548,7 @@ class JulieUI:
 
             # Determine tag based on content
             tag = 'info'
-            if '🕒 Session' in message or 'SESSION' in message:
+            if '🕒 Session' in message or 'SESSION HANDOVER' in message or 'SESSION CHANGE' in message:
                 tag = 'session'
             elif '🎯 REJECTION' in message or 'REJECTION' in message:
                 tag = 'rejection'
@@ -555,6 +556,8 @@ class JulieUI:
                 tag = 'bank'
             elif '⚠️' in message or 'WARNING' in message or 'BLOCK' in message:
                 tag = 'warning'
+            elif '🌊 DRIFT' in message or 'CALIBRATION' in message or 'Calibrated' in message:
+                tag = 'drift'
 
             self.market_log.insert('end', message + '\n', tag)
             self.market_log.see('end')
@@ -646,7 +649,7 @@ class JulieUI:
 
         # Determine if this is market context or general event
         is_market_context = any(keyword in line for keyword in [
-            '🕒 Session', 'SESSION CHANGE', 'SESSION change',
+            '🕒 Session', 'SESSION CHANGE', 'SESSION change', 'SESSION HANDOVER',
             '🎯 REJECTION', 'REJECTION_DETECTED', 'REJECTION CONFIRMED',
             '🏦', 'ORB', 'BANK', 'Prev PM', 'Prev Session',
             '📅 New day', 'QUARTER CHANGE',
@@ -654,7 +657,9 @@ class JulieUI:
             'HTF FVG Memory', 'Bar:', 'Price:',
             '📈 CONTINUATION', '📉 CONTINUATION',
             '🔁 BIAS FLIP', '🔄 QUARTER',
-            'Backfill Complete', 'ExtFilter'
+            'Backfill Complete', 'ExtFilter',
+            '🌊 DRIFT DETECTED', 'CALIBRATION COMPLETE', 'DynamicChop',
+            'Calibrated', 'Threshold'
         ])
 
         # Route to appropriate log
