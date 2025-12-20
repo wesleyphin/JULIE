@@ -90,8 +90,7 @@ class JulieUI:
 
         # Create login panel
         panel_frame = tk.Frame(canvas, bg=self.colors['panel_bg'],
-                              highlightbackground=self.colors['panel_border'],
-                              highlightthickness=2)
+                              highlightthickness=0)
         canvas.create_window(800, 450, window=panel_frame, width=500, height=550)
 
         # JULIE Logo (Animated GIF)
