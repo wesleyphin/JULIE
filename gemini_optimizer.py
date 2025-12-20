@@ -76,12 +76,27 @@ class GeminiSessionOptimizer:
         value_area_bins = sorted_vol[cumulative_vol <= target_volume].index
         vah = max([b.right for b in value_area_bins])
         val = min([b.left for b in value_area_bins])
-        return {"POC": poc_price, "VAH": vah, "VAL": val, "current_price": df.iloc[-1]['close']}
+
+        # Calculate Initial Balance (first hour of trading - first 4 bars if 15min data)
+        ib_high, ib_low = None, None
+        if len(df) >= 4:
+            first_hour = df.head(4)
+            ib_high = round(first_hour['high'].max(), 2)
+            ib_low = round(first_hour['low'].min(), 2)
+
+        return {
+            "POC": poc_price,
+            "VAH": vah,
+            "VAL": val,
+            "current_price": df.iloc[-1]['close'],
+            "IB_High": ib_high,
+            "IB_Low": ib_low
+        }
 
     # =========================================================================
     # CORE OPTIMIZATION LOGIC
     # =========================================================================
-    def optimize_new_session(self, master_df, session_name, events_data, base_sl, base_tp, structure_context=""):
+    def optimize_new_session(self, master_df, session_name, events_data, base_sl, base_tp, structure_context="", active_fvgs=None):
         logging.info(f"🧠 Gemini 3.0: Analyzing Session-Aligned Context for {session_name}...")
 
         if master_df.empty: return None
@@ -116,11 +131,21 @@ class GeminiSessionOptimizer:
                 hist_context = f"{round(hist_daily_stats['range'].mean(), 2)} pts"
 
         # --- PREPARE CONTEXT STRING (Shared) ---
+        # Process HTF FVGs into a readable summary
+        fvg_summary = "None Active"
+        if active_fvgs:
+            fvg_summary = " | ".join([
+                f"{f['tf']} {f['type'].upper()} FVG @ {f['bottom']:.2f}-{f['top']:.2f}"
+                for f in active_fvgs
+            ])
+
+        # NEW: High-Resolution Context String
         context_str = (
             f"Structure: {structure_context}\n"
-            f"Avg Range: {avg_session_range} (Hist: {hist_context})\n"
+            f"Levels: VAH({profile.get('VAH')}), VAL({profile.get('VAL')}), POC({profile.get('POC')})\n"
+            f"IB Range: {profile.get('IB_Low')} - {profile.get('IB_High')}\n"
+            f"HTF FVGs: {fvg_summary}\n"
             f"ADX: {adx_score} ({trend_status})\n"
-            f"Profile: {profile_status}\n"
             f"News: {events_data}\n"
         )
 
@@ -155,11 +180,14 @@ class GeminiSessionOptimizer:
     # -------------------------------------------------------------------------
     def _fetch_sltp_optimization(self, session_name, context_str, base_sl, base_tp, base_rr):
         system_instruction = (
-            f"You are a Risk Manager for {session_name}. Adjust SL/TP multipliers based on Volatility.\n"
-            "CRITICAL RULES:\n"
-            "- If Base RR > 3.0, DO NOT increase TP (Keep <= 1.0). Win rate is priority.\n"
-            "- If Choppy (ADX < 20) or Inside Value, REDUCE TP (0.8x - 0.9x).\n"
-            "- If Trending (ADX > 30), allow TP expansion (up to 1.5x) IF RR < 2.5."
+            f"You are a Risk Manager for {session_name}. Your task is to adjust SL and TP multipliers by balancing mathematical volatility (ADX) against structural market barriers.\n\n"
+            "CORE VOLATILITY RULES:\n"
+            "- If the Base Risk/Reward (RR) is > 3.0, DO NOT increase the TP multiplier (keep it ≤ 1.0).\n"
+            "- If the market is Choppy (ADX < 20) or price is 'Inside Value' (between VAH and VAL), you MUST reduce the TP multiplier to 0.8x - 0.9x.\n"
+            "- If the market is Trending (ADX > 30), you may allow TP expansion up to 1.5x, but ONLY if the current Base RR is < 2.5.\n\n"
+            "STRUCTURAL BOUNDARY RULES:\n"
+            "- HTF FVG Hard Boundaries: If a trade's TP target lies beyond an overhead Bearish FVG, you MUST reduce the tp_multiplier to exit before that resistance.\n"
+            "- SL Tightening: If the current price is supported by a Bullish HTF FVG, you may tighten the sl_multiplier to 0.7x - 0.9x."
         )
 
         user_prompt = (
@@ -193,11 +221,11 @@ class GeminiSessionOptimizer:
     # -------------------------------------------------------------------------
     def _fetch_trend_optimization(self, session_name, context_str):
         system_instruction = (
-            f"You are an Execution Algorithm for {session_name}. Configure the Trend Filter to block bad counter-trend trades.\n"
-            "LOGIC:\n"
-            "- **STRONG TREND (ADX > 30):** Use LOWER multipliers (1.2x - 1.5x) to trigger the filter easily. We want to BLOCK fading attempts.\n"
-            "- **CHOP/RANGE (ADX < 20):** Use HIGHER multipliers (2.5x - 4.0x) to make the filter loose. We want to ALLOW fading.\n"
-            "- **DEFAULT:** Vol 1.5, Body 1.5 (T1), 2.0 (T2), 3.0 (T3)."
+            f"You are an Execution Algorithm for {session_name}. Configure Trend Filter multipliers to distinguish between high-probability breakouts and traps.\n\n"
+            "MERGED EXECUTION RULES:\n"
+            "- HTF FVG ROADBLOCKS: Treat HTF FVGs as structural barriers. If price is approaching a Bearish FVG from below or a Bullish FVG from above, increase the t1_body multiplier (e.g., 2.5x+) to ensure only high-momentum impulses trigger entry.\n"
+            "- VALUE AREA & IB LOGIC: If price is inside the Value Area (VAH/VAL) and below the IB High, maintain HIGHER multipliers (2.5x - 4.0x) to allow for rotational/mean-reversion trades.\n"
+            "- TREND CONFIRMATION: If price breaks the IB High/Low with an ADX > 25, switch to aggressive 'Trending' mode with LOWER multipliers (1.2x - 1.5x)."
         )
 
         user_prompt = (
@@ -223,15 +251,11 @@ class GeminiSessionOptimizer:
     # -------------------------------------------------------------------------
     def _fetch_chop_optimization(self, session_name, context_str):
         system_instruction = (
-            f"You are a Volatility Manager for {session_name}. Adjust the 'Chop Threshold' multiplier.\n"
-            "THEORY:\n"
-            "- The 'Chop Threshold' is the ceiling for volatility. Below this = CHOP. Above this = ACTIVE.\n"
-            "LOGIC:\n"
-            "- **EXPECTING EXPLOSIVE MOVE (News/Breakout):** LOWER the multiplier (0.6x - 0.9x). "
-            "We want the ceiling LOW so the market easily breaks out of 'Chop' status and allows trend trades.\n"
-            "- **EXPECTING ROTATION/RANGE:** RAISE the multiplier (1.2x - 2.0x). "
-            "We want the ceiling HIGH so the market stays 'In Chop', enabling Fade strategies (Buy Low/Sell High).\n"
-            "- **DEFAULT:** 1.0"
+            f"You are a Volatility Manager for {session_name}. Adjust the 'Chop Threshold' multiplier.\n\n"
+            "LOGIC & STRUCTURAL RULES:\n"
+            "- EXPECTING EXPLOSIVE MOVE: LOWER the multiplier to 0.6x - 0.9x to allow for trend breakouts.\n"
+            "- EXPECTING ROTATION/RANGE: RAISE the multiplier to 1.2x - 2.0x to prioritize Fade strategies.\n"
+            "- POC & IB CONFLUENCE: If the current price is hovering at the POC and is inside the IB Range with no HTF FVGs nearby, RAISE the multiplier to 1.5x - 2.0x to signal a high-probability range-bound environment."
         )
 
         user_prompt = (
@@ -259,7 +283,11 @@ class GeminiSessionOptimizer:
         payload = {
             "contents": [{"parts": [{"text": user_prompt}]}],
             "system_instruction": {"parts": [{"text": sys_instr}]},
-            "generationConfig": {"response_mime_type": "application/json", "temperature": 0.1}
+            "generationConfig": {
+                "response_mime_type": "application/json",
+                "temperature": 1.0,           # Recommended for Gemini 3 reasoning
+                "thinking_level": "high"       # Enables deep internal chain-of-thought
+            }
         }
         response = requests.post(self.url, headers=self.headers, json=payload, timeout=45)
         if response.status_code == 200:
