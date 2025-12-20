@@ -179,9 +179,9 @@ class JulieUI:
                              text="LOGIN",
                              font=("Helvetica", 16, "bold"),
                              bg='#2d2d2d',  # Dark grey
-                             fg='#000000',  # Black font
+                             fg='#ffffff',  # White font
                              activebackground='#3d3d3d',  # Lighter grey on hover
-                             activeforeground='#000000',  # Black font on hover
+                             activeforeground='#ffffff',  # White font on hover
                              relief='flat',
                              cursor='hand2',
                              command=self.handle_login)
