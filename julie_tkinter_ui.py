@@ -125,7 +125,7 @@ class JulieUI:
 
         # Login Button
         login_btn = tk.Button(panel_frame,
-                             text="🔒 LOGIN",
+                             text="LOGIN",
                              font=("Helvetica", 16, "bold"),
                              bg=self.colors['green'],
                              fg='white',
@@ -443,53 +443,48 @@ class JulieUI:
 
         # ALL 12 filter entries (10 filters + 2 blockers)
         filters = [
-            ("Rejection", "SAFE", "❌"),
-            ("Chop", "SAFE", "🌊"),
-            ("Extension", "SAFE", "📈"),
-            ("Volatility", "SAFE", "🎯"),
-            ("Trend", "SAFE", "📉"),
-            ("Impulse", "SAFE", "⚡"),
-            ("HTF FVG", "SAFE", "🎚️"),
-            ("Bank Level", "SAFE", "💰"),
-            ("Memory S/R", "SAFE", "🧠"),
-            ("News", "SAFE", "📰"),
-            ("Structure", "SAFE", "🏗️"),
-            ("Loss Block", "SAFE", "🛡️"),
+            ("Rejection", "SAFE"),
+            ("Chop", "SAFE"),
+            ("Extension", "SAFE"),
+            ("Volatility", "SAFE"),
+            ("Trend", "SAFE"),
+            ("Impulse", "SAFE"),
+            ("HTF FVG", "SAFE"),
+            ("Bank Level", "SAFE"),
+            ("Memory S/R", "SAFE"),
+            ("News", "SAFE"),
+            ("Structure", "SAFE"),
+            ("Loss Block", "SAFE"),
         ]
 
         self.filter_labels = {}
         row, col = 0, 0
-        for name, status, icon in filters:
-            self.create_filter_box(grid, row, col, name, status, icon)
+        for name, status in filters:
+            self.create_filter_box(grid, row, col, name, status)
             col += 1
             if col >= 4:
                 col = 0
                 row += 1
 
-    def create_filter_box(self, parent, row, col, name, status, icon):
+    def create_filter_box(self, parent, row, col, name, status):
         """Create individual filter indicator"""
         box = tk.Frame(parent, bg=self.colors['input_bg'],
                       highlightbackground=self.colors['input_border'],
                       highlightthickness=1)
         box.grid(row=row, column=col, padx=4, pady=4, sticky='nsew')
 
-        icon_label = tk.Label(box, text=icon,
-                             font=("Helvetica", 24),
-                             bg=self.colors['input_bg'])
-        icon_label.pack(pady=(6, 2))
-
         name_label = tk.Label(box, text=name,
-                             font=("Helvetica", 8, "bold"),
+                             font=("Helvetica", 10, "bold"),
                              fg=self.colors['text_white'],
                              bg=self.colors['input_bg'])
-        name_label.pack(pady=2)
+        name_label.pack(pady=(12, 4))
 
         status_color = self.colors['green'] if status in ["PASS", "SAFE"] else self.colors['red']
         status_label = tk.Label(box, text=f"[{status}]",
-                               font=("Helvetica", 7, "bold"),
+                               font=("Helvetica", 9, "bold"),
                                fg=status_color,
                                bg=self.colors['input_bg'])
-        status_label.pack(pady=(2, 6))
+        status_label.pack(pady=(4, 12))
 
         self.filter_labels[name] = status_label
 
