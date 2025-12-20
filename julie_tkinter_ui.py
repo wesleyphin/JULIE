@@ -290,30 +290,35 @@ class JulieUI:
                          fg=self.colors['text_gray'],
                          bg=self.colors['panel_bg'],
                          anchor='w')
-        header.pack(fill='x', padx=20, pady=(15, 30))
+        header.pack(fill='x', padx=20, pady=(15, 10))
 
-        # Market display
-        self.market_symbol_label = tk.Label(section, text="MES FUTURES",
-                                           font=("Helvetica", 56, "bold"),
-                                           fg=self.colors['text_white'],
-                                           bg=self.colors['panel_bg'])
-        self.market_symbol_label.pack(pady=(0, 10))
+        # Market context log (scrollable)
+        log_frame = tk.Frame(section, bg=self.colors['panel_bg'])
+        log_frame.pack(fill='both', expand=True, padx=20, pady=(0, 15))
 
-        # Price row
-        price_row = tk.Frame(section, bg=self.colors['panel_bg'])
-        price_row.pack(pady=(0, 40))
+        scrollbar = tk.Scrollbar(log_frame)
+        scrollbar.pack(side='right', fill='y')
 
-        self.price_label = tk.Label(price_row, text="5880.25",
-                                    font=("Helvetica", 64, "bold"),
-                                    fg=self.colors['text_white'],
-                                    bg=self.colors['panel_bg'])
-        self.price_label.pack(side='left', padx=15)
+        self.market_log = tk.Text(log_frame,
+                                 bg=self.colors['input_bg'],
+                                 fg=self.colors['text_gray'],
+                                 font=("Courier", 8),
+                                 wrap='word',
+                                 height=12,
+                                 yscrollcommand=scrollbar.set,
+                                 state='disabled',
+                                 relief='flat')
+        self.market_log.pack(fill='both', expand=True)
+        scrollbar.config(command=self.market_log.yview)
 
-        self.change_label = tk.Label(price_row, text="▲ 20.73%",
-                                     font=("Helvetica", 64, "bold"),
-                                     fg=self.colors['green_light'],
-                                     bg=self.colors['panel_bg'])
-        self.change_label.pack(side='left', padx=15)
+        # Configure text tags for color coding
+        self.market_log.tag_config('session', foreground=self.colors['blue'])
+        self.market_log.tag_config('rejection', foreground=self.colors['yellow'])
+        self.market_log.tag_config('bank', foreground=self.colors['green_light'])
+        self.market_log.tag_config('warning', foreground=self.colors['red'])
+        self.market_log.tag_config('info', foreground=self.colors['text_gray'])
+
+        self.add_market_log("Waiting for bot market context...")
 
     def create_strategy_list(self, parent):
         """Create strategy list section"""
@@ -535,6 +540,31 @@ class JulieUI:
         else:
             update()
 
+    def add_market_log(self, message):
+        """Add entry to market context log with color coding"""
+        def update():
+            self.market_log.config(state='normal')
+
+            # Determine tag based on content
+            tag = 'info'
+            if '🕒 Session' in message or 'SESSION' in message:
+                tag = 'session'
+            elif '🎯 REJECTION' in message or 'REJECTION' in message:
+                tag = 'rejection'
+            elif '🏦' in message or 'BANK' in message or 'ORB' in message:
+                tag = 'bank'
+            elif '⚠️' in message or 'WARNING' in message or 'BLOCK' in message:
+                tag = 'warning'
+
+            self.market_log.insert('end', message + '\n', tag)
+            self.market_log.see('end')
+            self.market_log.config(state='disabled')
+
+        if threading.current_thread() != threading.main_thread():
+            self.root.after(0, update)
+        else:
+            update()
+
     def fetch_contract_id(self):
         """Fetch contract ID for position monitoring"""
         if not self.session or not self.token:
@@ -614,8 +644,24 @@ class JulieUI:
         if not line:
             return
 
-        # Add to event log
-        self.add_log(line)
+        # Determine if this is market context or general event
+        is_market_context = any(keyword in line for keyword in [
+            '🕒 Session', 'SESSION CHANGE', 'SESSION change',
+            '🎯 REJECTION', 'REJECTION_DETECTED', 'REJECTION CONFIRMED',
+            '🏦', 'ORB', 'BANK', 'Prev PM', 'Prev Session',
+            '📅 New day', 'QUARTER CHANGE',
+            '⚠️ CHOP', '⚠️ PENALTY', 'CEILING', 'FLOOR',
+            'HTF FVG Memory', 'Bar:', 'Price:',
+            '📈 CONTINUATION', '📉 CONTINUATION',
+            '🔁 BIAS FLIP', '🔄 QUARTER',
+            'Backfill Complete', 'ExtFilter'
+        ])
+
+        # Route to appropriate log
+        if is_market_context:
+            self.add_market_log(line)
+        else:
+            self.add_log(line)
 
         # Parse strategy signals
         for strategy in self.strategy_labels.keys():
