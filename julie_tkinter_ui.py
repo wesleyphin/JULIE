@@ -59,6 +59,7 @@ class JulieUI:
         self.current_price = 5880.25
         self.logged_in = False
         self.monitoring_active = False
+        self.paused = False  # Pause state for log analysis
 
         # Bot integration
         self.log_file = Path("topstep_live_bot.log")
@@ -187,9 +188,9 @@ class JulieUI:
                              text="LOGIN",
                              font=("Helvetica", 16, "bold"),
                              bg='#2d2d2d',  # Dark grey
-                             fg='#ffffff',  # White font
+                             fg='#000000',  # Black font
                              activebackground='#3d3d3d',  # Lighter grey on hover
-                             activeforeground='#ffffff',  # White font on hover
+                             activeforeground='#000000',  # Black font on hover
                              relief='flat',
                              cursor='hand2',
                              command=self.handle_login)
@@ -385,6 +386,39 @@ class JulieUI:
                         fg=self.colors['text_white'],
                         bg=self.colors['bg_dark'])
         title.pack(side='left')
+
+        # Pause/Play controls (top right)
+        controls_frame = tk.Frame(header, bg=self.colors['bg_dark'])
+        controls_frame.pack(side='right')
+
+        self.pause_btn = tk.Button(controls_frame,
+                                   text="⏸ PAUSE",
+                                   font=("Helvetica", 12, "bold"),
+                                   bg=self.colors['yellow'],
+                                   fg='#000000',
+                                   activebackground='#fcd34d',
+                                   activeforeground='#000000',
+                                   relief='flat',
+                                   cursor='hand2',
+                                   command=self.toggle_pause,
+                                   padx=20,
+                                   pady=8)
+        self.pause_btn.pack(side='left', padx=5)
+
+        self.play_btn = tk.Button(controls_frame,
+                                  text="▶ PLAY",
+                                  font=("Helvetica", 12, "bold"),
+                                  bg=self.colors['green'],
+                                  fg='#000000',
+                                  activebackground=self.colors['green_light'],
+                                  activeforeground='#000000',
+                                  relief='flat',
+                                  cursor='hand2',
+                                  command=self.toggle_pause,
+                                  padx=20,
+                                  pady=8,
+                                  state='disabled')
+        self.play_btn.pack(side='left', padx=5)
 
         # Main content area
         content = tk.Frame(main, bg=self.colors['bg_dark'])
@@ -821,6 +855,21 @@ class JulieUI:
         except Exception as e:
             self.add_log(f"Error fetching contract: {e}")
 
+    def toggle_pause(self):
+        """Toggle pause/play state for log analysis"""
+        self.paused = not self.paused
+
+        if self.paused:
+            # Paused - enable play, disable pause
+            self.pause_btn.config(state='disabled')
+            self.play_btn.config(state='normal')
+            self.add_log("⏸ Monitoring PAUSED - logs frozen for analysis")
+        else:
+            # Playing - enable pause, disable play
+            self.pause_btn.config(state='normal')
+            self.play_btn.config(state='disabled')
+            self.add_log("▶ Monitoring RESUMED")
+
     def start_monitoring(self):
         """Start real-time monitoring of bot log and API"""
         self.monitoring_active = True
@@ -828,19 +877,22 @@ class JulieUI:
         # Thread 1: Monitor log file
         def monitor_log():
             while self.monitoring_active:
-                self.tail_log_file()
+                if not self.paused:
+                    self.tail_log_file()
                 time.sleep(0.5)
 
         # Thread 2: Monitor positions
         def monitor_positions():
             while self.monitoring_active:
-                self.fetch_position()
+                if not self.paused:
+                    self.fetch_position()
                 time.sleep(2)
 
         # Thread 3: Monitor market price
         def monitor_price():
             while self.monitoring_active:
-                self.fetch_price()
+                if not self.paused:
+                    self.fetch_price()
                 time.sleep(3)
 
         threading.Thread(target=monitor_log, daemon=True).start()
