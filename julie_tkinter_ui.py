@@ -12,6 +12,10 @@ import requests
 from datetime import datetime
 from pathlib import Path
 import re
+import subprocess
+import sys
+import os
+import signal
 
 # Import from existing monitoring infrastructure
 try:
@@ -28,14 +32,14 @@ class JulieUI:
         self.root.geometry("1600x900")
         self.root.configure(bg='#000000')
 
-        # Color scheme matching the screenshots
+        # Color scheme - all solid black backgrounds
         self.colors = {
             'bg_dark': '#000000',
-            'bg_gradient_start': '#0a1a0e',
-            'bg_gradient_end': '#0a0e1a',
-            'panel_bg': '#1a1f2e',
+            'bg_gradient_start': '#000000',
+            'bg_gradient_end': '#000000',
+            'panel_bg': '#000000',
             'panel_border': '#2a4a3a',
-            'input_bg': '#2d3340',
+            'input_bg': '#000000',
             'input_border': '#3a4a3a',
             'text_white': '#ffffff',
             'text_gray': '#9ca3af',
@@ -60,6 +64,10 @@ class JulieUI:
         self.log_file = Path("topstep_live_bot.log")
         self.log_position = 0
         self.contract_id = None
+        self.bot_process = None  # Track the julie001.py subprocess
+
+        # Setup cleanup on window close
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         # Show login page
         self.show_login_page()
@@ -70,14 +78,9 @@ class JulieUI:
         for widget in self.root.winfo_children():
             widget.destroy()
 
-        # Create gradient background effect
+        # Create solid black background
         canvas = tk.Canvas(self.root, bg='#000000', highlightthickness=0)
         canvas.pack(fill='both', expand=True)
-
-        # Create gradient effect with rectangles
-        canvas.create_rectangle(0, 0, 1600, 900, fill='#0a0e1a', outline='')
-        canvas.create_oval(-200, -200, 800, 800, fill='#0a1a0e', outline='')
-        canvas.create_oval(1000, 200, 1800, 1100, fill='#0a1a0e', outline='')
 
         # Create login panel
         panel_frame = tk.Frame(canvas, bg=self.colors['panel_bg'],
@@ -127,10 +130,10 @@ class JulieUI:
         login_btn = tk.Button(panel_frame,
                              text="LOGIN",
                              font=("Helvetica", 16, "bold"),
-                             bg=self.colors['green'],
-                             fg='white',
-                             activebackground=self.colors['green_light'],
-                             activeforeground='white',
+                             bg='#2d2d2d',  # Dark grey
+                             fg='#ffffff',  # White for contrast
+                             activebackground='#3d3d3d',  # Lighter grey on hover
+                             activeforeground='#ffffff',
                              relief='flat',
                              cursor='hand2',
                              command=self.handle_login)
@@ -200,7 +203,7 @@ class JulieUI:
         self.accounts = [{'name': 'ACCT-001', 'id': 'ACCT-001'}]
 
     def handle_login(self):
-        """Handle login button click"""
+        """Handle login button click and launch julie001.py in background"""
         selected_name = self.account_var.get()
 
         # Find the account
@@ -212,8 +215,85 @@ class JulieUI:
         if not self.selected_account:
             self.selected_account = {'name': selected_name, 'id': selected_name}
 
+        # Launch julie001.py in background with selected account
+        self.launch_bot()
+
         self.logged_in = True
         self.show_dashboard()
+
+    def launch_bot(self):
+        """Launch julie001.py as a background subprocess with selected account"""
+        if self.bot_process:
+            # Bot already running
+            return
+
+        account_id = self.selected_account.get('id')
+        if not account_id:
+            print("No account ID selected, cannot launch bot")
+            return
+
+        # Set environment variable for account ID
+        env = os.environ.copy()
+        env['JULIE_ACCOUNT_ID'] = str(account_id)
+
+        # Find julie001.py in current directory
+        bot_script = Path(__file__).parent / "julie001.py"
+
+        if not bot_script.exists():
+            print(f"Error: {bot_script} not found")
+            return
+
+        try:
+            # Launch julie001.py as subprocess
+            self.bot_process = subprocess.Popen(
+                [sys.executable, str(bot_script)],
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,  # Prevent interactive prompts
+                cwd=str(bot_script.parent),
+                bufsize=1  # Line buffered
+            )
+            print(f"✓ julie001.py launched in background (PID: {self.bot_process.pid})")
+            print(f"  Account: {account_id}")
+
+            # Monitor bot output in background thread
+            def monitor_bot_output():
+                """Monitor bot stdout/stderr and log any errors"""
+                if not self.bot_process:
+                    return
+                for line in iter(self.bot_process.stderr.readline, b''):
+                    if line:
+                        decoded = line.decode('utf-8', errors='ignore').strip()
+                        if decoded and any(kw in decoded.upper() for kw in ['ERROR', 'CRITICAL', 'FAILED']):
+                            print(f"[BOT] {decoded}")
+
+            threading.Thread(target=monitor_bot_output, daemon=True).start()
+
+        except Exception as e:
+            print(f"Error launching julie001.py: {e}")
+            self.bot_process = None
+
+    def on_closing(self):
+        """Clean up when window is closed"""
+        # Stop monitoring
+        self.monitoring_active = False
+
+        # Terminate bot subprocess if running
+        if self.bot_process:
+            print("\nStopping julie001.py bot...")
+            try:
+                # Try graceful termination first
+                self.bot_process.terminate()
+                self.bot_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                # Force kill if it doesn't stop
+                self.bot_process.kill()
+                self.bot_process.wait()
+            print("Bot stopped.")
+
+        # Close window
+        self.root.destroy()
 
     def show_dashboard(self):
         """Create main dashboard matching the screenshot"""
@@ -336,22 +416,13 @@ class JulieUI:
                          anchor='w')
         header.pack(fill='x', padx=20, pady=(15, 10))
 
-        # Scrollable container
-        canvas = tk.Canvas(section, bg=self.colors['panel_bg'],
-                          highlightthickness=0)
-        scrollbar = tk.Scrollbar(section, orient='vertical', command=canvas.yview)
-        scrollable = tk.Frame(canvas, bg=self.colors['panel_bg'])
+        # Grid container (2 columns)
+        grid = tk.Frame(section, bg=self.colors['panel_bg'])
+        grid.pack(fill='both', expand=True, padx=20, pady=(0, 15))
 
-        scrollable.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable, anchor='nw')
-        canvas.configure(yscrollcommand=scrollbar.set)
-
-        canvas.pack(side='left', fill='both', expand=True, padx=20, pady=(0, 15))
-        scrollbar.pack(side='right', fill='y')
+        # Configure grid
+        grid.columnconfigure(0, weight=1, uniform='col')
+        grid.columnconfigure(1, weight=1, uniform='col')
 
         # Strategy entries - All 9 from JULIE
         strategies = [
@@ -367,25 +438,28 @@ class JulieUI:
         ]
 
         self.strategy_labels = {}
-        for name in strategies:
-            entry = tk.Frame(scrollable, bg=self.colors['input_bg'],
+        for idx, name in enumerate(strategies):
+            row = idx // 2
+            col = idx % 2
+
+            entry = tk.Frame(grid, bg=self.colors['input_bg'],
                            highlightbackground=self.colors['input_border'],
                            highlightthickness=1)
-            entry.pack(fill='x', pady=3)
+            entry.grid(row=row, column=col, padx=3, pady=3, sticky='ew')
 
             name_label = tk.Label(entry, text=name,
-                                 font=("Helvetica", 12),
+                                 font=("Helvetica", 11),
                                  fg=self.colors['text_white'],
                                  bg=self.colors['input_bg'],
                                  anchor='w')
-            name_label.pack(side='left', padx=15, pady=10)
+            name_label.pack(side='left', padx=12, pady=8)
 
             status_label = tk.Label(entry, text="WAITING",
-                                   font=("Helvetica", 10),
+                                   font=("Helvetica", 9),
                                    fg=self.colors['text_gray'],
                                    bg=self.colors['input_bg'],
                                    anchor='e')
-            status_label.pack(side='right', padx=15)
+            status_label.pack(side='right', padx=12)
 
             self.strategy_labels[name] = status_label
 
@@ -443,18 +517,18 @@ class JulieUI:
 
         # ALL 12 filter entries (10 filters + 2 blockers)
         filters = [
-            ("Rejection", "SAFE"),
-            ("Chop", "SAFE"),
-            ("Extension", "SAFE"),
-            ("Volatility", "SAFE"),
-            ("Trend", "SAFE"),
-            ("Impulse", "SAFE"),
-            ("HTF FVG", "SAFE"),
-            ("Bank Level", "SAFE"),
-            ("Memory S/R", "SAFE"),
-            ("News", "SAFE"),
-            ("Structure", "SAFE"),
-            ("Loss Block", "SAFE"),
+            ("Rejection", "IDLE"),
+            ("Chop", "IDLE"),
+            ("Extension", "IDLE"),
+            ("Volatility", "IDLE"),
+            ("Trend", "IDLE"),
+            ("Impulse", "IDLE"),
+            ("HTF FVG", "IDLE"),
+            ("Bank Level", "IDLE"),
+            ("Memory S/R", "IDLE"),
+            ("News", "IDLE"),
+            ("Structure", "IDLE"),
+            ("Loss Block", "IDLE"),
         ]
 
         self.filter_labels = {}
@@ -468,7 +542,18 @@ class JulieUI:
 
     def create_filter_box(self, parent, row, col, name, status):
         """Create individual filter indicator"""
-        box = tk.Frame(parent, bg=self.colors['input_bg'],
+        # Determine initial background color
+        if status in ["PASS", "SAFE"]:
+            bg_color = '#1a3d2e'  # Dark green
+            status_color = self.colors['green_light']
+        elif status in ["BLOCK", "FAIL"]:
+            bg_color = '#3d1a1a'  # Dark red
+            status_color = self.colors['red']
+        else:  # IDLE or neutral
+            bg_color = self.colors['input_bg']  # Neutral gray
+            status_color = self.colors['text_gray']
+
+        box = tk.Frame(parent, bg=bg_color,
                       highlightbackground=self.colors['input_border'],
                       highlightthickness=1)
         box.grid(row=row, column=col, padx=4, pady=4, sticky='nsew')
@@ -476,17 +561,21 @@ class JulieUI:
         name_label = tk.Label(box, text=name,
                              font=("Helvetica", 10, "bold"),
                              fg=self.colors['text_white'],
-                             bg=self.colors['input_bg'])
+                             bg=bg_color)
         name_label.pack(pady=(12, 4))
 
-        status_color = self.colors['green'] if status in ["PASS", "SAFE"] else self.colors['red']
         status_label = tk.Label(box, text=f"[{status}]",
                                font=("Helvetica", 9, "bold"),
                                fg=status_color,
-                               bg=self.colors['input_bg'])
+                               bg=bg_color)
         status_label.pack(pady=(4, 12))
 
-        self.filter_labels[name] = status_label
+        # Store both the box frame, labels, and status label for updates
+        self.filter_labels[name] = {
+            'box': box,
+            'name_label': name_label,
+            'status_label': status_label
+        }
 
     def create_event_log(self, parent):
         """Create live event log section"""
@@ -719,10 +808,27 @@ class JulieUI:
         self.root.after(0, update)
 
     def update_filter(self, name, status, color):
-        """Update filter status"""
+        """Update filter status and background color"""
         def update():
             if name in self.filter_labels:
-                self.filter_labels[name].config(text=f"[{status}]", fg=color)
+                filter_info = self.filter_labels[name]
+
+                # Determine background color based on status
+                if status in ["PASS", "SAFE"]:
+                    bg_color = '#1a3d2e'  # Dark green
+                    status_color = self.colors['green_light']
+                elif status in ["BLOCK", "FAIL"]:
+                    bg_color = '#3d1a1a'  # Dark red
+                    status_color = self.colors['red']
+                else:  # IDLE or neutral
+                    bg_color = self.colors['input_bg']  # Neutral gray
+                    status_color = self.colors['text_gray']
+
+                # Update all components
+                filter_info['box'].config(bg=bg_color)
+                filter_info['name_label'].config(bg=bg_color)
+                filter_info['status_label'].config(text=f"[{status}]", fg=status_color, bg=bg_color)
+
         self.root.after(0, update)
 
     def fetch_position(self):
