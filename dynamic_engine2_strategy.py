@@ -47,18 +47,34 @@ class DynamicEngine2Strategy(Strategy):
             # Calculate dynamic SL/TP using the original 1m dataframe for accurate real-time ATR
             dynamic_params = get_sltp(strat_key, df)
 
+            # --- LOGIC UPDATE: ENFORCE MINIMUM SL & POSITIVE RR ---
+            MIN_SL_FLOOR = 4.0      # Minimum SL in points
+            TARGET_RR = 1.5         # Minimum Reward-to-Risk Ratio
+
+            final_sl = dynamic_params['sl_dist']
+            final_tp = dynamic_params['tp_dist']
+
+            # 1. Enforce SL Floor
+            if final_sl < MIN_SL_FLOOR:
+                final_sl = MIN_SL_FLOOR
+
+            # 2. Enforce Positive RR based on NEW SL
+            required_tp = final_sl * TARGET_RR
+            if final_tp < required_tp:
+                final_tp = required_tp
+
             logging.info(f"🚀 DYNAMIC ENGINE 2 TRIGGER: {signal_data['strategy_id']}")
             logging.info(f"📉 Tightening Risk: Overriding Static {signal_data['sl']}/{signal_data['tp']} "
-                         f"with Dynamic {dynamic_params['sl_dist']}/{dynamic_params['tp_dist']} "
-                         f"(Source: {dynamic_params['hierarchy_key']})")
+                         f"with Dynamic {final_sl}/{final_tp} "
+                         f"(Source: {dynamic_params['hierarchy_key']} + Floor/RR)")
 
             return {
                 "strategy": "DynamicEngine2",
                 "sub_strategy": signal_data['strategy_id'],
                 "side": signal_data['signal'],
                 # Use the tighter, calculated distributions instead of the engine's hardcoded ones
-                "tp_dist": dynamic_params['tp_dist'],
-                "sl_dist": dynamic_params['sl_dist']
+                "tp_dist": final_tp,
+                "sl_dist": final_sl
             }
 
         return None

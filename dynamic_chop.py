@@ -191,8 +191,22 @@ class DynamicChopAnalyzer:
         micro_vol = micro_high - micro_low
 
         if micro_vol <= 5.0:
-            # We are in tight compression in a non-trending market.
-            # Rule: DO NOT assume a breakout. The TP MUST fit inside these 2 bars.
+            # --- NEW LOGIC: Allow Fading the Edges ---
+            # Calculate position in range (0.0 = Low, 1.0 = High)
+            if micro_vol > 0:
+                range_pos = (entry_price - micro_low) / micro_vol
+            else:
+                range_pos = 0.5  # Flat
+
+            # ALLOW Short if we are in the top 25% of the range (Fading the High)
+            if side.upper() == "SHORT" and range_pos >= 0.75:
+                return True, f"Allowed: Fading Top of Micro Range ({micro_vol:.2f}pts). Price @ {range_pos:.0%} of High."
+
+            # ALLOW Long if we are in the bottom 25% of the range (Fading the Low)
+            if side.upper() == "LONG" and range_pos <= 0.25:
+                return True, f"Allowed: Fading Bottom of Micro Range ({micro_vol:.2f}pts). Price @ {range_pos:.0%} of Low."
+
+            # Otherwise, BLOCK (Trying to short the bottom or long the top of a chop range is suicide)
             if side.upper() == "LONG":
                 target = entry_price + tp_distance
                 if target > micro_high:
