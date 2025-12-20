@@ -4,6 +4,7 @@ import requests
 import pandas as pd
 from datetime import timezone as dt_timezone
 from zoneinfo import ZoneInfo
+from pandas.tseries.holiday import USFederalHolidayCalendar
 
 
 class NewsFilter:
@@ -25,6 +26,9 @@ class NewsFilter:
         # 2. Event Containers
         self.calendar_blackouts = [] # Future/Active events (for blocking trades)
         self.recent_events = []      # All events in current month (for Gemini context)
+
+        # 3. Holiday Calendar
+        self.holiday_cal = USFederalHolidayCalendar()
 
         # Load the calendar immediately
         self.refresh_calendar()
@@ -139,6 +143,45 @@ class NewsFilter:
             return ["No major high-impact events detected this month."]
 
         return [f"{e['date_str']} | {e['title']}" for e in sorted_events]
+
+    def get_holiday_context(self, current_time: datetime.datetime) -> str:
+        """
+        Determines if a bank holiday is approaching or just passed.
+        Returns status codes for GeminiSessionOptimizer to adjust risk parameters.
+
+        Status Codes:
+        - NORMAL_LIQUIDITY: No holidays nearby
+        - HOLIDAY_TODAY: Market is closed or extremely low volume
+        - PRE_HOLIDAY_1_DAYS, PRE_HOLIDAY_2_DAYS, PRE_HOLIDAY_3_DAYS: Approaching holiday
+        - POST_HOLIDAY_RECOVERY: Day after holiday (volume returning)
+        """
+        # Ensure time is in ET timezone
+        if current_time.tzinfo is None:
+            current_time = current_time.replace(tzinfo=dt_timezone.utc).astimezone(self.et)
+        else:
+            current_time = current_time.astimezone(self.et)
+
+        today = current_time.date()
+
+        # Look for holidays within 1 day before and 3 days after
+        start_date = pd.Timestamp(today - datetime.timedelta(days=1))
+        end_date = pd.Timestamp(today + datetime.timedelta(days=3))
+        holidays = self.holiday_cal.holidays(start=start_date, end=end_date)
+
+        if holidays.empty:
+            return "NORMAL_LIQUIDITY"
+
+        # Get the nearest holiday
+        h_date = holidays[0].date()
+
+        if h_date == today:
+            return "HOLIDAY_TODAY"
+        elif h_date > today:
+            days_away = (h_date - today).days
+            return f"PRE_HOLIDAY_{days_away}_DAYS"
+        else:
+            # Holiday was yesterday
+            return "POST_HOLIDAY_RECOVERY"
 
     def should_block_trade(self, current_time: datetime.datetime) -> tuple[bool, str]:
         # Ensure time is ET
