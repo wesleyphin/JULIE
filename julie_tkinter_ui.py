@@ -626,7 +626,8 @@ class JulieUI:
         section = tk.Frame(parent, bg=self.colors['panel_bg'],
                           highlightbackground=self.colors['panel_border'],
                           highlightthickness=1)
-        section.pack(fill='both', expand=True)
+        section.pack(fill='x', pady=(0, 10))  # Don't expand, fixed height
+        section.pack_propagate(True)
 
         # Header
         header = tk.Label(section, text="LIVE EVENT LOG",
@@ -638,7 +639,7 @@ class JulieUI:
 
         # Log text widget
         log_frame = tk.Frame(section, bg=self.colors['panel_bg'])
-        log_frame.pack(fill='both', expand=True, padx=20, pady=(0, 15))
+        log_frame.pack(fill='x', expand=False, padx=20, pady=(0, 15))
 
         scrollbar = tk.Scrollbar(log_frame)
         scrollbar.pack(side='right', fill='y')
@@ -648,10 +649,11 @@ class JulieUI:
                                fg=self.colors['text_gray'],
                                font=("Courier", 9),
                                wrap='word',
+                               height=10,  # Fixed height - half of original
                                yscrollcommand=scrollbar.set,
                                state='disabled',
                                relief='flat')
-        self.log_text.pack(fill='both', expand=True)
+        self.log_text.pack(fill='both', expand=False)
         scrollbar.config(command=self.log_text.yview)
 
         self.add_log("Waiting for bot activity...")
