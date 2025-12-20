@@ -499,6 +499,7 @@ class JulieUI:
 
         # Configure text tags for color coding
         self.gemini_log_text.tag_config('gemini', foreground=self.colors['blue'])
+        self.gemini_log_text.tag_config('reasoning', foreground='#a78bfa')  # Purple for reasoning
         self.gemini_log_text.tag_config('info', foreground=self.colors['text_gray'])
         self.gemini_log_text.tag_config('success', foreground=self.colors['green_light'])
         self.gemini_log_text.tag_config('warning', foreground=self.colors['yellow'])
@@ -700,16 +701,18 @@ class JulieUI:
         def update():
             self.gemini_log_text.config(state='normal')
 
-            # Determine tag based on content
+            # Determine tag based on content (priority order matters)
             tag = 'info'
-            if 'GEMINI' in message.upper() or 'LLM' in message.upper():
-                tag = 'gemini'
-            elif 'SUCCESS' in message.upper() or 'APPROVED' in message.upper():
-                tag = 'success'
+            if 'ERROR' in message.upper() or 'FAILED' in message.upper():
+                tag = 'error'
             elif 'WARNING' in message.upper() or 'CAUTION' in message.upper():
                 tag = 'warning'
-            elif 'ERROR' in message.upper() or 'FAILED' in message.upper():
-                tag = 'error'
+            elif 'SUCCESS' in message.upper() or 'APPROVED' in message.upper():
+                tag = 'success'
+            elif any(kw in message.upper() for kw in ['REASONING', 'THINK', 'THOUGHT', 'RATIONALE', 'DECISION', 'CONCLUSION', 'INFERENCE']):
+                tag = 'reasoning'
+            elif 'GEMINI' in message.upper() or 'LLM' in message.upper():
+                tag = 'gemini'
 
             self.gemini_log_text.insert('end', message + '\n', tag)
             self.gemini_log_text.see('end')
@@ -827,7 +830,14 @@ class JulieUI:
         # Determine if this is Gemini LLM activity
         is_gemini_log = any(keyword in line for keyword in [
             'GEMINI', 'Gemini', 'LLM', 'AI', 'gemini',
-            'MODEL', 'PREDICTION', 'ANALYSIS', 'RECOMMENDATION'
+            'MODEL', 'PREDICTION', 'ANALYSIS', 'RECOMMENDATION',
+            'REASONING', 'Reasoning', 'reasoning',
+            'THINK', 'THOUGHT', 'Think', 'Thought',
+            'RATIONALE', 'Rationale', 'rationale',
+            'DECISION', 'Decision', 'decision',
+            'CONCLUSION', 'Conclusion', 'conclusion',
+            'INFERENCE', 'Inference', 'inference',
+            'AI Analysis', 'AI Decision', 'AI Reasoning'
         ])
 
         # Route to appropriate log
