@@ -32,14 +32,14 @@ class JulieUI:
         self.root.geometry("1600x900")
         self.root.configure(bg='#000000')
 
-        # Color scheme matching the screenshots
+        # Color scheme - all solid black backgrounds
         self.colors = {
             'bg_dark': '#000000',
-            'bg_gradient_start': '#0a1a0e',
-            'bg_gradient_end': '#0a0e1a',
-            'panel_bg': '#1a1f2e',
+            'bg_gradient_start': '#000000',
+            'bg_gradient_end': '#000000',
+            'panel_bg': '#000000',
             'panel_border': '#2a4a3a',
-            'input_bg': '#2d3340',
+            'input_bg': '#000000',
             'input_border': '#3a4a3a',
             'text_white': '#ffffff',
             'text_gray': '#9ca3af',
@@ -78,14 +78,9 @@ class JulieUI:
         for widget in self.root.winfo_children():
             widget.destroy()
 
-        # Create gradient background effect
+        # Create solid black background
         canvas = tk.Canvas(self.root, bg='#000000', highlightthickness=0)
         canvas.pack(fill='both', expand=True)
-
-        # Create gradient effect with rectangles
-        canvas.create_rectangle(0, 0, 1600, 900, fill='#0a0e1a', outline='')
-        canvas.create_oval(-200, -200, 800, 800, fill='#0a1a0e', outline='')
-        canvas.create_oval(1000, 200, 1800, 1100, fill='#0a1a0e', outline='')
 
         # Create login panel
         panel_frame = tk.Frame(canvas, bg=self.colors['panel_bg'],
