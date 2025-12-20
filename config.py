@@ -1,4 +1,5 @@
 import datetime
+import os
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -12,7 +13,7 @@ CONFIG = {
     "API_KEY": "",
 
     # --- ACCOUNT/CONTRACT (will be fetched dynamically) ---
-    "ACCOUNT_ID": None,  # Fetched via /Account/search
+    "ACCOUNT_ID": os.environ.get("JULIE_ACCOUNT_ID"),  # Can be set via env var or fetched via /Account/search
     "CONTRACT_ID": None,  # Fetched via /Contract/available (e.g., "CON.F.US.MES.H25")
     "CONTRACT_ROOT": "MES",  # Symbol root used to determine current MES contract (e.g., CON.F.US.MES.Z25)
     "TARGET_SYMBOL": None,  # Determined dynamically from date and CONTRACT_ROOT

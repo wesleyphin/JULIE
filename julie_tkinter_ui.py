@@ -12,6 +12,10 @@ import requests
 from datetime import datetime
 from pathlib import Path
 import re
+import subprocess
+import sys
+import os
+import signal
 
 # Import from existing monitoring infrastructure
 try:
@@ -60,6 +64,10 @@ class JulieUI:
         self.log_file = Path("topstep_live_bot.log")
         self.log_position = 0
         self.contract_id = None
+        self.bot_process = None  # Track the julie001.py subprocess
+
+        # Setup cleanup on window close
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
         # Show login page
         self.show_login_page()
@@ -200,7 +208,7 @@ class JulieUI:
         self.accounts = [{'name': 'ACCT-001', 'id': 'ACCT-001'}]
 
     def handle_login(self):
-        """Handle login button click"""
+        """Handle login button click and launch julie001.py in background"""
         selected_name = self.account_var.get()
 
         # Find the account
@@ -212,8 +220,85 @@ class JulieUI:
         if not self.selected_account:
             self.selected_account = {'name': selected_name, 'id': selected_name}
 
+        # Launch julie001.py in background with selected account
+        self.launch_bot()
+
         self.logged_in = True
         self.show_dashboard()
+
+    def launch_bot(self):
+        """Launch julie001.py as a background subprocess with selected account"""
+        if self.bot_process:
+            # Bot already running
+            return
+
+        account_id = self.selected_account.get('id')
+        if not account_id:
+            print("No account ID selected, cannot launch bot")
+            return
+
+        # Set environment variable for account ID
+        env = os.environ.copy()
+        env['JULIE_ACCOUNT_ID'] = str(account_id)
+
+        # Find julie001.py in current directory
+        bot_script = Path(__file__).parent / "julie001.py"
+
+        if not bot_script.exists():
+            print(f"Error: {bot_script} not found")
+            return
+
+        try:
+            # Launch julie001.py as subprocess
+            self.bot_process = subprocess.Popen(
+                [sys.executable, str(bot_script)],
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,  # Prevent interactive prompts
+                cwd=str(bot_script.parent),
+                bufsize=1  # Line buffered
+            )
+            print(f"✓ julie001.py launched in background (PID: {self.bot_process.pid})")
+            print(f"  Account: {account_id}")
+
+            # Monitor bot output in background thread
+            def monitor_bot_output():
+                """Monitor bot stdout/stderr and log any errors"""
+                if not self.bot_process:
+                    return
+                for line in iter(self.bot_process.stderr.readline, b''):
+                    if line:
+                        decoded = line.decode('utf-8', errors='ignore').strip()
+                        if decoded and any(kw in decoded.upper() for kw in ['ERROR', 'CRITICAL', 'FAILED']):
+                            print(f"[BOT] {decoded}")
+
+            threading.Thread(target=monitor_bot_output, daemon=True).start()
+
+        except Exception as e:
+            print(f"Error launching julie001.py: {e}")
+            self.bot_process = None
+
+    def on_closing(self):
+        """Clean up when window is closed"""
+        # Stop monitoring
+        self.monitoring_active = False
+
+        # Terminate bot subprocess if running
+        if self.bot_process:
+            print("\nStopping julie001.py bot...")
+            try:
+                # Try graceful termination first
+                self.bot_process.terminate()
+                self.bot_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                # Force kill if it doesn't stop
+                self.bot_process.kill()
+                self.bot_process.wait()
+            print("Bot stopped.")
+
+        # Close window
+        self.root.destroy()
 
     def show_dashboard(self):
         """Create main dashboard matching the screenshot"""
