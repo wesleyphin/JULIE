@@ -363,7 +363,7 @@ class JulieUI:
         section = tk.Frame(parent, bg=self.colors['panel_bg'],
                           highlightbackground=self.colors['panel_border'],
                           highlightthickness=1)
-        section.pack(fill='x', pady=(0, 10))
+        section.pack(fill='both', expand=True)  # Fill entire right panel height
 
         # Header
         header = tk.Label(section, text="SIGNAL MONITOR & MARKET CONTEXT",
@@ -508,11 +508,13 @@ class JulieUI:
         self.add_gemini_log("Waiting for Gemini LLM activity...")
 
     def create_positions_section(self, parent):
-        """Create active positions section"""
+        """Create active positions section - compact height"""
         section = tk.Frame(parent, bg=self.colors['panel_bg'],
                           highlightbackground=self.colors['panel_border'],
-                          highlightthickness=1)
+                          highlightthickness=1,
+                          height=150)  # Fixed compact height - half of strategy list
         section.pack(fill='x', pady=(0, 10))
+        section.pack_propagate(False)  # Prevent expansion
 
         # Header
         header = tk.Label(section, text="ACTIVE POSITIONS",
@@ -524,7 +526,7 @@ class JulieUI:
 
         # Position container
         self.position_container = tk.Frame(section, bg=self.colors['panel_bg'])
-        self.position_container.pack(fill='x', padx=20, pady=(0, 15))
+        self.position_container.pack(fill='both', expand=True, padx=20, pady=(0, 15))
 
         # Initially empty
         self.no_position_label = tk.Label(self.position_container,
@@ -626,7 +628,8 @@ class JulieUI:
         section = tk.Frame(parent, bg=self.colors['panel_bg'],
                           highlightbackground=self.colors['panel_border'],
                           highlightthickness=1)
-        section.pack(fill='both', expand=True)
+        section.pack(fill='x', pady=(0, 10))  # Don't expand, fixed height
+        section.pack_propagate(True)
 
         # Header
         header = tk.Label(section, text="LIVE EVENT LOG",
@@ -638,7 +641,7 @@ class JulieUI:
 
         # Log text widget
         log_frame = tk.Frame(section, bg=self.colors['panel_bg'])
-        log_frame.pack(fill='both', expand=True, padx=20, pady=(0, 15))
+        log_frame.pack(fill='x', expand=False, padx=20, pady=(0, 15))
 
         scrollbar = tk.Scrollbar(log_frame)
         scrollbar.pack(side='right', fill='y')
@@ -648,10 +651,11 @@ class JulieUI:
                                fg=self.colors['text_gray'],
                                font=("Courier", 9),
                                wrap='word',
+                               height=10,  # Fixed height - half of original
                                yscrollcommand=scrollbar.set,
                                state='disabled',
                                relief='flat')
-        self.log_text.pack(fill='both', expand=True)
+        self.log_text.pack(fill='both', expand=False)
         scrollbar.config(command=self.log_text.yview)
 
         self.add_log("Waiting for bot activity...")
@@ -827,17 +831,17 @@ class JulieUI:
             'Calibrated', 'Threshold'
         ])
 
-        # Determine if this is Gemini LLM activity
-        is_gemini_log = any(keyword in line for keyword in [
-            'GEMINI', 'Gemini', 'LLM', 'AI', 'gemini',
+        # Determine if this is Gemini LLM activity (case-insensitive)
+        line_upper = line.upper()
+        is_gemini_log = any(keyword in line_upper for keyword in [
+            'GEMINI', 'LLM', 'AI ',  # AI with space to avoid false matches
             'MODEL', 'PREDICTION', 'ANALYSIS', 'RECOMMENDATION',
-            'REASONING', 'Reasoning', 'reasoning',
-            'THINK', 'THOUGHT', 'Think', 'Thought',
-            'RATIONALE', 'Rationale', 'rationale',
-            'DECISION', 'Decision', 'decision',
-            'CONCLUSION', 'Conclusion', 'conclusion',
-            'INFERENCE', 'Inference', 'inference',
-            'AI Analysis', 'AI Decision', 'AI Reasoning'
+            'REASONING', 'REASON', 'THINK', 'THINKING', 'THOUGHT',
+            'RATIONALE', 'DECISION', 'DECIDE', 'CONCLUSION',
+            'INFERENCE', 'INFER', 'EVALUATE', 'EVALUATION',
+            'AI ANALYSIS', 'AI DECISION', 'AI REASONING',
+            'CONTEXT:', 'ANALYZING', 'CONSIDERING',
+            'NEURAL', 'LANGUAGE MODEL', 'ML ', 'MACHINE LEARNING'
         ])
 
         # Route to appropriate log
