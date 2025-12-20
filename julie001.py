@@ -321,7 +321,9 @@ def run_bot():
                 logging.info(f"🔄 SESSION HANDOVER: {last_processed_session} -> {current_session_name}")
 
                 if CONFIG.get('GEMINI', {}).get('enabled', False):
-                    print(f"\n🧠 OPTIMIZING FOR {current_session_name} SESSION...")
+                    print("\n" + "=" * 60)
+                    print(f"🧠 GEMINI OPTIMIZATION - {current_session_name} SESSION")
+                    print("=" * 60)
 
                     # 1. Fetch Events
                     try:
@@ -333,6 +335,16 @@ def run_bot():
                     # 1b. Get Holiday Context
                     try:
                         holiday_context = news_filter.get_holiday_context(current_time)
+                        # Log holiday status with emoji indicator
+                        if holiday_context == "HOLIDAY_TODAY":
+                            logging.info(f"🚨 HOLIDAY STATUS: {holiday_context} - Market closed/dead volume")
+                        elif holiday_context.startswith("PRE_HOLIDAY"):
+                            days = holiday_context.split("_")[-2]
+                            logging.info(f"📅 HOLIDAY STATUS: Bank Holiday in {days} day(s) - Reducing targets")
+                        elif holiday_context == "POST_HOLIDAY_RECOVERY":
+                            logging.info(f"🔄 HOLIDAY STATUS: {holiday_context} - Volatility expanding")
+                        else:
+                            logging.info(f"✅ HOLIDAY STATUS: {holiday_context}")
                     except Exception as e:
                         logging.warning(f"Failed to get holiday context: {e}")
                         holiday_context = "NORMAL_LIQUIDITY"
@@ -418,13 +430,27 @@ def run_bot():
                         if trend_params:
                             trend_filter.update_dynamic_params(trend_params)
 
+                        # Enhanced logging with holiday context
                         logging.info(f"🎯 NEW MULTIPLIERS | SL: {sl_mult}x | TP: {tp_mult}x | CHOP: {chop_mult}x")
                         logging.info(f"🌊 TREND REGIME: {trend_params.get('regime', 'DEFAULT')}")
+
+                        # Show holiday-specific adjustments if applicable
+                        if holiday_context != "NORMAL_LIQUIDITY":
+                            if holiday_context == "HOLIDAY_TODAY":
+                                logging.info(f"⚠️  HOLIDAY ADJUSTMENTS: Extreme risk reduction (Market closed)")
+                            elif holiday_context.startswith("PRE_HOLIDAY"):
+                                logging.info(f"⚠️  HOLIDAY ADJUSTMENTS: Targets reduced ~40% (Pre-holiday illiquidity)")
+                            elif holiday_context == "POST_HOLIDAY_RECOVERY":
+                                logging.info(f"⚠️  HOLIDAY ADJUSTMENTS: Stops widened +12% (Post-holiday volatility)")
+
                         logging.info(f"📝 REASONING: {reason}")
+                        print("=" * 60 + "\n")
                     else:
                         CONFIG['DYNAMIC_SL_MULTIPLIER'] = 1.0
                         CONFIG['DYNAMIC_TP_MULTIPLIER'] = 1.0
                         chop_analyzer.update_gemini_params(1.0)  # Reset on failure
+                        logging.warning("⚠️  Gemini optimization failed - using default multipliers")
+                        print("=" * 60 + "\n")
 
                 last_processed_session = current_session_name
 
