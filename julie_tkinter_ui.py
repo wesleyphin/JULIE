@@ -125,7 +125,7 @@ class JulieUI:
 
         # Login Button
         login_btn = tk.Button(panel_frame,
-                             text="🔒 LOGIN",
+                             text="LOGIN",
                              font=("Helvetica", 16, "bold"),
                              bg=self.colors['green'],
                              fg='white',
@@ -290,30 +290,36 @@ class JulieUI:
                          fg=self.colors['text_gray'],
                          bg=self.colors['panel_bg'],
                          anchor='w')
-        header.pack(fill='x', padx=20, pady=(15, 30))
+        header.pack(fill='x', padx=20, pady=(15, 10))
 
-        # Market display
-        self.market_symbol_label = tk.Label(section, text="MES FUTURES",
-                                           font=("Helvetica", 56, "bold"),
-                                           fg=self.colors['text_white'],
-                                           bg=self.colors['panel_bg'])
-        self.market_symbol_label.pack(pady=(0, 10))
+        # Market context log (scrollable)
+        log_frame = tk.Frame(section, bg=self.colors['panel_bg'])
+        log_frame.pack(fill='both', expand=True, padx=20, pady=(0, 15))
 
-        # Price row
-        price_row = tk.Frame(section, bg=self.colors['panel_bg'])
-        price_row.pack(pady=(0, 40))
+        scrollbar = tk.Scrollbar(log_frame)
+        scrollbar.pack(side='right', fill='y')
 
-        self.price_label = tk.Label(price_row, text="5880.25",
-                                    font=("Helvetica", 64, "bold"),
-                                    fg=self.colors['text_white'],
-                                    bg=self.colors['panel_bg'])
-        self.price_label.pack(side='left', padx=15)
+        self.market_log = tk.Text(log_frame,
+                                 bg=self.colors['input_bg'],
+                                 fg=self.colors['text_gray'],
+                                 font=("Courier", 8),
+                                 wrap='word',
+                                 height=12,
+                                 yscrollcommand=scrollbar.set,
+                                 state='disabled',
+                                 relief='flat')
+        self.market_log.pack(fill='both', expand=True)
+        scrollbar.config(command=self.market_log.yview)
 
-        self.change_label = tk.Label(price_row, text="▲ 20.73%",
-                                     font=("Helvetica", 64, "bold"),
-                                     fg=self.colors['green_light'],
-                                     bg=self.colors['panel_bg'])
-        self.change_label.pack(side='left', padx=15)
+        # Configure text tags for color coding
+        self.market_log.tag_config('session', foreground=self.colors['blue'])
+        self.market_log.tag_config('rejection', foreground=self.colors['yellow'])
+        self.market_log.tag_config('bank', foreground=self.colors['green_light'])
+        self.market_log.tag_config('warning', foreground=self.colors['red'])
+        self.market_log.tag_config('drift', foreground='#00d4ff')  # Cyan for drift/calibration
+        self.market_log.tag_config('info', foreground=self.colors['text_gray'])
+
+        self.add_market_log("Waiting for bot market context...")
 
     def create_strategy_list(self, parent):
         """Create strategy list section"""
@@ -437,53 +443,48 @@ class JulieUI:
 
         # ALL 12 filter entries (10 filters + 2 blockers)
         filters = [
-            ("Rejection", "SAFE", "❌"),
-            ("Chop", "SAFE", "🌊"),
-            ("Extension", "SAFE", "📈"),
-            ("Volatility", "SAFE", "🎯"),
-            ("Trend", "SAFE", "📉"),
-            ("Impulse", "SAFE", "⚡"),
-            ("HTF FVG", "SAFE", "🎚️"),
-            ("Bank Level", "SAFE", "💰"),
-            ("Memory S/R", "SAFE", "🧠"),
-            ("News", "SAFE", "📰"),
-            ("Structure", "SAFE", "🏗️"),
-            ("Loss Block", "SAFE", "🛡️"),
+            ("Rejection", "SAFE"),
+            ("Chop", "SAFE"),
+            ("Extension", "SAFE"),
+            ("Volatility", "SAFE"),
+            ("Trend", "SAFE"),
+            ("Impulse", "SAFE"),
+            ("HTF FVG", "SAFE"),
+            ("Bank Level", "SAFE"),
+            ("Memory S/R", "SAFE"),
+            ("News", "SAFE"),
+            ("Structure", "SAFE"),
+            ("Loss Block", "SAFE"),
         ]
 
         self.filter_labels = {}
         row, col = 0, 0
-        for name, status, icon in filters:
-            self.create_filter_box(grid, row, col, name, status, icon)
+        for name, status in filters:
+            self.create_filter_box(grid, row, col, name, status)
             col += 1
             if col >= 4:
                 col = 0
                 row += 1
 
-    def create_filter_box(self, parent, row, col, name, status, icon):
+    def create_filter_box(self, parent, row, col, name, status):
         """Create individual filter indicator"""
         box = tk.Frame(parent, bg=self.colors['input_bg'],
                       highlightbackground=self.colors['input_border'],
                       highlightthickness=1)
         box.grid(row=row, column=col, padx=4, pady=4, sticky='nsew')
 
-        icon_label = tk.Label(box, text=icon,
-                             font=("Helvetica", 24),
-                             bg=self.colors['input_bg'])
-        icon_label.pack(pady=(6, 2))
-
         name_label = tk.Label(box, text=name,
-                             font=("Helvetica", 8, "bold"),
+                             font=("Helvetica", 10, "bold"),
                              fg=self.colors['text_white'],
                              bg=self.colors['input_bg'])
-        name_label.pack(pady=2)
+        name_label.pack(pady=(12, 4))
 
         status_color = self.colors['green'] if status in ["PASS", "SAFE"] else self.colors['red']
         status_label = tk.Label(box, text=f"[{status}]",
-                               font=("Helvetica", 7, "bold"),
+                               font=("Helvetica", 9, "bold"),
                                fg=status_color,
                                bg=self.colors['input_bg'])
-        status_label.pack(pady=(2, 6))
+        status_label.pack(pady=(4, 12))
 
         self.filter_labels[name] = status_label
 
@@ -529,6 +530,33 @@ class JulieUI:
             self.log_text.insert('end', message + '\n')
             self.log_text.see('end')
             self.log_text.config(state='disabled')
+
+        if threading.current_thread() != threading.main_thread():
+            self.root.after(0, update)
+        else:
+            update()
+
+    def add_market_log(self, message):
+        """Add entry to market context log with color coding"""
+        def update():
+            self.market_log.config(state='normal')
+
+            # Determine tag based on content
+            tag = 'info'
+            if '🕒 Session' in message or 'SESSION HANDOVER' in message or 'SESSION CHANGE' in message:
+                tag = 'session'
+            elif '🎯 REJECTION' in message or 'REJECTION' in message:
+                tag = 'rejection'
+            elif '🏦' in message or 'BANK' in message or 'ORB' in message:
+                tag = 'bank'
+            elif '⚠️' in message or 'WARNING' in message or 'BLOCK' in message:
+                tag = 'warning'
+            elif '🌊 DRIFT' in message or 'CALIBRATION' in message or 'Calibrated' in message:
+                tag = 'drift'
+
+            self.market_log.insert('end', message + '\n', tag)
+            self.market_log.see('end')
+            self.market_log.config(state='disabled')
 
         if threading.current_thread() != threading.main_thread():
             self.root.after(0, update)
@@ -614,8 +642,37 @@ class JulieUI:
         if not line:
             return
 
-        # Add to event log
-        self.add_log(line)
+        # Determine if this is event log content (heartbeats, trades, blocks, API)
+        is_event_log = any(keyword in line for keyword in [
+            '💓', 'heartbeat', 'Heartbeat',  # Heartbeats
+            '🚀 SENDING ORDER', 'ORDER PLACED', 'FILL', 'EXECUTED',  # Trade execution
+            '⛔ Signal ignored', 'BLOCKED', 'FILTER_CHECK', '✗ BLOCK',  # Blocked trades
+            'API', 'returned no bars', 'No bars', 'rate limit',  # API logs
+            'Trade closed', 'Position', 'P&L',  # Trade results
+            'STRATEGY_SIGNAL'  # Strategy signals
+        ])
+
+        # Determine if this is market context
+        is_market_context = any(keyword in line for keyword in [
+            '🕒 Session', 'SESSION CHANGE', 'SESSION change', 'SESSION HANDOVER',
+            '🎯 REJECTION', 'REJECTION_DETECTED', 'REJECTION CONFIRMED',
+            '🏦', 'ORB', 'BANK', 'Prev PM', 'Prev Session',
+            '📅 New day', 'QUARTER CHANGE',
+            '⚠️ CHOP', '⚠️ PENALTY', 'CEILING', 'FLOOR',
+            'HTF FVG Memory', 'Bar:', 'Price:',
+            '📈 CONTINUATION', '📉 CONTINUATION',
+            '🔁 BIAS FLIP', '🔄 QUARTER',
+            'Backfill Complete', 'ExtFilter',
+            '🌊 DRIFT DETECTED', 'CALIBRATION COMPLETE', 'DynamicChop',
+            'Calibrated', 'Threshold'
+        ])
+
+        # Route to appropriate log
+        if is_event_log:
+            self.add_log(line)
+        elif is_market_context:
+            self.add_market_log(line)
+        # Otherwise, don't display (filter out noise)
 
         # Parse strategy signals
         for strategy in self.strategy_labels.keys():
