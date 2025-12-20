@@ -831,17 +831,17 @@ class JulieUI:
             'Calibrated', 'Threshold'
         ])
 
-        # Determine if this is Gemini LLM activity
-        is_gemini_log = any(keyword in line for keyword in [
-            'GEMINI', 'Gemini', 'LLM', 'AI', 'gemini',
+        # Determine if this is Gemini LLM activity (case-insensitive)
+        line_upper = line.upper()
+        is_gemini_log = any(keyword in line_upper for keyword in [
+            'GEMINI', 'LLM', 'AI ',  # AI with space to avoid false matches
             'MODEL', 'PREDICTION', 'ANALYSIS', 'RECOMMENDATION',
-            'REASONING', 'Reasoning', 'reasoning',
-            'THINK', 'THOUGHT', 'Think', 'Thought',
-            'RATIONALE', 'Rationale', 'rationale',
-            'DECISION', 'Decision', 'decision',
-            'CONCLUSION', 'Conclusion', 'conclusion',
-            'INFERENCE', 'Inference', 'inference',
-            'AI Analysis', 'AI Decision', 'AI Reasoning'
+            'REASONING', 'REASON', 'THINK', 'THINKING', 'THOUGHT',
+            'RATIONALE', 'DECISION', 'DECIDE', 'CONCLUSION',
+            'INFERENCE', 'INFER', 'EVALUATE', 'EVALUATION',
+            'AI ANALYSIS', 'AI DECISION', 'AI REASONING',
+            'CONTEXT:', 'ANALYZING', 'CONSIDERING',
+            'NEURAL', 'LANGUAGE MODEL', 'ML ', 'MACHINE LEARNING'
         ])
 
         # Route to appropriate log
