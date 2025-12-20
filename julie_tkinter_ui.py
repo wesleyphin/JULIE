@@ -91,7 +91,7 @@ class JulieUI:
         # Create login panel
         panel_frame = tk.Frame(canvas, bg=self.colors['panel_bg'],
                               highlightthickness=0)
-        canvas.create_window(800, 450, window=panel_frame, width=500, height=550)
+        canvas.create_window(800, 450, window=panel_frame, width=500, height=650)
 
         # JULIE Logo (Animated GIF)
         try:
@@ -107,11 +107,19 @@ class JulieUI:
                     while True:
                         # Copy the frame and convert to PhotoImage
                         frame = gif.copy()
-                        # Resize if needed (max 300px wide)
-                        if frame.width > 300:
-                            ratio = 300 / frame.width
+                        # Resize if needed (max 300px wide, max 200px tall)
+                        max_width = 300
+                        max_height = 200
+
+                        width_ratio = max_width / frame.width if frame.width > max_width else 1
+                        height_ratio = max_height / frame.height if frame.height > max_height else 1
+                        ratio = min(width_ratio, height_ratio)
+
+                        if ratio < 1:
+                            new_width = int(frame.width * ratio)
                             new_height = int(frame.height * ratio)
-                            frame = frame.resize((300, new_height), Image.Resampling.LANCZOS)
+                            frame = frame.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
                         photo = ImageTk.PhotoImage(frame)
                         self.logo_frames.append(photo)
                         gif.seek(len(self.logo_frames))  # Move to next frame
@@ -121,7 +129,7 @@ class JulieUI:
                 # Create label and start animation
                 if self.logo_frames:
                     self.logo_label = tk.Label(panel_frame, bg=self.colors['panel_bg'])
-                    self.logo_label.pack(pady=(50, 80))
+                    self.logo_label.pack(pady=(30, 40))
                     self.logo_frame_index = 0
                     self.animate_logo()
                 else:
@@ -172,16 +180,16 @@ class JulieUI:
                                font=("Helvetica", 14),
                                style='Login.TCombobox',
                                width=32)
-        dropdown.pack(pady=(0, 50), padx=60)
+        dropdown.pack(pady=(0, 30), padx=60)
 
         # Login Button
         login_btn = tk.Button(panel_frame,
                              text="LOGIN",
                              font=("Helvetica", 16, "bold"),
                              bg='#2d2d2d',  # Dark grey
-                             fg='#000000',  # Black font
+                             fg='#ffffff',  # White font
                              activebackground='#3d3d3d',  # Lighter grey on hover
-                             activeforeground='#000000',  # Black font on hover
+                             activeforeground='#ffffff',  # White font on hover
                              relief='flat',
                              cursor='hand2',
                              command=self.handle_login)
