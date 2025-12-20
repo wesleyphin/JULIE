@@ -508,11 +508,13 @@ class JulieUI:
         self.add_gemini_log("Waiting for Gemini LLM activity...")
 
     def create_positions_section(self, parent):
-        """Create active positions section"""
+        """Create active positions section - compact height"""
         section = tk.Frame(parent, bg=self.colors['panel_bg'],
                           highlightbackground=self.colors['panel_border'],
-                          highlightthickness=1)
+                          highlightthickness=1,
+                          height=150)  # Fixed compact height - half of strategy list
         section.pack(fill='x', pady=(0, 10))
+        section.pack_propagate(False)  # Prevent expansion
 
         # Header
         header = tk.Label(section, text="ACTIVE POSITIONS",
@@ -524,7 +526,7 @@ class JulieUI:
 
         # Position container
         self.position_container = tk.Frame(section, bg=self.colors['panel_bg'])
-        self.position_container.pack(fill='x', padx=20, pady=(0, 15))
+        self.position_container.pack(fill='both', expand=True, padx=20, pady=(0, 15))
 
         # Initially empty
         self.no_position_label = tk.Label(self.position_container,
