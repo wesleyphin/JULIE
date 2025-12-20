@@ -29,6 +29,7 @@ from dynamic_chop import DynamicChopAnalyzer
 from ict_model_strategy import ICTModelStrategy
 from ml_physics_strategy import MLPhysicsStrategy
 from dynamic_engine_strategy import DynamicEngineStrategy
+from dynamic_engine2_strategy import DynamicEngine2Strategy
 from event_logger import event_logger
 from circuit_breaker import CircuitBreaker
 from news_filter import NewsFilter
@@ -169,11 +170,13 @@ def run_bot():
     # STANDARD PRIORITY - Normal execution
     ml_strategy = MLPhysicsStrategy()
     dynamic_engine_strat = DynamicEngineStrategy()
+    dynamic_engine2_strat = DynamicEngine2Strategy()
     smt_strategy = SMTStrategy()
 
     standard_strategies = [
         ConfluenceStrategy(),
         dynamic_engine_strat,
+        dynamic_engine2_strat,
         smt_strategy,
     ]
     
@@ -1203,8 +1206,8 @@ def run_bot():
                                                  else "NEUTRAL"))
                             vol_regime, _, _ = volatility_filter.get_regime(new_df)
 
-                            # Chop (Except DynamicEngine)
-                            if signal['strategy'] not in ["DynamicEngine"]:
+                            # Chop (Except DynamicEngine/DynamicEngine2)
+                            if signal['strategy'] not in ["DynamicEngine", "DynamicEngine2"]:
                                 chop_blocked, chop_reason = chop_filter.should_block_trade(
                                     signal['side'],
                                     rejection_filter.prev_day_pm_bias,
@@ -1218,8 +1221,8 @@ def run_bot():
                                 else:
                                     event_logger.log_filter_check("ChopFilter", signal['side'], True)
 
-                            # Extension (Except DynamicEngine)
-                            if signal['strategy'] not in ["DynamicEngine"]:
+                            # Extension (Except DynamicEngine/DynamicEngine2)
+                            if signal['strategy'] not in ["DynamicEngine", "DynamicEngine2"]:
                                 ext_blocked, ext_reason = extension_filter.should_block_trade(signal['side'])
                                 if ext_blocked:
                                     event_logger.log_filter_check("ExtensionFilter", signal['side'], False, ext_reason)
