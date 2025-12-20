@@ -834,14 +834,34 @@ class JulieUI:
         # Determine if this is Gemini LLM activity (case-insensitive)
         line_upper = line.upper()
         is_gemini_log = any(keyword in line_upper for keyword in [
+            # Core Gemini/AI keywords
             'GEMINI', 'LLM', 'AI ',  # AI with space to avoid false matches
-            'MODEL', 'PREDICTION', 'ANALYSIS', 'RECOMMENDATION',
-            'REASONING', 'REASON', 'THINK', 'THINKING', 'THOUGHT',
+            '🧠 GEMINI', '🧠',  # Gemini brain emoji
+            'GEMINI 3.0', 'GEMINI MULTIPLIER',
+
+            # Reasoning keywords
+            'REASONING', 'REASON:', '📝 REASONING',
+            'THINK', 'THINKING', 'THOUGHT',
             'RATIONALE', 'DECISION', 'DECIDE', 'CONCLUSION',
             'INFERENCE', 'INFER', 'EVALUATE', 'EVALUATION',
-            'AI ANALYSIS', 'AI DECISION', 'AI REASONING',
-            'CONTEXT:', 'ANALYZING', 'CONSIDERING',
-            'NEURAL', 'LANGUAGE MODEL', 'ML ', 'MACHINE LEARNING'
+
+            # Analysis keywords
+            'ANALYZING', 'ANALYSIS', 'ANALYZING SESSION',
+            'CONTEXT FOR', 'SESSION-ALIGNED CONTEXT',
+
+            # AI decision indicators
+            '🎯 NEW MULTIPLIERS', 'MULTIPLIERS', 'MULTIPLIER:',
+            'UPDATED GEMINI', 'DYNAMICCHOP] UPDATED',
+
+            # Technical AI terms
+            'NEURAL', 'LANGUAGE MODEL', 'ML ', 'MACHINE LEARNING',
+            'MODEL', 'PREDICTION', 'RECOMMENDATION',
+
+            # Environment analysis
+            'CHOPPY', 'RANGING', 'ROTATIONAL ENVIRONMENT',
+            'ADX IS', 'INSIDE VALUE', 'WIN RATE',
+            'RISK:', 'TREND:', 'CHOP:',
+            'BASE RR', 'VOLATILITY'
         ])
 
         # Route to appropriate log
