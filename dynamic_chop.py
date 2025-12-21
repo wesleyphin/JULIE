@@ -54,11 +54,14 @@ class DynamicChopAnalyzer:
                     df_60["high"].rolling(self.LOOKBACK).max()
                     - df_60["low"].rolling(self.LOOKBACK).min()
                 ).dropna()
-                self.base_thresholds["60M"] = float(np.percentile(r_60, 20))
-                logging.info(
-                    "[DynamicChop] Calibrated 60M Threshold: %.2f (Old Logic)",
-                    self.base_thresholds["60M"],
-                )
+                if len(r_60) > 0:
+                    self.base_thresholds["60M"] = float(np.percentile(r_60, 20))
+                    logging.info(
+                        "[DynamicChop] Calibrated 60M Threshold: %.2f (Old Logic)",
+                        self.base_thresholds["60M"],
+                    )
+                else:
+                    logging.warning("[DynamicChop] Insufficient data for 60M calibration, using default")
 
             # 2. Fetch 15-Minute Data (Tier 2) - THE COMPROMISE
             # -----------------------------------------------------------------
@@ -73,11 +76,14 @@ class DynamicChopAnalyzer:
                     df_15["high"].rolling(4).max()
                     - df_15["low"].rolling(4).min()
                 ).dropna()
-                self.base_thresholds["15M"] = float(np.percentile(r_15, 20))
-                logging.info(
-                    "[DynamicChop] Calibrated 15M Threshold: %.2f (Hybrid Logic: 1H Window)",
-                    self.base_thresholds["15M"],
-                )
+                if len(r_15) > 0:
+                    self.base_thresholds["15M"] = float(np.percentile(r_15, 20))
+                    logging.info(
+                        "[DynamicChop] Calibrated 15M Threshold: %.2f (Hybrid Logic: 1H Window)",
+                        self.base_thresholds["15M"],
+                    )
+                else:
+                    logging.warning("[DynamicChop] Insufficient data for 15M calibration, using default")
 
             # 3. Fetch 1-Minute Data (Tier 3)
             # STANDARD LOGIC: Use LOOKBACK (20) -> 20 minutes of data.
@@ -87,11 +93,14 @@ class DynamicChopAnalyzer:
                     df_1["high"].rolling(self.LOOKBACK).max()
                     - df_1["low"].rolling(self.LOOKBACK).min()
                 ).dropna()
-                self.base_thresholds["1M"] = float(np.percentile(r_1, 20))
-                logging.info(
-                    "[DynamicChop] Calibrated 1M Threshold: %.2f",
-                    self.base_thresholds["1M"],
-                )
+                if len(r_1) > 0:
+                    self.base_thresholds["1M"] = float(np.percentile(r_1, 20))
+                    logging.info(
+                        "[DynamicChop] Calibrated 1M Threshold: %.2f",
+                        self.base_thresholds["1M"],
+                    )
+                else:
+                    logging.warning("[DynamicChop] Insufficient data for 1M calibration, using default")
 
         except Exception as e:
             logging.error("[DynamicChop] Calibration Error: %s", e)
