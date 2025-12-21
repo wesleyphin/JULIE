@@ -315,9 +315,9 @@ class JulieUI:
                 env=env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                stdin=subprocess.DEVNULL,  # Prevent interactive prompts
+                stdin=subprocess.DEVNULL,
                 cwd=str(bot_script.parent),
-                bufsize=1  # Line buffered
+                bufsize=0  # Unbuffered (Binary compatible)
             )
             print(f"✓ julie001.py launched in background (PID: {self.bot_process.pid})")
             print(f"  Account: {account_id}")
