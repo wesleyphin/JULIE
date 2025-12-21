@@ -1,6 +1,3 @@
-Perfect! I've got your batch file. Now I'll update it to include tkinter and pillow in the package checks and installation. Here's your updated file:
-
-text
 @echo off
 
 color 03
@@ -28,6 +25,7 @@ echo.
 echo [1] Virtual environment already exists
 
 echo.
+)
 
 
 REM Step 2: Activate venv
@@ -120,6 +118,7 @@ echo [3] All packages already installed
 
 echo.
 
+)
 
 REM Step 4: Run the UI Monitor
 
