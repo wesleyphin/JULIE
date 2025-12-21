@@ -114,6 +114,31 @@ CONFIG = {
         "model": "gemini-3-pro-preview",
     },
 
+    # --- COPY TRADING CONFIGURATION ---
+    # Leader-Follower architecture for replicating trades across multiple accounts
+    "COPY_TRADING": {
+        "enabled": False,  # Set to True to enable copy trading
+        "followers": [
+            # Example follower account configuration:
+            # {
+            #     "username": "follower_account_1",
+            #     "api_key": "YOUR_FOLLOWER_API_KEY_1",
+            #     "account_id": "FOLLOWER_ACCOUNT_ID_1",
+            #     "contract_id": "CON.F.US.MES.H25",  # Can be same or different (MES vs ES)
+            #     "size_ratio": 1.0,  # 1.0 = same size as leader, 0.5 = half size
+            #     "enabled": True
+            # },
+            # {
+            #     "username": "follower_account_2",
+            #     "api_key": "YOUR_FOLLOWER_API_KEY_2",
+            #     "account_id": "FOLLOWER_ACCOUNT_ID_2",
+            #     "contract_id": "CON.F.US.MES.H25",
+            #     "size_ratio": 0.5,  # Trade half the size of leader
+            #     "enabled": True
+            # }
+        ]
+    },
+
     # Dynamic Multipliers (Updated by Bot at runtime)
     "DYNAMIC_SL_MULTIPLIER": 1.0,
     "DYNAMIC_TP_MULTIPLIER": 1.0,
