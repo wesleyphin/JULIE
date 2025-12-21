@@ -38,6 +38,7 @@ from impulse_filter import ImpulseFilter
 from client import ProjectXClient
 from risk_engine import OptimizedTPEngine
 from gemini_optimizer import GeminiSessionOptimizer
+from copy_trading_setup import setup_copy_trading_interactive
 
 # ==========================================
 # RESAMPLER HELPER FUNCTION
@@ -139,6 +140,20 @@ def run_bot():
     print(f"\n✅ Setup complete:")
     print(f"   Account ID: {client.account_id}")
     print(f"   Contract ID: {client.contract_id}")
+
+    # Step 4: Copy Trading Setup (Optional)
+    print("\n" + "=" * 60)
+    copy_trader = setup_copy_trading_interactive(client.session)
+    if copy_trader:
+        # Re-initialize client with copy trader
+        client = ProjectXClient(copy_trader=copy_trader)
+        client.login()
+        client.account_id = account_id
+        client.contract_id = contract_id
+        print(f"✅ Copy trading enabled with {len(copy_trader.follower_accounts)} follower(s)")
+    else:
+        print("Copy trading disabled")
+    print("=" * 60)
 
     # Secondary client for MNQ data (SMT divergence inputs)
     mnq_target_symbol = determine_current_contract_symbol(
