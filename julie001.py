@@ -39,6 +39,8 @@ from client import ProjectXClient
 from risk_engine import OptimizedTPEngine
 from gemini_optimizer import GeminiSessionOptimizer
 from copy_trading_setup import setup_copy_trading_interactive
+from copy_trading_config import load_copy_trading_config, has_copy_trading_config
+from copy_trader import FollowerAccount, CopyTrader
 
 # ==========================================
 # RESAMPLER HELPER FUNCTION
@@ -141,18 +143,59 @@ def run_bot():
     print(f"   Account ID: {client.account_id}")
     print(f"   Contract ID: {client.contract_id}")
 
-    # Step 4: Copy Trading Setup (Optional)
+    # Step 4: Copy Trading Setup (Load from config or prompt)
     print("\n" + "=" * 60)
-    copy_trader = setup_copy_trading_interactive(client.session)
+    print("COPY TRADING SETUP")
+    print("=" * 60)
+
+    # Load existing copy trading configuration
+    copy_config = load_copy_trading_config()
+    copy_trader = None
+
+    if copy_config['enabled'] and copy_config['followers']:
+        # Configuration exists and is enabled - use it
+        print(f"✅ Copy trading is ENABLED")
+        print(f"   Followers: {len(copy_config['followers'])} account(s)")
+
+        # Create CopyTrader from saved config
+        followers = []
+        for f in copy_config['followers']:
+            if f.get('enabled', True):
+                follower = FollowerAccount(
+                    username=f['username'],
+                    api_key=f['api_key'],
+                    account_id=f['account_id'],
+                    contract_id=f['contract_id'],
+                    size_ratio=f.get('size_ratio', 1.0),
+                    enabled=f.get('enabled', True)
+                )
+                followers.append(follower)
+                print(f"   → {f['account_id']} (ratio: {f.get('size_ratio', 1.0)}x)")
+
+        if followers:
+            copy_trader = CopyTrader(followers)
+            print(f"\n✅ Copy trader initialized with {len(followers)} follower(s)")
+    elif has_copy_trading_config():
+        # Configuration exists but is disabled
+        print(f"⚠️  Copy trading is DISABLED")
+        print(f"   (Use UI or delete copy_trading_config.json to reconfigure)")
+    else:
+        # No configuration - prompt to set up
+        print("Copy trading is not configured.")
+        response = input("\n❓ Would you like to set up copy trading now? (y/n): ").strip().lower()
+
+        if response == 'y':
+            copy_trader = setup_copy_trading_interactive(client.session)
+        else:
+            print("Skipping copy trading setup. You can enable it later from the UI.")
+
+    # Re-initialize client with copy trader if enabled
     if copy_trader:
-        # Re-initialize client with copy trader
         client = ProjectXClient(copy_trader=copy_trader)
         client.login()
         client.account_id = account_id
         client.contract_id = contract_id
-        print(f"✅ Copy trading enabled with {len(copy_trader.follower_accounts)} follower(s)")
-    else:
-        print("Copy trading disabled")
+
     print("=" * 60)
 
     # Secondary client for MNQ data (SMT divergence inputs)
