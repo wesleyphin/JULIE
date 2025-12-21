@@ -721,24 +721,18 @@ class JulieUI:
         self.no_position_label.pack(pady=10)
 
     def create_copy_trading_stats_section(self, parent):
-        """Create copy trading statistics section"""
+        """Create copy trading statistics and controls section"""
         # Check if copy trading is enabled
         copy_config = CONFIG.get('COPY_TRADING', {})
         enabled = copy_config.get('enabled', False)
-
-        if not enabled:
-            # Don't show section if disabled
-            return
-
         followers = copy_config.get('followers', [])
         active_followers = [f for f in followers if f.get('enabled', True)]
 
+        # Always show the section (even if disabled)
         section = tk.Frame(parent, bg=self.colors['panel_bg'],
                           highlightbackground=self.colors['panel_border'],
-                          highlightthickness=1,
-                          height=120)  # Compact height
+                          highlightthickness=1)
         section.pack(fill='x', pady=(0, 10))
-        section.pack_propagate(False)  # Prevent expansion
 
         # Header with icon
         header_frame = tk.Frame(section, bg=self.colors['panel_bg'])
@@ -747,7 +741,7 @@ class JulieUI:
         header_icon = tk.Label(header_frame, text="📋",
                               font=("Helvetica", 10),
                               bg=self.colors['panel_bg'],
-                              fg=self.colors['green'])
+                              fg=self.colors['green'] if enabled else self.colors['text_dim'])
         header_icon.pack(side='left', padx=(0, 5))
 
         header = tk.Label(header_frame, text="COPY TRADING",
@@ -761,7 +755,7 @@ class JulieUI:
         stats_container = tk.Frame(section, bg=self.colors['panel_bg'])
         stats_container.pack(fill='both', expand=True, padx=20, pady=(0, 15))
 
-        if active_followers:
+        if enabled and active_followers:
             # Show follower count
             follower_frame = tk.Frame(stats_container, bg=self.colors['input_bg'],
                                      highlightbackground=self.colors['input_border'],
@@ -789,16 +783,66 @@ class JulieUI:
             self.copy_trading_status_label = status_label
             self.copy_trading_follower_label = follower_label
         else:
-            # No followers configured
-            warning_label = tk.Label(stats_container,
-                                    text="⚠️ No followers configured",
+            # Show status message
+            if enabled and not active_followers:
+                status_text = "⚠️ No followers configured"
+                status_color = self.colors['yellow']
+            else:
+                status_text = "Copy trading is disabled"
+                status_color = self.colors['text_dim']
+
+            status_label = tk.Label(stats_container,
+                                    text=status_text,
                                     font=("Helvetica", 10),
-                                    fg=self.colors['yellow'],
+                                    fg=status_color,
                                     bg=self.colors['panel_bg'])
-            warning_label.pack(pady=10)
+            status_label.pack(pady=5)
 
             self.copy_trading_status_label = None
             self.copy_trading_follower_label = None
+
+        # Control buttons
+        button_frame = tk.Frame(stats_container, bg=self.colors['panel_bg'])
+        button_frame.pack(fill='x', pady=(10, 0))
+
+        # Enable/Disable button
+        if enabled:
+            btn_text = "🛑 Disable Copy Trading"
+            btn_color = self.colors['red']
+            btn_command = self.disable_copy_trading
+        else:
+            btn_text = "✅ Enable Copy Trading"
+            btn_color = self.colors['green']
+            btn_command = self.enable_copy_trading
+
+        toggle_btn = tk.Button(button_frame,
+                              text=btn_text,
+                              font=("Helvetica", 9, "bold"),
+                              bg=btn_color,
+                              fg='#FFFFFF',
+                              activebackground=btn_color,
+                              activeforeground='#FFFFFF',
+                              relief='flat',
+                              cursor='hand2',
+                              command=btn_command,
+                              padx=10,
+                              pady=6)
+        toggle_btn.pack(side='left', padx=(0, 5))
+
+        # Select Accounts button
+        select_btn = tk.Button(button_frame,
+                              text="🔧 Select Follower Accounts",
+                              font=("Helvetica", 9, "bold"),
+                              bg=self.colors['blue'],
+                              fg='#FFFFFF',
+                              activebackground='#4a90e2',
+                              activeforeground='#FFFFFF',
+                              relief='flat',
+                              cursor='hand2',
+                              command=self.select_copy_trading_accounts,
+                              padx=10,
+                              pady=6)
+        select_btn.pack(side='left')
 
     def create_filters_section(self, parent):
         """Create filter status dashboard - ALL 12 filters"""
@@ -1029,6 +1073,210 @@ class JulieUI:
             self.pause_btn.config(state='normal')
             self.play_btn.config(state='disabled')
             self.add_log("▶ Monitoring RESUMED")
+
+    def enable_copy_trading(self):
+        """Enable copy trading and prompt for account selection"""
+        import tkinter.messagebox as messagebox
+
+        result = messagebox.askyesno(
+            "Enable Copy Trading",
+            "Do you want to enable copy trading?\n\n"
+            "This will allow trades on your main account to be automatically copied to follower accounts."
+        )
+
+        if not result:
+            return
+
+        # Prompt to select follower accounts
+        self.select_copy_trading_accounts(enable_after_selection=True)
+
+    def disable_copy_trading(self):
+        """Disable copy trading"""
+        import tkinter.messagebox as messagebox
+
+        result = messagebox.askyesno(
+            "Disable Copy Trading",
+            "Are you sure you want to disable copy trading?\n\n"
+            "Trades will no longer be copied to follower accounts."
+        )
+
+        if result:
+            CONFIG['COPY_TRADING']['enabled'] = False
+            self.add_log("🛑 Copy trading disabled")
+            # Refresh the dashboard to update UI
+            self.show_dashboard()
+
+    def select_copy_trading_accounts(self, enable_after_selection=False):
+        """Open account selection dialog for copy trading followers"""
+        import tkinter.messagebox as messagebox
+        from copy_trading_setup import setup_copy_trading_from_accounts
+
+        if not self.session:
+            messagebox.showerror("Error", "Not authenticated. Please login first.")
+            return
+
+        # Create a new window for account selection
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select Follower Accounts")
+        dialog.geometry("600x500")
+        dialog.configure(bg=self.colors['bg_dark'])
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Title
+        title = tk.Label(dialog,
+                        text="Select Follower Accounts",
+                        font=("Helvetica", 16, "bold"),
+                        fg=self.colors['text_white'],
+                        bg=self.colors['bg_dark'])
+        title.pack(pady=20)
+
+        # Instructions
+        instructions = tk.Label(dialog,
+                               text="Select accounts that will copy trades from your leader account:",
+                               font=("Helvetica", 10),
+                               fg=self.colors['text_gray'],
+                               bg=self.colors['bg_dark'])
+        instructions.pack(pady=(0, 10))
+
+        # Fetch accounts
+        from account_selector import AccountSelector
+        selector = AccountSelector(self.session)
+        accounts = selector.fetch_accounts()
+
+        if not accounts:
+            messagebox.showerror("Error", "Could not fetch accounts")
+            dialog.destroy()
+            return
+
+        # Create scrollable frame for accounts
+        canvas = tk.Canvas(dialog, bg=self.colors['bg_dark'], highlightthickness=0)
+        scrollbar = tk.Scrollbar(dialog, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg=self.colors['bg_dark'])
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        # Store selected accounts and size ratios
+        selected_accounts = {}
+
+        # Create checkboxes for each account
+        for account in accounts:
+            account_id = account.get('id')
+            account_name = account.get('name', 'Unknown')
+
+            frame = tk.Frame(scrollable_frame, bg=self.colors['panel_bg'],
+                           highlightbackground=self.colors['panel_border'],
+                           highlightthickness=1)
+            frame.pack(fill='x', padx=20, pady=5)
+
+            var = tk.BooleanVar()
+            ratio_var = tk.DoubleVar(value=1.0)
+
+            cb = tk.Checkbutton(frame,
+                              text=f"{account_name} ({account_id})",
+                              variable=var,
+                              font=("Helvetica", 10),
+                              fg=self.colors['text_white'],
+                              bg=self.colors['panel_bg'],
+                              selectcolor=self.colors['input_bg'],
+                              activebackground=self.colors['panel_bg'],
+                              activeforeground=self.colors['text_white'])
+            cb.pack(side='left', padx=10, pady=10)
+
+            # Size ratio input
+            ratio_label = tk.Label(frame,
+                                  text="Size Ratio:",
+                                  font=("Helvetica", 9),
+                                  fg=self.colors['text_gray'],
+                                  bg=self.colors['panel_bg'])
+            ratio_label.pack(side='left', padx=(10, 5))
+
+            ratio_entry = tk.Entry(frame,
+                                  textvariable=ratio_var,
+                                  font=("Helvetica", 9),
+                                  bg=self.colors['input_bg'],
+                                  fg=self.colors['text_white'],
+                                  width=8)
+            ratio_entry.pack(side='left', padx=5)
+
+            selected_accounts[account_id] = {
+                'name': account_name,
+                'var': var,
+                'ratio_var': ratio_var
+            }
+
+        canvas.pack(side="left", fill="both", expand=True, padx=20)
+        scrollbar.pack(side="right", fill="y")
+
+        # Buttons
+        button_frame = tk.Frame(dialog, bg=self.colors['bg_dark'])
+        button_frame.pack(pady=20)
+
+        def save_selection():
+            # Get selected account IDs and ratios
+            follower_ids = []
+            ratios = []
+
+            for acc_id, data in selected_accounts.items():
+                if data['var'].get():
+                    follower_ids.append(acc_id)
+                    ratios.append(data['ratio_var'].get())
+
+            if not follower_ids:
+                messagebox.showwarning("No Selection", "Please select at least one follower account")
+                return
+
+            # Setup copy trading
+            copy_trader = setup_copy_trading_from_accounts(self.session, follower_ids, ratios)
+
+            if copy_trader:
+                # Update CONFIG
+                from copy_trading_setup import save_copy_trading_config
+                save_copy_trading_config(copy_trader.follower_accounts, enabled=True)
+
+                if enable_after_selection:
+                    CONFIG['COPY_TRADING']['enabled'] = True
+
+                self.add_log(f"✅ Copy trading configured with {len(follower_ids)} follower(s)")
+                dialog.destroy()
+                # Refresh dashboard
+                self.show_dashboard()
+            else:
+                messagebox.showerror("Error", "Failed to setup copy trading")
+
+        save_btn = tk.Button(button_frame,
+                           text="Save Configuration",
+                           font=("Helvetica", 11, "bold"),
+                           bg=self.colors['green'],
+                           fg='#FFFFFF',
+                           activebackground=self.colors['green_light'],
+                           activeforeground='#FFFFFF',
+                           relief='flat',
+                           cursor='hand2',
+                           command=save_selection,
+                           padx=20,
+                           pady=10)
+        save_btn.pack(side='left', padx=5)
+
+        cancel_btn = tk.Button(button_frame,
+                             text="Cancel",
+                             font=("Helvetica", 11, "bold"),
+                             bg=self.colors['red'],
+                             fg='#FFFFFF',
+                             activebackground='#dc2626',
+                             activeforeground='#FFFFFF',
+                             relief='flat',
+                             cursor='hand2',
+                             command=dialog.destroy,
+                             padx=20,
+                             pady=10)
+        cancel_btn.pack(side='left', padx=5)
 
     def start_monitoring(self):
         """Start real-time monitoring of bot log and API"""
