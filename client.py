@@ -11,10 +11,14 @@ import time
 import logging
 from zoneinfo import ZoneInfo
 import uuid
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Optional, List, Tuple, TYPE_CHECKING
 
 from config import CONFIG, refresh_target_symbol, determine_current_contract_symbol
 from event_logger import event_logger
+
+# Avoid circular import
+if TYPE_CHECKING:
+    from copy_trader import CopyTrader
 
 
 class ProjectXClient:
@@ -78,20 +82,33 @@ class ProjectXClient:
             cls._shared_bar_timestamps.append(now)
             cls._shared_last_bar_fetch = now
 
-    def __init__(self, contract_root: Optional[str] = None, target_symbol: Optional[str] = None):
+    def __init__(
+        self,
+        contract_root: Optional[str] = None,
+        target_symbol: Optional[str] = None,
+        username: Optional[str] = None,
+        api_key: Optional[str] = None,
+        account_id: Optional[str] = None,
+        contract_id: Optional[str] = None,
+        copy_trader: Optional['CopyTrader'] = None
+    ):
         self.session = requests.Session()
         self.token = None
         self.token_expiry = None
         self.base_url = CONFIG['REST_BASE_URL']
         self.et = ZoneInfo('America/New_York')
 
+        # Allow per-instance credentials (for follower accounts)
+        self.username = username or CONFIG.get('USERNAME')
+        self.api_key = api_key or CONFIG.get('API_KEY')
+
         # Contract configuration (allows per-instance override)
         self.contract_root = contract_root or CONFIG.get('CONTRACT_ROOT', 'MES')
         self.target_symbol = target_symbol or CONFIG.get('TARGET_SYMBOL')
 
-        # Account and contract info (fetched after login)
-        self.account_id = CONFIG.get('ACCOUNT_ID')
-        self.contract_id = CONFIG.get('CONTRACT_ID')
+        # Account and contract info (fetched after login or provided)
+        self.account_id = account_id or CONFIG.get('ACCOUNT_ID')
+        self.contract_id = contract_id or CONFIG.get('CONTRACT_ID')
 
         # Rate limiting for /History/retrieveBars: 50 requests / 30 seconds
         self.bar_fetch_timestamps = []
@@ -114,6 +131,9 @@ class ProjectXClient:
 
         # Stop order tracking (avoids search_orders calls)
         self._active_stop_order_id = None
+
+        # Copy trading integration (optional)
+        self.copy_trader = copy_trader
 
     def _check_general_rate_limit(self) -> bool:
         """Check if we're within general rate limits"""
@@ -139,8 +159,8 @@ class ProjectXClient:
         """
         url = f"{self.base_url}/api/Auth/loginKey"
         payload = {
-            "userName": CONFIG['USERNAME'],
-            "apiKey": CONFIG['API_KEY']
+            "userName": self.username,
+            "apiKey": self.api_key
         }
         try:
             logging.info(f"Authenticating to {self.base_url}...")
@@ -651,6 +671,23 @@ class ProjectXClient:
                 # Main order ID - we'll still need to search for bracket orders
                 logging.debug(f"Main order ID: {resp_data['orderId']}")
 
+            # Copy trade to follower accounts if copy trader is enabled
+            if self.copy_trader:
+                try:
+                    logging.info("📋 Copying trade to follower accounts...")
+                    copy_results = self.copy_trader.copy_trade(
+                        signal=signal,
+                        leader_price=current_price,
+                        leader_account_id=self.account_id
+                    )
+                    # Log any failures
+                    for acc_id, (success, error) in copy_results.items():
+                        if not success:
+                            logging.error(f"Copy trade failed for {acc_id}: {error}")
+                except Exception as copy_err:
+                    logging.error(f"Copy trade exception: {copy_err}")
+                    # Don't fail the main order if copy fails
+
             return resp_data
 
         except Exception as e:
@@ -786,6 +823,21 @@ class ProjectXClient:
                 # Reset shadow position state
                 self._local_position = {'side': None, 'size': 0, 'avg_price': 0.0}
                 self._active_stop_order_id = None
+
+                # Copy position close to follower accounts if copy trader is enabled
+                if self.copy_trader:
+                    try:
+                        logging.info("📋 Closing positions on follower accounts...")
+                        copy_results = self.copy_trader.copy_position_close(
+                            leader_account_id=self.account_id
+                        )
+                        # Log any failures
+                        for acc_id, (success, error) in copy_results.items():
+                            if not success:
+                                logging.error(f"Copy close failed for {acc_id}: {error}")
+                    except Exception as copy_err:
+                        logging.error(f"Copy close exception: {copy_err}")
+                        # Don't fail the main close if copy fails
 
                 return True
             else:
