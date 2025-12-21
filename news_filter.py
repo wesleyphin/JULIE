@@ -183,6 +183,39 @@ class NewsFilter:
             # Holiday was yesterday
             return "POST_HOLIDAY_RECOVERY"
 
+    def get_seasonal_context(self, current_time: datetime.datetime) -> str:
+        """
+        HARD-CODED 'SEASONAL DANGER CALENDAR' (Dec 20 - Jan 2).
+        Returns specific directives for Gemini based on historical seasonal patterns.
+
+        Phases:
+        - PHASE_1_LAST_GASP: Dec 20-23 (High volume, violent trends)
+        - PHASE_2_DEAD_ZONE: Dec 24-31 (60% volume drop, broken structure)
+        - PHASE_3_JAN2_REENTRY: Jan 2 (Bearish bias, funds return)
+        """
+        # Ensure time is in ET timezone
+        if current_time.tzinfo is None:
+            current_time = current_time.replace(tzinfo=dt_timezone.utc).astimezone(self.et)
+        else:
+            current_time = current_time.astimezone(self.et)
+
+        month = current_time.month
+        day = current_time.day
+
+        # PHASE 1: The "Last Gasp" (Dec 20-23)
+        if month == 12 and 20 <= day <= 23:
+            return "PHASE_1_LAST_GASP"
+
+        # PHASE 2: The "Dead Zone" (Dec 24-31)
+        elif month == 12 and 24 <= day <= 31:
+            return "PHASE_2_DEAD_ZONE"
+
+        # PHASE 3: The "Jan 2 Re-Entry" (Jan 2 specific)
+        elif month == 1 and day == 2:
+            return "PHASE_3_JAN2_REENTRY"
+
+        return "NORMAL_SEASONAL"
+
     def should_block_trade(self, current_time: datetime.datetime) -> tuple[bool, str]:
         # Ensure time is ET
         if current_time.tzinfo is None:
