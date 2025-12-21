@@ -21,6 +21,3 @@ venv/
 # Model files (large)
 *.joblib
 *.pkl
-
-# Copy trading configuration (contains account credentials)
-copy_trading_config.json

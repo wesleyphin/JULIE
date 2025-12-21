@@ -114,22 +114,6 @@ CONFIG = {
         "model": "gemini-3-pro-preview",
     },
 
-    # --- COPY TRADING CONFIGURATION ---
-    # ⚠️ DO NOT EDIT MANUALLY! Configuration is now managed automatically.
-    #
-    # Copy trading is configured at runtime through:
-    #   - JULIE001 CLI: Prompts on first run, saves to copy_trading_config.json
-    #   - TKinter UI: Use "Enable Copy Trading" button in dashboard
-    #
-    # Configuration is stored in: copy_trading_config.json (auto-created)
-    # This key is updated automatically by the system at runtime.
-    #
-    # See: COPY_TRADING_SETUP_GUIDE.md for usage instructions
-    "COPY_TRADING": {
-        "enabled": False,  # Managed automatically - do not edit
-        "followers": []     # Managed automatically - do not edit
-    },
-
     # Dynamic Multipliers (Updated by Bot at runtime)
     "DYNAMIC_SL_MULTIPLIER": 1.0,
     "DYNAMIC_TP_MULTIPLIER": 1.0,
