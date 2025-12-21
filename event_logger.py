@@ -121,13 +121,16 @@ class EventLogger:
                        {"rejection_type": rejection_type, "reason": reason})
 
     def log_filter_check(self, filter_name: str, signal_side: str, passed: bool,
-                        reason: Optional[str] = None, additional_info: Optional[Dict] = None):
+                        reason: Optional[str] = None, additional_info: Optional[Dict] = None,
+                        strategy: Optional[str] = None):
         """Log filter check results"""
         details = {
             "filter": filter_name,
             "side": signal_side,
             "passed": passed
         }
+        if strategy:
+            details["strategy"] = strategy
         if reason:
             details["reason"] = reason
         if additional_info:
