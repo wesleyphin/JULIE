@@ -181,7 +181,10 @@ class JulieUI:
                                font=("Helvetica", 14),
                                style='Login.TCombobox',
                                width=32)
-        dropdown.pack(pady=(0, 30), padx=60)
+        dropdown.pack(pady=(0, 20), padx=60)
+
+        # Copy Trading Status Section
+        self.create_copy_trading_status(panel_frame)
 
         # Login Button
         login_btn = tk.Button(panel_frame,
@@ -195,6 +198,82 @@ class JulieUI:
                              cursor='hand2',
                              command=self.handle_login)
         login_btn.pack(pady=(0, 25), padx=60, fill='x', ipady=12)
+
+    def create_copy_trading_status(self, parent):
+        """Create copy trading status indicator on login page"""
+        # Check if copy trading is enabled
+        copy_config = CONFIG.get('COPY_TRADING', {})
+        enabled = copy_config.get('enabled', False)
+        followers = copy_config.get('followers', [])
+        active_followers = [f for f in followers if f.get('enabled', True)]
+
+        # Create status frame
+        status_frame = tk.Frame(parent, bg=self.colors['panel_bg'])
+        status_frame.pack(pady=(0, 20), padx=60)
+
+        if enabled and active_followers:
+            # Copy trading is enabled
+            status_icon = tk.Label(status_frame,
+                                  text="📋",
+                                  font=("Helvetica", 16),
+                                  bg=self.colors['panel_bg'],
+                                  fg=self.colors['green'])
+            status_icon.pack(side='left', padx=(0, 8))
+
+            status_text = tk.Label(status_frame,
+                                  text=f"Copy Trading: {len(active_followers)} follower{'s' if len(active_followers) > 1 else ''} active",
+                                  font=("Helvetica", 11),
+                                  bg=self.colors['panel_bg'],
+                                  fg=self.colors['green'])
+            status_text.pack(side='left')
+
+            # Add detail text below
+            detail_text = f"Leader trades will be replicated to {len(active_followers)} account{'s' if len(active_followers) > 1 else ''}"
+            detail_label = tk.Label(parent,
+                                   text=detail_text,
+                                   font=("Helvetica", 9),
+                                   bg=self.colors['panel_bg'],
+                                   fg=self.colors['text_dim'])
+            detail_label.pack(pady=(0, 15))
+
+        elif enabled and not active_followers:
+            # Copy trading enabled but no followers
+            status_icon = tk.Label(status_frame,
+                                  text="⚠️",
+                                  font=("Helvetica", 16),
+                                  bg=self.colors['panel_bg'],
+                                  fg=self.colors['yellow'])
+            status_icon.pack(side='left', padx=(0, 8))
+
+            status_text = tk.Label(status_frame,
+                                  text="Copy Trading: Enabled (No followers configured)",
+                                  font=("Helvetica", 11),
+                                  bg=self.colors['panel_bg'],
+                                  fg=self.colors['yellow'])
+            status_text.pack(side='left')
+
+            detail_label = tk.Label(parent,
+                                   text="Configure follower accounts in config.py",
+                                   font=("Helvetica", 9),
+                                   bg=self.colors['panel_bg'],
+                                   fg=self.colors['text_dim'])
+            detail_label.pack(pady=(0, 15))
+
+        else:
+            # Copy trading disabled
+            status_text = tk.Label(status_frame,
+                                  text="Copy Trading: Disabled",
+                                  font=("Helvetica", 10),
+                                  bg=self.colors['panel_bg'],
+                                  fg=self.colors['text_dim'])
+            status_text.pack()
+
+            detail_label = tk.Label(parent,
+                                   text="Enable in config.py to replicate trades",
+                                   font=("Helvetica", 9),
+                                   bg=self.colors['panel_bg'],
+                                   fg=self.colors['text_dim'])
+            detail_label.pack(pady=(0, 15))
 
     def animate_logo(self):
         """Animate the logo GIF by cycling through frames"""
@@ -451,6 +530,7 @@ class JulieUI:
         self.create_strategy_list(strategy_frame)
         self.create_gemini_logs_section(strategy_frame)
         self.create_positions_section(right_col)
+        self.create_copy_trading_stats_section(right_col)
         self.create_filters_section(right_col)
 
         # Right panel - Market Context
@@ -639,6 +719,86 @@ class JulieUI:
                                           fg=self.colors['text_dim'],
                                           bg=self.colors['panel_bg'])
         self.no_position_label.pack(pady=10)
+
+    def create_copy_trading_stats_section(self, parent):
+        """Create copy trading statistics section"""
+        # Check if copy trading is enabled
+        copy_config = CONFIG.get('COPY_TRADING', {})
+        enabled = copy_config.get('enabled', False)
+
+        if not enabled:
+            # Don't show section if disabled
+            return
+
+        followers = copy_config.get('followers', [])
+        active_followers = [f for f in followers if f.get('enabled', True)]
+
+        section = tk.Frame(parent, bg=self.colors['panel_bg'],
+                          highlightbackground=self.colors['panel_border'],
+                          highlightthickness=1,
+                          height=120)  # Compact height
+        section.pack(fill='x', pady=(0, 10))
+        section.pack_propagate(False)  # Prevent expansion
+
+        # Header with icon
+        header_frame = tk.Frame(section, bg=self.colors['panel_bg'])
+        header_frame.pack(fill='x', padx=20, pady=(15, 10))
+
+        header_icon = tk.Label(header_frame, text="📋",
+                              font=("Helvetica", 10),
+                              bg=self.colors['panel_bg'],
+                              fg=self.colors['green'])
+        header_icon.pack(side='left', padx=(0, 5))
+
+        header = tk.Label(header_frame, text="COPY TRADING",
+                         font=("Helvetica", 10, "bold"),
+                         fg=self.colors['text_gray'],
+                         bg=self.colors['panel_bg'],
+                         anchor='w')
+        header.pack(side='left')
+
+        # Stats container
+        stats_container = tk.Frame(section, bg=self.colors['panel_bg'])
+        stats_container.pack(fill='both', expand=True, padx=20, pady=(0, 15))
+
+        if active_followers:
+            # Show follower count
+            follower_frame = tk.Frame(stats_container, bg=self.colors['input_bg'],
+                                     highlightbackground=self.colors['input_border'],
+                                     highlightthickness=1)
+            follower_frame.pack(fill='x', pady=3)
+
+            follower_row = tk.Frame(follower_frame, bg=self.colors['input_bg'])
+            follower_row.pack(fill='x', padx=15, pady=8)
+
+            follower_label = tk.Label(follower_row,
+                                     text=f"{len(active_followers)} Follower{'s' if len(active_followers) > 1 else ''}",
+                                     font=("Helvetica", 11, "bold"),
+                                     fg=self.colors['text_white'],
+                                     bg=self.colors['input_bg'])
+            follower_label.pack(side='left')
+
+            status_label = tk.Label(follower_row,
+                                   text="ACTIVE",
+                                   font=("Helvetica", 10, "bold"),
+                                   fg=self.colors['green'],
+                                   bg=self.colors['input_bg'])
+            status_label.pack(side='right')
+
+            # Store reference for updates
+            self.copy_trading_status_label = status_label
+            self.copy_trading_follower_label = follower_label
+        else:
+            # No followers configured
+            warning_label = tk.Label(stats_container,
+                                    text="⚠️ No followers configured",
+                                    font=("Helvetica", 10),
+                                    fg=self.colors['yellow'],
+                                    bg=self.colors['panel_bg'])
+            warning_label.pack(pady=10)
+
+            self.copy_trading_status_label = None
+            self.copy_trading_follower_label = None
 
     def create_filters_section(self, parent):
         """Create filter status dashboard - ALL 12 filters"""
@@ -935,7 +1095,9 @@ class JulieUI:
             '⛔ Signal ignored', 'BLOCKED', 'FILTER_CHECK', '✗ BLOCK',  # Blocked trades
             'API', 'returned no bars', 'No bars', 'rate limit',  # API logs
             'Trade closed', 'Position', 'P&L',  # Trade results
-            'STRATEGY_SIGNAL'  # Strategy signals
+            'STRATEGY_SIGNAL',  # Strategy signals
+            '📋 Copying trade', '📊 Leader trade', '📈 Copy trade complete',  # Copy trading
+            'Follower', 'Copy trade', 'Circuit breaker', 'Copy close'  # Copy trading events
         ])
 
         # Determine if this is market context
