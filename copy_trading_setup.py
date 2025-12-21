@@ -19,6 +19,13 @@ from rich.text import Text
 
 from account_selector import AccountSelector
 from copy_trader import FollowerAccount, CopyTrader, create_copy_trader_from_config
+from copy_trading_config import (
+    load_copy_trading_config,
+    save_copy_trading_config as save_config_to_file,
+    enable_copy_trading as enable_ct,
+    disable_copy_trading as disable_ct,
+    has_copy_trading_config
+)
 from client import ProjectXClient
 from config import CONFIG
 
@@ -184,8 +191,12 @@ def setup_copy_trading_interactive(session) -> Optional[CopyTrader]:
     # Create the CopyTrader instance
     copy_trader = CopyTrader(followers)
 
+    # Save configuration to persistent storage
+    save_copy_trading_config(followers, enabled=True)
+
     console.print()
     console.print(f"[bold green]✓ Copy trading initialized with {len(followers)} follower(s)[/bold green]")
+    console.print(f"[dim]Configuration saved to copy_trading_config.json[/dim]")
     console.print()
 
     return copy_trader
@@ -255,31 +266,9 @@ def setup_copy_trading_from_accounts(
     return copy_trader
 
 
-def get_copy_trading_status() -> Dict:
-    """
-    Get current copy trading status from CONFIG.
-
-    Returns:
-        Dict with keys: enabled, follower_count, follower_accounts
-    """
-    copy_config = CONFIG.get('COPY_TRADING', {})
-    enabled = copy_config.get('enabled', False)
-    followers = copy_config.get('followers', [])
-    active_followers = [f for f in followers if f.get('enabled', True)]
-
-    return {
-        'enabled': enabled,
-        'follower_count': len(active_followers),
-        'follower_accounts': active_followers
-    }
-
-
 def save_copy_trading_config(followers: List[FollowerAccount], enabled: bool = True):
     """
-    Save copy trading configuration to CONFIG (in-memory).
-
-    Note: This updates the in-memory CONFIG. To persist, you'd need to
-    write to config.py or a separate JSON file.
+    Save copy trading configuration to persistent JSON file.
 
     Args:
         followers: List of FollowerAccount instances
@@ -296,9 +285,17 @@ def save_copy_trading_config(followers: List[FollowerAccount], enabled: bool = T
             'enabled': f.enabled
         })
 
-    CONFIG['COPY_TRADING'] = {
-        'enabled': enabled,
-        'followers': follower_configs
-    }
+    # Save to persistent config file
+    success = save_config_to_file(enabled, follower_configs)
 
-    logger.info(f"Copy trading config updated: {len(follower_configs)} followers, enabled={enabled}")
+    if success:
+        # Also update in-memory CONFIG for backward compatibility
+        CONFIG['COPY_TRADING'] = {
+            'enabled': enabled,
+            'followers': follower_configs
+        }
+        logger.info(f"Copy trading config saved: {len(follower_configs)} followers, enabled={enabled}")
+    else:
+        logger.error("Failed to save copy trading configuration")
+
+    return success

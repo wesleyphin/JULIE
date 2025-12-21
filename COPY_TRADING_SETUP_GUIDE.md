@@ -2,7 +2,7 @@
 
 ## Overview
 
-Copy trading has been enhanced with interactive setup from both JULIE001 bot and the TKinter UI. You can now easily enable/disable copy trading and select follower accounts using a beautiful interface.
+Copy trading now features **runtime configuration** with **NO manual editing required**. The system uses persistent storage (`copy_trading_config.json`) that allows you to enable/disable and configure copy trading from both JULIE001 bot and the TKinter UI without touching `config.py`.
 
 ## Features
 
@@ -23,25 +23,30 @@ The dashboard now includes:
 
 ### From JULIE001 Bot (CLI)
 
-1. Run the bot:
+1. **First Time Setup:**
    ```bash
    python julie001.py
    ```
 
-2. After authentication, you'll see:
+   After authentication:
    ```
    ============================================================
-   Copy Trading Setup
+   COPY TRADING SETUP
+   ============================================================
+   Copy trading is not configured.
 
-   Do you want to enable copy trading? (y/n):
+   ❓ Would you like to set up copy trading now? (y/n):
    ```
 
-3. Type `y` to enable, then select follower accounts using the interactive menu
+2. **Type `y` to configure:**
+   - Select follower accounts from your available accounts
+   - Configure size ratios for each (1.0 = same, 0.5 = half, etc.)
+   - Configuration is saved to `copy_trading_config.json`
 
-4. Configure size ratios for each follower:
-   - **1.0** = Same size as leader
-   - **0.5** = Half size of leader
-   - **2.0** = Double size of leader
+3. **Subsequent Runs:**
+   - If enabled: Bot loads configuration automatically
+   - If disabled: Bot shows "⚠️ Copy trading is DISABLED"
+   - No prompts needed - configuration persists between runs
 
 ### From TKinter UI
 
@@ -77,24 +82,31 @@ Both CLI and UI use the same beautiful account selector that:
 
 ### Files Created/Modified
 
-1. **`copy_trading_setup.py`** (NEW)
-   - Interactive copy trading setup functions
-   - Account selection logic
-   - Configuration management
+1. **`copy_trading_config.py`** (NEW)
+   - Persistent configuration management
+   - Load/save to JSON file
+   - Runtime enable/disable functions
+   - Status checking utilities
 
-2. **`julie001.py`** (MODIFIED)
-   - Added import for `setup_copy_trading_interactive`
-   - Added copy trading setup prompt after authentication
-   - Initializes ProjectXClient with copy trader
+2. **`copy_trading_setup.py`** (NEW)
+   - Interactive CLI setup with account selector
+   - UI account selection integration
+   - Automatic configuration persistence
 
-3. **`julie_tkinter_ui.py`** (MODIFIED)
-   - Enhanced `create_copy_trading_stats_section()` to always show
-   - Added enable/disable buttons
-   - Added account selection dialog
-   - Added three new methods:
-     - `enable_copy_trading()`
-     - `disable_copy_trading()`
-     - `select_copy_trading_accounts()`
+3. **`julie001.py`** (MODIFIED)
+   - Loads persistent configuration on startup
+   - Auto-initializes if enabled
+   - Prompts for setup only if not configured
+   - No repeated prompts on subsequent runs
+
+4. **`julie_tkinter_ui.py`** (MODIFIED)
+   - Real-time enable/disable buttons
+   - Account selection dialog with checkboxes
+   - Size ratio configuration per account
+   - Loads from persistent configuration
+
+5. **`.gitignore`** (MODIFIED)
+   - Added `copy_trading_config.json` to prevent credential leaks
 
 ### Data Flow
 
@@ -116,26 +128,34 @@ Passes to ProjectXClient
 Trades automatically copy to followers
 ```
 
-## Configuration
+## Configuration Storage
 
-The configuration is stored in `CONFIG['COPY_TRADING']`:
+### Persistent Configuration (No Manual Editing Required!)
 
-```python
-CONFIG['COPY_TRADING'] = {
-    'enabled': True,
-    'followers': [
-        {
-            'username': 'user@example.com',
-            'api_key': 'your-api-key',
-            'account_id': 'follower-account-id',
-            'contract_id': 'contract-id',
-            'size_ratio': 1.0,
-            'enabled': True
-        },
-        # More followers...
-    ]
+Configuration is automatically saved to `copy_trading_config.json`:
+
+```json
+{
+  "enabled": true,
+  "followers": [
+    {
+      "username": "user@example.com",
+      "api_key": "your-api-key",
+      "account_id": "follower-account-id",
+      "contract_id": "contract-id",
+      "size_ratio": 1.0,
+      "enabled": true
+    }
+  ]
 }
 ```
+
+**Important:**
+- ✅ Automatically created when you configure copy trading
+- ✅ Persists between bot restarts
+- ✅ Can be enabled/disabled at runtime from UI
+- ✅ Added to `.gitignore` to protect credentials
+- ❌ **Never** manually edit `config.py` for copy trading
 
 ## Safety Features
 

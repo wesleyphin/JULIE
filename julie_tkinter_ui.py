@@ -25,6 +25,23 @@ except ImportError:
     HAS_CONFIG = False
     CONFIG = {}
 
+# Import copy trading config management
+try:
+    from copy_trading_config import (
+        load_copy_trading_config,
+        enable_copy_trading as enable_ct,
+        disable_copy_trading as disable_ct
+    )
+    HAS_COPY_TRADING = True
+except ImportError:
+    HAS_COPY_TRADING = False
+    def load_copy_trading_config():
+        return {'enabled': False, 'followers': []}
+    def enable_ct():
+        return False
+    def disable_ct():
+        return False
+
 class JulieUI:
     def __init__(self, root):
         self.root = root
@@ -201,8 +218,8 @@ class JulieUI:
 
     def create_copy_trading_status(self, parent):
         """Create copy trading status indicator on login page"""
-        # Check if copy trading is enabled
-        copy_config = CONFIG.get('COPY_TRADING', {})
+        # Load copy trading configuration from persistent storage
+        copy_config = load_copy_trading_config()
         enabled = copy_config.get('enabled', False)
         followers = copy_config.get('followers', [])
         active_followers = [f for f in followers if f.get('enabled', True)]
@@ -722,8 +739,8 @@ class JulieUI:
 
     def create_copy_trading_stats_section(self, parent):
         """Create copy trading statistics and controls section"""
-        # Check if copy trading is enabled
-        copy_config = CONFIG.get('COPY_TRADING', {})
+        # Load copy trading configuration from persistent storage
+        copy_config = load_copy_trading_config()
         enabled = copy_config.get('enabled', False)
         followers = copy_config.get('followers', [])
         active_followers = [f for f in followers if f.get('enabled', True)]
@@ -1101,10 +1118,13 @@ class JulieUI:
         )
 
         if result:
-            CONFIG['COPY_TRADING']['enabled'] = False
-            self.add_log("🛑 Copy trading disabled")
-            # Refresh the dashboard to update UI
-            self.show_dashboard()
+            # Disable using persistent configuration
+            if disable_ct():
+                self.add_log("🛑 Copy trading disabled")
+                # Refresh the dashboard to update UI
+                self.show_dashboard()
+            else:
+                messagebox.showerror("Error", "Failed to disable copy trading")
 
     def select_copy_trading_accounts(self, enable_after_selection=False):
         """Open account selection dialog for copy trading followers"""
@@ -1236,17 +1256,17 @@ class JulieUI:
             copy_trader = setup_copy_trading_from_accounts(self.session, follower_ids, ratios)
 
             if copy_trader:
-                # Update CONFIG
+                # Save to persistent configuration
                 from copy_trading_setup import save_copy_trading_config
-                save_copy_trading_config(copy_trader.follower_accounts, enabled=True)
+                success = save_copy_trading_config(copy_trader.follower_accounts, enabled=enable_after_selection)
 
-                if enable_after_selection:
-                    CONFIG['COPY_TRADING']['enabled'] = True
-
-                self.add_log(f"✅ Copy trading configured with {len(follower_ids)} follower(s)")
-                dialog.destroy()
-                # Refresh dashboard
-                self.show_dashboard()
+                if success:
+                    self.add_log(f"✅ Copy trading configured with {len(follower_ids)} follower(s)")
+                    dialog.destroy()
+                    # Refresh dashboard
+                    self.show_dashboard()
+                else:
+                    messagebox.showerror("Error", "Failed to save copy trading configuration")
             else:
                 messagebox.showerror("Error", "Failed to setup copy trading")
 
