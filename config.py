@@ -115,28 +115,19 @@ CONFIG = {
     },
 
     # --- COPY TRADING CONFIGURATION ---
-    # Leader-Follower architecture for replicating trades across multiple accounts
+    # ⚠️ DO NOT EDIT MANUALLY! Configuration is now managed automatically.
+    #
+    # Copy trading is configured at runtime through:
+    #   - JULIE001 CLI: Prompts on first run, saves to copy_trading_config.json
+    #   - TKinter UI: Use "Enable Copy Trading" button in dashboard
+    #
+    # Configuration is stored in: copy_trading_config.json (auto-created)
+    # This key is updated automatically by the system at runtime.
+    #
+    # See: COPY_TRADING_SETUP_GUIDE.md for usage instructions
     "COPY_TRADING": {
-        "enabled": False,  # Set to True to enable copy trading
-        "followers": [
-            # Example follower account configuration:
-            # {
-            #     "username": "follower_account_1",
-            #     "api_key": "YOUR_FOLLOWER_API_KEY_1",
-            #     "account_id": "FOLLOWER_ACCOUNT_ID_1",
-            #     "contract_id": "CON.F.US.MES.H25",  # Can be same or different (MES vs ES)
-            #     "size_ratio": 1.0,  # 1.0 = same size as leader, 0.5 = half size
-            #     "enabled": True
-            # },
-            # {
-            #     "username": "follower_account_2",
-            #     "api_key": "YOUR_FOLLOWER_API_KEY_2",
-            #     "account_id": "FOLLOWER_ACCOUNT_ID_2",
-            #     "contract_id": "CON.F.US.MES.H25",
-            #     "size_ratio": 0.5,  # Trade half the size of leader
-            #     "enabled": True
-            # }
-        ]
+        "enabled": False,  # Managed automatically - do not edit
+        "followers": []     # Managed automatically - do not edit
     },
 
     # Dynamic Multipliers (Updated by Bot at runtime)
