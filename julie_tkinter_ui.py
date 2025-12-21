@@ -935,7 +935,8 @@ class JulieUI:
             '⛔ Signal ignored', 'BLOCKED', 'FILTER_CHECK', '✗ BLOCK',  # Blocked trades
             'API', 'returned no bars', 'No bars', 'rate limit',  # API logs
             'Trade closed', 'Position', 'P&L',  # Trade results
-            'STRATEGY_SIGNAL'  # Strategy signals
+            'STRATEGY_SIGNAL',  # Strategy signals
+            'Bar:', 'Price:'  # Live bar/price updates
         ])
 
         # Determine if this is market context
@@ -945,7 +946,7 @@ class JulieUI:
             '🏦', 'ORB', 'BANK', 'Prev PM', 'Prev Session',
             '📅 New day', 'QUARTER CHANGE',
             '⚠️ CHOP', '⚠️ PENALTY', 'CEILING', 'FLOOR',
-            '🧠 HTF FVG Memory', 'Bar:', 'Price:',  # HTF FVG Memory goes here
+            '🧠 HTF FVG Memory',  # HTF FVG Memory goes here
             '📈 CONTINUATION', '📉 CONTINUATION',
             '🔁 BIAS FLIP', '🔄 QUARTER',
             'Backfill Complete', 'ExtFilter',
