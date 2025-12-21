@@ -187,10 +187,22 @@ class GeminiSessionOptimizer:
         system_instruction = (
             f"You are a Risk Manager for {session_name}. Your task is to adjust SL and TP multipliers by balancing mathematical volatility (ADX) against structural market barriers.\n\n"
 
-            "*** SEASONAL & INTRADAY PROTOCOLS (HIGHEST PRIORITY - OVERRIDE STANDARD RULES) ***\n"
+            "*** MASTER HOLIDAY GAMEPLAN (HIGHEST PRIORITY - OVERRIDE ALL OTHER RULES) ***\n"
+            "THE VOLATILITY EXPLOSION:\n"
+            "- 'POST_HOLIDAY_EXPLOSION' (Labor Day Tuesday): Volatility is MASSIVE (1.74x). Range is double. YOU MUST WIDEN STOPS (sl_multiplier 1.5x) to survive the noise. Target -39pt moves. Allow TP expansion (1.3x-1.5x).\n\n"
+
+            "THE BEARISH TUESDAYS:\n"
+            "- 'POST_HOLIDAY_TUESDAY' (MLK Day): Gap Fill Reversal pattern. If gap > 10pts, expect Long reversal. Use tight stops (0.9x) but allow TP expansion (1.2x) if reversal holds.\n"
+            "- 'POST_HOLIDAY_TUESDAY' (Presidents Day): Low Volatility (0.8x). REDUCE TP targets to 0.7x-0.8x. Do not expect home runs. Take profits early on -20pt drift.\n"
+            "- 'POST_HOLIDAY_TUESDAY' (Juneteenth): Standard day with -8.5pt gap bias. Normal multipliers but expect downside.\n\n"
+
+            "THE DEAD ZONES:\n"
+            "- 'PRE_HOLIDAY' (Thanksgiving Eve / July 3rd): Liquidity drying up. REDUCE TP to 0.6x-0.7x. Consider tighter stops (0.8x) to avoid whipsaws.\n"
+            "- 'PRE_HOLIDAY' (July 4th): 'Patriot Drift' - Mean Reversion Only. TP multiplier 0.7x for quick scalps. Bullish drift bias.\n\n"
+
+            "*** SEASONAL & INTRADAY PROTOCOLS (SECOND PRIORITY) ***\n"
             "- 'PHASE_2_DEAD_ZONE': Market structure is broken. Reduce TP multiplier (0.5x-0.7x) to take quick profits. Do not expect trend extensions.\n"
             "- 'PHASE_3_JAN2_REENTRY': Bias is Short. If trade is Long, severely reduce sizing or tighten SL.\n"
-            "- 'PRE_HOLIDAY': Volume drops ~40%. Cap TP multiplier at 0.7x.\n"
             "- 'HOLIDAY_TODAY': Market is dead. Set tp_multiplier to 0.5x minimum.\n"
             "- 'POST_HOLIDAY_RECOVERY': Volatility expands by ~12%. Allow wider stops (sl_multiplier 1.2x).\n"
             "- 'NY_LUNCH' (10:30-12:30): The 'Zombie Zone'. Liquidity drops to 58%. YOU MUST REDUCE TP MULTIPLIER to 0.5x - 0.7x.\n"
@@ -243,11 +255,23 @@ class GeminiSessionOptimizer:
         system_instruction = (
             f"You are an Execution Algorithm for {session_name}. Configure Trend Filter multipliers to distinguish between high-probability breakouts and traps.\n\n"
 
-            "*** SEASONAL & INTRADAY PROTOCOLS (HIGHEST PRIORITY - OVERRIDE STANDARD RULES) ***\n"
+            "*** MASTER HOLIDAY GAMEPLAN (HIGHEST PRIORITY - OVERRIDE ALL OTHER RULES) ***\n"
+            "THE VOLATILITY EXPLOSION:\n"
+            "- 'POST_HOLIDAY_EXPLOSION' (Labor Day Tuesday): DISABLE Mean Reversion. ENABLE Trend Following. Aggressive Short Bias. LOWER filters to catch the breakdown early (t1_body 1.2x, t1_vol 1.0x). Set regime to 'TRENDING'.\n\n"
+
+            "THE BEARISH TUESDAYS:\n"
+            "- 'POST_HOLIDAY_TUESDAY' (MLK Day): GAP FILL REVERSAL. If gap > 10pts, look for Longs (Catch Up trade). Lower filters for Long entries (1.5x), raise for Shorts (2.5x).\n"
+            "- 'POST_HOLIDAY_TUESDAY' (Presidents Day): TREND SHORT BIAS. Slow drift lower. Lower filters for Short entries (1.2x-1.5x). Set regime to 'TRENDING' with Short preference.\n"
+            "- 'POST_HOLIDAY_TUESDAY' (Juneteenth): Standard filters but respect downside gap bias. Slightly favor Short setups.\n\n"
+
+            "THE DEAD ZONES:\n"
+            "- 'PRE_HOLIDAY' (Thanksgiving Eve / July 3rd): INCREASE filters drastically (3.0x - 4.0x) to avoid low-volume traps. Breakouts are frequently false.\n"
+            "- 'PRE_HOLIDAY' (July 4th): 'PATRIOT DRIFT' - Mean Reversion ONLY. Set regime to 'CHOPPY'. DISABLE Breakout logic entirely. Buy drops, Sell rallies.\n\n"
+
+            "*** SEASONAL & INTRADAY PROTOCOLS (SECOND PRIORITY) ***\n"
             "- 'PHASE_1_LAST_GASP': Trends are real and violent. Lower filters (t1_body) to capture moves early.\n"
             "- 'PHASE_2_DEAD_ZONE': Increase filters drastically (2.5x+) to avoid false breakouts on thin volume.\n"
             "- 'PHASE_3_JAN2_REENTRY': Bearish bias. Set regime to 'CHOPPY' if Long signals appear. Favor Short entries.\n"
-            "- 'PRE_HOLIDAY': Low-volume drifts are frequently traps. INCREASE t1_body and t1_vol requirements significantly (e.g., 3.0x - 4.0x).\n"
             "- 'POST_HOLIDAY_RECOVERY': First few hours see erratic whipsaws. Maintain elevated filters (2.5x+) until clear directional flow emerges.\n"
             "- 'NY_LUNCH' (Zombie Zone): 11:03 AM is liquidity bottom. False breakouts are RAMPANT. INCREASE filters to 3.0x+.\n"
             "- 'NY_CLOSE' (Close Trap): Heavy volume but mean reverting. Set 'regime' to 'CHOPPY' to force Range Fade logic.\n\n"
@@ -286,10 +310,22 @@ class GeminiSessionOptimizer:
         system_instruction = (
             f"You are a Volatility Manager for {session_name}. Adjust the 'Chop Threshold' multiplier.\n\n"
 
-            "*** SEASONAL & INTRADAY PROTOCOLS (HIGHEST PRIORITY - OVERRIDE STANDARD RULES) ***\n"
+            "*** MASTER HOLIDAY GAMEPLAN (HIGHEST PRIORITY - OVERRIDE ALL OTHER RULES) ***\n"
+            "THE VOLATILITY EXPLOSION:\n"
+            "- 'POST_HOLIDAY_EXPLOSION' (Labor Day Tuesday): LOWER chop_multiplier (0.6x). We want to enter trends IMMEDIATELY. Do not filter out volatility. The massive moves are REAL, not noise.\n\n"
+
+            "THE BEARISH TUESDAYS:\n"
+            "- 'POST_HOLIDAY_TUESDAY' (MLK Day): Gap Fill Reversal. Use moderate multiplier (1.0x-1.2x) to allow entry on the reversal setup.\n"
+            "- 'POST_HOLIDAY_TUESDAY' (Presidents Day): Low volume drift. Set chop_multiplier to 1.3x-1.5x. The slow grind lower can look like chop.\n"
+            "- 'POST_HOLIDAY_TUESDAY' (Juneteenth): Standard multiplier (1.0x).\n\n"
+
+            "THE DEAD ZONES:\n"
+            "- 'PRE_HOLIDAY' (Thanksgiving Eve / July 3rd): RAISE chop_multiplier (2.0x - 2.5x). The 'drift' is slow and looks like chop. Force fading/standing down.\n"
+            "- 'PRE_HOLIDAY' (July 4th): 'Patriot Drift' is slow mean reversion. RAISE multiplier to 2.0x to prioritize fade setups only.\n\n"
+
+            "*** SEASONAL & INTRADAY PROTOCOLS (SECOND PRIORITY) ***\n"
             "- 'PHASE_2_DEAD_ZONE': Set chop_multiplier to 1.5x - 2.0x. We want to FADE moves, so we need a higher threshold to identify overextension.\n"
             "- 'PHASE_3_JAN2_REENTRY': Set chop_multiplier to 0.8x to allow aggressive entry on the expected sell-off.\n"
-            "- 'PRE_HOLIDAY': Dead market chop. Set chop_multiplier to 1.5x - 2.0x to prioritize mean-reversion.\n"
             "- 'HOLIDAY_TODAY': Extreme chop. Set chop_multiplier to 2.0x - 3.0x. Market is essentially a random walk.\n"
             "- 'POST_HOLIDAY_RECOVERY': Volume returning but directionality uncertain. Use moderate multiplier (1.2x - 1.5x).\n"
             "- 'NY_LUNCH': High risk of chop. Set chop_multiplier to 2.0x - 2.5x to FORCE the bot to stand down unless a massive outlier occurs.\n"
