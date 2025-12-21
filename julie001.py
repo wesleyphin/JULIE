@@ -456,7 +456,7 @@ def run_bot():
                         active_fvgs=active_fvgs,
                         holiday_context=holiday_context,
                         seasonal_context=seasonal_context,
-                        base_session=base_session  # Pass parent session for data slicing
+                        base_session_name=base_session  # Pass parent session for data slicing
                     )
 
                     if opt_result:
