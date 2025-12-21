@@ -304,25 +304,51 @@ def run_bot():
             # === SESSION DETECTION & GEMINI OPTIMIZATION ===
             current_time_et = datetime.datetime.now(NY_TZ)
             hour = current_time_et.hour
+            minute = current_time_et.minute
 
+            # 1. Determine Broad Parent Session (For Data Slicing)
             if 18 <= hour or hour < 3:
-                current_session_name = "ASIA"
+                base_session = "ASIA"
             elif 3 <= hour < 8:
-                current_session_name = "LONDON"
+                base_session = "LONDON"
             elif 8 <= hour < 12:
-                current_session_name = "NY_AM"
+                base_session = "NY_AM"
             elif 12 <= hour < 17:
-                current_session_name = "NY_PM"
+                base_session = "NY_PM"
             else:
-                current_session_name = "POST_MARKET"
+                base_session = "POST_MARKET"
+
+            # 2. Determine Micro-Session (Zombie Zone & Close Trap)
+            current_session_name = base_session
+
+            if base_session == "NY_AM":
+                # "Lunchtime Death" starts 10:30
+                if hour == 10 and minute >= 30:
+                    current_session_name = "NY_LUNCH"
+                elif hour == 11:
+                    current_session_name = "NY_LUNCH"
+
+            elif base_session == "NY_PM":
+                # "Lunchtime Death" ends 12:30
+                if hour == 12 and minute < 30:
+                    current_session_name = "NY_LUNCH"
+                # "Close Trap" starts 15:00
+                elif hour >= 15:
+                    current_session_name = "NY_CLOSE"
 
             # --- OPTIMIZATION TRIGGER ---
             if current_session_name != last_processed_session:
-                logging.info(f"🔄 SESSION HANDOVER: {last_processed_session} -> {current_session_name}")
+                # Enhanced logging showing both micro-session and base session
+                if current_session_name != base_session:
+                    logging.info(f"🔄 SESSION HANDOVER: {last_processed_session} -> {current_session_name} [Base: {base_session}]")
+                else:
+                    logging.info(f"🔄 SESSION HANDOVER: {last_processed_session} -> {current_session_name}")
 
                 if CONFIG.get('GEMINI', {}).get('enabled', False):
                     print("\n" + "=" * 60)
                     print(f"🧠 GEMINI OPTIMIZATION - {current_session_name} SESSION")
+                    if current_session_name != base_session:
+                        print(f"   [Micro-Session - Base Data: {base_session}]")
                     print("=" * 60)
 
                     # 1. Fetch Events
@@ -348,6 +374,27 @@ def run_bot():
                     except Exception as e:
                         logging.warning(f"Failed to get holiday context: {e}")
                         holiday_context = "NORMAL_LIQUIDITY"
+
+                    # 1c. Get Seasonal Context
+                    try:
+                        seasonal_context = news_filter.get_seasonal_context(current_time)
+                        # Log seasonal phase with specific emoji indicators
+                        if seasonal_context == "PHASE_1_LAST_GASP":
+                            logging.info(f"⚡ SEASONAL PHASE: LAST GASP (Dec 20-23) - High volume, violent trends")
+                        elif seasonal_context == "PHASE_2_DEAD_ZONE":
+                            logging.info(f"☠️  SEASONAL PHASE: DEAD ZONE (Dec 24-31) - 60% volume drop, broken structure")
+                        elif seasonal_context == "PHASE_3_JAN2_REENTRY":
+                            logging.info(f"🐻 SEASONAL PHASE: JAN 2 RE-ENTRY - Bearish bias, funds returning")
+                        # NORMAL_SEASONAL doesn't need logging
+                    except Exception as e:
+                        logging.warning(f"Failed to get seasonal context: {e}")
+                        seasonal_context = "NORMAL_SEASONAL"
+
+                    # 1d. Log Micro-Session Specifics
+                    if current_session_name == "NY_LUNCH":
+                        logging.info(f"🧟 MICRO-SESSION: ZOMBIE ZONE (10:30-12:30) - Liquidity drops to 58%")
+                    elif current_session_name == "NY_CLOSE":
+                        logging.info(f"⚠️  MICRO-SESSION: CLOSE TRAP (15:00-16:00) - High volume, mean-reversion")
 
                     # 2. Get Hardcoded Base Params for Session
                     session_cfg = CONFIG['SESSIONS'].get(current_session_name, {})
@@ -398,7 +445,7 @@ def run_bot():
                     full_structure_context = sr_str + "\n" + fvg_str
                     # -----------------------------------------------
 
-                    # 3. Call Gemini with structure context
+                    # 3. Call Gemini with structure context (including seasonal & micro-session)
                     opt_result = optimizer.optimize_new_session(
                         master_df,
                         current_session_name,
@@ -407,7 +454,9 @@ def run_bot():
                         base_tp,
                         structure_context=full_structure_context,
                         active_fvgs=active_fvgs,
-                        holiday_context=holiday_context
+                        holiday_context=holiday_context,
+                        seasonal_context=seasonal_context,
+                        base_session=base_session  # Pass parent session for data slicing
                     )
 
                     if opt_result:
