@@ -144,16 +144,44 @@ class NewsFilter:
 
         return [f"{e['date_str']} | {e['title']}" for e in sorted_events]
 
+    def _get_holiday_name(self, date_obj):
+        """Helper to identify which specific holiday it is."""
+        # Thanksgiving is always 4th Thursday of Nov
+        if date_obj.month == 11 and date_obj.weekday() == 3 and 22 <= date_obj.day <= 28:
+            return "Thanksgiving"
+        # Labor Day is 1st Monday of Sept
+        if date_obj.month == 9 and date_obj.weekday() == 0 and 1 <= date_obj.day <= 7:
+            return "Labor Day"
+        # MLK is 3rd Monday of Jan
+        if date_obj.month == 1 and date_obj.weekday() == 0 and 15 <= date_obj.day <= 21:
+            return "MLK Day"
+        # Presidents is 3rd Monday of Feb
+        if date_obj.month == 2 and date_obj.weekday() == 0 and 15 <= date_obj.day <= 21:
+            return "Presidents Day"
+        # Memorial Day is Last Monday of May
+        if date_obj.month == 5 and date_obj.weekday() == 0 and date_obj.day >= 25:
+            return "Memorial Day"
+        # Juneteenth
+        if date_obj.month == 6 and date_obj.day == 19:
+            return "Juneteenth"
+        # Independence Day
+        if date_obj.month == 7 and date_obj.day == 4:
+            return "Independence Day"
+        # Good Friday (approximate - varies by year)
+        # For precise calculation, would need Easter algorithm
+        return "Bank Holiday"
+
     def get_holiday_context(self, current_time: datetime.datetime) -> str:
         """
-        Determines if a bank holiday is approaching or just passed.
-        Returns status codes for GeminiSessionOptimizer to adjust risk parameters.
+        Returns the MASTER GAMEPLAN context string for Gemini.
+        Integrates: Bearish Tuesdays, Dead Zones, Volatility Explosions.
 
-        Status Codes:
-        - NORMAL_LIQUIDITY: No holidays nearby
-        - HOLIDAY_TODAY: Market is closed or extremely low volume
-        - PRE_HOLIDAY_1_DAYS, PRE_HOLIDAY_2_DAYS, PRE_HOLIDAY_3_DAYS: Approaching holiday
-        - POST_HOLIDAY_RECOVERY: Day after holiday (volume returning)
+        Tactical Holiday Playbook:
+        - Labor Day Tuesday: Volatility Explosion (1.74x, -39pt returns)
+        - MLK Day Tuesday: Gap Fill Reversal (-9pt gap)
+        - Presidents Day Tuesday: Bearish Drift (0.8x vol, -20pts)
+        - Thanksgiving: Dead Zone (Wed 12pm cutoff, Friday full disable)
+        - July 4th: Patriot Drift (Mean reversion only, 50% size)
         """
         # Ensure time is in ET timezone
         if current_time.tzinfo is None:
@@ -163,25 +191,81 @@ class NewsFilter:
 
         today = current_time.date()
 
-        # Look for holidays within 1 day before and 3 days after
-        start_date = pd.Timestamp(today - datetime.timedelta(days=1))
+        # 1. DEC/JAN SEASONAL DANGER (Keep existing logic - check first for priority)
+        seasonal_msg = self.get_seasonal_context(current_time)
+        if seasonal_msg != "NORMAL_SEASONAL":
+            # Seasonal takes precedence during Dec/Jan
+            return seasonal_msg
+
+        # 2. HOLIDAY PROXIMITY CHECK (Next 3 days or Last 2 days)
+
+        # Check Post-Holiday (Look back 1 day - The Bearish Tuesdays)
+        yesterday = today - datetime.timedelta(days=1)
+        holidays_yesterday = self.holiday_cal.holidays(start=yesterday, end=yesterday)
+
+        if not holidays_yesterday.empty:
+            h_name = self._get_holiday_name(yesterday)
+
+            # === THE BEARISH TUESDAYS ===
+            if h_name == "MLK Day":
+                return (f"POST_HOLIDAY_TUESDAY (MLK Day). "
+                       f"GAMEPLAN: Volatility 1.4x. GAP FILL REVERSAL. "
+                       f"Expect -9pt gap. If gap > 10pts, look for Longs (Catch Up).")
+
+            if h_name == "Presidents Day":
+                return (f"POST_HOLIDAY_TUESDAY (Presidents Day). "
+                       f"GAMEPLAN: Volatility 0.8x (Low). TREND SHORT. "
+                       f"Expect -20pt sell-off drift. Take profits early.")
+
+            if h_name == "Juneteenth":
+                return (f"POST_HOLIDAY_TUESDAY (Juneteenth). "
+                       f"GAMEPLAN: Standard Day but respect Negative Gap bias (-8.5pts).")
+
+            # === THE VOLATILITY EXPLOSION ===
+            if h_name == "Labor Day":
+                return (f"POST_HOLIDAY_EXPLOSION (Labor Day). "
+                       f"GAMEPLAN: Volatility 1.74x (MASSIVE). Return -39pts. "
+                       f"AGGRESSIVE SHORT BIAS. Disable Mean Reversion. Widen Stops.")
+
+            # === THE NON-EVENT ===
+            if h_name == "Memorial Day":
+                return "POST_HOLIDAY (Memorial Day). GAMEPLAN: Neutral/Normal."
+
+            if "Good Friday" in h_name or (today.month == 4 and today.weekday() == 0):
+                return "POST_HOLIDAY (Easter Monday). GAMEPLAN: No Pre-Market Trade (Europe Closed). Normal Open."
+
+        # Check Pre-Holiday / Near Holiday
+        start_date = pd.Timestamp(today)
         end_date = pd.Timestamp(today + datetime.timedelta(days=3))
         holidays = self.holiday_cal.holidays(start=start_date, end=end_date)
 
-        if holidays.empty:
-            return "NORMAL_LIQUIDITY"
-
-        # Get the nearest holiday
-        h_date = holidays[0].date()
-
-        if h_date == today:
-            return "HOLIDAY_TODAY"
-        elif h_date > today:
+        if not holidays.empty:
+            h_date = holidays[0].date()
             days_away = (h_date - today).days
-            return f"PRE_HOLIDAY_{days_away}_DAYS"
-        else:
-            # Holiday was yesterday
-            return "POST_HOLIDAY_RECOVERY"
+            h_name = self._get_holiday_name(h_date)
+
+            # === THE DEAD ZONES ===
+            if h_name == "Thanksgiving":
+                if days_away == 1:  # Wednesday
+                    return ("PRE_HOLIDAY (Thanksgiving Eve). "
+                           "GAMEPLAN: HARD STOP @ 12:00 PM. Volume fading to 87%.")
+                elif days_away == 0:  # Thursday (should be blocked by should_block_trade)
+                    return "HOLIDAY_TODAY"
+
+            if h_name == "Independence Day":
+                if days_away == 1:  # July 3rd
+                    return ("PRE_HOLIDAY (July 4th). "
+                           "GAMEPLAN: 'Patriot Drift'. Mean Reversion Only. 50% Size. Bullish Drift Bias.")
+                elif days_away == 0:
+                    return "HOLIDAY_TODAY"
+
+            # Generic pre-holiday warnings for other holidays
+            if days_away == 0:
+                return "HOLIDAY_TODAY"
+            elif days_away <= 3:
+                return f"PRE_HOLIDAY_{days_away}_DAYS"
+
+        return "NORMAL_LIQUIDITY"
 
     def get_seasonal_context(self, current_time: datetime.datetime) -> str:
         """
@@ -223,14 +307,53 @@ class NewsFilter:
         else:
             current_time = current_time.astimezone(self.et)
 
-        # 1. Check Daily Recurring Blackouts
-        for hour, minute, duration in self.daily_blackouts:
-            start = current_time.replace(hour=hour, minute=minute, second=0, microsecond=0)
+        # === 1. DEAD ZONE HARD BLOCKS (The Kill Switches) ===
+        month = current_time.month
+        day = current_time.day
+        weekday = current_time.weekday()  # 0=Mon, 6=Sun
+        hour = current_time.hour
+        minute = current_time.minute
+
+        # A. Thanksgiving Week (4th Thursday of November)
+        if month == 11:
+            # Calculate Thanksgiving date dynamically
+            # Find first day of November
+            first_nov = datetime.date(current_time.year, 11, 1)
+            # Find first Thursday (weekday 3)
+            offset = (3 - first_nov.weekday()) % 7
+            thanksgiving_day = 1 + offset + 21  # Add 3 weeks to get 4th Thursday
+
+            # BLACKOUT: Wednesday after 12:00 PM
+            if day == (thanksgiving_day - 1) and hour >= 12:
+                return True, "DEAD ZONE: Thanksgiving Eve (Post-12PM) - Volume fading to 87%"
+
+            # BLACKOUT: Thursday (Thanksgiving Day)
+            if day == thanksgiving_day:
+                return True, "HOLIDAY: Thanksgiving Day - Market Closed"
+
+            # BLACKOUT: Friday (The Trap) - FULL DISABLE
+            if day == (thanksgiving_day + 1):
+                return True, "DEAD ZONE: Thanksgiving Friday (Volume 41%) - FULL DISABLE"
+
+        # B. Independence Day Week
+        if month == 7:
+            # July 4th
+            if day == 4:
+                return True, "HOLIDAY: Independence Day - Market Closed"
+
+            # July 3rd Early Close (1 PM block)
+            if day == 3 and hour >= 13:
+                return True, "DEAD ZONE: July 3rd (Post-1PM) - Early Close for Holiday"
+
+        # === 2. STANDARD DAILY BLACKOUTS ===
+        # Check Daily Recurring Blackouts (CME Close, etc.)
+        for hour_cfg, minute_cfg, duration in self.daily_blackouts:
+            start = current_time.replace(hour=hour_cfg, minute=minute_cfg, second=0, microsecond=0)
             end = start + datetime.timedelta(minutes=duration)
             if start <= current_time <= end:
                 return True, f"Daily Blackout: {start.strftime('%H:%M')} - {end.strftime('%H:%M')}"
 
-        # 2. Check Dynamic Calendar Events
+        # === 3. DYNAMIC NEWS CALENDAR EVENTS ===
         for event in self.calendar_blackouts:
             event_time = event['time']
             block_start = event_time - datetime.timedelta(minutes=event['pre_buffer'])
