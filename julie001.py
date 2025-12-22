@@ -40,6 +40,63 @@ from risk_engine import OptimizedTPEngine
 from gemini_optimizer import GeminiSessionOptimizer
 
 # ==========================================
+# TARGET CALCULATOR
+# ==========================================
+class TargetCalculator:
+    """
+    Handles target calculation with layered multipliers:
+    1. Base calculation from ATR
+    2. Gemini AI adjustments
+    3. Holiday/seasonal adjustments
+    """
+    def __init__(self, base_sl_mult=2.0, base_tp_mult=3.0, gemini_sl_mult=0.8, gemini_tp_mult=0.8):
+        self.base_sl_mult = base_sl_mult
+        self.base_tp_mult = base_tp_mult
+        self.gemini_sl_mult = gemini_sl_mult
+        self.gemini_tp_mult = gemini_tp_mult
+
+    def get_holiday_multiplier(self):
+        """
+        Returns holiday/seasonal multiplier.
+        Default is 1.3 for "Last Gasp" phase.
+        Override this method to integrate with actual holiday detection.
+        """
+        # TODO: Integrate with actual holiday/seasonal detection
+        return 1.3
+
+    def calculate_final_targets(self, base_price, atr, direction):
+        # 1. Base Calculation
+        base_sl_dist = atr * self.base_sl_mult
+        base_tp_dist = atr * self.base_tp_mult
+
+        # 2. Apply Gemini AI (The Technical View)
+        # Gemini sees structure/chop -> Shrinks to 0.8x
+        ai_sl_dist = base_sl_dist * self.gemini_sl_mult
+        ai_tp_dist = base_tp_dist * self.gemini_tp_mult
+
+        # 3. Apply Holiday Multiplier (The Seasonal Adjustment)
+        # Holiday sees "Last Gasp" -> Expands by 1.3x
+        # Effect: 0.8 * 1.3 = ~1.04 (Restores targets to normal size)
+        holiday_mult = self.get_holiday_multiplier()
+
+        final_sl_dist = ai_sl_dist * holiday_mult
+        final_tp_dist = ai_tp_dist * holiday_mult
+
+        # 4. Price Application & Rounding
+        if direction == "LONG":
+            stop_loss = base_price - final_sl_dist
+            take_profit = base_price + final_tp_dist
+        else: # SHORT
+            stop_loss = base_price + final_sl_dist
+            take_profit = base_price - final_tp_dist
+
+        # Round to tick size
+        stop_loss = round(stop_loss * 4) / 4
+        take_profit = round(take_profit * 4) / 4
+
+        return stop_loss, take_profit
+
+# ==========================================
 # RESAMPLER HELPER FUNCTION
 # ==========================================
 def resample_dataframe(df: pd.DataFrame, timeframe_minutes: int) -> pd.DataFrame:
