@@ -994,8 +994,8 @@ def run_bot():
                             signal['tp_dist'] = old_tp * tp_mult
 
                             # Enforce minimums to prevent dangerously tight stops
-                            MIN_SL = 2.0  # 8 ticks minimum
-                            MIN_TP = 3.0  # 12 ticks minimum
+                            MIN_SL = 4.0  # 16 ticks minimum
+                            MIN_TP = 6.0  # 24 ticks minimum (1.5:1 RR)
                             if signal['sl_dist'] < MIN_SL:
                                 logging.warning(f"⚠️ SL too tight ({signal['sl_dist']:.2f}), enforcing minimum {MIN_SL}")
                                 signal['sl_dist'] = MIN_SL
@@ -1286,8 +1286,8 @@ def run_bot():
                             signal['tp_dist'] = old_tp * tp_mult
 
                             # Enforce minimums to prevent dangerously tight stops
-                            MIN_SL = 2.0  # 8 ticks minimum
-                            MIN_TP = 3.0  # 12 ticks minimum
+                            MIN_SL = 4.0  # 16 ticks minimum
+                            MIN_TP = 6.0  # 24 ticks minimum (1.5:1 RR)
                             if signal['sl_dist'] < MIN_SL:
                                 logging.warning(f"⚠️ SL too tight ({signal['sl_dist']:.2f}), enforcing minimum {MIN_SL}")
                                 signal['sl_dist'] = MIN_SL
@@ -1560,8 +1560,8 @@ def run_bot():
                                 sig['tp_dist'] = old_tp * tp_mult
 
                                 # Enforce minimums to prevent dangerously tight stops
-                                MIN_SL = 2.0  # 8 ticks minimum
-                                MIN_TP = 3.0  # 12 ticks minimum
+                                MIN_SL = 4.0  # 16 ticks minimum
+                                MIN_TP = 6.0  # 24 ticks minimum (1.5:1 RR)
                                 if sig['sl_dist'] < MIN_SL:
                                     logging.warning(f"⚠️ SL too tight ({sig['sl_dist']:.2f}), enforcing minimum {MIN_SL}")
                                     sig['sl_dist'] = MIN_SL
@@ -1809,8 +1809,8 @@ def run_bot():
                                         signal['tp_dist'] = old_tp * tp_mult
 
                                         # Enforce minimums to prevent dangerously tight stops
-                                        MIN_SL = 2.0  # 8 ticks minimum
-                                        MIN_TP = 3.0  # 12 ticks minimum
+                                        MIN_SL = 4.0  # 16 ticks minimum
+                                        MIN_TP = 6.0  # 24 ticks minimum (1.5:1 RR)
                                         if signal['sl_dist'] < MIN_SL:
                                             logging.warning(f"⚠️ SL too tight ({signal['sl_dist']:.2f}), enforcing minimum {MIN_SL}")
                                             signal['sl_dist'] = MIN_SL
