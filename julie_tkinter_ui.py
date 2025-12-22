@@ -955,6 +955,10 @@ class JulieUI:
             '⚙️ STARTUP CALIBRATION',  # Startup calibration goes here
             '🌊 UPDATING TREND FILTER',  # Trend filter updates go here
             '📉 Tightening Risk', '📈 Tightening Risk',  # Risk management goes here
+            '🎄 HOLIDAY',  # Holiday multiplier detection
+            '🎯 TARGET CALCULATION',  # Target calculation logs
+            'Layer 1 - BASE', 'Layer 2 - GEMINI AI', 'Layer 3 - HOLIDAY',  # Target layers
+            '📊 COMPOSITE EFFECT', '✅ FINAL TARGETS',  # Composite and final targets
         ])
 
         # Determine if this is Gemini LLM activity (case-insensitive)
