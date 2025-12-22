@@ -73,24 +73,29 @@ class TargetCalculator:
         # 1. PHASE 1: "LAST GASP" (Monday Dec 22 - Tuesday Dec 23)
         # The market tries to squeeze out one last trend before the break.
         if today == date(2025, 12, 22) or today == date(2025, 12, 23):
+            logging.info(f"🎄 HOLIDAY PHASE 1: 'Last Gasp' (Dec {today.day}) | Multiplier: 1.3x (AGGRESSIVE)")
             return 1.3  # AGGRESSIVE: Matches your logs
 
         # 2. PHASE 2: CHRISTMAS EVE (Wednesday Dec 24) - HALF DAY
         # Markets close early (usually 1:00 PM EST). Extreme thinness.
         elif today == date(2025, 12, 24):
+            logging.info(f"🎄 HOLIDAY PHASE 2: 'Christmas Eve Half Day' | Multiplier: 0.5x (DEFENSIVE)")
             return 0.5  # DEFENSIVE: Cut risk in half.
 
         # 3. CHRISTMAS DAY (Thursday Dec 25) - CLOSED
         elif today == date(2025, 12, 25):
+            logging.warning(f"🎄 HOLIDAY: Christmas Day - MARKETS CLOSED | Multiplier: 0.0x (NO TRADING)")
             return 0.0  # NO TRADING
 
         # 4. PHASE 3: "HANGOVER" (Friday Dec 26)
         # Market reopens, but most institutional desks are empty.
         elif today == date(2025, 12, 26):
+            logging.info(f"🎄 HOLIDAY PHASE 3: 'Boxing Day Hangover' | Multiplier: 0.8x (CAUTIOUS)")
             return 0.8  # CAUTIOUS: Likely range-bound.
 
         # 5. NEW YEAR'S EVE (Wednesday Dec 31)
         elif today == date(2025, 12, 31):
+            logging.info(f"🎄 HOLIDAY: New Year's Eve | Multiplier: 0.5x (DEFENSIVE)")
             return 0.5  # DEFENSIVE
 
         # Default for all other days
@@ -101,10 +106,15 @@ class TargetCalculator:
         base_sl_dist = atr * self.base_sl_mult
         base_tp_dist = atr * self.base_tp_mult
 
+        logging.info(f"🎯 TARGET CALCULATION ({direction}) | Entry: {base_price:.2f} | ATR: {atr:.2f}")
+        logging.info(f"   Layer 1 - BASE: SL={base_sl_dist:.2f} (ATR*{self.base_sl_mult}) | TP={base_tp_dist:.2f} (ATR*{self.base_tp_mult})")
+
         # 2. Apply Gemini AI (The Technical View)
         # Gemini sees structure/chop -> Shrinks to 0.8x
         ai_sl_dist = base_sl_dist * self.gemini_sl_mult
         ai_tp_dist = base_tp_dist * self.gemini_tp_mult
+
+        logging.info(f"   Layer 2 - GEMINI AI: SL={ai_sl_dist:.2f} (*{self.gemini_sl_mult}) | TP={ai_tp_dist:.2f} (*{self.gemini_tp_mult})")
 
         # 3. Apply Holiday Multiplier (The Seasonal Adjustment)
         # Holiday sees "Last Gasp" -> Expands by 1.3x
@@ -113,6 +123,11 @@ class TargetCalculator:
 
         final_sl_dist = ai_sl_dist * holiday_mult
         final_tp_dist = ai_tp_dist * holiday_mult
+
+        # Calculate the composite multiplier effect
+        composite_mult = self.gemini_sl_mult * holiday_mult
+        logging.info(f"   Layer 3 - HOLIDAY: SL={final_sl_dist:.2f} (*{holiday_mult}) | TP={final_tp_dist:.2f} (*{holiday_mult})")
+        logging.info(f"   📊 COMPOSITE EFFECT: {composite_mult:.2f}x (Gemini {self.gemini_sl_mult}x * Holiday {holiday_mult}x)")
 
         # 4. Price Application & Rounding
         if direction == "LONG":
@@ -125,6 +140,8 @@ class TargetCalculator:
         # Round to tick size
         stop_loss = round(stop_loss * 4) / 4
         take_profit = round(take_profit * 4) / 4
+
+        logging.info(f"   ✅ FINAL TARGETS: SL={stop_loss:.2f} | TP={take_profit:.2f} | Risk:Reward = 1:{(final_tp_dist/final_sl_dist):.2f}")
 
         return stop_loss, take_profit
 
