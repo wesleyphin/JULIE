@@ -2,6 +2,7 @@ import requests
 import pandas as pd
 import numpy as np
 import datetime
+from datetime import date
 import time
 import logging
 from zoneinfo import ZoneInfo
@@ -38,6 +39,94 @@ from impulse_filter import ImpulseFilter
 from client import ProjectXClient
 from risk_engine import OptimizedTPEngine
 from gemini_optimizer import GeminiSessionOptimizer
+
+# ==========================================
+# TARGET CALCULATOR
+# ==========================================
+class TargetCalculator:
+    """
+    Handles target calculation with layered multipliers:
+    1. Base calculation from ATR
+    2. Gemini AI adjustments
+    3. Holiday/seasonal adjustments
+    """
+    def __init__(self, base_sl_mult=2.0, base_tp_mult=3.0, gemini_sl_mult=0.8, gemini_tp_mult=0.8):
+        self.base_sl_mult = base_sl_mult
+        self.base_tp_mult = base_tp_mult
+        self.gemini_sl_mult = gemini_sl_mult
+        self.gemini_tp_mult = gemini_tp_mult
+
+    def get_holiday_multiplier(self):
+        """
+        Returns a volatility multiplier based on the specific 2025 Holiday Calendar.
+
+        Logic:
+        - PHASE 1 (Dec 22-23): "Last Gasp" -> 1.3x (Aggressive trend seeking)
+        - PHASE 2 (Dec 24): "Half Day" -> 0.5x (Safety/Drift, extremely thin)
+        - PHASE 3 (Dec 26): "Hangover" -> 0.8x (Low volume, often choppy)
+        - STANDARD: 1.0x
+        """
+        today = datetime.datetime.now().date()
+
+        # --- DECEMBER 2025 SCHEDULE ---
+
+        # 1. PHASE 1: "LAST GASP" (Monday Dec 22 - Tuesday Dec 23)
+        # The market tries to squeeze out one last trend before the break.
+        if today == date(2025, 12, 22) or today == date(2025, 12, 23):
+            return 1.3  # AGGRESSIVE: Matches your logs
+
+        # 2. PHASE 2: CHRISTMAS EVE (Wednesday Dec 24) - HALF DAY
+        # Markets close early (usually 1:00 PM EST). Extreme thinness.
+        elif today == date(2025, 12, 24):
+            return 0.5  # DEFENSIVE: Cut risk in half.
+
+        # 3. CHRISTMAS DAY (Thursday Dec 25) - CLOSED
+        elif today == date(2025, 12, 25):
+            return 0.0  # NO TRADING
+
+        # 4. PHASE 3: "HANGOVER" (Friday Dec 26)
+        # Market reopens, but most institutional desks are empty.
+        elif today == date(2025, 12, 26):
+            return 0.8  # CAUTIOUS: Likely range-bound.
+
+        # 5. NEW YEAR'S EVE (Wednesday Dec 31)
+        elif today == date(2025, 12, 31):
+            return 0.5  # DEFENSIVE
+
+        # Default for all other days
+        return 1.0
+
+    def calculate_final_targets(self, base_price, atr, direction):
+        # 1. Base Calculation
+        base_sl_dist = atr * self.base_sl_mult
+        base_tp_dist = atr * self.base_tp_mult
+
+        # 2. Apply Gemini AI (The Technical View)
+        # Gemini sees structure/chop -> Shrinks to 0.8x
+        ai_sl_dist = base_sl_dist * self.gemini_sl_mult
+        ai_tp_dist = base_tp_dist * self.gemini_tp_mult
+
+        # 3. Apply Holiday Multiplier (The Seasonal Adjustment)
+        # Holiday sees "Last Gasp" -> Expands by 1.3x
+        # Effect: 0.8 * 1.3 = ~1.04 (Restores targets to normal size)
+        holiday_mult = self.get_holiday_multiplier()
+
+        final_sl_dist = ai_sl_dist * holiday_mult
+        final_tp_dist = ai_tp_dist * holiday_mult
+
+        # 4. Price Application & Rounding
+        if direction == "LONG":
+            stop_loss = base_price - final_sl_dist
+            take_profit = base_price + final_tp_dist
+        else: # SHORT
+            stop_loss = base_price + final_sl_dist
+            take_profit = base_price - final_tp_dist
+
+        # Round to tick size
+        stop_loss = round(stop_loss * 4) / 4
+        take_profit = round(take_profit * 4) / 4
+
+        return stop_loss, take_profit
 
 # ==========================================
 # RESAMPLER HELPER FUNCTION
