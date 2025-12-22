@@ -818,10 +818,10 @@ class ProjectXClient:
             self.place_order(new_signal, current_price)
             return True, 0
 
-        # If signal is SAME direction as position, DO NOTHING (prevent pyramiding)
+        # If signal is SAME direction as position, place order and reset count
         if position['side'] == new_signal['side']:
-            logging.info(f"🚫 ALREADY {position['side']}: Ignoring stack signal to prevent pyramiding.")
-            return True, 0  # Return True to indicate "handled" but don't place order
+            self.place_order(new_signal, current_price)
+            return True, 0
 
         # Signal is OPPOSITE direction - increment counter
         opposite_signal_count += 1
