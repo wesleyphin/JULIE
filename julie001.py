@@ -41,14 +41,17 @@ from risk_engine import OptimizedTPEngine
 from gemini_optimizer import GeminiSessionOptimizer
 
 # ==========================================
-# TARGET CALCULATOR
+# TARGET CALCULATOR (DEPRECATED - NOT USED)
+# Holiday logic now flows through news_filter.get_holiday_context() -> Gemini
+# Keeping for reference only. DO NOT USE - use Gemini multipliers instead.
 # ==========================================
 class TargetCalculator:
     """
-    Handles target calculation with layered multipliers:
-    1. Base calculation from ATR
-    2. Gemini AI adjustments
-    3. Holiday/seasonal adjustments
+    DEPRECATED: This class is not used in the main trading flow.
+    Holiday adjustments are handled by:
+    1. news_filter.get_holiday_context() - determines holiday status
+    2. gemini_optimizer - adjusts multipliers based on context
+    3. Gemini multiplier application in main loop (with MIN_SL/MIN_TP enforcement)
     """
     def __init__(self, base_sl_mult=2.0, base_tp_mult=3.0, gemini_sl_mult=0.8, gemini_tp_mult=0.8):
         self.base_sl_mult = base_sl_mult
@@ -58,45 +61,37 @@ class TargetCalculator:
 
     def get_holiday_multiplier(self):
         """
-        Returns a volatility multiplier based on the specific 2025 Holiday Calendar.
-
-        Logic:
-        - PHASE 1 (Dec 22-23): "Last Gasp" -> 1.3x (Aggressive trend seeking)
-        - PHASE 2 (Dec 24): "Half Day" -> 0.5x (Safety/Drift, extremely thin)
-        - PHASE 3 (Dec 26): "Hangover" -> 0.8x (Low volume, often choppy)
-        - STANDARD: 1.0x
+        DEPRECATED: Returns a volatility multiplier based on the specific 2025 Holiday Calendar.
+        WARNING: This method is NOT USED. See news_filter.get_holiday_context() instead.
         """
         today = datetime.datetime.now().date()
 
         # --- DECEMBER 2025 SCHEDULE ---
 
         # 1. PHASE 1: "LAST GASP" (Monday Dec 22 - Tuesday Dec 23)
-        # The market tries to squeeze out one last trend before the break.
         if today == date(2025, 12, 22) or today == date(2025, 12, 23):
             logging.info(f"🎄 HOLIDAY PHASE 1: 'Last Gasp' (Dec {today.day}) | Multiplier: 1.3x (AGGRESSIVE)")
-            return 1.3  # AGGRESSIVE: Matches your logs
+            return 1.3
 
         # 2. PHASE 2: CHRISTMAS EVE (Wednesday Dec 24) - HALF DAY
-        # Markets close early (usually 1:00 PM EST). Extreme thinness.
         elif today == date(2025, 12, 24):
             logging.info(f"🎄 HOLIDAY PHASE 2: 'Christmas Eve Half Day' | Multiplier: 0.5x (DEFENSIVE)")
-            return 0.5  # DEFENSIVE: Cut risk in half.
+            return 0.5  # Minimum safe value
 
         # 3. CHRISTMAS DAY (Thursday Dec 25) - CLOSED
         elif today == date(2025, 12, 25):
-            logging.warning(f"🎄 HOLIDAY: Christmas Day - MARKETS CLOSED | Multiplier: 0.0x (NO TRADING)")
-            return 0.0  # NO TRADING
+            logging.warning(f"🎄 HOLIDAY: Christmas Day - MARKETS CLOSED")
+            return 0.5  # FIXED: Was 0.0 which would zero out SL/TP!
 
         # 4. PHASE 3: "HANGOVER" (Friday Dec 26)
-        # Market reopens, but most institutional desks are empty.
         elif today == date(2025, 12, 26):
             logging.info(f"🎄 HOLIDAY PHASE 3: 'Boxing Day Hangover' | Multiplier: 0.8x (CAUTIOUS)")
-            return 0.8  # CAUTIOUS: Likely range-bound.
+            return 0.8
 
         # 5. NEW YEAR'S EVE (Wednesday Dec 31)
         elif today == date(2025, 12, 31):
             logging.info(f"🎄 HOLIDAY: New Year's Eve | Multiplier: 0.5x (DEFENSIVE)")
-            return 0.5  # DEFENSIVE
+            return 0.5
 
         # Default for all other days
         return 1.0
