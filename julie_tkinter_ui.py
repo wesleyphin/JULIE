@@ -995,6 +995,47 @@ class JulieUI:
             self.add_market_log(line)
         # Otherwise, don't display (filter out noise)
 
+        # Reset strategies on new bar
+        if "NEW BAR" in line or "Bar:" in line:
+            for strategy in self.strategy_labels.keys():
+                current = self.strategy_labels[strategy].cget('text')
+                # Reset to WAITING unless it's currently EXECUTED
+                if "EXECUTED" not in current:
+                    self.update_strategy(strategy, "WAITING", self.colors['text_gray'])
+
+        # Parse FILTER_CHECK logs with strategy names
+        if "[FILTER_CHECK]" in line:
+            # Extract strategy from the log details: strategy=StrategyName
+            strategy_match = re.search(r'strategy=([^\s|]+)', line)
+            if strategy_match:
+                raw_strategy = strategy_match.group(1)
+
+                # Map strategy names (handle both with and without spaces)
+                strategy_map = {
+                    "RegimeAdaptive": "Regime Adaptive",
+                    "IntradayDip": "Intraday Dip",
+                    "Confluence": "Confluence",
+                    "ICTModel": "ICT Model",
+                    "ORBStrategy": "ORB Strategy",
+                    "MLPhysicsStrategy": "ML Physics",
+                    "MLPhysics": "ML Physics",
+                    "DynamicEngine": "Dynamic Engine 1",
+                    "DynamicEngine2": "Dynamic Engine 2",
+                    "SMTStrategy": "SMT Divergence"
+                }
+
+                display_name = strategy_map.get(raw_strategy, raw_strategy)
+
+                # Check if it's a PASS or BLOCK
+                if "✗ BLOCK" in line or "BLOCK" in line:
+                    self.update_strategy(display_name, "BLOCKED", self.colors['red'])
+                elif "✓ PASS" in line:
+                    # Only update to CHECKING if not already BLOCKED or EXECUTED
+                    if display_name in self.strategy_labels:
+                        current = self.strategy_labels[display_name].cget('text')
+                        if current not in ["EXECUTED", "BLOCKED"]:
+                            self.update_strategy(display_name, "CHECKING", self.colors['yellow'])
+
         # Parse strategy signals
         for strategy in self.strategy_labels.keys():
             if strategy in line or strategy.replace(" ", "") in line:
