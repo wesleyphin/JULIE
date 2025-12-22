@@ -177,6 +177,16 @@ class DynamicChopAnalyzer:
         if df_1m.empty or len(df_1m) < self.LOOKBACK:
              return True, "Insufficient Data"
 
+        # --- NEW: LOADED SPRING (Time Decay Fader) ---
+        # Check volatility of the last 15 bars (approx 15 mins)
+        recent_15_high = df_1m["high"].iloc[-15:].max()
+        recent_15_low = df_1m["low"].iloc[-15:].min()
+        recent_15_vol = recent_15_high - recent_15_low
+
+        # Threshold: If 15-min range is < 7 points, it's a "Loaded Spring"
+        if recent_15_vol < 7.0:
+            return True, f"⚡ LOADED SPRING: 15m Range only {recent_15_vol:.2f}pts. Allowing Breakout Attempt."
+
         # =========================================================
         # 1. REGIME CHECK (The Safety Switch)
         # =========================================================
