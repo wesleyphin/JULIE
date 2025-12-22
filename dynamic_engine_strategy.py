@@ -60,12 +60,19 @@ class DynamicEngineStrategy(Strategy):
 
             logging.info(f"🚀 DYNAMIC ENGINE TRIGGER: {signal_data['strategy_id']}")
 
+            # Enforce minimum SL/TP for positive RR
+            MIN_SL = 4.0  # 16 ticks minimum
+            MIN_TP = 6.0  # 24 ticks minimum (1.5:1 RR)
+
+            final_sl = max(signal_data['sl'], MIN_SL)
+            final_tp = max(signal_data['tp'], MIN_TP)
+
             return {
                 "strategy": "DynamicEngine",
                 "sub_strategy": signal_data['strategy_id'],
                 "side": signal_data['signal'],
-                "tp_dist": signal_data['tp'],
-                "sl_dist": signal_data['sl']
+                "tp_dist": final_tp,
+                "sl_dist": final_sl
             }
 
         return None

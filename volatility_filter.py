@@ -553,9 +553,9 @@ class HierarchicalVolatilityFilter:
         adj_sl = round(adj_sl * 4) / 4
         adj_tp = round(adj_tp * 4) / 4
 
-        # Minimum constraints (MES minimums)
-        adj_sl = max(adj_sl, 1.0)  # Absolute minimum stop
-        adj_tp = max(adj_tp, 1.0)
+        # Minimum constraints (4.0 SL / 6.0 TP for positive RR)
+        adj_sl = max(adj_sl, 4.0)  # 16 ticks minimum
+        adj_tp = max(adj_tp, 6.0)  # 24 ticks minimum (1.5:1 RR)
 
         return {
             'sl_dist': adj_sl,
