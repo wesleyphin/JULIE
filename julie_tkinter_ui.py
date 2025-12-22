@@ -538,7 +538,6 @@ class JulieUI:
             "ORB Strategy",
             "ML Physics",
             "Dynamic Engine 1",
-            "Dynamic Engine 2",
             "SMT Divergence"
         ]
 
@@ -1025,7 +1024,6 @@ class JulieUI:
                     "MLPhysicsStrategy": "ML Physics",
                     "MLPhysics": "ML Physics",
                     "DynamicEngine": "Dynamic Engine 1",
-                    "DynamicEngine2": "Dynamic Engine 2",
                     "SMTStrategy": "SMT Divergence"
                 }
 
