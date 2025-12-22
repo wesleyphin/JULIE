@@ -114,26 +114,32 @@ def should_revert_signal(ts) -> bool:
 def get_optimized_sltp(side: str, ts) -> Dict[str, float]:
     """
     Get optimized SL/TP for the given side and timestamp.
-    
+
     Returns dict with 'sl_dist' and 'tp_dist'
     """
+    # Minimum enforcement for positive RR
+    MIN_SL = 4.0  # 16 ticks minimum
+    MIN_TP = 6.0  # 24 ticks minimum (1.5:1 RR)
+
     ctx = get_time_context(ts)
-    
+
     if SLTP_PARAMS_AVAILABLE:
         params = get_regime_sltp(
-            side, 
-            ctx['yearly_q'], 
-            ctx['monthly_q'], 
-            ctx['day_of_week'], 
+            side,
+            ctx['yearly_q'],
+            ctx['monthly_q'],
+            ctx['day_of_week'],
             ctx['session']
         )
+        sl_dist = max(params['sl'], MIN_SL)
+        tp_dist = max(params['tp'], MIN_TP)
         return {
-            'sl_dist': params['sl'],
-            'tp_dist': params['tp']
+            'sl_dist': sl_dist,
+            'tp_dist': tp_dist
         }
-    
+
     # Defaults if no params available
-    return {'sl_dist': 4.0, 'tp_dist': 6.0}
+    return {'sl_dist': MIN_SL, 'tp_dist': MIN_TP}
 
 
 class RegimeAdaptiveStrategy:

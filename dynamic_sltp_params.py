@@ -3051,9 +3051,9 @@ class DynamicSLTPEngine:
         sl_dist = round(sl_dist * 4) / 4
         tp_dist = round(tp_dist * 4) / 4
 
-        # THEN enforce minimums AFTER snapping
-        sl_dist = max(sl_dist, 1.0)  # 4 ticks minimum
-        tp_dist = max(tp_dist, 1.5)  # 6 ticks minimum
+        # THEN enforce minimums AFTER snapping (4.0 SL, 6.0 TP for positive RR)
+        sl_dist = max(sl_dist, 4.0)  # 16 ticks minimum
+        tp_dist = max(tp_dist, 6.0)  # 24 ticks minimum (1.5:1 RR)
 
         return {
             'sl_dist': sl_dist,
