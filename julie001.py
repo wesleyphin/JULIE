@@ -986,14 +986,29 @@ def run_bot():
                             sl_mult = CONFIG.get('DYNAMIC_SL_MULTIPLIER', 1.0)
                             tp_mult = CONFIG.get('DYNAMIC_TP_MULTIPLIER', 1.0)
 
+                            # ALWAYS ensure sl_dist/tp_dist are set (fix for missing values)
+                            old_sl = signal.get('sl_dist', 4.0)
+                            old_tp = signal.get('tp_dist', 6.0)
+
+                            # Warn if strategy didn't set these
+                            if 'sl_dist' not in signal or 'tp_dist' not in signal:
+                                logging.warning(f"⚠️ {strat_name} missing sl_dist/tp_dist, using defaults")
+
+                            # Apply Multipliers
+                            signal['sl_dist'] = old_sl * sl_mult
+                            signal['tp_dist'] = old_tp * tp_mult
+
+                            # Enforce minimums to prevent dangerously tight stops
+                            MIN_SL = 2.0  # 8 ticks minimum
+                            MIN_TP = 3.0  # 12 ticks minimum
+                            if signal['sl_dist'] < MIN_SL:
+                                logging.warning(f"⚠️ SL too tight ({signal['sl_dist']:.2f}), enforcing minimum {MIN_SL}")
+                                signal['sl_dist'] = MIN_SL
+                            if signal['tp_dist'] < MIN_TP:
+                                logging.warning(f"⚠️ TP too tight ({signal['tp_dist']:.2f}), enforcing minimum {MIN_TP}")
+                                signal['tp_dist'] = MIN_TP
+
                             if sl_mult != 1.0 or tp_mult != 1.0:
-                                old_sl = signal.get('sl_dist', 4.0)
-                                old_tp = signal.get('tp_dist', 6.0)
-
-                                # Apply Multipliers
-                                signal['sl_dist'] = old_sl * sl_mult
-                                signal['tp_dist'] = old_tp * tp_mult
-
                                 logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
                             # ==========================================
 
@@ -1241,7 +1256,7 @@ def run_bot():
                     for strat in standard_strategies:
                         strat_name = strat.__class__.__name__
                         signal = None
-                        
+
                         if strat_name == "MLPhysicsStrategy":
                             signal = ml_signal
                         elif strat_name == "SMTStrategy":
@@ -1251,7 +1266,7 @@ def run_bot():
                                 signal = strat.on_bar(new_df)
                             except Exception as e:
                                 logging.error(f"Error in {strat_name}: {e}")
-                        
+
                         if signal:
                             strategy_results['checked'].append(strat_name)
 
@@ -1263,14 +1278,29 @@ def run_bot():
                             sl_mult = CONFIG.get('DYNAMIC_SL_MULTIPLIER', 1.0)
                             tp_mult = CONFIG.get('DYNAMIC_TP_MULTIPLIER', 1.0)
 
+                            # ALWAYS ensure sl_dist/tp_dist are set (fix for missing values)
+                            old_sl = signal.get('sl_dist', 4.0)
+                            old_tp = signal.get('tp_dist', 6.0)
+
+                            # Warn if strategy didn't set these
+                            if 'sl_dist' not in signal or 'tp_dist' not in signal:
+                                logging.warning(f"⚠️ {strat_name} missing sl_dist/tp_dist, using defaults")
+
+                            # Apply Multipliers
+                            signal['sl_dist'] = old_sl * sl_mult
+                            signal['tp_dist'] = old_tp * tp_mult
+
+                            # Enforce minimums to prevent dangerously tight stops
+                            MIN_SL = 2.0  # 8 ticks minimum
+                            MIN_TP = 3.0  # 12 ticks minimum
+                            if signal['sl_dist'] < MIN_SL:
+                                logging.warning(f"⚠️ SL too tight ({signal['sl_dist']:.2f}), enforcing minimum {MIN_SL}")
+                                signal['sl_dist'] = MIN_SL
+                            if signal['tp_dist'] < MIN_TP:
+                                logging.warning(f"⚠️ TP too tight ({signal['tp_dist']:.2f}), enforcing minimum {MIN_TP}")
+                                signal['tp_dist'] = MIN_TP
+
                             if sl_mult != 1.0 or tp_mult != 1.0:
-                                old_sl = signal.get('sl_dist', 4.0)
-                                old_tp = signal.get('tp_dist', 6.0)
-
-                                # Apply Multipliers
-                                signal['sl_dist'] = old_sl * sl_mult
-                                signal['tp_dist'] = old_tp * tp_mult
-
                                 logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
                             # ==========================================
 
@@ -1522,14 +1552,29 @@ def run_bot():
                                 sl_mult = CONFIG.get('DYNAMIC_SL_MULTIPLIER', 1.0)
                                 tp_mult = CONFIG.get('DYNAMIC_TP_MULTIPLIER', 1.0)
 
+                                # ALWAYS ensure sl_dist/tp_dist are set (fix for missing values)
+                                old_sl = sig.get('sl_dist', 4.0)
+                                old_tp = sig.get('tp_dist', 6.0)
+
+                                # Warn if strategy didn't set these
+                                if 'sl_dist' not in sig or 'tp_dist' not in sig:
+                                    logging.warning(f"⚠️ {s_name} missing sl_dist/tp_dist, using defaults")
+
+                                # Apply Multipliers
+                                sig['sl_dist'] = old_sl * sl_mult
+                                sig['tp_dist'] = old_tp * tp_mult
+
+                                # Enforce minimums to prevent dangerously tight stops
+                                MIN_SL = 2.0  # 8 ticks minimum
+                                MIN_TP = 3.0  # 12 ticks minimum
+                                if sig['sl_dist'] < MIN_SL:
+                                    logging.warning(f"⚠️ SL too tight ({sig['sl_dist']:.2f}), enforcing minimum {MIN_SL}")
+                                    sig['sl_dist'] = MIN_SL
+                                if sig['tp_dist'] < MIN_TP:
+                                    logging.warning(f"⚠️ TP too tight ({sig['tp_dist']:.2f}), enforcing minimum {MIN_TP}")
+                                    sig['tp_dist'] = MIN_TP
+
                                 if sl_mult != 1.0 or tp_mult != 1.0:
-                                    old_sl = sig.get('sl_dist', 4.0)
-                                    old_tp = sig.get('tp_dist', 6.0)
-
-                                    # Apply Multipliers
-                                    sig['sl_dist'] = old_sl * sl_mult
-                                    sig['tp_dist'] = old_tp * tp_mult
-
                                     logging.info(f"🧠 GEMINI OPTIMIZED: {s_name} | SL: {old_sl:.2f}->{sig['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{sig['tp_dist']:.2f} (x{tp_mult})")
                                 # ==========================================
 
@@ -1756,14 +1801,29 @@ def run_bot():
                                         sl_mult = CONFIG.get('DYNAMIC_SL_MULTIPLIER', 1.0)
                                         tp_mult = CONFIG.get('DYNAMIC_TP_MULTIPLIER', 1.0)
 
+                                        # ALWAYS ensure sl_dist/tp_dist are set (fix for missing values)
+                                        old_sl = signal.get('sl_dist', 4.0)
+                                        old_tp = signal.get('tp_dist', 6.0)
+
+                                        # Warn if strategy didn't set these
+                                        if 'sl_dist' not in signal or 'tp_dist' not in signal:
+                                            logging.warning(f"⚠️ {s_name} missing sl_dist/tp_dist, using defaults")
+
+                                        # Apply Multipliers
+                                        signal['sl_dist'] = old_sl * sl_mult
+                                        signal['tp_dist'] = old_tp * tp_mult
+
+                                        # Enforce minimums to prevent dangerously tight stops
+                                        MIN_SL = 2.0  # 8 ticks minimum
+                                        MIN_TP = 3.0  # 12 ticks minimum
+                                        if signal['sl_dist'] < MIN_SL:
+                                            logging.warning(f"⚠️ SL too tight ({signal['sl_dist']:.2f}), enforcing minimum {MIN_SL}")
+                                            signal['sl_dist'] = MIN_SL
+                                        if signal['tp_dist'] < MIN_TP:
+                                            logging.warning(f"⚠️ TP too tight ({signal['tp_dist']:.2f}), enforcing minimum {MIN_TP}")
+                                            signal['tp_dist'] = MIN_TP
+
                                         if sl_mult != 1.0 or tp_mult != 1.0:
-                                            old_sl = signal.get('sl_dist', 4.0)
-                                            old_tp = signal.get('tp_dist', 6.0)
-
-                                            # Apply Multipliers
-                                            signal['sl_dist'] = old_sl * sl_mult
-                                            signal['tp_dist'] = old_tp * tp_mult
-
                                             logging.info(f"🧠 GEMINI OPTIMIZED: {s_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
                                         # ==========================================
 
