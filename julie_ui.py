@@ -118,6 +118,14 @@ class LogMonitor:
         elif "BREAK-EVEN" in line and "trigger" in line.lower():
             self.ui.add_event("TRADE", "Break-even stop triggered")
 
+        # Extract missing TP/SL warnings
+        elif "missing sl_dist" in line or "missing tp_dist" in line:
+            match = re.search(r'Strategy\s+(\w+)\s+missing\s+(sl_dist|tp_dist)', line)
+            if match:
+                strategy = match.group(1)
+                missing = match.group(2)
+                self.ui.add_event("WARNING", f"⚠️ {strategy} missing {missing}!")
+
         # Extract session info
         elif "Bar:" in line:
             # Example: "Bar: 2024-12-14 15:30:00 ET | Price: 5875.25"

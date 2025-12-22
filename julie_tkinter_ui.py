@@ -936,7 +936,8 @@ class JulieUI:
             'API', 'returned no bars', 'No bars', 'rate limit',  # API logs
             'Trade closed', 'Position', 'P&L',  # Trade results
             'STRATEGY_SIGNAL',  # Strategy signals
-            'Bar:', 'Price:'  # Live bar/price updates
+            'Bar:', 'Price:',  # Live bar/price updates
+            'missing sl_dist', 'missing tp_dist',  # Missing TP/SL warnings
         ])
 
         # Determine if this is market context
