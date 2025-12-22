@@ -527,8 +527,15 @@ class ProjectXClient:
         # 2. Calculate Ticks Distance (Absolute)
         # MES tick size is 0.25
         # sl_dist and tp_dist are in POINTS, convert to ticks
-        sl_points = float(signal['sl_dist'])
-        tp_points = float(signal['tp_dist'])
+        # Use .get() with defaults for safety (all strategies should set these, but just in case)
+        sl_points = float(signal.get('sl_dist', 4.0))
+        tp_points = float(signal.get('tp_dist', 6.0))
+
+        # Log warning if defaults were used (helps debug strategy issues)
+        if 'sl_dist' not in signal:
+            logging.warning(f"⚠️ Strategy {signal.get('strategy', 'Unknown')} missing sl_dist, using default 4.0")
+        if 'tp_dist' not in signal:
+            logging.warning(f"⚠️ Strategy {signal.get('strategy', 'Unknown')} missing tp_dist, using default 6.0")
 
         abs_sl_ticks = int(abs(sl_points / 0.25))
 

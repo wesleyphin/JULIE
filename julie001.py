@@ -1215,7 +1215,7 @@ def run_bot():
 
                             success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
                             if success:
-                                sl_dist = signal.get('sl_dist', signal['tp_dist'])
+                                sl_dist = signal.get('sl_dist', 4.0)  # Standard default, NOT tp_dist
                                 initial_stop = current_price - sl_dist if signal['side'] == 'LONG' else current_price + sl_dist
                                 active_trade = {
                                     'strategy': signal['strategy'],
@@ -1224,6 +1224,7 @@ def run_bot():
                                     'entry_bar': bar_count,
                                     'bars_held': 0,
                                     'tp_dist': signal['tp_dist'],
+                                    'sl_dist': sl_dist,  # Store SL for consistency
                                     'size': signal.get('size', 5),  # Use signal size (volatility-adjusted)
                                     'stop_order_id': client._active_stop_order_id,  # Cached stop ID
                                     'current_stop_price': initial_stop,  # Track for trailing stop
@@ -1484,7 +1485,7 @@ def run_bot():
 
                             success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
                             if success:
-                                sl_dist = signal.get('sl_dist', signal['tp_dist'])
+                                sl_dist = signal.get('sl_dist', 4.0)  # Standard default, NOT tp_dist
                                 initial_stop = current_price - sl_dist if signal['side'] == 'LONG' else current_price + sl_dist
                                 active_trade = {
                                     'strategy': signal['strategy'],
@@ -1493,6 +1494,7 @@ def run_bot():
                                     'entry_bar': bar_count,
                                     'bars_held': 0,
                                     'tp_dist': signal['tp_dist'],
+                                    'sl_dist': sl_dist,  # Store SL for consistency
                                     'size': signal.get('size', 5),  # Use signal size (volatility-adjusted)
                                     'stop_order_id': client._active_stop_order_id,  # Cached stop ID
                                     'current_stop_price': initial_stop,  # Track for trailing stop
@@ -1719,7 +1721,7 @@ def run_bot():
 
                                 success, opposite_signal_count = client.close_and_reverse(sig, current_price, opposite_signal_count)
                                 if success:
-                                    sl_dist = sig.get('sl_dist', sig['tp_dist'])
+                                    sl_dist = sig.get('sl_dist', 4.0)  # Standard default, NOT tp_dist
                                     initial_stop = current_price - sl_dist if sig['side'] == 'LONG' else current_price + sl_dist
                                     active_trade = {
                                         'strategy': s_name,
@@ -1728,6 +1730,7 @@ def run_bot():
                                         'entry_bar': bar_count,
                                         'bars_held': 0,
                                         'tp_dist': sig['tp_dist'],
+                                        'sl_dist': sl_dist,  # Store SL for consistency
                                         'size': sig.get('size', 5),  # Use signal size (volatility-adjusted)
                                         'stop_order_id': client._active_stop_order_id,
                                         'current_stop_price': initial_stop,  # Track for trailing stop
