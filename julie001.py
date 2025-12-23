@@ -38,6 +38,7 @@ from impulse_filter import ImpulseFilter
 from client import ProjectXClient
 from risk_engine import OptimizedTPEngine
 from gemini_optimizer import GeminiSessionOptimizer
+import param_scaler
 
 # ==========================================
 # TARGET CALCULATOR (DEPRECATED - NOT USED)
@@ -204,6 +205,8 @@ except ImportError as e:
 # 12. MAIN EXECUTION LOOP
 # ==========================================
 def run_bot():
+    param_scaler.apply_scaling()  # Scale regime params to maintain R:R ratios
+
     refresh_target_symbol()
     print("=" * 60)
     print("PROJECTX GATEWAY - MES FUTURES BOT (LIVE)")
