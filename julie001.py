@@ -315,6 +315,7 @@ def run_bot():
     # Initialize Gemini Session Optimizer
     optimizer = GeminiSessionOptimizer()
     last_processed_session = None
+    last_processed_quarter = None  # Track quarter for quarterly optimization
 
     print("\nActive Strategies:")
     print("  [FAST EXECUTION]")
@@ -442,13 +443,23 @@ def run_bot():
                 elif hour >= 15:
                     current_session_name = "NY_CLOSE"
 
-            # --- OPTIMIZATION TRIGGER ---
-            if current_session_name != last_processed_session:
-                logging.info(f"🔄 SESSION HANDOVER: {last_processed_session} -> {current_session_name} (Base: {base_session})")
+            # --- OPTIMIZATION TRIGGER (Every Session Quarter) ---
+            # Get current quarter (1-4) within the session
+            current_quarter = bank_filter.get_quarter(hour, minute, base_session)
+
+            # Trigger optimization on session change OR quarter change (4 sessions × 4 quarters = 16 per day)
+            session_changed = current_session_name != last_processed_session
+            quarter_changed = current_quarter != last_processed_quarter
+
+            if session_changed or quarter_changed:
+                if session_changed:
+                    logging.info(f"🔄 SESSION HANDOVER: {last_processed_session} -> {current_session_name} Q{current_quarter} (Base: {base_session})")
+                else:
+                    logging.info(f"🔄 QUARTER CHANGE: {current_session_name} Q{last_processed_quarter} -> Q{current_quarter}")
 
                 if CONFIG.get('GEMINI', {}).get('enabled', False):
                     print("\n" + "=" * 60)
-                    print(f"🧠 GEMINI OPTIMIZATION - {current_session_name}")
+                    print(f"🧠 GEMINI OPTIMIZATION - {current_session_name} Q{current_quarter}")
                     print("=" * 60)
 
                     # 1. Fetch Events & Holiday Context
@@ -603,6 +614,7 @@ def run_bot():
                         print("=" * 60 + "\n")
 
                 last_processed_session = current_session_name
+                last_processed_quarter = current_quarter
 
             # === STEP 2: INCREMENTAL UPDATE (SEQUENTIAL FETCH) ===
             # Fetch MES first, then MNQ immediately after to keep timestamps close
