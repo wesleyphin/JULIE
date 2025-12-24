@@ -143,10 +143,10 @@ class DynamicChopAnalyzer:
             # This prevents blocking trades inside tight micro-consolidations
             MIN_RANGE_FOR_FADE = 12.0
 
-            # === OPTION 1 IMPLEMENTATION: VOLATILITY OVERRIDE ===
-            # Check if 1m Volatility is exploding (Step 4 logic pulled forward)
-            # If TRUE, we are breaking out -> SKIP the Range Rule
-            is_volatility_exploding = current_1m_vol > thresh_60m
+            # === REVISED VOLATILITY OVERRIDE ===
+            # Use thresh_15m (1-Hour baseline) instead of thresh_60m (Daily baseline).
+            # Logic: If we move more in 20 mins than typical 1 hour, we are breaking out.
+            is_volatility_exploding = current_1m_vol > thresh_15m
 
             if current_60m_vol > MIN_RANGE_FOR_FADE and not is_volatility_exploding:
                 position_in_range = (current_price - current_60m_low) / current_60m_vol
@@ -158,8 +158,8 @@ class DynamicChopAnalyzer:
                     return False, "ALLOW_SHORT_ONLY: At Top of 60M Range (Fade Resistance)"
 
             if is_volatility_exploding and current_60m_vol > MIN_RANGE_FOR_FADE:
-                 # Optional: Log that we bypassed the rule
-                 logging.info(f"🚀 VOLATILITY OVERRIDE: Range Rule bypassed (Vol {current_1m_vol:.2f} > {thresh_60m:.2f})")
+                 # Optional logging to confirm it's working
+                 pass
 
         # --- STEP 4: CHECK BREAKOUT PROPAGATION ---
         if current_1m_vol > thresh_60m:
