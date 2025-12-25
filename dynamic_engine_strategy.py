@@ -15,8 +15,11 @@ class DynamicEngineStrategy(Strategy):
     """
 
     def __init__(self):
+        self.strategy_name = "DynamicEngine"
         self.engine = get_signal_engine()
         self.last_processed_time = None
+        num_strategies = len(self.engine.strategies) if hasattr(self.engine, 'strategies') else 235
+        logging.info(f"DynamicEngineStrategy initialized | {num_strategies} sub-strategies loaded")
 
     def on_bar(self, df: pd.DataFrame) -> Optional[Dict]:
         """Resamples 1m data to 5m/15m and queries the engine."""
@@ -58,7 +61,9 @@ class DynamicEngineStrategy(Strategy):
                 )
                 return None
 
-            logging.info(f"🚀 DYNAMIC ENGINE TRIGGER: {signal_data['strategy_id']}")
+            logging.info(f"DynamicEngine: {signal_data['signal']} signal from {signal_data['strategy_id']}")
+            logging.info(f"   TP: {signal_data['tp']:.2f} | SL: {signal_data['sl']:.2f}")
+            logging.info(f"   Net profit: ${net_profit:.2f} (gross ${gross_profit:.2f} - fees ${total_fees:.2f})")
 
             # Enforce minimum SL/TP for positive RR
             MIN_SL = 4.0  # 16 ticks minimum

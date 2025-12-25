@@ -145,33 +145,38 @@ def get_optimized_sltp(side: str, ts) -> Dict[str, float]:
 class RegimeAdaptiveStrategy:
     """
     RegimeAdaptive Strategy with Time-Context Signal Reversion
-    
+
     Logic:
     - NORMAL: LONG on uptrend dip, SHORT on downtrend rally
     - REVERTED: For poor-performing time contexts, flip LONG<->SHORT
-    
+
     Signal conditions:
     - Uptrend: SMA20 > SMA200 + low volatility
     - Downtrend: SMA20 < SMA200 + low volatility
     - Entry: Price crosses fast SMA with range spike
-    
+
     Equal low/high filter prevents continuation pattern entries.
-    
+
     Optimized SL/TP params loaded from regime_sltp_params.py if available.
     """
-    
+
     def __init__(self, dynamic_sltp_engine=None):
+        self.strategy_name = "RegimeAdaptive"
         self.use_eq_filter = True
         self.eq_tolerance = 0.5
         self.lookback_bars = 10
         self.dynamic_sltp_engine = dynamic_sltp_engine
-        
+        self.last_combo_key = None
+        self.bars_since_log = 0
+
         # SMA periods
         self.sma_fast = 20
         self.sma_slow = 200
-        
+
         # Use optimized SLTP from regime_sltp_params if available
         self.use_optimized_sltp = SLTP_PARAMS_AVAILABLE
+
+        logging.info(f"RegimeAdaptiveStrategy initialized | Reverted combos: {len(REVERTED_COMBOS)} | SLTP params: {SLTP_PARAMS_AVAILABLE}")
     
     def _is_equal_low(self, df: pd.DataFrame) -> bool:
         """Check if current low matches recent lows (continuation pattern)."""
@@ -205,7 +210,13 @@ class RegimeAdaptiveStrategy:
         # Get time context
         combo_key = get_combo_key(ts)
         ctx = get_time_context(ts)
-        
+
+        # Log context changes
+        if self.last_combo_key != combo_key:
+            self.last_combo_key = combo_key
+            is_reverted = combo_key in REVERTED_COMBOS
+            logging.info(f"RegimeAdaptive: Context changed to {combo_key} | Reverted: {is_reverted}")
+
         # Skip if CLOSED session
         if ctx['session'] == 'CLOSED':
             return None
@@ -256,7 +267,11 @@ class RegimeAdaptiveStrategy:
         if revert:
             signal = 'SHORT' if signal == 'LONG' else 'LONG'
             logging.info(f"RegimeAdaptive: Signal REVERTED {original_signal}->{signal} for {combo_key}")
-        
+        else:
+            logging.info(f"RegimeAdaptive: {signal} signal generated | Combo: {combo_key}")
+            logging.info(f"   SMA20: {sma_fast:.2f} | SMA200: {sma_slow:.2f} | Vol: {curr_vol:.4f} (median: {vol_median:.4f})")
+            logging.info(f"   Range: {curr_range:.2f} (SMA: {range_sma:.2f}) | Price: {curr['close']:.2f}")
+
         # Get SL/TP - use optimized params if available
         if self.use_optimized_sltp:
             sltp = get_optimized_sltp(signal, ts)

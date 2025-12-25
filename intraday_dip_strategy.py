@@ -16,8 +16,10 @@ class IntradayDipStrategy(Strategy):
     - SHORT: Price up >= 1.25% from session open, z-score > 1.0, volatility spike
     """
     def __init__(self):
+        self.strategy_name = "IntradayDip"
         self.session_open = None
         self.current_date = None
+        logging.info("IntradayDipStrategy initialized | LONG: -1.0%/Z<-0.5 | SHORT: +1.25%/Z>1.0")
 
     def on_bar(self, df: pd.DataFrame) -> Optional[Dict]:
         if len(df) < 20:
@@ -34,6 +36,7 @@ class IntradayDipStrategy(Strategy):
         # Capture session open at 9:30 ET
         if ts.time() == datetime.time(9, 30):
             self.session_open = curr['open']
+            logging.info(f"IntradayDip: Session open captured @ {self.session_open:.2f}")
 
         if self.session_open is None:
             return None
@@ -58,7 +61,9 @@ class IntradayDipStrategy(Strategy):
         if (pct_change <= -1.0) and (z_score < -0.5) and is_vol_spike:
             # Get dynamic SL/TP with strategy name for proper lookup
             sltp = dynamic_sltp_engine.calculate_sltp("IntradayDip_LONG", df)
-            logging.info(f"IntradayDip: LONG signal - Down {pct_change:.2f}%, Z={z_score:.2f}")
+            logging.info(f"IntradayDip: LONG signal generated")
+            logging.info(f"   Session: {self.session_open:.2f} -> {curr['close']:.2f} ({pct_change:.2f}%)")
+            logging.info(f"   Z-Score: {z_score:.2f} | Range: {curr_range:.2f} (SMA: {range_sma:.2f})")
             dynamic_sltp_engine.log_params(sltp, "IntradayDip_LONG")
             return {"strategy": "IntradayDip", "side": "LONG",
                     "tp_dist": sltp['tp_dist'], "sl_dist": sltp['sl_dist']}
@@ -67,7 +72,9 @@ class IntradayDipStrategy(Strategy):
         if (pct_change >= 1.25) and (z_score > 1.0) and is_vol_spike:
             # Get dynamic SL/TP with strategy name for proper lookup
             sltp = dynamic_sltp_engine.calculate_sltp("IntradayDip_SHORT", df)
-            logging.info(f"IntradayDip: SHORT signal - Up {pct_change:.2f}%, Z={z_score:.2f}")
+            logging.info(f"IntradayDip: SHORT signal generated")
+            logging.info(f"   Session: {self.session_open:.2f} -> {curr['close']:.2f} ({pct_change:+.2f}%)")
+            logging.info(f"   Z-Score: {z_score:.2f} | Range: {curr_range:.2f} (SMA: {range_sma:.2f})")
             dynamic_sltp_engine.log_params(sltp, "IntradayDip_SHORT")
             return {"strategy": "IntradayDip", "side": "SHORT",
                     "tp_dist": sltp['tp_dist'], "sl_dist": sltp['sl_dist']}

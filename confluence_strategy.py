@@ -11,6 +11,7 @@ from strategy_base import Strategy
 
 class ConfluenceStrategy(Strategy):
     def __init__(self):
+        self.strategy_name = "Confluence"
         self.et = ZoneInfo('America/New_York')
         # Session tracking
         self.current_session = None
@@ -29,6 +30,7 @@ class ConfluenceStrategy(Strategy):
         # Fixed TP/SL based on backtest optimization
         self.TAKE_PROFIT = 5.0  # Backtest showed 64.5% WR holds for all TP values up to 5pt
         self.STOP_LOSS = 2.0
+        logging.info("ConfluenceStrategy initialized | Sweep + FVG + Bank levels | Macro windows only")
 
     def _get_session_date(self, ts) -> datetime.date:
         """Assign session date: if before 18:00, belongs to previous day's session"""
@@ -82,13 +84,13 @@ class ConfluenceStrategy(Strategy):
         if curr_body_lo > prev_body_hi:
             self.bull_fvg_low = prev_body_hi
             self.bull_fvg_high = curr_body_lo
-            logging.debug(f"Confluence: Bullish FVG detected {self.bull_fvg_low:.2f} - {self.bull_fvg_high:.2f}")
+            logging.info(f"Confluence: Bullish FVG detected {self.bull_fvg_low:.2f} - {self.bull_fvg_high:.2f} (size: {self.bull_fvg_high - self.bull_fvg_low:.2f})")
 
         # Bearish body gap: current body high < previous body low (gap down)
         if curr_body_hi < prev_body_lo:
             self.bear_fvg_low = curr_body_hi
             self.bear_fvg_high = prev_body_lo
-            logging.debug(f"Confluence: Bearish FVG detected {self.bear_fvg_low:.2f} - {self.bear_fvg_high:.2f}")
+            logging.info(f"Confluence: Bearish FVG detected {self.bear_fvg_low:.2f} - {self.bear_fvg_high:.2f} (size: {self.bear_fvg_high - self.bear_fvg_low:.2f})")
 
     def on_bar(self, df: pd.DataFrame) -> Optional[Dict]:
         if len(df) < 120:
@@ -135,6 +137,8 @@ class ConfluenceStrategy(Strategy):
             self.current_session = session_date
             self.bear_swept_this_session = False
             self.bull_swept_this_session = False
+            if self.prev_session_high is not None:
+                logging.info(f"Confluence: New session {session_date} | Prev H/L: {self.prev_session_high:.2f}/{self.prev_session_low:.2f}")
         else:
             # Update session H/L
             self.session_high = max(self.session_high, curr['high']) if self.session_high else curr['high']
@@ -148,10 +152,14 @@ class ConfluenceStrategy(Strategy):
 
         # Bear sweep: wick above previous session high
         if curr['high'] > self.prev_session_high:
+            if not self.bear_swept_this_session:
+                logging.info(f"Confluence: Bear sweep detected | High {curr['high']:.2f} > Prev Session High {self.prev_session_high:.2f}")
             self.bear_swept_this_session = True
 
         # Bull sweep: wick below previous session low
         if curr['low'] < self.prev_session_low:
+            if not self.bull_swept_this_session:
+                logging.info(f"Confluence: Bull sweep detected | Low {curr['low']:.2f} < Prev Session Low {self.prev_session_low:.2f}")
             self.bull_swept_this_session = True
 
         # Re-cross back inside after sweep
@@ -177,7 +185,9 @@ class ConfluenceStrategy(Strategy):
 
         # LONG: Bull sweep (took low) + re-crossed back inside + in bullish FVG + at bank level
         if back_inside_after_bull and in_bull_fvg:
-            logging.info(f"Confluence: LONG signal - Bull sweep + FVG + Bank level @ {price:.2f}")
+            logging.info(f"Confluence: LONG signal generated @ {price:.2f}")
+            logging.info(f"   Bull sweep: Low {self.prev_session_low:.2f} | FVG: {self.bull_fvg_low:.2f}-{self.bull_fvg_high:.2f}")
+            logging.info(f"   Bank level confirmed | Prev session H/L: {self.prev_session_high:.2f}/{self.prev_session_low:.2f}")
             dynamic_sltp_engine.log_params(sltp)
             return {
                 "strategy": "Confluence",
@@ -188,7 +198,9 @@ class ConfluenceStrategy(Strategy):
 
         # SHORT: Bear sweep (took high) + re-crossed back inside + in bearish FVG + at bank level
         if back_inside_after_bear and in_bear_fvg:
-            logging.info(f"Confluence: SHORT signal - Bear sweep + FVG + Bank level @ {price:.2f}")
+            logging.info(f"Confluence: SHORT signal generated @ {price:.2f}")
+            logging.info(f"   Bear sweep: High {self.prev_session_high:.2f} | FVG: {self.bear_fvg_low:.2f}-{self.bear_fvg_high:.2f}")
+            logging.info(f"   Bank level confirmed | Prev session H/L: {self.prev_session_high:.2f}/{self.prev_session_low:.2f}")
             dynamic_sltp_engine.log_params(sltp)
             return {
                 "strategy": "Confluence",
