@@ -10,13 +10,20 @@ class DynamicChopAnalyzer:
     """
     Analyze chop using dynamic thresholds with breakout and HTF fade logic.
     Now supports Gemini AI optimization via multipliers.
+
+    IMPORTANT:
+    - The main bot previously interpreted special strings:
+        "ALLOW_LONG_ONLY" / "ALLOW_SHORT_ONLY"
+      as a hard directional veto ("HTF range rule").
+    - This file now avoids emitting those magic tokens so it cannot
+      silently block trend trades at the orchestration layer.
     """
 
     def __init__(self, client):
         self.client = client
         # Base thresholds (calibrated via historical data)
         self.base_thresholds: Dict[str, float] = {
-            "1M": 2.0,  # Default fallback
+            "1M": 2.0,   # Default fallback
             "5M": 4.25,
             "15M": 6.75,
             "60M": 12.50,
@@ -64,12 +71,7 @@ class DynamicChopAnalyzer:
                     logging.warning("[DynamicChop] Insufficient data for 60M calibration, using default")
 
             # 2. Fetch 15-Minute Data (Tier 2) - THE COMPROMISE
-            # -----------------------------------------------------------------
             # rolling(4) = 4 * 15m = 60 Minutes of Data.
-            # - Old (rolling 20) = 300 Mins (Too High/Loose)
-            # - New (rolling 2)  = 30 Mins (Too Low/Tight)
-            # - This (rolling 4) = 60 Mins (Just Right)
-            # -----------------------------------------------------------------
             df_15 = self.client.fetch_custom_bars(lookback_bars=500, minutes_per_bar=15)
             if not df_15.empty:
                 r_15 = (
@@ -111,13 +113,20 @@ class DynamicChopAnalyzer:
         """
         Determines market state with HTF breakout and fade logic.
         Uses GEMINI MULTIPLIER to adjust sensitivity.
+
+        Returns:
+            (is_choppy: bool, reason: str)
+
+        NOTE:
+        - This method no longer emits "ALLOW_LONG_ONLY"/"ALLOW_SHORT_ONLY"
+          tokens to prevent orchestration-layer directional veto.
         """
         if df_1m_current.empty or len(df_1m_current) < 20:
             return False, "Insufficient Data"
 
         # --- STEP 1: CALCULATE CURRENT VOLATILITY (1-Min Leading Indicator) ---
-        current_1m_high = df_1m_current["high"].iloc[-self.LOOKBACK :].max()
-        current_1m_low = df_1m_current["low"].iloc[-self.LOOKBACK :].min()
+        current_1m_high = df_1m_current["high"].iloc[-self.LOOKBACK:].max()
+        current_1m_low = df_1m_current["low"].iloc[-self.LOOKBACK:].min()
         current_1m_vol = current_1m_high - current_1m_low
 
         # --- STEP 2: GET ACTIVE THRESHOLDS (SCALED BY GEMINI) ---
@@ -126,11 +135,16 @@ class DynamicChopAnalyzer:
         thresh_60m = self.get_active_threshold("60M")
 
         # --- STEP 3: 60-Min Volatility (using provided DF if available) ---
-        if df_60m_current is not None and not df_60m_current.empty and len(df_60m_current) >= self.LOOKBACK:
-            current_60m_high = df_60m_current["high"].iloc[-self.LOOKBACK :].max()
-            current_60m_low = df_60m_current["low"].iloc[-self.LOOKBACK :].min()
+        if (
+            df_60m_current is not None
+            and not df_60m_current.empty
+            and len(df_60m_current) >= self.LOOKBACK
+        ):
+            current_60m_high = df_60m_current["high"].iloc[-self.LOOKBACK:].max()
+            current_60m_low = df_60m_current["low"].iloc[-self.LOOKBACK:].min()
             current_60m_vol = current_60m_high - current_60m_low
 
+            # Breakout override: 1m approaching 60m range size = breakout conditions
             if current_1m_vol > current_60m_vol * 0.8:
                 return (
                     False,
@@ -139,27 +153,33 @@ class DynamicChopAnalyzer:
 
             current_price = df_1m_current["close"].iloc[-1]
 
-            # [FIX] Only enforce Range Rule if the box is large enough (e.g., > 12 points)
-            # This prevents blocking trades inside tight micro-consolidations
+            # Only consider "range fade context" if box is large enough
             MIN_RANGE_FOR_FADE = 12.0
 
-            # === REVISED VOLATILITY OVERRIDE ===
-            # Use thresh_15m (1-Hour baseline) instead of thresh_60m (Daily baseline).
-            # Logic: If we move more in 20 mins than typical 1 hour, we are breaking out.
+            # Revised volatility override:
+            # If we move more in 20 mins than typical 1 hour, we are breaking out.
             is_volatility_exploding = current_1m_vol > thresh_15m
 
+            # If it's a real range AND volatility isn't exploding, we *report* bias,
+            # but we do NOT return the old magic tokens that the bot treated as a veto.
             if current_60m_vol > MIN_RANGE_FOR_FADE and not is_volatility_exploding:
                 position_in_range = (current_price - current_60m_low) / current_60m_vol
 
                 if position_in_range <= 0.15:
-                    return False, "ALLOW_LONG_ONLY: At Bottom of 60M Range (Fade Support)"
+                    return (
+                        False,
+                        "ℹ️ HTF RANGE CONTEXT: Near Bottom of 60M Range (Fade Support Bias)",
+                    )
 
                 if position_in_range >= 0.85:
-                    return False, "ALLOW_SHORT_ONLY: At Top of 60M Range (Fade Resistance)"
+                    return (
+                        False,
+                        "ℹ️ HTF RANGE CONTEXT: Near Top of 60M Range (Fade Resistance Bias)",
+                    )
 
+            # Optional: confirm the override is active
             if is_volatility_exploding and current_60m_vol > MIN_RANGE_FOR_FADE:
-                 # Optional logging to confirm it's working
-                 pass
+                pass
 
         # --- STEP 4: CHECK BREAKOUT PROPAGATION ---
         if current_1m_vol > thresh_60m:
@@ -171,28 +191,34 @@ class DynamicChopAnalyzer:
 
         # --- STEP 5: TIERED CHECKS (Using Scaled Thresholds) ---
         if current_1m_vol < thresh_1m:
-            return True, f"🔴 1M MICRO CHOP: Vol {current_1m_vol:.2f} < {thresh_1m:.2f} (Mult: {self.gemini_multiplier}x)"
+            return True, (
+                f"🔴 1M MICRO CHOP: Vol {current_1m_vol:.2f} < {thresh_1m:.2f} "
+                f"(Mult: {self.gemini_multiplier}x)"
+            )
 
         if current_1m_vol < thresh_15m:
-            return True, f"🟠 15M MID CHOP: Vol {current_1m_vol:.2f} < {thresh_15m:.2f} (Mult: {self.gemini_multiplier}x)"
+            return True, (
+                f"🟠 15M MID CHOP: Vol {current_1m_vol:.2f} < {thresh_15m:.2f} "
+                f"(Mult: {self.gemini_multiplier}x)"
+            )
 
         return False, "✅ MARKET ACTIVE"
 
-    def check_target_feasibility(self, entry_price: float, side: str, tp_distance: float, df_1m: pd.DataFrame) -> Tuple[bool, str]:
+    def check_target_feasibility(
+        self, entry_price: float, side: str, tp_distance: float, df_1m: pd.DataFrame
+    ) -> Tuple[bool, str]:
         """
         Ensures TP target sits INSIDE the current range (Box) if volatility is low.
         Also uses the GEMINI SCALED threshold for regime detection.
         """
         if df_1m.empty or len(df_1m) < self.LOOKBACK:
-             return True, "Insufficient Data"
+            return True, "Insufficient Data"
 
-        # --- NEW: LOADED SPRING (Time Decay Fader) ---
-        # Check volatility of the last 15 bars (approx 15 mins)
+        # --- LOADED SPRING (Time Decay Fader) ---
         recent_15_high = df_1m["high"].iloc[-15:].max()
         recent_15_low = df_1m["low"].iloc[-15:].min()
         recent_15_vol = recent_15_high - recent_15_low
 
-        # Threshold: If 15-min range is < 7 points, it's a "Loaded Spring"
         if recent_15_vol < 7.0:
             return True, f"⚡ LOADED SPRING: 15m Range only {recent_15_vol:.2f}pts. Allowing Breakout Attempt."
 
@@ -203,8 +229,6 @@ class DynamicChopAnalyzer:
         box_low = df_1m["low"].iloc[-self.LOOKBACK:].min()
         current_vol = box_high - box_low
 
-        # Use Scaled Threshold for "Trending" determination
-        # If Multiplier is LOW (Breakout Mode), this threshold drops, making it EASIER to be "Trending"
         thresh_15m = self.get_active_threshold("15M")
 
         if current_vol > thresh_15m:
@@ -213,41 +237,40 @@ class DynamicChopAnalyzer:
         # =========================================================
         # 2. MICRO-COMPRESSION CHECK (The "First 2 Bars" Fix)
         # =========================================================
-        # Only active because we passed the Regime Check (we are NOT trending)
         micro_high = df_1m["high"].iloc[-2:].max()
         micro_low = df_1m["low"].iloc[-2:].min()
         micro_vol = micro_high - micro_low
 
         if micro_vol <= 5.0:
-            # --- NEW LOGIC: Allow Fading the Edges ---
-            # Calculate position in range (0.0 = Low, 1.0 = High)
             if micro_vol > 0:
                 range_pos = (entry_price - micro_low) / micro_vol
             else:
-                range_pos = 0.5  # Flat
+                range_pos = 0.5
 
-            # ALLOW Short if we are in the top 25% of the range (Fading the High)
             if side.upper() == "SHORT" and range_pos >= 0.75:
                 return True, f"Allowed: Fading Top of Micro Range ({micro_vol:.2f}pts). Price @ {range_pos:.0%} of High."
 
-            # ALLOW Long if we are in the bottom 25% of the range (Fading the Low)
             if side.upper() == "LONG" and range_pos <= 0.25:
                 return True, f"Allowed: Fading Bottom of Micro Range ({micro_vol:.2f}pts). Price @ {range_pos:.0%} of Low."
 
-            # Otherwise, BLOCK (Trying to short the bottom or long the top of a chop range is suicide)
             if side.upper() == "LONG":
                 target = entry_price + tp_distance
                 if target > micro_high:
-                    return False, f"⛔ MICRO COMPRESSION: Range {micro_vol:.2f}pts. TP {target} > High {micro_high}. Waiting for Expansion."
+                    return False, (
+                        f"⛔ MICRO COMPRESSION: Range {micro_vol:.2f}pts. "
+                        f"TP {target} > High {micro_high}. Waiting for Expansion."
+                    )
             elif side.upper() == "SHORT":
                 target = entry_price - tp_distance
                 if target < micro_low:
-                    return False, f"⛔ MICRO COMPRESSION: Range {micro_vol:.2f}pts. TP {target} < Low {micro_low}. Waiting for Expansion."
+                    return False, (
+                        f"⛔ MICRO COMPRESSION: Range {micro_vol:.2f}pts. "
+                        f"TP {target} < Low {micro_low}. Waiting for Expansion."
+                    )
 
         # =========================================================
         # 3. MACRO CHOP CHECK (The Standard 20-Bar Fix)
         # =========================================================
-        # If in Chop (which we are), enforce the 20-bar Box
         if side.upper() == "LONG":
             target = entry_price + tp_distance
             if target > box_high:
