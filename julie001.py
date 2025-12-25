@@ -726,23 +726,7 @@ def run_bot():
             # We pass the locally generated df_60m so the analyzer can use it for breakout shift logic
             is_choppy, chop_reason = chop_analyzer.check_market_state(new_df, df_60m_current=df_60m)
 
-            # Initialize Directional Restrictions
-            allowed_chop_side = None  # None means ALL allowed (unless blocked)
-
-            # Parse the new "Fade" reasons (only log when state changes)
-            if "ALLOW_LONG_ONLY" in chop_reason:
-                allowed_chop_side = "LONG"
-                if chop_reason != last_chop_reason:
-                    logging.info(f"⚠️ CHOP RESTRICTION: {chop_reason}")
-                    last_chop_reason = chop_reason
-
-            elif "ALLOW_SHORT_ONLY" in chop_reason:
-                allowed_chop_side = "SHORT"
-                if chop_reason != last_chop_reason:
-                    logging.info(f"⚠️ CHOP RESTRICTION: {chop_reason}")
-                    last_chop_reason = chop_reason
-
-            elif is_choppy:
+            if is_choppy:
                 # Log every single time
                 logging.info(f"⛔ TRADE BLOCKED: {chop_reason}")
 
@@ -1062,16 +1046,6 @@ def run_bot():
                                 logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
                             # ==========================================
 
-                            # [FIX] Enforce HTF range fade directional restriction
-                            # EXCEPTION: Allow "Rev" (Reversal) strategies to bypass this rule
-                            is_reversal = "Rev" in signal.get('strategy', '') or "Rev" in signal.get('id', '')
-
-                            if not is_reversal and allowed_chop_side is not None and signal['side'] != allowed_chop_side:
-                                logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
-                                continue
-                            elif is_reversal and allowed_chop_side is not None and signal['side'] != allowed_chop_side:
-                                logging.info(f"⚡ HTF RULE BYPASS: {signal['strategy']} allowed to fight Range Bias ({allowed_chop_side})")
-
                             # Enhanced event logging: Strategy signal generated
                             event_logger.log_strategy_signal(
                                 strategy_name=signal.get('strategy', strat_name),
@@ -1363,18 +1337,6 @@ def run_bot():
                                 logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
                             # ==========================================
 
-                            # [FIX] Enforce HTF range fade directional restriction
-                            # EXCEPTION: Allow "Rev" (Reversal) strategies to bypass this rule
-                            # NOTE: VIXMeanReversion must abide by ALL filters (no bypass)
-                            strat_name_check = signal.get('strategy', '')
-                            is_reversal = ("Rev" in strat_name_check or "Rev" in signal.get('id', '')) and strat_name_check != "VIXMeanReversion"
-
-                            if not is_reversal and allowed_chop_side is not None and signal['side'] != allowed_chop_side:
-                                logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
-                                continue
-                            elif is_reversal and allowed_chop_side is not None and signal['side'] != allowed_chop_side:
-                                logging.info(f"⚡ HTF RULE BYPASS: {signal['strategy']} allowed to fight Range Bias ({allowed_chop_side})")
-
                             # Enhanced event logging: Strategy signal generated
                             event_logger.log_strategy_signal(
                                 strategy_name=signal.get('strategy', strat_name),
@@ -1648,11 +1610,6 @@ def run_bot():
                                     logging.info(f"🧠 GEMINI OPTIMIZED: {s_name} | SL: {old_sl:.2f}->{sig['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{sig['tp_dist']:.2f} (x{tp_mult})")
                                 # ==========================================
 
-                                if allowed_chop_side is not None and sig['side'] != allowed_chop_side:
-                                    logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {sig['side']} vs Allowed {allowed_chop_side}")
-                                    del pending_loose_signals[s_name]
-                                    continue
-
                                 # ==========================================
                                 # LAYER 1: TARGET FEASIBILITY CHECK (Master Gate)
                                 # ==========================================
@@ -1897,9 +1854,6 @@ def run_bot():
                                             logging.info(f"🧠 GEMINI OPTIMIZED: {s_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
                                         # ==========================================
 
-                                        if allowed_chop_side is not None and signal['side'] != allowed_chop_side:
-                                            logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
-                                            continue
                                         # Enhanced event logging: Strategy signal generated
                                         event_logger.log_strategy_signal(
                                             strategy_name=signal.get('strategy', s_name),
