@@ -47,7 +47,7 @@ from yahoo_vix_client import YahooVIXClient
 
 # --- ASYNCIO IMPORTS ---
 from async_market_stream import AsyncMarketDataManager
-from async_tasks import heartbeat_task, position_sync_task
+from async_tasks import heartbeat_task, position_sync_task, htf_structure_task
 
 # ==========================================
 # RESAMPLER HELPER FUNCTION
@@ -269,8 +269,11 @@ async def run_bot():
     heartbeat = asyncio.create_task(heartbeat_task(client, interval=60))
     position_sync = asyncio.create_task(position_sync_task(client, interval=30))
 
+    # NEW: Background HTF Updater
+    # This keeps your FVG memory fresh without pausing the bot
+    htf_updater = asyncio.create_task(htf_structure_task(client, htf_fvg_filter, interval=60))
+
     # === TRACKING VARIABLES ===
-    last_htf_fetch_time = 0
     # Position sync now handled by independent async task - removed manual tracking
     
     # Track pending signals for delayed execution
@@ -698,41 +701,10 @@ async def run_bot():
             # ==========================================
             now_ts = time.time()
 
-            # === UPDATE HTF FVG MEMORY (THROTTLED) ===
-            # Only update memory once every 60 seconds to save API calls.
-            # The filter will use this memory for checks every second.
-            # === UPDATE HTF FVG MEMORY (THROTTLED) ===
-            # Only update memory once every 60 seconds to save API calls.
-            if now_ts - last_htf_fetch_time > 60:
-                try:
-                    # Use PRINT here so you definitely see it
-                    print(f"\n⏳ [{datetime.datetime.now().strftime('%H:%M:%S')}] Updating HTF FVG Memory (1H/4H)...")
-                    
-                    # Fetch new data
-                    df_1h_new = client.fetch_custom_bars(lookback_bars=240, minutes_per_bar=60)
-                    df_4h_new = client.fetch_custom_bars(lookback_bars=200, minutes_per_bar=240)
-                    
-                    # Update Memory
-                    if not df_1h_new.empty and not df_4h_new.empty:
-                        htf_fvg_filter.check_signal_blocked('CHECK', current_price, df_1h_new, df_4h_new)
-                        print(f"   ✅ Memory Updated. Active Structures: {len(htf_fvg_filter.memory)}")
-                        last_htf_fetch_time = now_ts
-                    else:
-                        print("   ⚠️ HTF Data Fetch returned empty.")
-                except Exception as e:
-                    logging.error(f"Error updating HTF memory: {e}")
-            
-            # Initial Startup Fetch (if empty)
-            if (not htf_fvg_filter.memory) and client._check_general_rate_limit() and (now_ts - last_htf_fetch_time > 60):
-                 logging.info("🚀 Startup: Fetching initial HTF data...")
-                 try:
-                     df_1h_new = client.fetch_custom_bars(lookback_bars=240, minutes_per_bar=60)
-                     df_4h_new = client.fetch_custom_bars(lookback_bars=200, minutes_per_bar=240)
-                     htf_fvg_filter.check_signal_blocked('CHECK', current_price, df_1h_new, df_4h_new)
-                     last_htf_fetch_time = now_ts
-                 except Exception as e:
-                     logging.error(f"Startup HTF fetch failed: {e}")
-            
+            # === HTF FVG MEMORY NOW UPDATED BY BACKGROUND TASK ===
+            # See: htf_structure_task() launched at startup
+            # This task runs independently and cannot be blocked by strategy logic
+
             # === TRAILING STOP / BREAK-EVEN CHECK (EVERY TICK) ===
             if active_trade is not None:
                 be_config = CONFIG.get('BREAK_EVEN', {})

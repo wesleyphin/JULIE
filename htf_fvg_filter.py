@@ -140,6 +140,26 @@ class HTFFVGFilter:
 
         self.memory = valid_fvgs
 
+    def update_structure_data(self, df_1h, df_4h):
+        """
+        Update memory with new data.
+        Designed to be called from a background async task.
+        """
+        count_before = len(self.memory)
+
+        if df_1h is not None and not df_1h.empty:
+            fvgs_1h = self._scan_for_new_fvgs(df_1h, '1H')
+            self._update_memory(fvgs_1h)
+
+        if df_4h is not None and not df_4h.empty:
+            fvgs_4h = self._scan_for_new_fvgs(df_4h, '4H')
+            self._update_memory(fvgs_4h)
+
+        # Optional: Log if count changed significantly
+        # count_after = len(self.memory)
+        # if count_after != count_before:
+        #     logging.info(f"🔄 Background: HTF Memory Refreshed ({count_after} active)")
+
     def check_signal_blocked(self, signal, current_price, df_1h=None, df_4h=None, tp_dist=None):
         """
         Check if signal is blocked using MEMORY.
