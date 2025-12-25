@@ -18,7 +18,7 @@ A modern, professional trading dashboard for the JULIE algorithmic trading bot, 
 - Session detection (ASIA, LONDON, NY_AM, NY_PM)
 
 #### Strategy List
-Display of all 9 trading strategies with real-time status:
+Display of all 10 trading strategies with real-time status:
 1. **Regime Adaptive** - SMA crossover with 320 context-specific parameters
 2. **Intraday Dip** - Mean-reversion strategy
 3. **Confluence** - ICT-based price action system
@@ -28,6 +28,7 @@ Display of all 9 trading strategies with real-time status:
 7. **Dynamic Engine 1** - 235 indicator-based sub-strategies
 8. **Dynamic Engine 2** - 167 price-action sub-strategies
 9. **SMT Divergence** - ES/NQ divergence detection
+10. **VIX Mean Reversion** - Volatility-based mean reversion (557 segments)
 
 Each strategy shows:
 - Current status (WAITING, PENDING SIGNAL, EXECUTED, PASS)

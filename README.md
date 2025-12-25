@@ -2,7 +2,7 @@
 
 ![Version](https://img.shields.io/badge/version-2.0.0-blue.svg) ![Market](https://img.shields.io/badge/Market-MES%20Futures-green.svg) ![Platform](https://img.shields.io/badge/Platform-TopstepX-orange.svg) ![Python](https://img.shields.io/badge/Python-3.11+-green.svg) ![License](https://img.shields.io/badge/License-Proprietary-red.svg)
 
-**Julie** is a modern, high-frequency, session-specialized algorithmic trading bot built to execute autonomously on the **ProjectX Gateway (TopstepX)**. Unlike traditional bots that use a single logic set, Julie functions as an orchestrator for a "Team of Rivals"—a portfolio of **9 distinct strategy classes** that compete to find the best entry, all governed by a central "Defense Layer" of dynamic filters and blockers.
+**Julie** is a modern, high-frequency, session-specialized algorithmic trading bot built to execute autonomously on the **ProjectX Gateway (TopstepX)**. Unlike traditional bots that use a single logic set, Julie functions as an orchestrator for a "Team of Rivals"—a portfolio of **10 distinct strategy classes** that compete to find the best entry, all governed by a central "Defense Layer" of dynamic filters and blockers.
 
 ## 🚀 Quick Start
 
@@ -161,7 +161,7 @@ Each of these 320 contexts has its own optimized thresholds for:
 
 ## 2. Strategy Biography (Deep Dive)
 
-Julie runs **9 primary strategy engines** simultaneously. Each strategy generates signals independently, but all must pass through the Defense Layer.
+Julie runs **10 primary strategy engines** simultaneously. Each strategy generates signals independently, but all must pass through the Defense Layer.
 
 <details>
 <summary><strong>A. Regime Adaptive Strategy (The Core)</strong></summary>
@@ -294,6 +294,44 @@ Julie runs **9 primary strategy engines** simultaneously. Each strategy generate
 * **Bearish SMT:** NQ makes higher high while ES makes lower high (or holds)
 * **Confirmation:** Requires FVG confluence and session timing alignment
 * **Use Case:** Institutional order flow detection
+
+</details>
+
+<details>
+<summary><strong>J. VIX Mean Reversion Strategy (NEW in v2.0)</strong></summary>
+
+*Volatility-based mean reversion trading using real-time VIX data.*
+
+* **Logic:**
+    * Monitors **VIX (CBOE Volatility Index)** for mean reversion opportunities
+    * Uses **Bollinger Bands** with dynamic Z-scores to detect overbought/oversold VIX levels
+    * **Signal Trigger:** When VIX crosses below upper band (fear subsiding → bullish for equities)
+    * **20-period SMA** with standard deviation-based bands
+
+* **Micro-Segmentation:** **557 unique time segments** with optimized Z-score thresholds
+    * Format: `(Quarter, Month, Week, DayOfWeek, SessionID)`
+    * Z-scores range from **1.5 to 2.5** depending on time context
+    * Example: Q1 Week 1 Monday AM Session uses Z=1.5, while Q2 Week 4 Friday PM uses Z=2.5
+
+* **Risk (Fixed):**
+    * **SL:** 4.0 Points
+    * **TP:** 6.0 Points
+    * **Position Size:** 5 contracts (aggressive)
+
+* **Data Source:** Yahoo Finance VIX feed via `YahooVIXClient`
+
+* **Trading Philosophy:**
+    * High VIX = Market fear → Eventually reverts to mean → Bullish opportunity
+    * Only takes **LONG** trades on MES when VIX extreme levels subside
+    * Inverse volatility strategy: Sell fear, buy normalization
+
+| Feature | Details |
+| :--- | :--- |
+| **Total Segments** | **557 Micro-Segments** |
+| **Indicator** | Bollinger Bands (20-period SMA ± Z×STD) |
+| **Signal Type** | Mean reversion crossover |
+| **Direction** | LONG only (bullish on VIX contraction) |
+| **Data Frequency** | Real-time VIX updates from Yahoo Finance |
 
 </details>
 
@@ -860,6 +898,7 @@ JULIE/
 | Dynamic Engine 1 | Indicator | All | Per-strategy |
 | Dynamic Engine 2 | Price Action | All | Per-strategy |
 | SMT | Divergence | All | Dynamic |
+| VIX Reversion | Mean Reversion | All | Fixed (557 segments) |
 
 ---
 
@@ -1011,10 +1050,11 @@ Consider setting up:
 ## Changelog
 
 ### v2.0.0 (2025)
+- ✨ **New VIX Mean Reversion Strategy** - 10th strategy engine with 557 micro-segments
 - ✨ Added full asyncio architecture with `async_market_stream.py` and `async_tasks.py`
 - ✨ New modern Tkinter UI dashboard (`julie_tkinter_ui.py`)
-- ✨ Yahoo VIX integration for volatility strategies
-- ✨ Enhanced event logging system
+- ✨ Yahoo VIX integration with real-time volatility data (`yahoo_vix_client.py`)
+- ✨ Enhanced event logging system with structured logging
 - ✨ Improved error handling and circuit breaker logic
 - 🔧 Refactored signal discovery and execution architecture
 - 🐛 Fixed time variable errors and async bugs
