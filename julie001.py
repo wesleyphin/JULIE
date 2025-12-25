@@ -39,6 +39,8 @@ from client import ProjectXClient
 from risk_engine import OptimizedTPEngine
 from gemini_optimizer import GeminiSessionOptimizer
 import param_scaler
+# --- NEW IMPORT ---
+from vixmeanreversion import VIXReversionStrategy
 
 # ==========================================
 # TARGET CALCULATOR (DEPRECATED - NOT USED)
@@ -249,12 +251,24 @@ def run_bot():
     )
     mnq_client = ProjectXClient(contract_root="MNQ", target_symbol=mnq_target_symbol)
 
+    # --- NEW: VIX Client Initialization ---
+    # VIX data for VIX Mean Reversion strategy
+    vix_target_symbol = determine_current_contract_symbol(
+        "VX", tz_name=CONFIG.get("TIMEZONE", "US/Eastern")
+    )
+    vix_client = ProjectXClient(contract_root="VX", target_symbol=vix_target_symbol)
+
     try:
         mnq_client.login()
         mnq_client.account_id = client.account_id or mnq_client.fetch_accounts()
         mnq_client.fetch_contracts()
+
+        # Login VIX client
+        vix_client.login()
+        vix_client.account_id = client.account_id
+        vix_client.fetch_contracts()
     except Exception as e:
-        logging.error(f"❌ Failed to initialize MNQ data client: {e}")
+        logging.error(f"❌ Failed to initialize secondary clients: {e}")
         return
 
     # Initialize all strategies
@@ -263,7 +277,10 @@ def run_bot():
     chop_analyzer = DynamicChopAnalyzer(client)
     chop_analyzer.calibrate()  # Removed session_name argument
     last_chop_calibration = time.time()
-    
+
+    # --- NEW: Initialize VIX Strategy ---
+    vix_strategy = VIXReversionStrategy()
+
     # HIGH PRIORITY - Execute immediately on signal
     fast_strategies = [
         RegimeAdaptiveStrategy(),
@@ -373,6 +390,9 @@ def run_bot():
     if master_mnq_df.empty:
         logging.warning("⚠️ Startup fetch returned empty data (MNQ). Bot will attempt to build history in loop.")
         master_mnq_df = pd.DataFrame()
+
+    # --- NEW: Initialize VIX master dataframe ---
+    master_vix_df = pd.DataFrame()
 
     # One-time backfill flag
     data_backfilled = False
@@ -617,9 +637,11 @@ def run_bot():
                 last_processed_quarter = current_quarter
 
             # === STEP 2: INCREMENTAL UPDATE (SEQUENTIAL FETCH) ===
-            # Fetch MES first, then MNQ immediately after to keep timestamps close
+            # Fetch MES first, then MNQ, then VIX immediately after to keep timestamps close
             recent_data = client.get_market_data(lookback_minutes=15, force_fetch=True)
             recent_mnq_data = mnq_client.get_market_data(lookback_minutes=15, force_fetch=True)
+            # --- NEW: Fetch VIX Data ---
+            recent_vix_data = vix_client.get_market_data(lookback_minutes=15, force_fetch=True)
 
             if not recent_data.empty:
                 # Append new data to our master history
@@ -638,8 +660,15 @@ def run_bot():
                 if len(master_mnq_df) > 50000:
                     master_mnq_df = master_mnq_df.iloc[-50000:]
 
+            # --- NEW: Handle VIX Data ---
+            if not recent_vix_data.empty:
+                master_vix_df = pd.concat([master_vix_df, recent_vix_data])
+                master_vix_df = master_vix_df[~master_vix_df.index.duplicated(keep='last')]
+                if len(master_vix_df) > 50000:
+                    master_vix_df = master_vix_df.iloc[-50000:]
+
             # Make sure we have data before proceeding
-            if master_df.empty or master_mnq_df.empty:
+            if master_df.empty or master_mnq_df.empty or master_vix_df.empty:
                 # Early heartbeat - shows bot is alive even when no data available
                 if not hasattr(client, '_empty_data_counter'):
                     client._empty_data_counter = 0
@@ -1260,7 +1289,10 @@ def run_bot():
                 
                 # 2b. STANDARD STRATEGIES
                 if not signal_executed:
-                    for strat in standard_strategies:
+                    # Create a temporary list including the VIX strategy
+                    current_standard_strategies = standard_strategies + [vix_strategy]
+
+                    for strat in current_standard_strategies:
                         strat_name = strat.__class__.__name__
                         signal = None
 
@@ -1268,6 +1300,12 @@ def run_bot():
                             signal = ml_signal
                         elif strat_name == "SMTStrategy":
                             signal = strat.on_bar(new_df, master_mnq_df)
+                        # --- NEW: Run VIX Strategy ---
+                        elif strat_name == "VIXReversionStrategy":
+                            try:
+                                signal = strat.on_bar(new_df, master_vix_df)
+                            except Exception as e:
+                                logging.error(f"Error in VIXReversionStrategy: {e}")
                         else:
                             try:
                                 signal = strat.on_bar(new_df)
