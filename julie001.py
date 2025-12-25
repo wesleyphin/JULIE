@@ -39,8 +39,9 @@ from client import ProjectXClient
 from risk_engine import OptimizedTPEngine
 from gemini_optimizer import GeminiSessionOptimizer
 import param_scaler
-# --- NEW IMPORT ---
+# --- NEW IMPORTS ---
 from vixmeanreversion import VIXReversionStrategy
+from yahoo_vix_client import YahooVIXClient
 
 # ==========================================
 # TARGET CALCULATOR (DEPRECATED - NOT USED)
@@ -251,21 +252,20 @@ def run_bot():
     )
     mnq_client = ProjectXClient(contract_root="MNQ", target_symbol=mnq_target_symbol)
 
-    # --- NEW: VIX Client Initialization ---
-    # VIX data for VIX Mean Reversion strategy
-    vix_target_symbol = determine_current_contract_symbol(
-        "VX", tz_name=CONFIG.get("TIMEZONE", "US/Eastern")
-    )
-    vix_client = ProjectXClient(contract_root="VX", target_symbol=vix_target_symbol)
+    # --- UPDATED: VIX Client (Using Yahoo Finance) ---
+    # We use ^VIX (The Index) as it is the standard for mean reversion
+    # and free via Yahoo, whereas Topstep Rithmic usually lacks CBOE data.
+    logging.info("Initializing Virtual VIX Client (Yahoo Finance)...")
+    vix_client = YahooVIXClient(target_symbol="^VIX")
 
     try:
         mnq_client.login()
         mnq_client.account_id = client.account_id or mnq_client.fetch_accounts()
         mnq_client.fetch_contracts()
 
-        # Login VIX client
+        # Login VIX client (Virtual)
         vix_client.login()
-        vix_client.account_id = client.account_id
+        # No account ID needed for Yahoo, but we call methods for consistency
         vix_client.fetch_contracts()
     except Exception as e:
         logging.error(f"❌ Failed to initialize secondary clients: {e}")
