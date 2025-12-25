@@ -948,15 +948,16 @@ async def run_bot():
                                 logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
                             # ==========================================
 
-                            # Enhanced event logging: Strategy signal generated
+                            # Enhanced event logging: Strategy signal generated (CANDIDATE)
                             event_logger.log_strategy_signal(
                                 strategy_name=signal.get('strategy', strat_name),
                                 side=signal['side'],
                                 tp_dist=signal.get('tp_dist', 6.0),
                                 sl_dist=signal.get('sl_dist', 4.0),
                                 price=current_price,
-                                additional_info={"execution_type": "FAST"}
+                                additional_info={"status": "CANDIDATE", "priority": "FAST"}
                             )
+                            logging.info(f"📊 CANDIDATE (FAST): {strat_name} {signal['side']} @ {current_price:.2f}")
 
                             # === START LATENCY TIMER FOR FILTER STACK ===
                             import time
@@ -1276,15 +1277,16 @@ async def run_bot():
                                 logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
                             # ==========================================
 
-                            # Enhanced event logging: Strategy signal generated
+                            # Enhanced event logging: Strategy signal generated (CANDIDATE)
                             event_logger.log_strategy_signal(
                                 strategy_name=signal.get('strategy', strat_name),
                                 side=signal['side'],
                                 tp_dist=signal.get('tp_dist', 6.0),
                                 sl_dist=signal.get('sl_dist', 4.0),
                                 price=current_price,
-                                additional_info={"execution_type": "STANDARD"}
+                                additional_info={"status": "CANDIDATE", "priority": "STANDARD"}
                             )
+                            logging.info(f"📊 CANDIDATE (STANDARD): {strat_name} {signal['side']} @ {current_price:.2f}")
 
                             # === START LATENCY TIMER FOR FILTER STACK ===
                             import time
@@ -1948,6 +1950,15 @@ async def run_bot():
                                                 f"Volatility/Guardrail adjustment (Regime: {vol_adj['regime']})"
                                             )
 
+                                        # Log as QUEUED for UI visibility
+                                        event_logger.log_strategy_signal(
+                                            strategy_name=signal.get('strategy', s_name),
+                                            side=signal['side'],
+                                            tp_dist=signal.get('tp_dist', 0),
+                                            sl_dist=signal.get('sl_dist', 0),
+                                            price=current_price,
+                                            additional_info={"status": "QUEUED", "priority": "LOOSE"}
+                                        )
                                         logging.info(f"🕐 Queuing {s_name} signal")
                                         pending_loose_signals[s_name] = {'signal': signal, 'bar_count': 0}
                                 except Exception as e:

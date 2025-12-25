@@ -782,6 +782,8 @@ class JulieUI:
         self.log_text.tag_config('strategy_detail', foreground='#a5f3fc')  # Light Cyan for STRATEGY_METRIC
         self.log_text.tag_config('risk_alert', foreground='#fca5a5')       # Light Red for RISK_TELEMETRY
         self.log_text.tag_config('latency', foreground='#fbbf24')          # Amber for SLOW EXECUTION
+        self.log_text.tag_config('candidate', foreground='#facc15')        # Yellow for CANDIDATE signals
+        self.log_text.tag_config('execution', foreground=self.colors['green_light'])  # Green for EXECUTED signals
 
         self.add_log("Waiting for bot activity...")
 
@@ -790,9 +792,13 @@ class JulieUI:
         def update():
             self.log_text.config(state='normal')
 
-            # Determine tag based on message content
+            # Determine tag based on message content (priority order matters)
             tag = 'normal'
-            if 'STRATEGY_METRIC' in message:
+            if 'STRATEGY_EXEC' in message or '✅ FAST EXEC' in message or '✅ STANDARD EXEC' in message:
+                tag = 'execution'
+            elif 'CANDIDATE' in message or 'status=CANDIDATE' in message:
+                tag = 'candidate'
+            elif 'STRATEGY_METRIC' in message:
                 tag = 'strategy_detail'
             elif 'RISK_TELEMETRY' in message or 'RISK MONITOR' in message:
                 tag = 'risk_alert'
@@ -1093,15 +1099,34 @@ class JulieUI:
 
         # Parse strategy signals
         for strategy in self.strategy_labels.keys():
+            # Check if this log line is about this strategy
             if strategy in line or strategy.replace(" ", "") in line:
-                if "EXEC" in line or "EXECUTED" in line:
+
+                # CASE 1: Execution (Winner) -> GREEN
+                if "EXEC" in line or "EXECUTED" in line or "STRATEGY_EXEC" in line:
                     match = re.search(r'(LONG|SHORT).*?(\d+\.?\d*)', line)
                     if match:
                         side = match.group(1)
                         price = match.group(2)
                         self.update_strategy(strategy, f"EXECUTED {side} @ {price}", self.colors['green'])
-                elif "SIGNAL" in line or "signal" in line:
-                    self.update_strategy(strategy, "PENDING SIGNAL", self.colors['yellow'])
+
+                # CASE 2: Candidate/Signal (Generated but maybe not chosen) -> YELLOW
+                # We look for "CANDIDATE" or "STRATEGY_SIGNAL"
+                elif "CANDIDATE" in line or ("STRATEGY_SIGNAL" in line and "status=CANDIDATE" in line):
+                    # Update text to show side
+                    side_match = re.search(r'(LONG|SHORT)', line)
+                    side = side_match.group(1) if side_match else "SIGNAL"
+
+                    # Only update if not already executed (don't downgrade Green to Yellow)
+                    current_status = self.strategy_labels[strategy].cget('text')
+                    if "EXECUTED" not in current_status:
+                        self.update_strategy(strategy, f"{side} FOUND", self.colors['yellow'])
+
+                # CASE 3: Queued -> BLUE/CYAN
+                elif "QUEUED" in line or ("STRATEGY_SIGNAL" in line and "status=QUEUED" in line):
+                    self.update_strategy(strategy, "QUEUED", '#06b6d4')  # Cyan
+
+                # CASE 4: Blocked -> RED
                 elif "BLOCK" in line:
                     self.update_strategy(strategy, "BLOCKED", self.colors['red'])
 
