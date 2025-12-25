@@ -45,6 +45,11 @@ class YahooVIXClient:
             if df.empty:
                 return pd.DataFrame()
 
+            # FIX: Handle MultiIndex columns (e.g. ('Open', '^VIX')) if yfinance returns them
+            if isinstance(df.columns, pd.MultiIndex):
+                # Flatten by taking the first level (Price Type)
+                df.columns = df.columns.get_level_values(0)
+
             # Normalize Columns: yfinance returns 'Open', 'High', 'Low', 'Close', 'Volume'
             # We need lowercase: 'open', 'high', 'low', 'close', 'volume'
             df = df.rename(columns={
@@ -56,7 +61,7 @@ class YahooVIXClient:
             })
 
             # Ensure columns are lowercase (yfinance sometimes changes case)
-            df.columns = [c.lower() for c in df.columns]
+            df.columns = [c.lower() if isinstance(c, str) else c for c in df.columns]
 
             # Normalize Index: Ensure it is a DatetimeIndex with timezone info
             if not isinstance(df.index, pd.DatetimeIndex):
