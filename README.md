@@ -123,6 +123,7 @@ Julie v2.0 features a fully asynchronous architecture for improved performance:
 - **Gemini AI Optimizer**: Continuous LLM-powered parameter optimization
 - **Event Logger**: Comprehensive structured logging system
 - **Circuit Breaker**: Advanced safety mechanisms with automatic recovery
+- **Holiday Retrofitting**: Intelligent holiday detection with pre/post-holiday behavior adjustment
 
 ---
 
@@ -467,8 +468,8 @@ Tracks historical support and resistance levels with touch count.
 - Weights levels by recency and touch count
 - Blocks trades directly into strong S/R without confirmation
 
-#### 10. News Filter
-Blocks trading around high-impact economic events.
+#### 10. News Filter & Holiday Retrofitting
+Blocks trading around high-impact economic events and intelligently adjusts behavior based on bank holiday proximity.
 
 **Events Tracked:**
 - FOMC announcements
@@ -479,6 +480,45 @@ Blocks trading around high-impact economic events.
 **Buffer Periods:**
 - Pre-news: 15-30 minutes before event
 - Post-news: 5-15 minutes after event (configurable)
+
+**Holiday Retrofitting System (NEW in v2.0):**
+
+Julie integrates a sophisticated **Holiday Context Engine** that uses historical analysis to adjust trading behavior around U.S. Federal Bank Holidays.
+
+| Holiday Event | Context | Trading Adjustments |
+|:---|:---|:---|
+| **Thanksgiving Eve** | PRE_HOLIDAY (Wed) | Hard stop @ 12:00 PM. Volume fades to 87% |
+| **Thanksgiving Day** | HOLIDAY_TODAY (Thu) | Market closed - All trades blocked |
+| **Thanksgiving Friday** | POST_HOLIDAY (Fri) | **FULL DISABLE** - Volume only 41% (Dead zone trap) |
+| **Independence Day** | HOLIDAY_TODAY (Jul 4) | Market closed - All trades blocked |
+| **July 3rd** | PRE_HOLIDAY | "Patriot Drift" - Mean reversion only, 50% size, early close @ 1 PM |
+| **Labor Day Tuesday** | POST_HOLIDAY_EXPLOSION | **Volatility 1.74x** - Aggressive short bias, -39pt returns, widen stops |
+| **MLK Day Tuesday** | POST_HOLIDAY_TUESDAY | Volatility 1.4x - Gap fill reversal pattern (-9pt gap expected) |
+| **Presidents Day Tuesday** | POST_HOLIDAY_TUESDAY | Volatility 0.8x (Low) - Bearish drift -20pts, take profits early |
+| **Memorial Day Tuesday** | POST_HOLIDAY | Neutral/Normal behavior |
+| **Easter Monday** | POST_HOLIDAY | No pre-market trade (Europe closed), normal open |
+| **Generic Pre-Holiday** | PRE_HOLIDAY_1-3_DAYS | TP multiplier → 0.6x-0.7x, Chop multiplier → 1.5x-2.0x |
+
+**Risk Engine Holiday Adjustments:**
+
+| Scenario | SL Multiplier | TP Multiplier | Chop Multiplier | Trap Avoidance |
+|:---|:---|:---|:---|:---|
+| **HOLIDAY_TODAY** | Standard | **0.5x** (Minimum) | **2.0x - 3.0x** | Standard |
+| **PRE_HOLIDAY (1-3 days)** | Standard | **0.6x - 0.7x** | **1.5x - 2.0x** | **3.0x - 4.0x** body/vol |
+| **POST_HOLIDAY (Next day)** | **1.2x** | Standard | **1.2x - 1.5x** | **2.5x+** until flow clear |
+| **Labor Day Explosion** | **1.5x** (Wide) | Standard | Disabled | Disabled mean reversion |
+
+**Implementation:**
+- Uses `pandas.tseries.holiday.USFederalHolidayCalendar` for precise date detection
+- Checks 3 days forward and 1 day backward for holiday proximity
+- Each holiday has a unique "game plan" derived from historical backtesting
+- Integrates with Gemini optimizer for context-aware parameter suggestions
+
+**Historical Patterns Encoded:**
+- **The Bearish Tuesdays**: MLK, Presidents Day (post-holiday negative drift)
+- **The Volatility Explosion**: Labor Day Tuesday (1.74x vol expansion)
+- **The Dead Zones**: Thanksgiving week, July 4th week (liquidity evaporation)
+- **The Gap Fill Reversals**: MLK Day Tuesday (-9pt gap pattern)
 
 ---
 
@@ -859,9 +899,13 @@ JULIE/
 │   ├── yahoo_vix_client.py          # VIX data integration
 │   └── dynamic_chop.py              # Dynamic chop analysis
 │
+├── Testing & Utilities
+│   └── test_holiday_detection.py    # Holiday detection testing script
+│
 └── Resources
     ├── README.md                    # This file
     ├── ASYNCIO_UPGRADE_SUMMARY.md   # Async migration notes
+    ├── Rose.bat                     # Windows launcher script
     ├── logo.gif                     # UI logo asset
     └── *.csv                        # Historical data files
 ```
@@ -1051,12 +1095,14 @@ Consider setting up:
 
 ### v2.0.0 (2025)
 - ✨ **New VIX Mean Reversion Strategy** - 10th strategy engine with 557 micro-segments
+- ✨ **Holiday Retrofitting System** - Intelligent pre/post-holiday behavior with historical pattern analysis
 - ✨ Added full asyncio architecture with `async_market_stream.py` and `async_tasks.py`
 - ✨ New modern Tkinter UI dashboard (`julie_tkinter_ui.py`)
 - ✨ Yahoo VIX integration with real-time volatility data (`yahoo_vix_client.py`)
 - ✨ Enhanced event logging system with structured logging
 - ✨ Improved error handling and circuit breaker logic
 - 🔧 Refactored signal discovery and execution architecture
+- 🔧 U.S. Federal Holiday calendar integration with unique game plans per holiday
 - 🐛 Fixed time variable errors and async bugs
 
 ### v1.0.0 (2023-2024)
