@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk, font as tkfont
 import threading
 import time
+import requests
 from datetime import datetime
 from pathlib import Path
 import re
@@ -52,6 +53,8 @@ class JulieUI:
         }
 
         # Session and data
+        self.session = None
+        self.token = None
         self.accounts = []
         self.selected_account = None
         self.current_price = 0.0
@@ -233,13 +236,39 @@ class JulieUI:
                  selectbackground=[('readonly', self.colors['input_bg'])])
 
     def fetch_accounts_for_login(self):
-        """Get account name from config for login dropdown - no API calls"""
-        # UI is read-only - just show account for display purposes
-        if HAS_CONFIG and CONFIG.get('USERNAME'):
-            account_name = CONFIG.get('USERNAME', 'ACCT-001')
-            self.accounts = [{'name': account_name, 'id': account_name}]
-        else:
+        """Fetch accounts from API for login dropdown"""
+        if not HAS_CONFIG or not CONFIG.get('USERNAME') or not CONFIG.get('API_KEY'):
             self.accounts = [{'name': 'ACCT-001', 'id': 'ACCT-001'}]
+            return
+
+        try:
+            # Create session and login
+            self.session = requests.Session()
+            url = f"{CONFIG['REST_BASE_URL']}/api/Auth/loginKey"
+            payload = {
+                "userName": CONFIG['USERNAME'],
+                "apiKey": CONFIG['API_KEY']
+            }
+
+            resp = self.session.post(url, json=payload, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
+                self.token = data.get('token')
+                if self.token:
+                    self.session.headers.update({"Authorization": f"Bearer {self.token}"})
+
+                    # Fetch accounts
+                    acc_url = f"{CONFIG['REST_BASE_URL']}/api/Account/search"
+                    acc_resp = self.session.post(acc_url, json={"onlyActiveAccounts": True}, timeout=10)
+                    if acc_resp.status_code == 200:
+                        acc_data = acc_resp.json()
+                        self.accounts = acc_data.get('accounts', [])
+                        return
+        except Exception as e:
+            print(f"Error fetching accounts: {e}")
+
+        # Fallback
+        self.accounts = [{'name': 'ACCT-001', 'id': 'ACCT-001'}]
 
     def handle_login(self):
         """Handle login button click and launch julie001.py in background"""
