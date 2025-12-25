@@ -396,7 +396,7 @@ class JulieUI:
 
         # Emergency Stop Button
         self.stop_btn = tk.Button(controls_frame,
-                                   text="🛑 EMERGENCY STOP",
+                                   text="STOP",
                                    font=("Helvetica", 12, "bold"),
                                    bg=self.colors['red'],
                                    fg='#000000',
