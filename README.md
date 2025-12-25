@@ -1,20 +1,128 @@
 # Julie: Advanced MES Futures Trading System
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg) ![Market](https://img.shields.io/badge/Market-MES%20Futures-green.svg) ![Platform](https://img.shields.io/badge/Platform-TopstepX-orange.svg) ![License](https://img.shields.io/badge/License-Proprietary-red.svg)
+![Version](https://img.shields.io/badge/version-2.0.0-blue.svg) ![Market](https://img.shields.io/badge/Market-MES%20Futures-green.svg) ![Platform](https://img.shields.io/badge/Platform-TopstepX-orange.svg) ![Python](https://img.shields.io/badge/Python-3.11+-green.svg) ![License](https://img.shields.io/badge/License-Proprietary-red.svg)
 
-**Julie** is a high-frequency, session-specialized algorithmic trading bot built to execute autonomously on the **ProjectX Gateway (TopstepX)**. Unlike traditional bots that use a single logic set, Julie functions as an orchestrator for a "Team of Rivals"—a portfolio of **9 distinct strategy classes** that compete to find the best entry, all governed by a central "Defense Layer" of dynamic filters and blockers.
+**Julie** is a modern, high-frequency, session-specialized algorithmic trading bot built to execute autonomously on the **ProjectX Gateway (TopstepX)**. Unlike traditional bots that use a single logic set, Julie functions as an orchestrator for a "Team of Rivals"—a portfolio of **9 distinct strategy classes** that compete to find the best entry, all governed by a central "Defense Layer" of dynamic filters and blockers.
+
+## 🚀 Quick Start
+
+### Prerequisites
+- **Python 3.11 or higher**
+- **Internet connection** (for API access)
+- **TopstepX account** with valid credentials
+
+### Installation
+
+#### macOS
+```bash
+# 1. Install Python 3.11+ (if not already installed)
+brew install python@3.11
+
+# 2. Clone the repository
+git clone <repository-url>
+cd JULIE
+
+# 3. Install required Python packages
+pip3 install requests pandas numpy
+
+# 4. Configure credentials
+# Edit config.py and add your TopstepX credentials:
+# CONFIG["USERNAME"] = "your_username"
+# CONFIG["API_KEY"] = "your_api_key"
+```
+
+#### Windows
+```cmd
+# 1. Install Python 3.11+ from python.org (if not already installed)
+# Download from: https://www.python.org/downloads/
+
+# 2. Clone the repository
+git clone <repository-url>
+cd JULIE
+
+# 3. Install required Python packages
+pip install requests pandas numpy
+
+# 4. Configure credentials
+# Edit config.py and add your TopstepX credentials:
+# CONFIG["USERNAME"] = "your_username"
+# CONFIG["API_KEY"] = "your_api_key"
+```
+
+### Running JULIE
+
+#### Option 1: Trading Bot (Headless)
+Run the core trading bot without UI:
+
+**macOS/Linux:**
+```bash
+python3 julie001.py
+```
+
+**Windows:**
+```cmd
+python julie001.py
+```
+
+#### Option 2: Tkinter UI Dashboard
+Run the modern Tkinter-based trading dashboard:
+
+**macOS:**
+```bash
+# Install tkinter (comes with Python on macOS)
+python3 launch_ui.py
+```
+
+**Windows:**
+```cmd
+# Install tkinter (comes with Python on Windows)
+python launch_ui.py
+```
+
+The UI provides:
+- Real-time market data display
+- Live strategy status monitoring
+- Active position tracking with P&L
+- Filter status dashboard
+- Live event log
+
+See [TKINTER_UI_README.md](TKINTER_UI_README.md) for detailed UI documentation.
 
 ---
 
-## Table of Contents
-- [1. System Architecture](#1-system-architecture)
-- [2. Strategy Biography (Deep Dive)](#2-strategy-biography-deep-dive)
-- [3. Defense Layer: Filters & Blockers](#3-defense-layer-filters--blockers)
-- [4. Risk Management System](#4-risk-management-system)
-- [5. LLM Integration & Optimization](#5-llm-integration--optimization)
-- [6. Session Management & Quarterly Theory](#6-session-management--quarterly-theory)
-- [7. SMT Divergence Analysis](#7-smt-divergence-analysis)
-- [8. Dynamic Parameters System](#8-dynamic-parameters-system)
+## 📖 Table of Contents
+- [Quick Start](#-quick-start)
+- [System Architecture](#1-system-architecture)
+- [Modern Features](#modern-features)
+- [Strategy Biography (Deep Dive)](#2-strategy-biography-deep-dive)
+- [Defense Layer: Filters & Blockers](#3-defense-layer-filters--blockers)
+- [Risk Management System](#4-risk-management-system)
+- [LLM Integration & Optimization](#5-llm-integration--optimization)
+- [Session Management & Quarterly Theory](#6-session-management--quarterly-theory)
+- [SMT Divergence Analysis](#7-smt-divergence-analysis)
+- [Dynamic Parameters System](#8-dynamic-parameters-system)
+
+---
+
+## Modern Features
+
+### Async Architecture
+Julie v2.0 features a fully asynchronous architecture for improved performance:
+- **AsyncMarketDataManager**: Non-blocking real-time market data streaming via SignalR
+- **Concurrent Task Execution**: Heartbeat monitoring, position syncing, and strategy execution run in parallel
+- **Event-Driven Design**: Efficient event handling and logging system
+
+### Professional Trading Dashboard
+- **Tkinter UI**: Modern dark-themed professional dashboard
+- **Real-time Monitoring**: Live strategy status, positions, and filter states
+- **Event Log**: Complete audit trail of all trading activities
+- **Multi-Account Support**: Easy account switching via dropdown
+
+### Enhanced Components
+- **Yahoo VIX Integration**: Real-time VIX data for volatility-based strategies
+- **Gemini AI Optimizer**: Continuous LLM-powered parameter optimization
+- **Event Logger**: Comprehensive structured logging system
+- **Circuit Breaker**: Advanced safety mechanisms with automatic recovery
 
 ---
 
@@ -652,48 +760,72 @@ OPTIMIZATION_INTERVAL = 86400  # Daily
 
 ```
 JULIE/
-├── main.py                     # Entry point
-├── config.py                   # Configuration settings
-├── dynamic_sltp_params.py      # 320 hierarchical parameters
+├── julie001.py                      # Main entry point (asyncio-based)
+├── config.py                        # Configuration settings
+├── dynamic_sltp_params.py           # 320 hierarchical parameters
+├── regime_sltp_params.py            # Regime-specific parameters
 │
-├── strategies/
-│   ├── regime_strategy.py      # Regime Adaptive Strategy
-│   ├── intraday_dip_strategy.py
-│   ├── confluence_strategy.py  # ICT Confluence
-│   ├── ict_model_strategy.py   # Silver Bullet
-│   ├── orb_strategy.py         # Opening Range Breakout
-│   ├── ml_physics_strategy.py  # Neural Network
-│   ├── dynamic_engine_strategy.py   # 235 sub-strategies
-│   ├── dynamic_engine2_strategy.py  # 167 sub-strategies
-│   └── smt_strategy.py         # SMT Divergence
+├── UI & Launching
+│   ├── launch_ui.py                 # UI launcher with dependency checks
+│   ├── julie_tkinter_ui.py          # Modern Tkinter dashboard (v2.0)
+│   ├── julie_ui.py                  # API/log monitoring utilities
+│   ├── account_selector.py          # Account selection interface
+│   └── TKINTER_UI_README.md         # UI documentation
 │
-├── filters/
-│   ├── rejection_filter.py
-│   ├── chop_filter.py
-│   ├── extension_filter.py
-│   ├── volatility_filter.py
-│   ├── trend_filter.py
-│   ├── impulse_filter.py
-│   ├── htf_fvg_filter.py
-│   ├── bank_level_quarter_filter.py
-│   ├── memory_sr_filter.py
-│   └── news_filter.py
+├── Core Async Components
+│   ├── async_market_stream.py       # AsyncIO market data manager
+│   ├── async_tasks.py               # Background task management
+│   ├── client.py                    # ProjectX API client
+│   └── event_logger.py              # Structured event logging
 │
-├── blockers/
-│   ├── dynamic_structure_blocker.py
-│   └── directional_loss_blocker.py
+├── Strategies
+│   ├── regime_strategy.py           # Regime Adaptive Strategy
+│   ├── intraday_dip_strategy.py     # Mean-reversion strategy
+│   ├── confluence_strategy.py       # ICT Confluence
+│   ├── ict_model_strategy.py        # Silver Bullet
+│   ├── orb_strategy.py              # Opening Range Breakout
+│   ├── ml_physics_strategy.py       # Neural Network (4 session models)
+│   ├── dynamic_engine_strategy.py   # 235 indicator sub-strategies
+│   ├── dynamic_engine2_strategy.py  # 167 price-action sub-strategies
+│   ├── smt_strategy.py              # SMT Divergence
+│   ├── vixmeanreversion.py          # VIX reversion strategy
+│   ├── strategy_base.py             # Base strategy class
+│   ├── dynamic_signal_engine.py     # Dynamic Engine 1 implementation
+│   └── dynamic_signal_engine2.py    # Dynamic Engine 2 implementation
 │
-├── risk/
-│   ├── risk_engine.py
-│   ├── circuit_breaker.py
-│   └── position_sizer.py
+├── Filters
+│   ├── rejection_filter.py          # Bias establishment filter
+│   ├── chop_filter.py               # Consolidation detection
+│   ├── extension_filter.py          # Exhaustion detection
+│   ├── volatility_filter.py         # Regime classification
+│   ├── trend_filter.py              # Multi-timeframe trend
+│   ├── impulse_filter.py            # Momentum detection
+│   ├── htf_fvg_filter.py            # Higher timeframe FVG
+│   ├── bank_level_quarter_filter.py # Institutional levels
+│   ├── memory_sr_filter.py          # Historical S/R levels
+│   └── news_filter.py               # Economic event blocking
 │
-├── analysis/
-│   ├── smt_analyzer.py
-│   └── session_manager.py
+├── Blockers
+│   ├── dynamic_structure_blocker.py # Structure-based blocking
+│   └── directional_loss_blocker.py  # Consecutive loss prevention
 │
-└── optimization/
-    └── gemini_optimizer.py
+├── Risk Management
+│   ├── risk_engine.py               # Position sizing & TP calculation
+│   ├── circuit_breaker.py           # Emergency stop system
+│   └── param_scaler.py              # Parameter scaling utilities
+│
+├── Analysis & Optimization
+│   ├── smt_analyzer.py              # SMT divergence detection
+│   ├── session_manager.py           # Session & quarterly theory
+│   ├── gemini_optimizer.py          # LLM-powered optimization
+│   ├── yahoo_vix_client.py          # VIX data integration
+│   └── dynamic_chop.py              # Dynamic chop analysis
+│
+└── Resources
+    ├── README.md                    # This file
+    ├── ASYNCIO_UPGRADE_SUMMARY.md   # Async migration notes
+    ├── logo.gif                     # UI logo asset
+    └── *.csv                        # Historical data files
 ```
 
 ---
@@ -731,4 +863,183 @@ JULIE/
 
 ---
 
-*Julie v1.0.0 - Built for precision, optimized for survival.*
+## Configuration
+
+### API Credentials
+Edit `config.py` to configure your TopstepX credentials:
+
+```python
+CONFIG = {
+    "USERNAME": "your_topstepx_username",
+    "API_KEY": "your_topstepx_api_key",
+    "ACCOUNT_ID": None,  # Auto-fetched or set via env var JULIE_ACCOUNT_ID
+    # ... other settings
+}
+```
+
+### Risk Settings
+Key risk parameters in `config.py`:
+
+```python
+CONFIG = {
+    "MAX_DAILY_LOSS": 1000.0,  # Maximum daily loss in dollars
+    "RISK": {
+        "POINT_VALUE": 5.0,      # MES = $5 per point
+        "FEES_PER_SIDE": 2.50,   # Commission per side
+        "MIN_NET_PROFIT": 10.0,  # Minimum profit threshold
+        "CONTRACTS": 1           # Position size
+    }
+}
+```
+
+### Environment Variables
+- `JULIE_ACCOUNT_ID`: Override account ID selection
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+#### "ModuleNotFoundError: No module named 'X'"
+**Solution:** Install missing dependencies:
+```bash
+# macOS/Linux
+pip3 install requests pandas numpy
+
+# Windows
+pip install requests pandas numpy
+```
+
+#### "Authentication failed" or "401 Unauthorized"
+**Solution:**
+1. Verify your credentials in `config.py`
+2. Ensure your TopstepX account is active
+3. Check that your API key hasn't expired
+
+#### UI won't start
+**Solution:**
+```bash
+# macOS/Linux
+sudo apt-get install python3-tk  # Ubuntu/Debian
+brew install python-tk@3.11      # macOS
+
+# Windows - tkinter comes with Python installer
+# Reinstall Python and ensure "tcl/tk" is checked
+```
+
+#### Bot stops trading unexpectedly
+**Solution:** Check the logs for:
+- Circuit breaker triggers (`topstep_live_bot.log`)
+- Daily loss limits reached
+- Connection issues with TopstepX API
+- Missing market data
+
+#### Python version issues
+**Solution:**
+```bash
+# Check your Python version
+python3 --version  # Should be 3.11 or higher
+
+# Install Python 3.11+ if needed
+# macOS:
+brew install python@3.11
+
+# Windows:
+# Download from https://www.python.org/downloads/
+```
+
+### Logs and Debugging
+- **Trading Log**: `topstep_live_bot.log` - Contains all bot activities
+- **Event Log**: Visible in Tkinter UI dashboard
+- **Debug Mode**: Set `logging.DEBUG` in `julie001.py` for verbose output
+
+### Performance Optimization
+1. **Reduce Update Frequency**: Edit timing values in `julie_tkinter_ui.py`
+2. **Disable Unused Strategies**: Comment out strategy imports in `julie001.py`
+3. **Limit Historical Data**: Reduce lookback periods in filters
+
+---
+
+## System Requirements
+
+### Minimum Requirements
+- **CPU**: 2+ cores
+- **RAM**: 4GB minimum, 8GB recommended
+- **Storage**: 500MB for application + logs
+- **Network**: Stable internet connection (low latency preferred)
+- **OS**:
+  - macOS 10.15+
+  - Windows 10/11
+  - Linux (Ubuntu 20.04+, Debian 10+)
+
+### Recommended Requirements
+- **CPU**: 4+ cores
+- **RAM**: 16GB
+- **Network**: <50ms latency to TopstepX servers
+- **Display**: 1920x1080 or higher (for UI)
+
+---
+
+## Advanced Topics
+
+### Running on a VPS
+For 24/7 operation, consider deploying on a VPS:
+
+```bash
+# Using screen to keep bot running
+screen -S julie
+python3 julie001.py
+# Detach: Ctrl+A, then D
+# Reattach: screen -r julie
+```
+
+### Multiple Instances
+To run multiple accounts simultaneously:
+1. Create separate directories for each instance
+2. Configure different `ACCOUNT_ID` in each `config.py`
+3. Run each instance in its own terminal/screen session
+
+### Monitoring and Alerts
+Consider setting up:
+- **Log monitoring**: Use `tail -f topstep_live_bot.log`
+- **Email alerts**: Integrate with Gmail API for trade notifications
+- **SMS alerts**: Use Twilio API for critical events
+
+---
+
+## Changelog
+
+### v2.0.0 (2025)
+- ✨ Added full asyncio architecture with `async_market_stream.py` and `async_tasks.py`
+- ✨ New modern Tkinter UI dashboard (`julie_tkinter_ui.py`)
+- ✨ Yahoo VIX integration for volatility strategies
+- ✨ Enhanced event logging system
+- ✨ Improved error handling and circuit breaker logic
+- 🔧 Refactored signal discovery and execution architecture
+- 🐛 Fixed time variable errors and async bugs
+
+### v1.0.0 (2023-2024)
+- Initial release with 9 strategy engines
+- 320 hierarchical threshold system
+- Defense layer with 10 filters and 2 blockers
+- Gemini AI optimizer integration
+- Dynamic SL/TP engine
+
+---
+
+## Support & Contributing
+
+### Getting Help
+1. Check this README and [TKINTER_UI_README.md](TKINTER_UI_README.md)
+2. Review logs in `topstep_live_bot.log`
+3. Check [ASYNCIO_UPGRADE_SUMMARY.md](ASYNCIO_UPGRADE_SUMMARY.md) for async architecture details
+
+### Security
+- **Never commit credentials**: Keep `config.py` with real credentials in `.gitignore`
+- **API Key Safety**: Store API keys in environment variables for production
+- **Audit Logs**: Review `topstep_live_bot.log` regularly
+
+---
+
+*Julie v2.0.0 - Built for precision, optimized for survival, powered by async.*
