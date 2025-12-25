@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
 JULIE Tkinter UI - Professional Trading Dashboard
-Real integration with julie001.py bot via log monitoring and API
+Pure log viewer that monitors topstep_live_bot.log (no API polling)
+Includes Emergency Stop button to terminate the bot process
 """
 
 import tkinter as tk
 from tkinter import ttk, font as tkfont
 import threading
 import time
-import requests
 from datetime import datetime
 from pathlib import Path
 import re
@@ -52,11 +52,9 @@ class JulieUI:
         }
 
         # Session and data
-        self.session = None
-        self.token = None
         self.accounts = []
         self.selected_account = None
-        self.current_price = 5880.25
+        self.current_price = 0.0
         self.logged_in = False
         self.monitoring_active = False
         self.paused = False  # Pause state for log analysis
@@ -64,8 +62,10 @@ class JulieUI:
         # Bot integration
         self.log_file = Path("topstep_live_bot.log")
         self.log_position = 0
-        self.contract_id = None
         self.bot_process = None  # Track the julie001.py subprocess
+
+        # Position tracking from logs
+        self.active_position = None  # {'side': 'LONG/SHORT', 'entry_price': float, 'size': 1}
 
         # Animated logo tracking
         self.logo_frames = []
@@ -233,39 +233,13 @@ class JulieUI:
                  selectbackground=[('readonly', self.colors['input_bg'])])
 
     def fetch_accounts_for_login(self):
-        """Fetch accounts from API for login dropdown"""
-        if not HAS_CONFIG or not CONFIG.get('USERNAME') or not CONFIG.get('API_KEY'):
+        """Get account name from config for login dropdown - no API calls"""
+        # UI is read-only - just show account for display purposes
+        if HAS_CONFIG and CONFIG.get('USERNAME'):
+            account_name = CONFIG.get('USERNAME', 'ACCT-001')
+            self.accounts = [{'name': account_name, 'id': account_name}]
+        else:
             self.accounts = [{'name': 'ACCT-001', 'id': 'ACCT-001'}]
-            return
-
-        try:
-            # Create session and login
-            self.session = requests.Session()
-            url = f"{CONFIG['REST_BASE_URL']}/api/Auth/loginKey"
-            payload = {
-                "userName": CONFIG['USERNAME'],
-                "apiKey": CONFIG['API_KEY']
-            }
-
-            resp = self.session.post(url, json=payload, timeout=10)
-            if resp.status_code == 200:
-                data = resp.json()
-                self.token = data.get('token')
-                if self.token:
-                    self.session.headers.update({"Authorization": f"Bearer {self.token}"})
-
-                    # Fetch accounts
-                    acc_url = f"{CONFIG['REST_BASE_URL']}/api/Account/search"
-                    acc_resp = self.session.post(acc_url, json={"onlyActiveAccounts": True}, timeout=10)
-                    if acc_resp.status_code == 200:
-                        acc_data = acc_resp.json()
-                        self.accounts = acc_data.get('accounts', [])
-                        return
-        except Exception as e:
-            print(f"Error fetching accounts: {e}")
-
-        # Fallback
-        self.accounts = [{'name': 'ACCT-001', 'id': 'ACCT-001'}]
 
     def handle_login(self):
         """Handle login button click and launch julie001.py in background"""
@@ -387,9 +361,24 @@ class JulieUI:
                         bg=self.colors['bg_dark'])
         title.pack(side='left')
 
-        # Pause/Play controls (top right)
+        # Controls (top right)
         controls_frame = tk.Frame(header, bg=self.colors['bg_dark'])
         controls_frame.pack(side='right')
+
+        # Emergency Stop Button
+        self.stop_btn = tk.Button(controls_frame,
+                                   text="🛑 EMERGENCY STOP",
+                                   font=("Helvetica", 12, "bold"),
+                                   bg=self.colors['red'],
+                                   fg='#000000',
+                                   activebackground='#dc2626',
+                                   activeforeground='#000000',
+                                   relief='flat',
+                                   cursor='hand2',
+                                   command=self.emergency_stop,
+                                   padx=20,
+                                   pady=8)
+        self.stop_btn.pack(side='left', padx=5)
 
         self.pause_btn = tk.Button(controls_frame,
                                    text="⏸ PAUSE",
@@ -456,10 +445,7 @@ class JulieUI:
         # Right panel - Market Context
         self.create_market_section(right_panel)
 
-        # Fetch contract ID
-        self.fetch_contract_id()
-
-        # Start monitoring
+        # Start monitoring (log file only - no API polling)
         self.start_monitoring()
 
     def create_market_section(self, parent):
@@ -831,29 +817,24 @@ class JulieUI:
         else:
             update()
 
-    def fetch_contract_id(self):
-        """Fetch contract ID for position monitoring"""
-        if not self.session or not self.token:
-            return
+    def emergency_stop(self):
+        """Emergency stop - terminate the bot process immediately"""
+        if self.bot_process:
+            try:
+                self.add_log("🛑 EMERGENCY STOP ACTIVATED - Terminating bot...")
+                # Force kill the bot process
+                self.bot_process.kill()
+                self.bot_process.wait()
+                self.bot_process = None
+                self.add_log("✓ Bot process terminated")
 
-        try:
-            from config import refresh_target_symbol
-            refresh_target_symbol()
-
-            url = f"{CONFIG['REST_BASE_URL']}/api/Contract/search"
-            payload = {
-                "live": False,
-                "searchText": CONFIG.get('TARGET_SYMBOL', 'MES.Z25')
-            }
-
-            resp = self.session.post(url, json=payload, timeout=10)
-            if resp.status_code == 200:
-                data = resp.json()
-                if 'contracts' in data and data['contracts']:
-                    self.contract_id = data['contracts'][0].get('id')
-                    self.add_log(f"Contract: {CONFIG.get('TARGET_SYMBOL')}")
-        except Exception as e:
-            self.add_log(f"Error fetching contract: {e}")
+                # Clear active position
+                self.active_position = None
+                self.update_position_display()
+            except Exception as e:
+                self.add_log(f"Error stopping bot: {e}")
+        else:
+            self.add_log("No active bot process to stop")
 
     def toggle_pause(self):
         """Toggle pause/play state for log analysis"""
@@ -871,35 +852,19 @@ class JulieUI:
             self.add_log("▶ Monitoring RESUMED")
 
     def start_monitoring(self):
-        """Start real-time monitoring of bot log and API"""
+        """Start real-time monitoring of bot log file (no API polling)"""
         self.monitoring_active = True
 
-        # Thread 1: Monitor log file
+        # Single thread: Monitor log file only
         def monitor_log():
             while self.monitoring_active:
                 if not self.paused:
                     self.tail_log_file()
                 time.sleep(0.5)
 
-        # Thread 2: Monitor positions
-        def monitor_positions():
-            while self.monitoring_active:
-                if not self.paused:
-                    self.fetch_position()
-                time.sleep(2)
-
-        # Thread 3: Monitor market price
-        def monitor_price():
-            while self.monitoring_active:
-                if not self.paused:
-                    self.fetch_price()
-                time.sleep(3)
-
         threading.Thread(target=monitor_log, daemon=True).start()
-        threading.Thread(target=monitor_positions, daemon=True).start()
-        threading.Thread(target=monitor_price, daemon=True).start()
 
-        self.add_log("Monitoring started")
+        self.add_log("Log monitoring started (read-only mode)")
 
     def tail_log_file(self):
         """Monitor bot log file for updates"""
@@ -927,6 +892,45 @@ class JulieUI:
         """Parse bot log line and update UI"""
         if not line:
             return
+
+        # Extract price from heartbeat or bar messages
+        # Format: "💓 Heartbeat: HH:MM:SS | Price: 5880.25" or "Bar: ... | Price: 5880.25"
+        if ('💓' in line or 'Heartbeat' in line or 'Bar:' in line) and 'Price:' in line:
+            price_match = re.search(r'Price:\s*(\d+\.?\d*)', line)
+            if price_match:
+                self.current_price = float(price_match.group(1))
+                # Update position display with new price (for P&L calculation)
+                if self.active_position:
+                    self.update_position_display()
+
+        # Extract position opening from "SENDING ORDER" messages
+        # Format: "SENDING ORDER: LONG @ ~5880.25" or "SENDING ORDER: SHORT @ ~5880.25"
+        if 'SENDING ORDER:' in line:
+            order_match = re.search(r'SENDING ORDER:\s*(LONG|SHORT)\s*@\s*~?(\d+\.?\d*)', line)
+            if order_match:
+                side = order_match.group(1)
+                entry_price = float(order_match.group(2))
+                self.active_position = {
+                    'side': side,
+                    'entry_price': entry_price,
+                    'size': 1  # Default size, actual size may vary
+                }
+                self.update_position_display()
+                self.add_log(f"✅ Position opened: {side} @ {entry_price:.2f}")
+
+        # Extract position closing from "Trade closed" messages
+        # Format: "📊 Trade closed: LONG | Entry: 5880.25 | Exit: 5885.50 | PnL: 5.25 pts ($26.25)"
+        if '📊 Trade closed' in line or 'Trade closed' in line:
+            close_match = re.search(r'Trade closed.*?(LONG|SHORT).*?Entry:\s*(\d+\.?\d*).*?Exit:\s*(\d+\.?\d*).*?PnL:\s*([-\d\.]+)\s*pts.*?\$([-\d\.]+)', line)
+            if close_match:
+                side = close_match.group(1)
+                entry = float(close_match.group(2))
+                exit_price = float(close_match.group(3))
+                pnl_pts = float(close_match.group(4))
+                pnl_dollars = float(close_match.group(5))
+                self.active_position = None
+                self.update_position_display()
+                self.add_log(f"✓ Position closed: {side} | Entry: {entry:.2f} | Exit: {exit_price:.2f} | P&L: ${pnl_dollars:.2f}")
 
         # Determine if this is event log content (heartbeats, trades, blocks, API)
         is_event_log = any(keyword in line for keyword in [
@@ -1110,128 +1114,74 @@ class JulieUI:
 
         self.root.after(0, update)
 
-    def fetch_position(self):
-        """Fetch current position from API"""
-        if not self.session or not self.selected_account:
-            return
+    def update_position_display(self):
+        """Update position display from log data (no API calls)"""
+        def update():
+            # Clear container
+            for widget in self.position_container.winfo_children():
+                widget.destroy()
 
-        try:
-            url = f"{CONFIG['REST_BASE_URL']}/api/Position/search"
-            payload = {"accountId": self.selected_account.get('id')}
+            if self.active_position and self.current_price > 0:
+                side = self.active_position['side']
+                entry_price = self.active_position['entry_price']
+                size = self.active_position.get('size', 1)
 
-            resp = self.session.post(url, json=payload, timeout=5)
-            if resp.status_code == 200:
-                data = resp.json()
-                positions = data.get('positions', [])
+                # Calculate P&L (MES = $5 per point per contract)
+                if side == "LONG":
+                    pnl_points = self.current_price - entry_price
+                else:
+                    pnl_points = entry_price - self.current_price
+                pnl = pnl_points * 5 * size
 
-                # Update UI with position
-                def update():
-                    # Clear container
-                    for widget in self.position_container.winfo_children():
-                        widget.destroy()
+                # Create position display
+                pos_frame = tk.Frame(self.position_container, bg=self.colors['input_bg'],
+                                   highlightbackground=self.colors['input_border'],
+                                   highlightthickness=1)
+                pos_frame.pack(fill='x', pady=3)
 
-                    active_pos = None
-                    for pos in positions:
-                        if pos.get('contractId') == self.contract_id:
-                            size = pos.get('size', 0)
-                            if size != 0:
-                                active_pos = pos
-                                break
+                pos_row = tk.Frame(pos_frame, bg=self.colors['input_bg'])
+                pos_row.pack(fill='x', padx=15, pady=10)
 
-                    if active_pos:
-                        size = active_pos.get('size', 0)
-                        avg_price = active_pos.get('averagePrice', 0.0)
-                        side = "LONG" if size > 0 else "SHORT"
+                acc = tk.Label(pos_row,
+                              text=self.selected_account.get('name', 'ACCT'),
+                              font=("Helvetica", 13, "bold"),
+                              fg=self.colors['text_white'],
+                              bg=self.colors['input_bg'])
+                acc.pack(side='left')
 
-                        # Calculate P&L
-                        pnl = (self.current_price - avg_price) * 5 * abs(size)
-                        if side == "SHORT":
-                            pnl = -pnl
+                side_label = tk.Label(pos_row, text=side,
+                                     font=("Helvetica", 12, "bold"),
+                                     fg=self.colors['green'] if side == "LONG" else self.colors['red'],
+                                     bg=self.colors['input_bg'])
+                side_label.pack(side='left', padx=20)
 
-                        # Create position display
-                        pos_frame = tk.Frame(self.position_container, bg=self.colors['input_bg'],
-                                           highlightbackground=self.colors['input_border'],
-                                           highlightthickness=1)
-                        pos_frame.pack(fill='x', pady=3)
-
-                        pos_row = tk.Frame(pos_frame, bg=self.colors['input_bg'])
-                        pos_row.pack(fill='x', padx=15, pady=10)
-
-                        acc = tk.Label(pos_row,
-                                      text=self.selected_account.get('name', 'ACCT'),
-                                      font=("Helvetica", 13, "bold"),
+                price_label = tk.Label(pos_row, text=f"{entry_price:.2f}",
+                                      font=("Helvetica", 12),
                                       fg=self.colors['text_white'],
                                       bg=self.colors['input_bg'])
-                        acc.pack(side='left')
+                price_label.pack(side='left', padx=10)
 
-                        side_label = tk.Label(pos_row, text=side,
-                                             font=("Helvetica", 12, "bold"),
-                                             fg=self.colors['green'] if side == "LONG" else self.colors['red'],
-                                             bg=self.colors['input_bg'])
-                        side_label.pack(side='left', padx=20)
+                pnl_color = self.colors['green'] if pnl >= 0 else self.colors['red']
+                pnl_text = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
+                pnl_label = tk.Label(pos_row, text=pnl_text,
+                                    font=("Helvetica", 12, "bold"),
+                                    fg=pnl_color,
+                                    bg=self.colors['input_bg'])
+                pnl_label.pack(side='right')
+            else:
+                # No position
+                no_pos = tk.Label(self.position_container,
+                                 text="No active positions",
+                                 font=("Helvetica", 10),
+                                 fg=self.colors['text_dim'],
+                                 bg=self.colors['panel_bg'])
+                no_pos.pack(pady=10)
 
-                        price_label = tk.Label(pos_row, text=f"{avg_price:.2f}",
-                                              font=("Helvetica", 12),
-                                              fg=self.colors['text_white'],
-                                              bg=self.colors['input_bg'])
-                        price_label.pack(side='left', padx=10)
+        if threading.current_thread() != threading.main_thread():
+            self.root.after(0, update)
+        else:
+            update()
 
-                        pnl_color = self.colors['green'] if pnl >= 0 else self.colors['red']
-                        pnl_text = f"+${pnl:.2f}" if pnl >= 0 else f"-${abs(pnl):.2f}"
-                        pnl_label = tk.Label(pos_row, text=pnl_text,
-                                            font=("Helvetica", 12, "bold"),
-                                            fg=pnl_color,
-                                            bg=self.colors['input_bg'])
-                        pnl_label.pack(side='right')
-                    else:
-                        # No position
-                        no_pos = tk.Label(self.position_container,
-                                         text="No active positions",
-                                         font=("Helvetica", 10),
-                                         fg=self.colors['text_dim'],
-                                         bg=self.colors['panel_bg'])
-                        no_pos.pack(pady=10)
-
-                self.root.after(0, update)
-        except Exception as e:
-            pass
-
-    def fetch_price(self):
-        """Fetch current market price"""
-        if not self.session or not self.contract_id:
-            return
-
-        try:
-            from datetime import timezone, timedelta
-            end_time = datetime.now(timezone.utc)
-            start_time = end_time - timedelta(minutes=10)
-
-            url = f"{CONFIG['REST_BASE_URL']}/api/History/retrieveBars"
-            payload = {
-                "accountId": self.selected_account.get('id'),
-                "contractId": self.contract_id,
-                "live": False,
-                "limit": 10,
-                "startTime": start_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
-                "endTime": end_time.strftime('%Y-%m-%dT%H:%M:%SZ'),
-                "unit": 2,
-                "unitNumber": 1
-            }
-
-            resp = self.session.post(url, json=payload, timeout=5)
-            if resp.status_code == 200:
-                data = resp.json()
-                if 'bars' in data and data['bars']:
-                    latest_bar = data['bars'][0]
-                    price = float(latest_bar.get('c', 0.0))
-                    self.current_price = price
-
-                    # Update UI
-                    def update():
-                        self.price_label.config(text=f"{price:.2f}")
-                    self.root.after(0, update)
-        except Exception as e:
-            pass
 
 def main():
     root = tk.Tk()
