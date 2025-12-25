@@ -1351,7 +1351,9 @@ def run_bot():
 
                             # [FIX] Enforce HTF range fade directional restriction
                             # EXCEPTION: Allow "Rev" (Reversal) strategies to bypass this rule
-                            is_reversal = "Rev" in signal.get('strategy', '') or "Rev" in signal.get('id', '')
+                            # NOTE: VIXMeanReversion must abide by ALL filters (no bypass)
+                            strat_name_check = signal.get('strategy', '')
+                            is_reversal = ("Rev" in strat_name_check or "Rev" in signal.get('id', '')) and strat_name_check != "VIXMeanReversion"
 
                             if not is_reversal and allowed_chop_side is not None and signal['side'] != allowed_chop_side:
                                 logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
@@ -1461,6 +1463,15 @@ def run_bot():
                                 continue
                             else:
                                 event_logger.log_filter_check("PenaltyBoxBlocker", signal['side'], True, strategy=signal.get('strategy', strat_name))
+
+                            # Memory S/R Filter
+                            mem_blocked, mem_reason = memory_sr.should_block_trade(signal['side'], current_price)
+                            if mem_blocked:
+                                logging.info(f"🚫 {mem_reason}")
+                                event_logger.log_filter_check("MemorySR", signal['side'], False, mem_reason, strategy=signal.get('strategy', strat_name))
+                                continue
+                            else:
+                                event_logger.log_filter_check("MemorySR", signal['side'], True, strategy=signal.get('strategy', strat_name))
 
                             # Determine if this is a Range Fade setup (used for filter bypasses)
                             is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
