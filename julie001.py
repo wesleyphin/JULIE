@@ -10,6 +10,7 @@ from datetime import timezone as dt_timezone
 import uuid
 from typing import Dict, Optional, List, Tuple
 import random
+import asyncio
 
 from config import CONFIG, refresh_target_symbol, determine_current_contract_symbol
 from dynamic_sltp_params import dynamic_sltp_engine, get_sltp
@@ -44,105 +45,9 @@ import param_scaler
 from vixmeanreversion import VIXReversionStrategy
 from yahoo_vix_client import YahooVIXClient
 
-# ==========================================
-# TARGET CALCULATOR (DEPRECATED - NOT USED)
-# Holiday logic now flows through news_filter.get_holiday_context() -> Gemini
-# Keeping for reference only. DO NOT USE - use Gemini multipliers instead.
-# ==========================================
-class TargetCalculator:
-    """
-    DEPRECATED: This class is not used in the main trading flow.
-    Holiday adjustments are handled by:
-    1. news_filter.get_holiday_context() - determines holiday status
-    2. gemini_optimizer - adjusts multipliers based on context
-    3. Gemini multiplier application in main loop (with MIN_SL/MIN_TP enforcement)
-    """
-    def __init__(self, base_sl_mult=2.0, base_tp_mult=3.0, gemini_sl_mult=0.8, gemini_tp_mult=0.8):
-        self.base_sl_mult = base_sl_mult
-        self.base_tp_mult = base_tp_mult
-        self.gemini_sl_mult = gemini_sl_mult
-        self.gemini_tp_mult = gemini_tp_mult
-
-    def get_holiday_multiplier(self):
-        """
-        DEPRECATED: Returns a volatility multiplier based on the specific 2025 Holiday Calendar.
-        WARNING: This method is NOT USED. See news_filter.get_holiday_context() instead.
-        """
-        today = datetime.datetime.now().date()
-
-        # --- DECEMBER 2025 SCHEDULE ---
-
-        # 1. PHASE 1: "LAST GASP" (Monday Dec 22 - Tuesday Dec 23)
-        if today == date(2025, 12, 22) or today == date(2025, 12, 23):
-            logging.info(f"🎄 HOLIDAY PHASE 1: 'Last Gasp' (Dec {today.day}) | Multiplier: 1.3x (AGGRESSIVE)")
-            return 1.3
-
-        # 2. PHASE 2: CHRISTMAS EVE (Wednesday Dec 24) - HALF DAY
-        elif today == date(2025, 12, 24):
-            logging.info(f"🎄 HOLIDAY PHASE 2: 'Christmas Eve Half Day' | Multiplier: 0.5x (DEFENSIVE)")
-            return 0.5  # Minimum safe value
-
-        # 3. CHRISTMAS DAY (Thursday Dec 25) - CLOSED
-        elif today == date(2025, 12, 25):
-            logging.warning(f"🎄 HOLIDAY: Christmas Day - MARKETS CLOSED")
-            return 0.5  # FIXED: Was 0.0 which would zero out SL/TP!
-
-        # 4. PHASE 3: "HANGOVER" (Friday Dec 26)
-        elif today == date(2025, 12, 26):
-            logging.info(f"🎄 HOLIDAY PHASE 3: 'Boxing Day Hangover' | Multiplier: 0.8x (CAUTIOUS)")
-            return 0.8
-
-        # 5. NEW YEAR'S EVE (Wednesday Dec 31)
-        elif today == date(2025, 12, 31):
-            logging.info(f"🎄 HOLIDAY: New Year's Eve | Multiplier: 0.5x (DEFENSIVE)")
-            return 0.5
-
-        # Default for all other days
-        return 1.0
-
-    def calculate_final_targets(self, base_price, atr, direction):
-        # 1. Base Calculation
-        base_sl_dist = atr * self.base_sl_mult
-        base_tp_dist = atr * self.base_tp_mult
-
-        logging.info(f"🎯 TARGET CALCULATION ({direction}) | Entry: {base_price:.2f} | ATR: {atr:.2f}")
-        logging.info(f"   Layer 1 - BASE: SL={base_sl_dist:.2f} (ATR*{self.base_sl_mult}) | TP={base_tp_dist:.2f} (ATR*{self.base_tp_mult})")
-
-        # 2. Apply Gemini AI (The Technical View)
-        # Gemini sees structure/chop -> Shrinks to 0.8x
-        ai_sl_dist = base_sl_dist * self.gemini_sl_mult
-        ai_tp_dist = base_tp_dist * self.gemini_tp_mult
-
-        logging.info(f"   Layer 2 - GEMINI AI: SL={ai_sl_dist:.2f} (*{self.gemini_sl_mult}) | TP={ai_tp_dist:.2f} (*{self.gemini_tp_mult})")
-
-        # 3. Apply Holiday Multiplier (The Seasonal Adjustment)
-        # Holiday sees "Last Gasp" -> Expands by 1.3x
-        # Effect: 0.8 * 1.3 = ~1.04 (Restores targets to normal size)
-        holiday_mult = self.get_holiday_multiplier()
-
-        final_sl_dist = ai_sl_dist * holiday_mult
-        final_tp_dist = ai_tp_dist * holiday_mult
-
-        # Calculate the composite multiplier effect
-        composite_mult = self.gemini_sl_mult * holiday_mult
-        logging.info(f"   Layer 3 - HOLIDAY: SL={final_sl_dist:.2f} (*{holiday_mult}) | TP={final_tp_dist:.2f} (*{holiday_mult})")
-        logging.info(f"   📊 COMPOSITE EFFECT: {composite_mult:.2f}x (Gemini {self.gemini_sl_mult}x * Holiday {holiday_mult}x)")
-
-        # 4. Price Application & Rounding
-        if direction == "LONG":
-            stop_loss = base_price - final_sl_dist
-            take_profit = base_price + final_tp_dist
-        else: # SHORT
-            stop_loss = base_price + final_sl_dist
-            take_profit = base_price - final_tp_dist
-
-        # Round to tick size
-        stop_loss = round(stop_loss * 4) / 4
-        take_profit = round(take_profit * 4) / 4
-
-        logging.info(f"   ✅ FINAL TARGETS: SL={stop_loss:.2f} | TP={take_profit:.2f} | Risk:Reward = 1:{(final_tp_dist/final_sl_dist):.2f}")
-
-        return stop_loss, take_profit
+# --- ASYNCIO IMPORTS ---
+from async_market_stream import AsyncMarketDataManager
+from async_tasks import heartbeat_task, position_sync_task
 
 # ==========================================
 # RESAMPLER HELPER FUNCTION
@@ -206,20 +111,29 @@ except ImportError as e:
 # ProjectXClient moved to client.py
 
 # ==========================================
-# 12. MAIN EXECUTION LOOP
+# 12. MAIN EXECUTION LOOP (ASYNCIO UPGRADED)
 # ==========================================
-def run_bot():
+async def run_bot():
+    """
+    Main bot execution loop - now async with independent tasks.
+
+    Benefits:
+    - Independent Heartbeat task (validates session every 60s)
+    - Independent Position Sync task (syncs broker position every 30s)
+    - Non-blocking sleep for faster response times
+    - Strategy calculations cannot block heartbeat or position sync
+    """
     param_scaler.apply_scaling()  # Scale regime params to maintain R:R ratios
 
     refresh_target_symbol()
     print("=" * 60)
     print("PROJECTX GATEWAY - MES FUTURES BOT (LIVE)")
-    print("--- Julie Pro (Session Specialized) ---")
+    print("--- Julie Pro (Session Specialized + AsyncIO) ---")
     print("--- DYNAMIC SL/TP ENGINE ENABLED ---")
     print(f"REST API: {CONFIG['REST_BASE_URL']}")
     print(f"Target Symbol: {CONFIG['TARGET_SYMBOL']}")
     print("=" * 60)
-    
+
     client = ProjectXClient()
     
     # Step 1: Authenticate
@@ -344,26 +258,31 @@ def run_bot():
     for strat in standard_strategies: print(f"    • {strat.__class__.__name__}")
     print("  [LOOSE EXECUTION]")
     for strat in loose_strategies: print(f"    • {strat.__class__.__name__}")
-    
-    print("\nListening for market data (polling every 2 seconds)...")
-    
+
+    print("\n🚀 AsyncIO Upgrade Active - Launching Independent Tasks...")
+    print("  ✓ Heartbeat Task (validates session every 60s)")
+    print("  ✓ Position Sync Task (syncs broker position every 30s)")
+    print("\nListening for market data (faster polling with async)...")
+
+    # === LAUNCH INDEPENDENT ASYNC TASKS ===
+    # These tasks run independently and cannot be blocked by strategy calculations
+    heartbeat = asyncio.create_task(heartbeat_task(client, interval=60))
+    position_sync = asyncio.create_task(position_sync_task(client, interval=30))
+
     # === TRACKING VARIABLES ===
     last_htf_fetch_time = 0
-    last_position_sync_time = 0
-    POSITION_SYNC_INTERVAL = 30  # Sync every 30 seconds
+    # Position sync now handled by independent async task - removed manual tracking
     
     # Track pending signals for delayed execution
     pending_loose_signals = {}
     last_processed_bar = None
     opposite_signal_count = 0
-    
+
     # Early Exit Tracking
     active_trade = None
     bar_count = 0
-    
-    # Token refresh
-    last_token_check = time.time()
-    TOKEN_CHECK_INTERVAL = 3600
+
+    # Token refresh now handled by independent heartbeat task
 
     # Chop state tracking (only log when state changes)
     last_chop_reason = None
@@ -402,10 +321,7 @@ def run_bot():
 
     while True:
         try:
-            # Periodic token validation
-            if time.time() - last_token_check > TOKEN_CHECK_INTERVAL:
-                client.validate_session()
-                last_token_check = time.time()
+            # Token validation now handled by independent heartbeat task
 
             # Periodic chop threshold recalibration (default every 4 hours)
             if chop_analyzer.should_recalibrate(last_chop_calibration):
@@ -416,14 +332,14 @@ def run_bot():
             cb_blocked, cb_reason = circuit_breaker.should_block_trade()
             if cb_blocked:
                 logging.info(f"🚫 Circuit Breaker Block: {cb_reason}")
-                time.sleep(60)
+                await asyncio.sleep(60)
                 continue
 
             current_time = datetime.datetime.now(dt_timezone.utc)
             news_blocked, news_reason = news_filter.should_block_trade(current_time)
             if news_blocked:
                 logging.info(f"🚫 NEWS WAIT: {news_reason}")
-                time.sleep(10)
+                await asyncio.sleep(10)
                 continue
 
             # ==========================================
@@ -679,7 +595,7 @@ def run_bot():
                 if client._empty_data_counter % 30 == 0:
                     print(f"⏳ Waiting for data: {datetime.datetime.now().strftime('%H:%M:%S')} | No bars received (market may be closed or starting up)")
                     logging.info(f"No market data available - attempt #{client._empty_data_counter}")
-                time.sleep(2)
+                await asyncio.sleep(2)
                 continue
 
             # Use master_df for all calculations now
@@ -730,7 +646,7 @@ def run_bot():
                 # Log every single time
                 logging.info(f"⛔ TRADE BLOCKED: {chop_reason}")
 
-                time.sleep(2)
+                await asyncio.sleep(0.5)  # Faster check when choppy
                 continue
             else:
                 # Clear chop state if no restriction active
@@ -738,30 +654,12 @@ def run_bot():
                     logging.info("✅ CHOP RESTRICTION CLEARED")
                     last_chop_reason = None
 
-            # Heartbeat
+            # ==========================================
+            # HEARTBEAT & POSITION SYNC NOW HANDLED BY INDEPENDENT ASYNC TASKS
+            # See: heartbeat_task() and position_sync_task() launched at startup
+            # These tasks run independently and cannot be blocked by strategy logic
+            # ==========================================
             now_ts = time.time()
-            
-            if not hasattr(client, '_heartbeat_counter'):
-                client._heartbeat_counter = 0
-            client._heartbeat_counter += 1
-            if client._heartbeat_counter % 30 == 0:
-                print(f"💓 Heartbeat: {datetime.datetime.now().strftime('%H:%M:%S')} | Price: {current_price:.2f}")
-
-            # ==========================================
-            # HEARTBEAT POSITION SYNC
-            # ==========================================
-            if now_ts - last_position_sync_time > POSITION_SYNC_INTERVAL:
-                try:
-                    # 1. Force fetch from Broker
-                    broker_pos = client.get_position()
-
-                    # 2. Update Shadow State
-                    client._local_position = broker_pos.copy()
-
-                    last_position_sync_time = now_ts
-
-                except Exception as e:
-                    logging.error(f"❌ Heartbeat Sync Failed: {e}")
 
             # === UPDATE HTF FVG MEMORY (THROTTLED) ===
             # Only update memory once every 60 seconds to save API calls.
@@ -1965,15 +1863,16 @@ def run_bot():
                                 except Exception as e:
                                     logging.error(f"Error in {s_name}: {e}")
 
-            time.sleep(2)
-            
+            await asyncio.sleep(0.5)  # Faster polling with async (was 2s)
+
         except KeyboardInterrupt:
             print("\nBot Stopped by User.")
             break
         except Exception as e:
             logging.error(f"Main Loop Error: {e}")
-            time.sleep(10)
+            await asyncio.sleep(10)
 
 
 if __name__ == "__main__":
-    run_bot()
+    # Run the async bot with asyncio
+    asyncio.run(run_bot())

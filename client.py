@@ -1133,3 +1133,99 @@ class ProjectXClient:
         except Exception as e:
             logging.error(f"Break-even alt exception: {e}")
             return False
+
+    # ==========================================
+    # ASYNC METHODS FOR ASYNCIO UPGRADE
+    # ==========================================
+
+    async def async_get_position(self) -> Dict:
+        """
+        Async version of get_position() for use in independent async tasks.
+
+        Returns:
+            Position dict with 'side', 'size', 'avg_price'
+        """
+        import aiohttp
+
+        if not self._check_general_rate_limit():
+            return {'side': None, 'size': 0, 'avg_price': 0.0}
+
+        if self.account_id is None:
+            return {'side': None, 'size': 0, 'avg_price': 0.0}
+
+        url = f"{self.base_url}/api/Position/search"
+        payload = {"accountId": self.account_id}
+        headers = {"Authorization": f"Bearer {self.token}"}
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers) as resp:
+                    self._track_general_request()
+
+                    # Fallback to GET if POST returns 404
+                    if resp.status == 404:
+                        fallback_url = f"{self.base_url}/api/Position"
+                        async with session.get(fallback_url, params=payload, headers=headers) as resp:
+                            self._track_general_request()
+
+                    if resp.status == 200:
+                        data = await resp.json()
+                        positions = data.get('positions', data) if isinstance(data, dict) else data
+
+                        # Find position for our contract
+                        for pos in positions:
+                            if pos.get('contractId') == self.contract_id:
+                                size = pos.get('size', 0)
+                                avg_price = pos.get('averagePrice', 0.0)
+                                if size > 0:
+                                    return {'side': 'LONG', 'size': size, 'avg_price': avg_price}
+                                elif size < 0:
+                                    return {'side': 'SHORT', 'size': abs(size), 'avg_price': avg_price}
+
+                        return {'side': None, 'size': 0, 'avg_price': 0.0}
+
+                    elif resp.status == 404:
+                        return {'side': None, 'size': 0, 'avg_price': 0.0}
+                    else:
+                        logging.warning(f"Async position check failed: {resp.status}")
+                        return {'side': None, 'size': 0, 'avg_price': 0.0}
+
+        except Exception as e:
+            logging.error(f"Async position check error: {e}")
+            return {'side': None, 'size': 0, 'avg_price': 0.0}
+
+    async def async_validate_session(self) -> bool:
+        """
+        Async version of validate_session() for heartbeat task.
+
+        Returns:
+            True if session is valid, False otherwise
+        """
+        import aiohttp
+
+        if not self._check_general_rate_limit():
+            return self.token is not None
+
+        url = f"{self.base_url}/api/Auth/validate"
+        headers = {"Authorization": f"Bearer {self.token}"}
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=headers) as resp:
+                    self._track_general_request()
+
+                    if resp.status == 200:
+                        data = await resp.json()
+                        if 'newToken' in data:
+                            self.token = data['newToken']
+                            self.token_expiry = datetime.datetime.now() + datetime.timedelta(hours=24)
+                            self.session.headers.update({"Authorization": f"Bearer {self.token}"})
+                            logging.info("Session token refreshed (async)")
+                        return True
+                    else:
+                        logging.warning(f"Async session validation failed: {resp.status}")
+                        return False
+
+        except Exception as e:
+            logging.error(f"Async session validation error: {e}")
+            return False
