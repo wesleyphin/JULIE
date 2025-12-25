@@ -373,7 +373,8 @@ class GeminiSessionOptimizer:
                 }
             }
         }
-        response = requests.post(self.url, headers=self.headers, json=payload, timeout=45)
+        # CHANGE: Increased timeout from 45 to 300 to accommodate "thinking" time
+        response = requests.post(self.url, headers=self.headers, json=payload, timeout=300)
         if response.status_code == 200:
             return response.json()['candidates'][0]['content']['parts'][0]['text']
         raise Exception(f"API Status {response.status_code}")
