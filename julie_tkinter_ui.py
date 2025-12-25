@@ -529,7 +529,7 @@ class JulieUI:
         grid.columnconfigure(0, weight=1, uniform='col')
         grid.columnconfigure(1, weight=1, uniform='col')
 
-        # Strategy entries - All 9 from JULIE
+        # Strategy entries - All strategies from JULIE
         strategies = [
             "Regime Adaptive",
             "Intraday Dip",
@@ -538,7 +538,8 @@ class JulieUI:
             "ORB Strategy",
             "ML Physics",
             "Dynamic Engine 1",
-            "SMT Divergence"
+            "SMT Divergence",
+            "VIX Reversion"
         ]
 
         self.strategy_labels = {}
@@ -1024,7 +1025,9 @@ class JulieUI:
                     "MLPhysicsStrategy": "ML Physics",
                     "MLPhysics": "ML Physics",
                     "DynamicEngine": "Dynamic Engine 1",
-                    "SMTStrategy": "SMT Divergence"
+                    "SMTStrategy": "SMT Divergence",
+                    "VIXMeanReversion": "VIX Reversion",
+                    "VIXReversion": "VIX Reversion"
                 }
 
                 display_name = strategy_map.get(raw_strategy, raw_strategy)

@@ -339,6 +339,7 @@ def run_bot():
     for strat in fast_strategies: print(f"    • {strat.__class__.__name__}")
     print("  [STANDARD EXECUTION]")
     for strat in standard_strategies: print(f"    • {strat.__class__.__name__}")
+    print(f"    • {vix_strategy.__class__.__name__} (VIX Mean Reversion)")
     print("  [LOOSE EXECUTION]")
     for strat in loose_strategies: print(f"    • {strat.__class__.__name__}")
     
