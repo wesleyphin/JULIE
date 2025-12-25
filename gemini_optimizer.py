@@ -235,6 +235,15 @@ class GeminiSessionOptimizer:
             response = self._call_gemini(system_instruction, user_prompt)
             data = json.loads(response)
 
+            # --- FIX START ---
+            # If Gemini returned a list [{...}], grab the first item
+            if isinstance(data, list):
+                if len(data) > 0:
+                    data = data[0]
+                else:
+                    return {'sl_multiplier': 1.0, 'tp_multiplier': 1.0, 'reasoning': 'Gemini returned empty list'}
+            # --- FIX END ---
+
             # Apply Hard Guardrails immediately
             raw_tp = float(data.get('tp_multiplier', 1.0))
             if base_rr >= 4.0: tp_cap = 1.0
@@ -298,7 +307,18 @@ class GeminiSessionOptimizer:
 
         try:
             response = self._call_gemini(system_instruction, user_prompt)
-            return json.loads(response)
+            data = json.loads(response)
+
+            # --- FIX START ---
+            # If Gemini returned a list [{...}], grab the first item
+            if isinstance(data, list):
+                if len(data) > 0:
+                    data = data[0]
+                else:
+                    return {'trend_params': {}, 'reasoning': 'Gemini returned empty list'}
+            # --- FIX END ---
+
+            return data
         except Exception as e:
             logging.error(f"Gemini Trend Error: {e}")
             return {'trend_params': {}, 'reasoning': 'Error'}
@@ -354,6 +374,16 @@ class GeminiSessionOptimizer:
         try:
             response = self._call_gemini(system_instruction, user_prompt)
             data = json.loads(response)
+
+            # --- FIX START ---
+            # If Gemini returned a list [{...}], grab the first item
+            if isinstance(data, list):
+                if len(data) > 0:
+                    data = data[0]
+                else:
+                    return {'chop_multiplier': 1.0, 'reasoning': 'Gemini returned empty list'}
+            # --- FIX END ---
+
             # Safety clamp (0.5x to 3.0x)
             data['chop_multiplier'] = max(0.5, min(float(data.get('chop_multiplier', 1.0)), 3.0))
             return data
