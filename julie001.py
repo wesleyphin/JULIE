@@ -288,12 +288,16 @@ async def run_bot():
     last_chop_reason = None
 
     # === STEP 1: INITIAL DATA LOAD (MAX HISTORY) ===
+    event_logger.log_system_event("STARTUP", "⏳ Startup: Fetching 20,000 bar history (MES)...", {"status": "IN_PROGRESS"})
     logging.info("⏳ Startup: Fetching full 20,000 bar history (MES)...")
     # Fetch the maximum allowed history ONCE before the loop starts
     master_df = client.get_market_data(lookback_minutes=20000, force_fetch=True)
+    event_logger.log_system_event("STARTUP", f"✅ History Received: {len(master_df)} bars loaded (MES).", {"status": "COMPLETE"})
 
+    event_logger.log_system_event("STARTUP", "⏳ Startup: Fetching 20,000 bar history (MNQ)...", {"status": "IN_PROGRESS"})
     logging.info("⏳ Startup: Fetching full 20,000 bar history (MNQ)...")
     master_mnq_df = mnq_client.get_market_data(lookback_minutes=20000, force_fetch=True)
+    event_logger.log_system_event("STARTUP", f"✅ History Received: {len(master_mnq_df)} bars loaded (MNQ).", {"status": "COMPLETE"})
 
     if master_df.empty:
         logging.warning("⚠️ Startup fetch returned empty data (MES). Bot will attempt to build history in loop.")
@@ -322,6 +326,20 @@ async def run_bot():
     while True:
         try:
             # Token validation now handled by independent heartbeat task
+
+            # === DATA FRESHNESS CHECK (Safety Circuit Breaker) ===
+            if not master_df.empty:
+                last_bar_time = master_df.index[-1]
+                if last_bar_time.tzinfo is None:
+                    last_bar_time = last_bar_time.replace(tzinfo=dt_timezone.utc)
+
+                seconds_since_last_update = (datetime.datetime.now(dt_timezone.utc) - last_bar_time).total_seconds()
+
+                if seconds_since_last_update > 60:
+                    event_logger.log_error("DATA_STALE", f"🚨 DATA LAG: Last update was {seconds_since_last_update:.0f}s ago. Moving to DEFENSIVE mode.")
+                    logging.warning(f"🚨 DATA LAG: Last update was {seconds_since_last_update:.0f}s ago. Waiting for fresh data...")
+                    await asyncio.sleep(5)
+                    continue
 
             # Periodic chop threshold recalibration (default every 4 hours)
             if chop_analyzer.should_recalibrate(last_chop_calibration):
@@ -624,6 +642,7 @@ async def run_bot():
 
             # === ONE-TIME BACKFILL ===
             if not data_backfilled:
+                event_logger.log_system_event("STARTUP", "🔄 Restoring filter states from history...", {"type": "BACKFILL", "status": "IN_PROGRESS"})
                 logging.info("🔄 Performing one-time backfill of filter state from history...")
                 # Replay the history we just fetched
                 # This restores Midnight ORB, Prev Session, etc. instantly
@@ -634,6 +653,7 @@ async def run_bot():
                     bank_filter.update(ts, row['high'], row['low'], row['close'])
 
                 data_backfilled = True
+                event_logger.log_system_event("STARTUP", "✅ State restored. Bot is ready.", {"status": "READY"})
                 logging.info("✅ State restored from history.")
 
             # === UPDATE FILTERS (BEFORE CHOP CHECK - Prevents Stale Filters) ===
@@ -894,14 +914,19 @@ async def run_bot():
                     except Exception as e:
                         logging.error(f"ML Strategy Error: {e}")
 
+                # =================================================================
+                # 🎯 HARVEST ALL SIGNALS (Solves "Ghost Signal" Problem)
+                # =================================================================
+                # Collect ALL potential signals from ALL strategies BEFORE filtering
+                # This enables opportunity cost analysis - see what was blocked
+                candidate_signals = []  # List of (priority, strategy_instance, signal_dict, strat_name)
+
                 # -----------------------------------------------------------------
-                # 2a. FAST STRATEGIES (Regime + VIX + Dynamic Engine)
+                # HARVEST PHASE 1: FAST STRATEGIES (Priority 1)
                 # -----------------------------------------------------------------
-                # Random shuffle ensures Dynamic Engine doesn't block Regime/VIX every time
                 current_fast = fast_strategies.copy()
                 random.shuffle(current_fast)
 
-                signal_executed = False
                 for strat in current_fast:
                     strat_name = strat.__class__.__name__
                     try:
@@ -912,31 +937,24 @@ async def run_bot():
                             signal = strat.on_bar(new_df)
 
                         if signal:
-                            strategy_results['checked'].append(strat_name)
-
                             # ==========================================
                             # 🧠 GEMINI 3.0: APPLY OPTIMIZATION
                             # ==========================================
-                            # Apply the active session multipliers from CONFIG
-                            # If Gemini is disabled or failed, these default to 1.0
                             sl_mult = CONFIG.get('DYNAMIC_SL_MULTIPLIER', 1.0)
                             tp_mult = CONFIG.get('DYNAMIC_TP_MULTIPLIER', 1.0)
 
-                            # ALWAYS ensure sl_dist/tp_dist are set (fix for missing values)
                             old_sl = signal.get('sl_dist', 4.0)
                             old_tp = signal.get('tp_dist', 6.0)
 
-                            # Warn if strategy didn't set these
                             if 'sl_dist' not in signal or 'tp_dist' not in signal:
                                 logging.warning(f"⚠️ {strat_name} missing sl_dist/tp_dist, using defaults")
 
-                            # Apply Multipliers
                             signal['sl_dist'] = old_sl * sl_mult
                             signal['tp_dist'] = old_tp * tp_mult
 
-                            # Enforce minimums to prevent dangerously tight stops
-                            MIN_SL = 4.0  # 16 ticks minimum
-                            MIN_TP = 6.0  # 24 ticks minimum (1.5:1 RR)
+                            # Enforce minimums
+                            MIN_SL = 4.0
+                            MIN_TP = 6.0
                             if signal['sl_dist'] < MIN_SL:
                                 logging.warning(f"⚠️ SL too tight ({signal['sl_dist']:.2f}), enforcing minimum {MIN_SL}")
                                 signal['sl_dist'] = MIN_SL
@@ -946,9 +964,11 @@ async def run_bot():
 
                             if sl_mult != 1.0 or tp_mult != 1.0:
                                 logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
-                            # ==========================================
 
-                            # Enhanced event logging: Strategy signal generated (CANDIDATE)
+                            # Add to candidate list (Priority 1 = FAST)
+                            candidate_signals.append((1, strat, signal, strat_name))
+
+                            # Log as candidate
                             event_logger.log_strategy_signal(
                                 strategy_name=signal.get('strategy', strat_name),
                                 side=signal['side'],
@@ -959,575 +979,330 @@ async def run_bot():
                             )
                             logging.info(f"📊 CANDIDATE (FAST): {strat_name} {signal['side']} @ {current_price:.2f}")
 
-                            # === START LATENCY TIMER FOR FILTER STACK ===
-                            filter_start_time = time.time() * 1000  # Convert to ms
-
-                            # ==========================================
-                            # LAYER 1: TARGET FEASIBILITY CHECK (Master Gate)
-                            # ==========================================
-                            # The market condition check (chop) already happened globally.
-                            # Now check if the TARGET is realistic before wasting filter cycles.
-                            is_feasible, feasibility_reason = chop_analyzer.check_target_feasibility(
-                                entry_price=current_price,
-                                side=signal['side'],
-                                tp_distance=signal.get('tp_dist', 6.0),
-                                df_1m=new_df
-                            )
-                            if not is_feasible:
-                                logging.info(f"⛔ Signal ignored (FAST): {feasibility_reason}")
-                                event_logger.log_filter_check("ChopFeasibility", signal['side'], False, feasibility_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("ChopFeasibility", signal['side'], True, strategy=signal.get('strategy', strat_name))
-
-                            # ==========================================
-                            # LAYER 2: SIGNAL QUALITY FILTERS
-                            # ==========================================
-                            # Filters - Rejection Filter
-                            rej_blocked, rej_reason = rejection_filter.should_block_trade(signal['side'])
-                            if rej_blocked:
-                                event_logger.log_rejection_block("RejectionFilter", signal['side'], rej_reason or "Rejection bias")
-                                continue
-
-                            # Directional Loss Blocker (3 consecutive losses blocks direction for 15 min)
-                            dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
-                            if dir_blocked:
-                                event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], False, dir_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], True, strategy=signal.get('strategy', strat_name))
-
-                            # Impulse Filter (Prevent catching falling knife / fading rocket ship)
-                            impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])
-                            if impulse_blocked:
-                                event_logger.log_filter_check("ImpulseFilter", signal['side'], False, impulse_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("ImpulseFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
-
-                            # HTF FVG (Memory Based) - CONTEXT AWARE
-                            # Pass the strategy's target profit so we know how much room we need
-                            tp_dist = signal.get('tp_dist', 15.0)
-
-                            # === FIX: Relax FVG check if we are trading WITH the Range Fade ===
-                            # If Chop says "Long Only" and we are going Long, we expect to break resistance.
-                            # We reduce the effective TP distance passed to the filter, making it less strict.
-                            effective_tp_dist = tp_dist
-                            if allowed_chop_side is not None and signal['side'] == allowed_chop_side:
-                                effective_tp_dist = tp_dist * 0.5  # Require 50% less room
-                                logging.info(f"🔓 RELAXING FVG CHECK (Standard): Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
-
-                            fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
-                                signal['side'], current_price, None, None, tp_dist=effective_tp_dist
-                            )
-
-                            if fvg_blocked:
-                                logging.info(f"🚫 BLOCKED (HTF FVG): {fvg_reason}")
-                                event_logger.log_filter_check("HTF_FVG", signal['side'], False, fvg_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("HTF_FVG", signal['side'], True, strategy=signal.get('strategy', strat_name))
-
-                            # Weak Level Blocker (EQH/EQL)
-                            struct_blocked, struct_reason = structure_blocker.should_block_trade(signal['side'], current_price)
-                            if struct_blocked:
-                                logging.info(f"🚫 {struct_reason}")
-                                event_logger.log_filter_check("StructureBlocker", signal['side'], False, struct_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("StructureBlocker", signal['side'], True, strategy=signal.get('strategy', strat_name))
-
-                            # Regime Structure Blocker (EQH/EQL with regime tolerance)
-                            regime_blocked, regime_reason = regime_blocker.should_block_trade(signal['side'], current_price)
-                            if regime_blocked:
-                                logging.info(f"🚫 {regime_reason}")
-                                event_logger.log_filter_check("RegimeBlocker", signal['side'], False, regime_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("RegimeBlocker", signal['side'], True, strategy=signal.get('strategy', strat_name))
-
-                            # Penalty Box Blocker (Fixed 5.0pt tolerance + 3-bar decay)
-                            penalty_blocked, penalty_reason = penalty_blocker.should_block_trade(signal['side'], current_price)
-                            if penalty_blocked:
-                                logging.info(f"🚫 {penalty_reason}")
-                                event_logger.log_filter_check("PenaltyBoxBlocker", signal['side'], False, penalty_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("PenaltyBoxBlocker", signal['side'], True, strategy=signal.get('strategy', strat_name))
-
-                            mem_blocked, mem_reason = memory_sr.should_block_trade(signal['side'], current_price)
-                            if mem_blocked:
-                                logging.info(f"🚫 {mem_reason}")
-                                event_logger.log_filter_check("MemorySR", signal['side'], False, mem_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("MemorySR", signal['side'], True, strategy=signal.get('strategy', strat_name))
-
-                            # Determine if this is a Range Fade setup (used for filter bypasses)
-                            is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
-
-                            # 4-Tier Trend Filter (Tier 4 bypassed if is_range_fade, Tiers 1-3 check impulse candles)
-                            trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'], is_range_fade=is_range_fade)
-                            trend_state = ("Strong Bearish" if (trend_reason and "Bearish" in trend_reason)
-                                           else ("Strong Bullish" if (trend_reason and "Bullish" in trend_reason)
-                                                 else "NEUTRAL"))
-                            vol_regime, _, _ = volatility_filter.get_regime(new_df)
-
-                            # Chop
-                            daily_bias = rejection_filter.prev_day_pm_bias
-                            chop_blocked, chop_reason = chop_filter.should_block_trade(
-                                signal['side'],
-                                daily_bias,
-                                current_price,
-                                trend_state=trend_state,
-                                vol_regime=vol_regime
-                            )
-                            if chop_blocked:
-                                event_logger.log_filter_check("ChopFilter", signal['side'], False, chop_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("ChopFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
-
-                            # Extension
-                            ext_blocked, ext_reason = extension_filter.should_block_trade(signal['side'])
-                            if ext_blocked:
-                                event_logger.log_filter_check("ExtensionFilter", signal['side'], False, ext_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("ExtensionFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
-
-                            # Trend Filter (already checked above with is_range_fade)
-                            if trend_blocked:
-                                # Enhanced logging with trend conflict details
-                                trend_info = {
-                                    "Trend": trend_state,
-                                    "Signal": signal['side'],
-                                    "Conflict": "Counter-Trend"
-                                }
-                                event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason,
-                                                             additional_info=trend_info, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("TrendFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
-
-                            # Volatility & Guardrail Check
-                            # We pass the Gemini-modified params (signal['sl_dist']) into the filter.
-                            # The filter applies Guardrails + Rounding.
-                            should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0), base_size=5)
-
-                            if not should_trade:
-                                event_logger.log_filter_check("VolatilityFilter", signal['side'], False, "Volatility check failed", strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("VolatilityFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
-
-                            # === APPLY SANITIZED VALUES ===
-                            # Always update to the rounded version (e.g. 4.52 -> 4.50)
-                            # regardless of whether a 'regime' change happened.
-                            signal['sl_dist'] = vol_adj['sl_dist']
-                            signal['tp_dist'] = vol_adj['tp_dist']
-
-                            # Only apply SIZE adjustment if the regime explicitly demands it (Low Vol)
-                            if vol_adj.get('adjustment_applied', False):
-                                signal['size'] = vol_adj['size']
-                                event_logger.log_trade_modified(
-                                    "VolatilityAdjustment",
-                                    signal.get('tp_dist', 6.0),
-                                    vol_adj['tp_dist'],
-                                    f"Volatility/Guardrail adjustment (Regime: {vol_adj['regime']})"
-                                )
-
-                            # Bank Filter (RegimeAdaptive Only)
-                            bank_blocked, bank_reason = bank_filter.should_block_trade(signal['side'])
-                            if bank_blocked:
-                                event_logger.log_filter_check("BankFilter", signal['side'], False, bank_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("BankFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
-
-                            # === LOG FILTER STACK LATENCY ===
-                            filter_end_time = time.time() * 1000
-                            filter_duration = filter_end_time - filter_start_time
-                            event_logger.log_latency("FilterStack-Fast", filter_duration)
-
-                            # Execute
-                            strategy_results['executed'] = strat_name
-                            logging.info(f"✅ FAST EXEC: {signal['strategy']} signal")
-                            event_logger.log_strategy_execution(signal.get('strategy', strat_name), "FAST")
-
-                            # Track old trade result BEFORE close_and_reverse overwrites active_trade
-                            if active_trade is not None:
-                                old_side = active_trade['side']
-                                old_entry = active_trade['entry_price']
-                                old_size = active_trade.get('size', 5)
-                                if old_side == 'LONG':
-                                    old_pnl_points = current_price - old_entry
-                                else:
-                                    old_pnl_points = old_entry - current_price
-                                # Convert points to dollars: MES = $5 per point per contract
-                                old_pnl_dollars = old_pnl_points * 5.0 * old_size
-                                directional_loss_blocker.record_trade_result(old_side, old_pnl_points, current_time)
-                                circuit_breaker.update_trade_result(old_pnl_dollars)
-                                logging.info(f"📊 Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | Exit: {current_price:.2f} | PnL: {old_pnl_points:.2f} pts (${old_pnl_dollars:.2f})")
-
-                            success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
-                            if success:
-                                sl_dist = signal.get('sl_dist', 4.0)  # Standard default, NOT tp_dist
-                                initial_stop = current_price - sl_dist if signal['side'] == 'LONG' else current_price + sl_dist
-                                active_trade = {
-                                    'strategy': signal['strategy'],
-                                    'side': signal['side'],
-                                    'entry_price': current_price,
-                                    'entry_bar': bar_count,
-                                    'bars_held': 0,
-                                    'tp_dist': signal['tp_dist'],
-                                    'sl_dist': sl_dist,  # Store SL for consistency
-                                    'size': signal.get('size', 5),  # Use signal size (volatility-adjusted)
-                                    'stop_order_id': client._active_stop_order_id,  # Cached stop ID
-                                    'current_stop_price': initial_stop,  # Track for trailing stop
-                                    'break_even_triggered': False
-                                }
-
-                            signal_executed = True
-                            break
                     except Exception as e:
                         logging.error(f"Error in {strat_name}: {e}")
-                
-                # -----------------------------------------------------------------
-                # 2b. STANDARD STRATEGIES (Intraday Dip + Confluence + SMT)
-                # -----------------------------------------------------------------
-                if not signal_executed:
-                    # Shuffle standard strategies
-                    current_standard = standard_strategies.copy()
-                    if ml_strategy.model_loaded:
-                        current_standard.append(ml_strategy)
-                    random.shuffle(current_standard)
 
-                    for strat in current_standard:
-                        strat_name = strat.__class__.__name__
-                        signal = None
+                # -----------------------------------------------------------------
+                # HARVEST PHASE 2: STANDARD STRATEGIES (Priority 2)
+                # -----------------------------------------------------------------
+                # Shuffle standard strategies
+                current_standard = standard_strategies.copy()
+                if ml_strategy.model_loaded and ml_signal:
+                    # Add ML signal as a candidate if it exists
+                    current_standard.append(ml_strategy)
+                random.shuffle(current_standard)
 
-                        # (SMT needs master_mnq_df, ML needs ml_signal, others use new_df)
-                        if strat_name == "MLPhysicsStrategy":
-                            signal = ml_signal
-                        elif strat_name == "SMTStrategy":
+                for strat in current_standard:
+                    strat_name = strat.__class__.__name__
+                    signal = None
+
+                    # (SMT needs master_mnq_df, ML needs ml_signal, others use new_df)
+                    if strat_name == "MLPhysicsStrategy":
+                        signal = ml_signal
+                    elif strat_name == "SMTStrategy":
+                        try:
                             signal = strat.on_bar(new_df, master_mnq_df)
-                        else:
-                            try:
-                                signal = strat.on_bar(new_df)
-                            except Exception as e:
-                                logging.error(f"Error in {strat_name}: {e}")
+                        except Exception as e:
+                            logging.error(f"Error in {strat_name}: {e}")
+                    else:
+                        try:
+                            signal = strat.on_bar(new_df)
+                        except Exception as e:
+                            logging.error(f"Error in {strat_name}: {e}")
 
-                        if signal:
-                            strategy_results['checked'].append(strat_name)
+                    if signal:
+                        # ==========================================
+                        # 🧠 GEMINI 3.0: APPLY OPTIMIZATION
+                        # ==========================================
+                        sl_mult = CONFIG.get('DYNAMIC_SL_MULTIPLIER', 1.0)
+                        tp_mult = CONFIG.get('DYNAMIC_TP_MULTIPLIER', 1.0)
 
-                            # Log strategy metric for deep introspection
-                            if strat_name == "MLPhysicsStrategy":
-                                # ML doesn't return confidence in signal dict, so log what we have
-                                event_logger.log_strategy_metric(
-                                    strategy="MLPhysics",
-                                    metric_name="Signal Generated",
-                                    value=signal['side'],
-                                    threshold="Dynamic",
-                                    decision=signal['side']
-                                )
-                            elif strat_name == "DynamicEngineStrategy":
-                                # Log the sub-strategy if available
-                                sub_strat = signal.get('sub_strategy', 'Unknown')
-                                event_logger.log_strategy_metric(
-                                    strategy="DynamicEngine",
-                                    metric_name="Sub-Strategy",
-                                    value=sub_strat,
-                                    threshold="N/A",
-                                    decision=signal['side']
-                                )
+                        old_sl = signal.get('sl_dist', 4.0)
+                        old_tp = signal.get('tp_dist', 6.0)
 
-                            # ==========================================
-                            # 🧠 GEMINI 3.0: APPLY OPTIMIZATION
-                            # ==========================================
-                            # Apply the active session multipliers from CONFIG
-                            # If Gemini is disabled or failed, these default to 1.0
-                            sl_mult = CONFIG.get('DYNAMIC_SL_MULTIPLIER', 1.0)
-                            tp_mult = CONFIG.get('DYNAMIC_TP_MULTIPLIER', 1.0)
+                        if 'sl_dist' not in signal or 'tp_dist' not in signal:
+                            logging.warning(f"⚠️ {strat_name} missing sl_dist/tp_dist, using defaults")
 
-                            # ALWAYS ensure sl_dist/tp_dist are set (fix for missing values)
-                            old_sl = signal.get('sl_dist', 4.0)
-                            old_tp = signal.get('tp_dist', 6.0)
+                        signal['sl_dist'] = old_sl * sl_mult
+                        signal['tp_dist'] = old_tp * tp_mult
 
-                            # Warn if strategy didn't set these
-                            if 'sl_dist' not in signal or 'tp_dist' not in signal:
-                                logging.warning(f"⚠️ {strat_name} missing sl_dist/tp_dist, using defaults")
+                        # Enforce minimums
+                        MIN_SL = 4.0
+                        MIN_TP = 6.0
+                        if signal['sl_dist'] < MIN_SL:
+                            logging.warning(f"⚠️ SL too tight ({signal['sl_dist']:.2f}), enforcing minimum {MIN_SL}")
+                            signal['sl_dist'] = MIN_SL
+                        if signal['tp_dist'] < MIN_TP:
+                            logging.warning(f"⚠️ TP too tight ({signal['tp_dist']:.2f}), enforcing minimum {MIN_TP}")
+                            signal['tp_dist'] = MIN_TP
 
-                            # Apply Multipliers
-                            signal['sl_dist'] = old_sl * sl_mult
-                            signal['tp_dist'] = old_tp * tp_mult
+                        if sl_mult != 1.0 or tp_mult != 1.0:
+                            logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
 
-                            # Enforce minimums to prevent dangerously tight stops
-                            MIN_SL = 4.0  # 16 ticks minimum
-                            MIN_TP = 6.0  # 24 ticks minimum (1.5:1 RR)
-                            if signal['sl_dist'] < MIN_SL:
-                                logging.warning(f"⚠️ SL too tight ({signal['sl_dist']:.2f}), enforcing minimum {MIN_SL}")
-                                signal['sl_dist'] = MIN_SL
-                            if signal['tp_dist'] < MIN_TP:
-                                logging.warning(f"⚠️ TP too tight ({signal['tp_dist']:.2f}), enforcing minimum {MIN_TP}")
-                                signal['tp_dist'] = MIN_TP
+                        # Add to candidate list (Priority 2 = STANDARD)
+                        candidate_signals.append((2, strat, signal, strat_name))
 
-                            if sl_mult != 1.0 or tp_mult != 1.0:
-                                logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
-                            # ==========================================
+                        # Log as candidate
+                        event_logger.log_strategy_signal(
+                            strategy_name=signal.get('strategy', strat_name),
+                            side=signal['side'],
+                            tp_dist=signal.get('tp_dist', 6.0),
+                            sl_dist=signal.get('sl_dist', 4.0),
+                            price=current_price,
+                            additional_info={"status": "CANDIDATE", "priority": "STANDARD"}
+                        )
+                        logging.info(f"📊 CANDIDATE (STANDARD): {strat_name} {signal['side']} @ {current_price:.2f}")
 
-                            # Enhanced event logging: Strategy signal generated (CANDIDATE)
-                            event_logger.log_strategy_signal(
-                                strategy_name=signal.get('strategy', strat_name),
-                                side=signal['side'],
-                                tp_dist=signal.get('tp_dist', 6.0),
-                                sl_dist=signal.get('sl_dist', 4.0),
-                                price=current_price,
-                                additional_info={"status": "CANDIDATE", "priority": "STANDARD"}
-                            )
-                            logging.info(f"📊 CANDIDATE (STANDARD): {strat_name} {signal['side']} @ {current_price:.2f}")
+                # -----------------------------------------------------------------
+                # SELECTION PHASE: Process candidates by priority until one passes
+                # -----------------------------------------------------------------
+                candidate_signals.sort(key=lambda x: x[0])  # Priority 1 (FAST) first
 
-                            # === START LATENCY TIMER FOR FILTER STACK ===
-                            filter_start_time = time.time() * 1000  # Convert to ms
+                signal_executed = False
+                for priority, strat, sig, strat_name in candidate_signals:
+                    signal = sig  # Use the signal from candidate
+                    priority_label = "FAST" if priority == 1 else "STANDARD"
 
-                            # ==========================================
-                            # LAYER 1: TARGET FEASIBILITY CHECK (Master Gate)
-                            # ==========================================
-                            # The market condition check (chop) already happened globally.
-                            # Now check if the TARGET is realistic before wasting filter cycles.
-                            is_feasible, feasibility_reason = chop_analyzer.check_target_feasibility(
-                                entry_price=current_price,
-                                side=signal['side'],
-                                tp_distance=signal.get('tp_dist', 6.0),
-                                df_1m=new_df
-                            )
-                            if not is_feasible:
-                                logging.info(f"⛔ Signal ignored (STANDARD): {feasibility_reason}")
-                                event_logger.log_filter_check("ChopFeasibility", signal['side'], False, feasibility_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("ChopFeasibility", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                    logging.info(f"🔍 EVALUATING {priority_label}: {strat_name} {signal['side']}")
 
-                            # ==========================================
-                            # LAYER 2: SIGNAL QUALITY FILTERS
-                            # ==========================================
-                            # Rejection Filter
-                            rej_blocked, rej_reason = rejection_filter.should_block_trade(signal['side'])
-                            if rej_blocked:
-                                event_logger.log_rejection_block("RejectionFilter", signal['side'], rej_reason or "Rejection bias")
-                                continue
+                    # === START LATENCY TIMER FOR FILTER STACK ===
+                    filter_start_time = time.time() * 1000  # Convert to ms
 
-                            # Directional Loss Blocker (3 consecutive losses blocks direction for 15 min)
-                            dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
-                            if dir_blocked:
-                                event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], False, dir_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                    # ==========================================
+                    # LAYER 1: TARGET FEASIBILITY CHECK (Master Gate)
+                    # ==========================================
+                    # The market condition check (chop) already happened globally.
+                    # Now check if the TARGET is realistic before wasting filter cycles.
+                    is_feasible, feasibility_reason = chop_analyzer.check_target_feasibility(
+                        entry_price=current_price,
+                        side=signal['side'],
+                        tp_distance=signal.get('tp_dist', 6.0),
+                        df_1m=new_df
+                    )
+                    if not is_feasible:
+                        logging.info(f"⛔ Signal ignored ({priority_label}): {feasibility_reason}")
+                        event_logger.log_filter_check("ChopFeasibility", signal['side'], False, feasibility_reason, strategy=signal.get('strategy', strat_name))
+                        continue
+                    else:
+                        event_logger.log_filter_check("ChopFeasibility", signal['side'], True, strategy=signal.get('strategy', strat_name))
 
-                            # Impulse Filter (Prevent catching falling knife / fading rocket ship)
-                            impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])
-                            if impulse_blocked:
-                                event_logger.log_filter_check("ImpulseFilter", signal['side'], False, impulse_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("ImpulseFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                    # ==========================================
+                    # LAYER 2: SIGNAL QUALITY FILTERS
+                    # ==========================================
+                    # Filters - Rejection Filter
+                    rej_blocked, rej_reason = rejection_filter.should_block_trade(signal['side'])
+                    if rej_blocked:
+                        event_logger.log_rejection_block("RejectionFilter", signal['side'], rej_reason or "Rejection bias")
+                        continue
 
-                            # HTF FVG (Memory Based) - CONTEXT AWARE
-                            # Pass the strategy's target profit so we know how much room we need
-                            tp_dist = signal.get('tp_dist', 15.0)
+                    # Directional Loss Blocker (3 consecutive losses blocks direction for 15 min)
+                    dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
+                    if dir_blocked:
+                        event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], False, dir_reason, strategy=signal.get('strategy', strat_name))
+                        continue
+                    else:
+                        event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], True, strategy=signal.get('strategy', strat_name))
 
-                            # === FIX: Relax FVG check if we are trading WITH the Range Fade ===
-                            # If Chop says "Long Only" and we are going Long, we expect to break resistance.
-                            # We reduce the effective TP distance passed to the filter, making it less strict.
-                            effective_tp_dist = tp_dist
-                            if allowed_chop_side is not None and signal['side'] == allowed_chop_side:
-                                effective_tp_dist = tp_dist * 0.5  # Require 50% less room
-                                logging.info(f"🔓 RELAXING FVG CHECK (Standard): Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
+                    # Impulse Filter (Prevent catching falling knife / fading rocket ship)
+                    impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])
+                    if impulse_blocked:
+                        event_logger.log_filter_check("ImpulseFilter", signal['side'], False, impulse_reason, strategy=signal.get('strategy', strat_name))
+                        continue
+                    else:
+                        event_logger.log_filter_check("ImpulseFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
 
-                            fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
-                                signal['side'], current_price, None, None, tp_dist=effective_tp_dist
-                            )
+                    # HTF FVG (Memory Based) - CONTEXT AWARE
+                    # Pass the strategy's target profit so we know how much room we need
+                    tp_dist = signal.get('tp_dist', 15.0)
 
-                            if fvg_blocked:
-                                logging.info(f"🚫 BLOCKED (HTF FVG): {fvg_reason}")
-                                event_logger.log_filter_check("HTF_FVG", signal['side'], False, fvg_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("HTF_FVG", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                    # === FIX: Relax FVG check if we are trading WITH the Range Fade ===
+                    # If Chop says "Long Only" and we are going Long, we expect to break resistance.
+                    # We reduce the effective TP distance passed to the filter, making it less strict.
+                    effective_tp_dist = tp_dist
+                    if allowed_chop_side is not None and signal['side'] == allowed_chop_side:
+                        effective_tp_dist = tp_dist * 0.5  # Require 50% less room
+                        logging.info(f"🔓 RELAXING FVG CHECK: Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
 
-                            # Weak Level Blocker (EQH/EQL)
-                            struct_blocked, struct_reason = structure_blocker.should_block_trade(signal['side'], current_price)
-                            if struct_blocked:
-                                logging.info(f"🚫 {struct_reason}")
-                                event_logger.log_filter_check("StructureBlocker", signal['side'], False, struct_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("StructureBlocker", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                    fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
+                        signal['side'], current_price, None, None, tp_dist=effective_tp_dist
+                    )
 
-                            # Regime Structure Blocker (EQH/EQL with regime tolerance)
-                            regime_blocked, regime_reason = regime_blocker.should_block_trade(signal['side'], current_price)
-                            if regime_blocked:
-                                logging.info(f"🚫 {regime_reason}")
-                                event_logger.log_filter_check("RegimeBlocker", signal['side'], False, regime_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("RegimeBlocker", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                    # Forensic metrics for debugging
+                    fvg_metrics = {
+                        "req_room": f"{effective_tp_dist * 0.4:.2f}",
+                        "tp_dist": f"{tp_dist:.2f}",
+                        "effective_tp": f"{effective_tp_dist:.2f}"
+                    }
 
-                            # Penalty Box Blocker (Fixed 5.0pt tolerance + 3-bar decay)
-                            penalty_blocked, penalty_reason = penalty_blocker.should_block_trade(signal['side'], current_price)
-                            if penalty_blocked:
-                                logging.info(f"🚫 {penalty_reason}")
-                                event_logger.log_filter_check("PenaltyBoxBlocker", signal['side'], False, penalty_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("PenaltyBoxBlocker", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                    if fvg_blocked:
+                        logging.info(f"🚫 BLOCKED (HTF FVG): {fvg_reason}")
+                        event_logger.log_filter_check("HTF_FVG", signal['side'], False, fvg_reason, strategy=signal.get('strategy', strat_name), metrics=fvg_metrics)
+                        continue
+                    else:
+                        event_logger.log_filter_check("HTF_FVG", signal['side'], True, strategy=signal.get('strategy', strat_name), metrics=fvg_metrics)
 
-                            # Memory S/R Filter
-                            mem_blocked, mem_reason = memory_sr.should_block_trade(signal['side'], current_price)
-                            if mem_blocked:
-                                logging.info(f"🚫 {mem_reason}")
-                                event_logger.log_filter_check("MemorySR", signal['side'], False, mem_reason, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("MemorySR", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                    # Weak Level Blocker (EQH/EQL)
+                    struct_blocked, struct_reason = structure_blocker.should_block_trade(signal['side'], current_price)
+                    if struct_blocked:
+                        logging.info(f"🚫 {struct_reason}")
+                        event_logger.log_filter_check("StructureBlocker", signal['side'], False, struct_reason, strategy=signal.get('strategy', strat_name))
+                        continue
+                    else:
+                        event_logger.log_filter_check("StructureBlocker", signal['side'], True, strategy=signal.get('strategy', strat_name))
 
-                            # Determine if this is a Range Fade setup (used for filter bypasses)
-                            is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
+                    # Regime Structure Blocker (EQH/EQL with regime tolerance)
+                    regime_blocked, regime_reason = regime_blocker.should_block_trade(signal['side'], current_price)
+                    if regime_blocked:
+                        logging.info(f"🚫 {regime_reason}")
+                        event_logger.log_filter_check("RegimeBlocker", signal['side'], False, regime_reason, strategy=signal.get('strategy', strat_name))
+                        continue
+                    else:
+                        event_logger.log_filter_check("RegimeBlocker", signal['side'], True, strategy=signal.get('strategy', strat_name))
 
-                            # 4-Tier Trend Filter (Tier 4 bypassed if is_range_fade, Tiers 1-3 check impulse candles)
-                            trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'], is_range_fade=is_range_fade)
-                            trend_state = ("Strong Bearish" if (trend_reason and "Bearish" in trend_reason)
-                                           else ("Strong Bullish" if (trend_reason and "Bullish" in trend_reason)
-                                                 else "NEUTRAL"))
-                            vol_regime, _, _ = volatility_filter.get_regime(new_df)
+                    # Penalty Box Blocker (Fixed 5.0pt tolerance + 3-bar decay)
+                    penalty_blocked, penalty_reason = penalty_blocker.should_block_trade(signal['side'], current_price)
+                    if penalty_blocked:
+                        logging.info(f"🚫 {penalty_reason}")
+                        event_logger.log_filter_check("PenaltyBoxBlocker", signal['side'], False, penalty_reason, strategy=signal.get('strategy', strat_name))
+                        continue
+                    else:
+                        event_logger.log_filter_check("PenaltyBoxBlocker", signal['side'], True, strategy=signal.get('strategy', strat_name))
 
-                            # Chop (Except DynamicEngine)
-                            if signal['strategy'] not in ["DynamicEngine"]:
-                                chop_blocked, chop_reason = chop_filter.should_block_trade(
-                                    signal['side'],
-                                    rejection_filter.prev_day_pm_bias,
-                                    current_price,
-                                    trend_state=trend_state,
-                                    vol_regime=vol_regime
-                                )
-                                if chop_blocked:
-                                    # Enhanced logging with detailed metrics
-                                    chop_info = {
-                                        "State": chop_filter.state,
-                                        "Trend": trend_state,
-                                        "Vol_Regime": vol_regime
-                                    }
-                                    event_logger.log_filter_check("ChopFilter", signal['side'], False, chop_reason,
-                                                                 additional_info=chop_info, strategy=signal.get('strategy', strat_name))
-                                    continue
-                                else:
-                                    event_logger.log_filter_check("ChopFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                    mem_blocked, mem_reason = memory_sr.should_block_trade(signal['side'], current_price)
+                    if mem_blocked:
+                        logging.info(f"🚫 {mem_reason}")
+                        event_logger.log_filter_check("MemorySR", signal['side'], False, mem_reason, strategy=signal.get('strategy', strat_name))
+                        continue
+                    else:
+                        event_logger.log_filter_check("MemorySR", signal['side'], True, strategy=signal.get('strategy', strat_name))
 
-                            # Extension (Except DynamicEngine)
-                            if signal['strategy'] not in ["DynamicEngine"]:
-                                ext_blocked, ext_reason = extension_filter.should_block_trade(signal['side'])
-                                if ext_blocked:
-                                    event_logger.log_filter_check("ExtensionFilter", signal['side'], False, ext_reason, strategy=signal.get('strategy', strat_name))
-                                    continue
-                            else:
-                                event_logger.log_filter_check("ExtensionFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                    # Determine if this is a Range Fade setup (used for filter bypasses)
+                    is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
 
-                            # Trend Filter (already checked above with is_range_fade)
-                            if trend_blocked:
+                    # 4-Tier Trend Filter (Tier 4 bypassed if is_range_fade, Tiers 1-3 check impulse candles)
+                    trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'], is_range_fade=is_range_fade)
+                    trend_state = ("Strong Bearish" if (trend_reason and "Bearish" in trend_reason)
+                                   else ("Strong Bullish" if (trend_reason and "Bullish" in trend_reason)
+                                         else "NEUTRAL"))
+                    vol_regime, _, _ = volatility_filter.get_regime(new_df)
+
+                    # Chop
+                    daily_bias = rejection_filter.prev_day_pm_bias
+                    chop_blocked, chop_reason = chop_filter.should_block_trade(
+                        signal['side'],
+                        daily_bias,
+                        current_price,
+                        trend_state=trend_state,
+                        vol_regime=vol_regime
+                    )
+                    if chop_blocked:
+                        event_logger.log_filter_check("ChopFilter", signal['side'], False, chop_reason, strategy=signal.get('strategy', strat_name))
+                        continue
+                    else:
+                        event_logger.log_filter_check("ChopFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
+
+                    # Extension
+                    ext_blocked, ext_reason = extension_filter.should_block_trade(signal['side'])
+                    if ext_blocked:
+                        event_logger.log_filter_check("ExtensionFilter", signal['side'], False, ext_reason, strategy=signal.get('strategy', strat_name))
+                        continue
+                    else:
+                        event_logger.log_filter_check("ExtensionFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
+
+                    # Trend Filter (already checked above with is_range_fade)
+                    if trend_blocked:
                                 # Enhanced logging with trend conflict details
-                                trend_info = {
-                                    "Trend": trend_state,
-                                    "Signal": signal['side'],
-                                    "Conflict": "Counter-Trend"
-                                }
-                                event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason,
-                                                             additional_info=trend_info, strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("TrendFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                        trend_info = {
+                            "Trend": trend_state,
+                            "Signal": signal['side'],
+                            "Conflict": "Counter-Trend"
+                        }
+                        event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason,
+                                                     additional_info=trend_info, strategy=signal.get('strategy', strat_name))
+                        continue
+                    else:
+                        event_logger.log_filter_check("TrendFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
 
-                            # Volatility & Guardrail Check
-                            # We pass the Gemini-modified params (signal['sl_dist']) into the filter.
-                            # The filter applies Guardrails + Rounding.
-                            should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0), base_size=5)
+                    # Volatility & Guardrail Check
+                    # We pass the Gemini-modified params (signal['sl_dist']) into the filter.
+                    # The filter applies Guardrails + Rounding.
+                    should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0), base_size=5)
 
-                            if not should_trade:
-                                event_logger.log_filter_check("VolatilityFilter", signal['side'], False, "Volatility check failed", strategy=signal.get('strategy', strat_name))
-                                continue
-                            else:
-                                event_logger.log_filter_check("VolatilityFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                    if not should_trade:
+                        event_logger.log_filter_check("VolatilityFilter", signal['side'], False, "Volatility check failed", strategy=signal.get('strategy', strat_name))
+                        continue
+                    else:
+                        event_logger.log_filter_check("VolatilityFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
 
-                            # === APPLY SANITIZED VALUES ===
-                            # Always update to the rounded version (e.g. 4.52 -> 4.50)
+                    # === APPLY SANITIZED VALUES ===
+                    # Always update to the rounded version (e.g. 4.52 -> 4.50)
                             # regardless of whether a 'regime' change happened.
-                            signal['sl_dist'] = vol_adj['sl_dist']
-                            signal['tp_dist'] = vol_adj['tp_dist']
+                    signal['sl_dist'] = vol_adj['sl_dist']
+                    signal['tp_dist'] = vol_adj['tp_dist']
 
-                            # Only apply SIZE adjustment if the regime explicitly demands it (Low Vol)
-                            if vol_adj.get('adjustment_applied', False):
-                                signal['size'] = vol_adj['size']
-                                event_logger.log_trade_modified(
-                                    "VolatilityAdjustment",
-                                    signal.get('tp_dist', 6.0),
-                                    vol_adj['tp_dist'],
-                                    f"Volatility/Guardrail adjustment (Regime: {vol_adj['regime']})"
-                                )
+                    # Only apply SIZE adjustment if the regime explicitly demands it (Low Vol)
+                    if vol_adj.get('adjustment_applied', False):
+                        signal['size'] = vol_adj['size']
+                        event_logger.log_trade_modified(
+                            "VolatilityAdjustment",
+                            signal.get('tp_dist', 6.0),
+                            vol_adj['tp_dist'],
+                            f"Volatility/Guardrail adjustment (Regime: {vol_adj['regime']})"
+                        )
 
-                            # Bank Filter (ML Only)
-                            if strat_name == "MLPhysicsStrategy":
-                                bank_blocked, bank_reason = bank_filter.should_block_trade(signal['side'])
-                                if bank_blocked:
-                                    event_logger.log_filter_check("BankFilter", signal['side'], False, bank_reason, strategy=signal.get('strategy', strat_name))
-                                    continue
-                                else:
-                                    event_logger.log_filter_check("BankFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                    # Bank Filter (RegimeAdaptive Only)
+                    bank_blocked, bank_reason = bank_filter.should_block_trade(signal['side'])
+                    if bank_blocked:
+                        event_logger.log_filter_check("BankFilter", signal['side'], False, bank_reason, strategy=signal.get('strategy', strat_name))
+                        continue
+                    else:
+                        event_logger.log_filter_check("BankFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
 
-                            # === LOG FILTER STACK LATENCY ===
-                            filter_end_time = time.time() * 1000
-                            filter_duration = filter_end_time - filter_start_time
-                            event_logger.log_latency("FilterStack-Standard", filter_duration)
+                    # === LOG FILTER STACK LATENCY ===
+                    filter_end_time = time.time() * 1000
+                    filter_duration = filter_end_time - filter_start_time
+                    event_logger.log_latency(f"FilterStack-{priority_label}", filter_duration)
 
-                            strategy_results['executed'] = strat_name
-                            logging.info(f"✅ STANDARD EXEC: {signal['strategy']} signal")
-                            event_logger.log_strategy_execution(signal.get('strategy', strat_name), "STANDARD")
+                    # Execute
+                    strategy_results['executed'] = strat_name
+                    logging.info(f"✅ {priority_label} EXEC: {signal['strategy']} signal")
+                    event_logger.log_strategy_execution(signal.get('strategy', strat_name), priority_label)
 
-                            # Track old trade result BEFORE close_and_reverse overwrites active_trade
-                            if active_trade is not None:
-                                old_side = active_trade['side']
-                                old_entry = active_trade['entry_price']
-                                old_size = active_trade.get('size', 5)
-                                if old_side == 'LONG':
-                                    old_pnl_points = current_price - old_entry
-                                else:
-                                    old_pnl_points = old_entry - current_price
-                                # Convert points to dollars: MES = $5 per point per contract
-                                old_pnl_dollars = old_pnl_points * 5.0 * old_size
-                                directional_loss_blocker.record_trade_result(old_side, old_pnl_points, current_time)
-                                circuit_breaker.update_trade_result(old_pnl_dollars)
-                                logging.info(f"📊 Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | Exit: {current_price:.2f} | PnL: {old_pnl_points:.2f} pts (${old_pnl_dollars:.2f})")
+                    # Track old trade result BEFORE close_and_reverse overwrites active_trade
+                    if active_trade is not None:
+                        old_side = active_trade['side']
+                        old_entry = active_trade['entry_price']
+                        old_size = active_trade.get('size', 5)
+                        if old_side == 'LONG':
+                            old_pnl_points = current_price - old_entry
+                        else:
+                            old_pnl_points = old_entry - current_price
+                        # Convert points to dollars: MES = $5 per point per contract
+                        old_pnl_dollars = old_pnl_points * 5.0 * old_size
+                        directional_loss_blocker.record_trade_result(old_side, old_pnl_points, current_time)
+                        circuit_breaker.update_trade_result(old_pnl_dollars)
+                        logging.info(f"📊 Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | Exit: {current_price:.2f} | PnL: {old_pnl_points:.2f} pts (${old_pnl_dollars:.2f})")
 
-                            success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
-                            if success:
-                                sl_dist = signal.get('sl_dist', 4.0)  # Standard default, NOT tp_dist
-                                initial_stop = current_price - sl_dist if signal['side'] == 'LONG' else current_price + sl_dist
-                                active_trade = {
-                                    'strategy': signal['strategy'],
-                                    'side': signal['side'],
-                                    'entry_price': current_price,
-                                    'entry_bar': bar_count,
-                                    'bars_held': 0,
-                                    'tp_dist': signal['tp_dist'],
-                                    'sl_dist': sl_dist,  # Store SL for consistency
-                                    'size': signal.get('size', 5),  # Use signal size (volatility-adjusted)
-                                    'stop_order_id': client._active_stop_order_id,  # Cached stop ID
-                                    'current_stop_price': initial_stop,  # Track for trailing stop
-                                    'break_even_triggered': False
-                                }
+                    success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
+                    if success:
+                        sl_dist = signal.get('sl_dist', 4.0)  # Standard default, NOT tp_dist
+                        initial_stop = current_price - sl_dist if signal['side'] == 'LONG' else current_price + sl_dist
+                        active_trade = {
+                            'strategy': signal['strategy'],
+                            'side': signal['side'],
+                            'entry_price': current_price,
+                            'entry_bar': bar_count,
+                            'bars_held': 0,
+                            'tp_dist': signal['tp_dist'],
+                            'sl_dist': sl_dist,  # Store SL for consistency
+                            'size': signal.get('size', 5),  # Use signal size (volatility-adjusted)
+                            'stop_order_id': client._active_stop_order_id,  # Cached stop ID
+                            'current_stop_price': initial_stop,  # Track for trailing stop
+                            'break_even_triggered': False
+                        }
 
-                            signal_executed = True
-                            break
-
+                    signal_executed = True
+                    break
 # 2c. LOOSE STRATEGIES (Queued)
                 if not signal_executed:
                     if is_new_bar:

@@ -122,8 +122,8 @@ class EventLogger:
 
     def log_filter_check(self, filter_name: str, signal_side: str, passed: bool,
                         reason: Optional[str] = None, additional_info: Optional[Dict] = None,
-                        strategy: Optional[str] = None):
-        """Log filter check results"""
+                        strategy: Optional[str] = None, metrics: Optional[Dict] = None):
+        """Log filter check results with forensic metrics"""
         details = {
             "filter": filter_name,
             "side": signal_side,
@@ -137,8 +137,16 @@ class EventLogger:
             details.update(additional_info)
 
         status = "✓ PASS" if passed else "✗ BLOCK"
+        msg = f"{status} - {filter_name} for {signal_side}"
+
+        # Add forensic metrics to message if provided
+        if metrics:
+            metric_str = " | ".join([f"{k}={v}" for k, v in metrics.items()])
+            msg += f" | {metric_str}"
+            details.update(metrics)
+
         self._log_event("INFO" if passed else "WARNING", "FILTER_CHECK",
-                       f"{status} - {filter_name} for {signal_side}",
+                       msg,
                        details)
 
     # ==================== TRADE EVENTS ====================
