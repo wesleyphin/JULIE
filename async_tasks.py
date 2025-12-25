@@ -123,3 +123,28 @@ async def market_data_monitor_task(market_manager, name: str, update_callback):
 
         # Check for new bars every 100ms (much faster than 2-second polling!)
         await asyncio.sleep(0.1)
+
+
+async def htf_structure_task(client, htf_filter, interval: int = 60):
+    """
+    Independent task to fetch HTF data and update FVG filter memory.
+    Uses asyncio.to_thread to run blocking network calls in a separate thread.
+    """
+    logging.info("🚀 HTF Structure Background Task Started")
+
+    while True:
+        try:
+            # Run blocking fetch calls in a separate thread
+            # This is CRITICAL: It prevents the main bot loop from freezing during the API call
+            df_1h = await asyncio.to_thread(client.fetch_custom_bars, lookback_bars=240, minutes_per_bar=60)
+            df_4h = await asyncio.to_thread(client.fetch_custom_bars, lookback_bars=200, minutes_per_bar=240)
+
+            # Update the filter with new structures
+            if not df_1h.empty and not df_4h.empty:
+                htf_filter.update_structure_data(df_1h, df_4h)
+
+        except Exception as e:
+            logging.error(f"❌ HTF structure task error: {e}")
+
+        # Wait for next update interval
+        await asyncio.sleep(interval)
