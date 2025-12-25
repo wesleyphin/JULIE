@@ -648,6 +648,9 @@ async def run_bot():
                 # This restores Midnight ORB, Prev Session, etc. instantly
                 rejection_filter.backfill(new_df)
 
+                # Backfill extension_filter (prevents Mid-Day Amnesia bug)
+                extension_filter.backfill(new_df)
+
                 # Also backfill bank_filter (has same update() signature)
                 for ts, row in new_df.sort_index().iterrows():
                     bank_filter.update(ts, row['high'], row['low'], row['close'])

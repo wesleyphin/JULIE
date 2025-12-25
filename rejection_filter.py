@@ -167,7 +167,20 @@ class RejectionFilter:
                            level_high: Optional[float], level_low: Optional[float]) -> Optional[str]:
         """Process rejection with 1-candle close confirmation and continuation logic."""
 
-        # First check for continuation (breakout after rejection)
+        # 1. NEW: Check for INVALIDATION of existing bias
+        # If we are Short, and price closes ABOVE the level we rejected -> Bias is Dead.
+        if current_bias == 'SHORT' and level_high is not None:
+            # Use a small buffer if desired, or strict close
+            if close > level_high:
+                logging.info(f"💀 BIAS INVALIDATED: {label} Short bias broken by close > {level_high}")
+                return None  # Reset to Neutral
+
+        if current_bias == 'LONG' and level_low is not None:
+            if close < level_low:
+                logging.info(f"💀 BIAS INVALIDATED: {label} Long bias broken by close < {level_low}")
+                return None  # Reset to Neutral
+
+        # 2. First check for continuation (breakout after rejection)
         continuation = self.check_continuation(high, low, close, level_high, level_low, current_bias)
         if continuation:
             if current_bias != continuation:

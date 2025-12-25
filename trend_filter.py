@@ -158,7 +158,27 @@ class TrendFilter:
         # TIERS 1-3: CANDLE IMPULSE FILTERS (The "Immediate" Check)
         # =========================================================
 
-        # Identify Impulse Tiers
+        # NEW: Check last 3 candles for Tier 3 Nuke
+        recent_closes = df['close'].iloc[-3:]
+        recent_opens = df['open'].iloc[-3:]
+        recent_bodies = np.abs(recent_closes - recent_opens)
+
+        # Check if ANY of the last 3 bars were Tier 3 events
+        tier3_threshold = avg_body_size * self.t3_body_mult
+
+        if (recent_bodies > tier3_threshold).any():
+            # If we had a nuke recently, check direction of that nuke
+            # (Simplified logic: assume if recent nuke exists, we are cautious)
+
+            # Allow trade ONLY if we have a rejection wick on the CURRENT bar
+            if side == 'LONG' and lower_wick > wick_threshold:
+                pass  # Hammer detected, allow
+            elif side == 'SHORT' and upper_wick > wick_threshold:
+                pass  # Shooting star, allow
+            else:
+                return True, "Blocked: Recent Tier 3 'Nuke' detected in last 3 bars (Shockwave protection)"
+
+        # Identify Impulse Tiers (Single Candle Check)
         is_tier1 = False
         is_tier2 = False
         is_tier3 = False

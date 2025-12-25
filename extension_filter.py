@@ -17,6 +17,7 @@ Based on MES 2023-2025 historical data.
 from datetime import datetime
 from typing import Tuple, Optional, Dict
 import logging
+import pandas as pd
 
 # ============================================================
 # EXTENSION THRESHOLDS - 320 Combinations
@@ -565,7 +566,7 @@ class ExtensionFilter:
         """Get current filter status for logging."""
         session_range = self.session_high - self.session_low if self.session_high and self.session_low else 0
         daily_range = self.daily_high - self.daily_low if self.daily_high and self.daily_low else 0
-        
+
         return {
             'state': self.state,
             'session': self.current_session,
@@ -578,3 +579,16 @@ class ExtensionFilter:
             'thresholds': self.current_thresholds,
             'extension_direction': self.extension_direction
         }
+
+    def backfill(self, df: pd.DataFrame):
+        """Pre-load daily high/low from historical data on startup."""
+        if df.empty:
+            return
+
+        # Filter for today's data (assuming df index is localized or handled elsewhere)
+        # Simplified logic: just grab the max/min of the provided dataframe
+        # Ideally, filter for 'current session' if df contains multiple days
+        self.daily_high = df['high'].max()
+        self.daily_low = df['low'].min()
+
+        logging.info(f"✅ ExtensionFilter Backfilled: Daily Range {self.daily_low} - {self.daily_high}")
