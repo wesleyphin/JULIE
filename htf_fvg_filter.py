@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import logging
+from zoneinfo import ZoneInfo  # <--- ADD THIS LINE
 
 class HTFFVGFilter:
     def __init__(self, expiration_bars=141):
@@ -143,8 +144,8 @@ class HTFFVGFilter:
         """
         Check if signal is blocked using MEMORY.
         Updates:
-        1. Ignore FVGs we have already pierced (dist < 0).
-        2. Reduced required room to 40% of TP (was 50%) for better execution.
+        1. Fixed Timezone to NY (prevents premature expiration).
+        2. Blocks trades INSIDE the FVG (removed 'dist < 0' bypass).
         """
         # 1. Refresh Memory (if data provided)
         if df_1h is not None and not df_1h.empty:
@@ -156,7 +157,11 @@ class HTFFVGFilter:
             self._update_memory(fvgs_4h)
 
         # 2. Clean Memory (Live Invalidation)
-        current_time = datetime.now(df_1h.index.tz) if (df_1h is not None and not df_1h.empty) else datetime.now().astimezone()
+        # FORCE NY TIMEZONE to match market data timestamps
+        ny_tz = ZoneInfo('America/New_York')
+        current_time = datetime.now(ny_tz)
+
+        # Prune broken or expired structures using LIVE price
         self._clean_memory(current_price, current_time)
 
         # 3. Check Signal against Active Memory
@@ -166,7 +171,7 @@ class HTFFVGFilter:
         signal = signal.upper()
 
         # --- DYNAMIC ROOM CALCULATION ---
-        # Relaxed: Require only 40% of TP distance (was 50%)
+        # Relaxed: Require only 40% of TP distance
         # Default to 10.0 pts if no TP provided
         min_room_needed = (tp_dist * 0.40) if tp_dist else 10.0
 
@@ -174,14 +179,15 @@ class HTFFVGFilter:
             # Block if Bearish FVG overhead (Price < Resistance)
             for f in self.memory:
                 if f['type'] == 'bearish':
+                    # Only check if the FVG is still valid (Clean Memory handles the 'broken' case)
                     if current_price < f['top']:
                         dist = f['bottom'] - current_price
 
-                        # [FIX] Ignore if we are already inside/above the entry (we pierced the wall)
-                        if dist < 0:
-                            continue
+                        # LOGIC FIX: Removed "if dist < 0: continue"
+                        # If dist is negative, we are INSIDE the resistance zone.
+                        # We MUST block trades inside the zone.
 
-                        # Block only if wall is ahead AND too close
+                        # Block if wall is ahead OR if we are inside it (dist < min_room)
                         if dist < min_room_needed:
                             return True, f"Blocked LONG: Bearish {f['tf']} FVG overhead @ {f['bottom']:.2f} (Dist: {dist:.2f} < {min_room_needed:.2f})"
 
@@ -189,14 +195,15 @@ class HTFFVGFilter:
             # Block if Bullish FVG support below (Price > Support)
             for f in self.memory:
                 if f['type'] == 'bullish':
+                    # Only check if the FVG is still valid
                     if current_price > f['bottom']:
                         dist = current_price - f['top']
 
-                        # [FIX] Ignore if we are already inside/below the entry (we pierced the wall)
-                        if dist < 0:
-                            continue
+                        # LOGIC FIX: Removed "if dist < 0: continue"
+                        # If dist is negative, we are INSIDE the support zone.
+                        # We MUST block trades inside the zone.
 
-                        # Block only if wall is ahead AND too close
+                        # Block if wall is ahead OR if we are inside it
                         if dist < min_room_needed:
                             return True, f"Blocked SHORT: Bullish {f['tf']} FVG support @ {f['top']:.2f} (Dist: {dist:.2f} < {min_room_needed:.2f})"
 
