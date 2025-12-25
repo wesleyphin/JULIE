@@ -960,7 +960,6 @@ async def run_bot():
                             logging.info(f"📊 CANDIDATE (FAST): {strat_name} {signal['side']} @ {current_price:.2f}")
 
                             # === START LATENCY TIMER FOR FILTER STACK ===
-                            import time
                             filter_start_time = time.time() * 1000  # Convert to ms
 
                             # ==========================================
@@ -1289,7 +1288,6 @@ async def run_bot():
                             logging.info(f"📊 CANDIDATE (STANDARD): {strat_name} {signal['side']} @ {current_price:.2f}")
 
                             # === START LATENCY TIMER FOR FILTER STACK ===
-                            import time
                             filter_start_time = time.time() * 1000  # Convert to ms
 
                             # ==========================================
