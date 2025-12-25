@@ -12,6 +12,7 @@ from strategy_base import Strategy
 class ICTModelStrategy(Strategy):
     """ICT Model Strategy implementation."""
     def __init__(self):
+        self.strategy_name = "ICT_Model"
         self.reset_daily()
         # 5m FVG state
         self.curr_bull_fvg_low = np.nan
@@ -23,6 +24,7 @@ class ICTModelStrategy(Strategy):
         # 1m bearish FVG for inversion trigger
         self.bear_fvg_1m_active = False
         self.bear_fvg_1m_high = np.nan
+        logging.info("ICTModelStrategy initialized | PDH/PDL + FVG + IFVG triggers | NY AM session only")
 
     def reset_daily(self):
         """Reset daily state"""
@@ -166,10 +168,14 @@ class ICTModelStrategy(Strategy):
             self.reset_daily()
             self.current_date = curr_date
             self._update_pdh_pdl(df, curr_date)
+            if self.pdh is not None and self.pdl is not None:
+                logging.info(f"ICT: New day {curr_date} | PDH: {self.pdh:.2f} | PDL: {self.pdl:.2f}")
 
         # Update 10AM open
         if ts.hour >= 10 and self.open_10am is None:
             self._update_10am_open(df, curr_date)
+            if self.open_10am is not None:
+                logging.info(f"ICT: 10AM open captured @ {self.open_10am:.2f}")
 
         # Detect 1m bearish FVG
         self._detect_1m_bearish_fvg(df)
@@ -226,7 +232,9 @@ class ICTModelStrategy(Strategy):
             if key_level_touched:
                 self.pending_long = True
                 self.setup_bar_count = 0
-                logging.info(f"ICT: Manipulation detected. PDL={self.pdl}, Bull FVG Low={self.curr_bull_fvg_low}")
+                logging.info(f"ICT: Manipulation detected - key level touched")
+                logging.info(f"   PDL: {self.pdl:.2f} | Bull FVG: {self.curr_bull_fvg_low:.2f}-{self.curr_bull_fvg_high:.2f}")
+                logging.info(f"   Current low: {curr['low']:.2f} | Stop level: {self.long_stop:.2f}")
 
         # ENTRY on IFVG trigger + LRL filter
         if self.pending_long and ifvg_long and is_bullish:
@@ -234,7 +242,9 @@ class ICTModelStrategy(Strategy):
                 self.pending_long = False
                 self.setup_bar_count = 0
                 sltp = dynamic_sltp_engine.calculate_dynamic_sltp(df)
-                logging.info(f"ICT: LONG signal triggered at {curr['close']:.2f}")
+                logging.info(f"ICT: LONG signal generated @ {curr['close']:.2f}")
+                logging.info(f"   IFVG trigger confirmed | 4H bias: {candle_bias} | FVG bias: {self.fvg_bias}")
+                logging.info(f"   PDH/PDL: {self.pdh:.2f}/{self.pdl:.2f} | 10AM open: {self.open_10am:.2f}")
                 dynamic_sltp_engine.log_params(sltp)
                 return {
                     "strategy": "ICT_Model",

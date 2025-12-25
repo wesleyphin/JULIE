@@ -11,7 +11,9 @@ from strategy_base import Strategy
 class OrbStrategy(Strategy):
     """ORB Strategy - Now uses DynamicSLTPEngine for SL/TP"""
     def __init__(self):
+        self.strategy_name = "ORB"
         self.reset_daily()
+        logging.info("ORBStrategy initialized | 9:30-9:45 range | Breakout after midpoint retest")
 
     def reset_daily(self):
         self.orb_high = None
@@ -53,10 +55,11 @@ class OrbStrategy(Strategy):
             self.orb_range = self.orb_high - self.orb_low
             self.orb_mid = (self.orb_high + self.orb_low) / 2.0
             self.orb_complete = True
+            logging.info(f"ORB: Range complete | H: {self.orb_high:.2f} L: {self.orb_low:.2f} Mid: {self.orb_mid:.2f} Range: {self.orb_range:.2f}")
 
             if self.orb_range >= 15.0:
                 self.orb_complete = False
-                logging.info(f"ORB: Range {self.orb_range:.2f} >= 15.0pt. Strategy disabled for day.")
+                logging.info(f"ORB: Range {self.orb_range:.2f} >= 15.0pt - Strategy disabled for day")
 
         if not self.orb_complete:
             return None
@@ -81,6 +84,9 @@ class OrbStrategy(Strategy):
                     self.trade_taken_today = True
 
                     sltp = dynamic_sltp_engine.calculate_dynamic_sltp(df)
+                    logging.info(f"ORB: LONG signal generated - breakout above ORB high")
+                    logging.info(f"   ORB H/L/Mid: {self.orb_high:.2f}/{self.orb_low:.2f}/{self.orb_mid:.2f} | Range: {self.orb_range:.2f}")
+                    logging.info(f"   Break: {prev_close:.2f} -> {curr_close:.2f} | Daily open: {self.daily_open:.2f}")
                     dynamic_sltp_engine.log_params(sltp)
 
                     return {

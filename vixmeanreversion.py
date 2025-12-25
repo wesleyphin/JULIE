@@ -4,6 +4,10 @@ import datetime
 from datetime import timezone as dt_timezone
 import logging
 
+# Session name mapping for logging
+SESSION_NAMES = {0: "AM", 1: "Mid", 2: "PM", 3: "Close"}
+DAY_NAMES = {0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri"}
+
 class VIXReversionStrategy:
     """
     Live implementation of the VIX Mean Reversion Strategy.
@@ -11,6 +15,8 @@ class VIXReversionStrategy:
     """
     def __init__(self):
         self.strategy_name = "VIXMeanReversion"
+        self.last_segment_key = None
+        self.bars_since_signal = 0
         # Dictionary Key Format: (Quarter, Month, Week, DayOfWeek, SessionID)
         # Value: Z_Score to use for Bollinger Bands
         self.micro_segments = {
@@ -154,6 +160,7 @@ class VIXReversionStrategy:
             (4, 12, 4, 2, 2): 1.5, (4, 12, 4, 4, 1): 2.5, (4, 12, 5, 0, 1): 1.5, (4, 12, 5, 0, 2): 1.5,
             (4, 12, 5, 1, 0): 2.0, (4, 12, 5, 1, 2): 2.5, (4, 12, 5, 4, 1): 1.5
         }
+        logging.info(f"VIXReversionStrategy initialized with {len(self.micro_segments)} micro-segments")
 
     def get_week_of_month(self, dt):
         """Calculates week of month (1-5) based on day of month."""
@@ -174,7 +181,10 @@ class VIXReversionStrategy:
         Runs the VIX Mean Reversion logic.
         Requires synchronized ES and VIX dataframes.
         """
+        self.bars_since_signal += 1
+
         if vix_df.empty or len(vix_df) < 21:
+            logging.debug("VIXReversion: Insufficient VIX data (need 21 bars)")
             return None
 
         # 1. Determine Current Segment
@@ -186,36 +196,39 @@ class VIXReversionStrategy:
         session_id = self.get_session_id(current_time)
 
         if session_id is None:
+            logging.debug("VIXReversion: Outside trading sessions (pre-9AM or post-4PM)")
             return None
 
         # 2. Lookup Z-Score
         segment_key = (quarter, month, week, day_of_week, session_id)
         z_score = self.micro_segments.get(segment_key)
 
+        # Log segment change
+        if segment_key != self.last_segment_key:
+            session_name = SESSION_NAMES.get(session_id, "?")
+            day_name = DAY_NAMES.get(day_of_week, "?")
+            if z_score:
+                logging.info(f"VIXReversion: Segment Q{quarter} M{month} W{week} {day_name} {session_name} | Z-Score={z_score}")
+            else:
+                logging.debug(f"VIXReversion: No config for Q{quarter} M{month} W{week} {day_name} {session_name}")
+            self.last_segment_key = segment_key
+
         if z_score is None:
             return None # No valid strategy for this micro-segment
 
         # 3. Calculate Indicators (VIX Bollinger Bands)
-        # We need the last 20 bars relative to current time
-        # VIX data might be slightly offset, ensure we align by index if needed
-        # Assuming vix_df is 1-minute data resampled or raw
-
-        # Calculate only for the tail to save time
-        closes = vix_df['close'].values # Assuming client normalizes to 'close'
-        if len(closes) < 21: return None
+        closes = vix_df['close'].values
+        if len(closes) < 21:
+            return None
 
         # Slicing last 21 points for calculation
         relevant_closes = closes[-21:]
 
         # Rolling stats for the *previous* bar (index -2) and *current* bar (index -1)
-        # We need the rolling window ending at -2 and -1.
-
-        # To get rolling(20) for index -1 (current), we need -20 to -1.
         sma_curr = np.mean(relevant_closes[-20:])
-        std_curr = np.std(relevant_closes[-20:], ddof=1) # Pandas default ddof=1
+        std_curr = np.std(relevant_closes[-20:], ddof=1)
         ub_curr = sma_curr + (z_score * std_curr)
 
-        # To get rolling(20) for index -2 (previous), we need -21 to -2.
         sma_prev = np.mean(relevant_closes[-21:-1])
         std_prev = np.std(relevant_closes[-21:-1], ddof=1)
         ub_prev = sma_prev + (z_score * std_prev)
@@ -223,19 +236,34 @@ class VIXReversionStrategy:
         vi_curr = relevant_closes[-1]
         vi_prev = relevant_closes[-2]
 
+        # Calculate distance from upper band for context
+        dist_from_ub = vi_curr - ub_curr
+        pct_from_sma = ((vi_curr - sma_curr) / sma_curr) * 100 if sma_curr > 0 else 0
+
         # 4. Generate Signal (VIX Crosses Below Upper Band)
         # Condition: Previous VIX > Previous Band AND Current VIX < Current Band
         if (vi_prev > ub_prev) and (vi_curr < ub_curr):
-            # 5. Return Signal
-            # Strategy defines: Stop = 4.0, Target = 6.0
-            # VIX Mean Reversion (VIX dropping) -> Bullish ES -> LONG
+            session_name = SESSION_NAMES.get(session_id, "?")
+            day_name = DAY_NAMES.get(day_of_week, "?")
+
+            logging.info(f"VIXReversion: LONG signal - VIX crossed below upper band")
+            logging.info(f"   VIX: {vi_prev:.2f} -> {vi_curr:.2f} | Upper Band: {ub_prev:.2f} -> {ub_curr:.2f}")
+            logging.info(f"   SMA(20): {sma_curr:.2f} | Z-Score: {z_score} | Segment: Q{quarter} {day_name} {session_name}")
+
+            self.bars_since_signal = 0
+
             return {
                 'strategy': self.strategy_name,
                 'side': 'LONG',
                 'sl_dist': 4.0,
                 'tp_dist': 6.0,
-                'size': 5, # Standard size, adjustable by vol filter
+                'size': 5,
                 'reason': f"VIX Reversion (Z={z_score}) Q{quarter} M{month} W{week} D{day_of_week} S{session_id}"
             }
+
+        # Periodic status logging (every 30 bars when in valid segment)
+        if self.bars_since_signal > 0 and self.bars_since_signal % 30 == 0:
+            status = "ABOVE" if vi_curr > ub_curr else "BELOW"
+            logging.debug(f"VIXReversion: VIX={vi_curr:.2f} {status} UB={ub_curr:.2f} (Z={z_score}) | Waiting for crossover")
 
         return None

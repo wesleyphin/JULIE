@@ -1,3 +1,4 @@
+import logging
 from typing import Dict, Optional
 
 import pandas as pd
@@ -16,8 +17,11 @@ class SMTStrategy(Strategy):
     """
 
     def __init__(self, lookback_minutes: int = 1500):
+        self.strategy_name = "SMTAnalyzer"
         self.lookback_minutes = lookback_minutes
         self.analyzer = SMTAnalyzer()
+        self.last_signal = None
+        logging.info(f"SMTStrategy initialized | MES/MNQ divergence | Lookback: {lookback_minutes}min")
 
     def _prepare_df(self, df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
@@ -50,6 +54,13 @@ class SMTStrategy(Strategy):
 
         side = "LONG" if latest == 1 else "SHORT"
         sltp = dynamic_sltp_engine.calculate_dynamic_sltp(df_mes)
+
+        # Log signal details
+        mes_close = df_mes_prepared.iloc[-1]['Close']
+        mnq_close = df_mnq_prepared.iloc[-1]['Close']
+        logging.info(f"SMT: {side} signal generated - MES/MNQ divergence detected")
+        logging.info(f"   MES: {mes_close:.2f} | MNQ: {mnq_close:.2f}")
+        logging.info(f"   Signal strength: {latest}")
 
         return {
             "strategy": "SMTAnalyzer",
