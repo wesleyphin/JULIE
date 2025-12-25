@@ -777,13 +777,29 @@ class JulieUI:
         self.log_text.pack(fill='both', expand=False)
         scrollbar.config(command=self.log_text.yview)
 
+        # Configure text tags for color coding new event types
+        self.log_text.tag_config('normal', foreground=self.colors['text_gray'])
+        self.log_text.tag_config('strategy_detail', foreground='#a5f3fc')  # Light Cyan for STRATEGY_METRIC
+        self.log_text.tag_config('risk_alert', foreground='#fca5a5')       # Light Red for RISK_TELEMETRY
+        self.log_text.tag_config('latency', foreground='#fbbf24')          # Amber for SLOW EXECUTION
+
         self.add_log("Waiting for bot activity...")
 
     def add_log(self, message):
-        """Add entry to event log"""
+        """Add entry to event log with color coding"""
         def update():
             self.log_text.config(state='normal')
-            self.log_text.insert('end', message + '\n')
+
+            # Determine tag based on message content
+            tag = 'normal'
+            if 'STRATEGY_METRIC' in message:
+                tag = 'strategy_detail'
+            elif 'RISK_TELEMETRY' in message or 'RISK MONITOR' in message:
+                tag = 'risk_alert'
+            elif 'SLOW EXECUTION' in message or 'SYSTEM_LAG' in message:
+                tag = 'latency'
+
+            self.log_text.insert('end', message + '\n', tag)
             self.log_text.see('end')
             self.log_text.config(state='disabled')
 
