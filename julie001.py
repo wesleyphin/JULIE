@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from datetime import timezone as dt_timezone
 import uuid
 from typing import Dict, Optional, List, Tuple
+import random
 
 from config import CONFIG, refresh_target_symbol, determine_current_contract_symbol
 from dynamic_sltp_params import dynamic_sltp_engine, get_sltp
@@ -282,19 +283,21 @@ def run_bot():
     vix_strategy = VIXReversionStrategy()
 
     # HIGH PRIORITY - Execute immediately on signal
+    # CHANGED: Dynamic Engine stays here. VIX added. Intraday Dip removed.
+    dynamic_engine_strat = DynamicEngineStrategy()
     fast_strategies = [
         RegimeAdaptiveStrategy(),
-        IntradayDipStrategy(),
+        vix_strategy,          # Promoted to Fast
+        dynamic_engine_strat,  # Kept in Fast (Not Demoted)
     ]
-    
+
     # STANDARD PRIORITY - Normal execution
     ml_strategy = MLPhysicsStrategy()
-    dynamic_engine_strat = DynamicEngineStrategy()
     smt_strategy = SMTStrategy()
 
     standard_strategies = [
+        IntradayDipStrategy(), # DEMOTED to Standard
         ConfluenceStrategy(),
-        dynamic_engine_strat,
         smt_strategy,
     ]
     
@@ -339,7 +342,6 @@ def run_bot():
     for strat in fast_strategies: print(f"    • {strat.__class__.__name__}")
     print("  [STANDARD EXECUTION]")
     for strat in standard_strategies: print(f"    • {strat.__class__.__name__}")
-    print(f"    • {vix_strategy.__class__.__name__} (VIX Mean Reversion)")
     print("  [LOOSE EXECUTION]")
     for strat in loose_strategies: print(f"    • {strat.__class__.__name__}")
     
@@ -996,7 +998,7 @@ def run_bot():
 
                 # === STRATEGY EXECUTION ===
                 strategy_results = {'checked': [], 'rejected': [], 'executed': None}
-                
+
                 # Run ML Analysis
                 ml_signal = None
                 if ml_strategy.model_loaded:
@@ -1005,13 +1007,24 @@ def run_bot():
                         if ml_signal: strategy_results['checked'].append('MLPhysics')
                     except Exception as e:
                         logging.error(f"ML Strategy Error: {e}")
-                
-                # 2a. FAST STRATEGIES
+
+                # -----------------------------------------------------------------
+                # 2a. FAST STRATEGIES (Regime + VIX + Dynamic Engine)
+                # -----------------------------------------------------------------
+                # Random shuffle ensures Dynamic Engine doesn't block Regime/VIX every time
+                current_fast = fast_strategies.copy()
+                random.shuffle(current_fast)
+
                 signal_executed = False
-                for strat in fast_strategies:
+                for strat in current_fast:
                     strat_name = strat.__class__.__name__
                     try:
-                        signal = strat.on_bar(new_df)
+                        # Handle specific arguments for VIX vs others
+                        if strat_name == "VIXReversionStrategy":
+                            signal = strat.on_bar(new_df, master_vix_df)
+                        else:
+                            signal = strat.on_bar(new_df)
+
                         if signal:
                             strategy_results['checked'].append(strat_name)
 
@@ -1288,25 +1301,25 @@ def run_bot():
                     except Exception as e:
                         logging.error(f"Error in {strat_name}: {e}")
                 
-                # 2b. STANDARD STRATEGIES
+                # -----------------------------------------------------------------
+                # 2b. STANDARD STRATEGIES (Intraday Dip + Confluence + SMT)
+                # -----------------------------------------------------------------
                 if not signal_executed:
-                    # Create a temporary list including the VIX strategy
-                    current_standard_strategies = standard_strategies + [vix_strategy]
+                    # Shuffle standard strategies
+                    current_standard = standard_strategies.copy()
+                    if ml_strategy.model_loaded:
+                        current_standard.append(ml_strategy)
+                    random.shuffle(current_standard)
 
-                    for strat in current_standard_strategies:
+                    for strat in current_standard:
                         strat_name = strat.__class__.__name__
                         signal = None
 
+                        # (SMT needs master_mnq_df, ML needs ml_signal, others use new_df)
                         if strat_name == "MLPhysicsStrategy":
                             signal = ml_signal
                         elif strat_name == "SMTStrategy":
                             signal = strat.on_bar(new_df, master_mnq_df)
-                        # --- NEW: Run VIX Strategy ---
-                        elif strat_name == "VIXReversionStrategy":
-                            try:
-                                signal = strat.on_bar(new_df, master_vix_df)
-                            except Exception as e:
-                                logging.error(f"Error in VIXReversionStrategy: {e}")
                         else:
                             try:
                                 signal = strat.on_bar(new_df)
