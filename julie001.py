@@ -339,6 +339,20 @@ async def run_bot():
             news_blocked, news_reason = news_filter.should_block_trade(current_time)
             if news_blocked:
                 logging.info(f"🚫 NEWS WAIT: {news_reason}")
+                # Enhanced logging with news filter details
+                news_info = {
+                    "Status": "BLACKOUT",
+                    "Reason": "High-Impact Event"
+                }
+                # Extract time remaining from reason if available
+                if "min" in news_reason:
+                    # Try to extract the time remaining
+                    import re
+                    match = re.search(r'(\d+)\s*min', news_reason)
+                    if match:
+                        news_info["Wait"] = f"{match.group(1)}m"
+                event_logger.log_filter_check("NewsFilter", "ALL", False, news_reason,
+                                             additional_info=news_info, strategy="Global")
                 await asyncio.sleep(10)
                 continue
 
@@ -794,6 +808,22 @@ async def run_bot():
                 logging.info(f"Bar: {current_time.strftime('%Y-%m-%d %H:%M:%S')} ET | Price: {current_price:.2f}")
                 last_processed_bar = current_time
 
+                # === RISK TELEMETRY (PERIODIC HEARTBEAT) ===
+                # Calculate current risk metrics
+                current_dd = abs(min(circuit_breaker.daily_pnl, 0))  # Current daily loss (positive value)
+                max_dd = circuit_breaker.max_daily_loss
+                daily_pnl = circuit_breaker.daily_pnl
+
+                # Log telemetry every 15 minutes OR if drawdown > 50%
+                minute = current_time.minute
+                usage_pct = (current_dd / max_dd * 100) if max_dd > 0 else 0
+                if minute % 15 == 0 or usage_pct > 50:
+                    event_logger.log_risk_telemetry(
+                        current_loss=current_dd,
+                        limit=max_dd,
+                        daily_pnl=daily_pnl
+                    )
+
                 # === EARLY EXIT CHECK ===
                 if active_trade is not None:
                     active_trade['bars_held'] += 1
@@ -927,6 +957,10 @@ async def run_bot():
                                 price=current_price,
                                 additional_info={"execution_type": "FAST"}
                             )
+
+                            # === START LATENCY TIMER FOR FILTER STACK ===
+                            import time
+                            filter_start_time = time.time() * 1000  # Convert to ms
 
                             # ==========================================
                             # LAYER 1: TARGET FEASIBILITY CHECK (Master Gate)
@@ -1064,7 +1098,14 @@ async def run_bot():
 
                             # Trend Filter (already checked above with is_range_fade)
                             if trend_blocked:
-                                event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason, strategy=signal.get('strategy', strat_name))
+                                # Enhanced logging with trend conflict details
+                                trend_info = {
+                                    "Trend": trend_state,
+                                    "Signal": signal['side'],
+                                    "Conflict": "Counter-Trend"
+                                }
+                                event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason,
+                                                             additional_info=trend_info, strategy=signal.get('strategy', strat_name))
                                 continue
                             else:
                                 event_logger.log_filter_check("TrendFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
@@ -1103,6 +1144,11 @@ async def run_bot():
                                 continue
                             else:
                                 event_logger.log_filter_check("BankFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
+
+                            # === LOG FILTER STACK LATENCY ===
+                            filter_end_time = time.time() * 1000
+                            filter_duration = filter_end_time - filter_start_time
+                            event_logger.log_latency("FilterStack-Fast", filter_duration)
 
                             # Execute
                             strategy_results['executed'] = strat_name
@@ -1175,6 +1221,27 @@ async def run_bot():
                         if signal:
                             strategy_results['checked'].append(strat_name)
 
+                            # Log strategy metric for deep introspection
+                            if strat_name == "MLPhysicsStrategy":
+                                # ML doesn't return confidence in signal dict, so log what we have
+                                event_logger.log_strategy_metric(
+                                    strategy="MLPhysics",
+                                    metric_name="Signal Generated",
+                                    value=signal['side'],
+                                    threshold="Dynamic",
+                                    decision=signal['side']
+                                )
+                            elif strat_name == "DynamicEngineStrategy":
+                                # Log the sub-strategy if available
+                                sub_strat = signal.get('sub_strategy', 'Unknown')
+                                event_logger.log_strategy_metric(
+                                    strategy="DynamicEngine",
+                                    metric_name="Sub-Strategy",
+                                    value=sub_strat,
+                                    threshold="N/A",
+                                    decision=signal['side']
+                                )
+
                             # ==========================================
                             # 🧠 GEMINI 3.0: APPLY OPTIMIZATION
                             # ==========================================
@@ -1218,6 +1285,10 @@ async def run_bot():
                                 price=current_price,
                                 additional_info={"execution_type": "STANDARD"}
                             )
+
+                            # === START LATENCY TIMER FOR FILTER STACK ===
+                            import time
+                            filter_start_time = time.time() * 1000  # Convert to ms
 
                             # ==========================================
                             # LAYER 1: TARGET FEASIBILITY CHECK (Master Gate)
@@ -1341,7 +1412,14 @@ async def run_bot():
                                     vol_regime=vol_regime
                                 )
                                 if chop_blocked:
-                                    event_logger.log_filter_check("ChopFilter", signal['side'], False, chop_reason, strategy=signal.get('strategy', strat_name))
+                                    # Enhanced logging with detailed metrics
+                                    chop_info = {
+                                        "State": chop_filter.state,
+                                        "Trend": trend_state,
+                                        "Vol_Regime": vol_regime
+                                    }
+                                    event_logger.log_filter_check("ChopFilter", signal['side'], False, chop_reason,
+                                                                 additional_info=chop_info, strategy=signal.get('strategy', strat_name))
                                     continue
                                 else:
                                     event_logger.log_filter_check("ChopFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
@@ -1357,7 +1435,14 @@ async def run_bot():
 
                             # Trend Filter (already checked above with is_range_fade)
                             if trend_blocked:
-                                event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason, strategy=signal.get('strategy', strat_name))
+                                # Enhanced logging with trend conflict details
+                                trend_info = {
+                                    "Trend": trend_state,
+                                    "Signal": signal['side'],
+                                    "Conflict": "Counter-Trend"
+                                }
+                                event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason,
+                                                             additional_info=trend_info, strategy=signal.get('strategy', strat_name))
                                 continue
                             else:
                                 event_logger.log_filter_check("TrendFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
@@ -1397,6 +1482,11 @@ async def run_bot():
                                     continue
                                 else:
                                     event_logger.log_filter_check("BankFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
+
+                            # === LOG FILTER STACK LATENCY ===
+                            filter_end_time = time.time() * 1000
+                            filter_duration = filter_end_time - filter_start_time
+                            event_logger.log_latency("FilterStack-Standard", filter_duration)
 
                             strategy_results['executed'] = strat_name
                             logging.info(f"✅ STANDARD EXEC: {signal['strategy']} signal")

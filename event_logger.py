@@ -294,6 +294,54 @@ class EventLogger:
                        f"📈 Bar: {timestamp} | Price: {price:.2f}",
                        details)
 
+    # ==================== 4. DEEP STRATEGY INTROSPECTION ====================
+    # UI Destination: "LIVE EVENT LOG" (with high detail)
+
+    def log_strategy_metric(self, strategy: str, metric_name: str, value: Any, threshold: Any, decision: str):
+        """
+        Log internal strategy logic.
+        Ex: "ML Confidence: 0.82 (Threshold: 0.65) -> BUY"
+        """
+        icon = "🟢" if decision in ["BUY", "SELL", "GO", "PASS"] else "🔴"
+
+        self._log_event("INFO", "STRATEGY_METRIC",
+            f"{icon} {strategy} Logic: {metric_name} = {value} vs {threshold}",
+            details={"decision": decision}
+        )
+
+    # ==================== 5. RISK & ACCOUNT HEALTH ====================
+    # UI Destination: "MARKET CONTEXT" or "LIVE EVENT LOG"
+
+    def log_risk_telemetry(self, current_loss: float, limit: float, daily_pnl: float):
+        """
+        Log live risk utilization.
+        Ex: "Circuit Breaker: 45% used ($270/$600)"
+        """
+        usage_pct = (current_loss / limit) * 100 if limit > 0 else 0
+        icon = "🛡️"
+        if usage_pct > 80:
+            icon = "🚨"
+        elif usage_pct > 50:
+            icon = "⚠️"
+
+        # UI Keyword: "RISK"
+        self._log_event("INFO", "RISK_TELEMETRY",
+            f"{icon} RISK MONITOR: Daily Loss ${current_loss:.2f} / ${limit:.2f} ({usage_pct:.1f}%)",
+            details={"Daily PnL": f"${daily_pnl:.2f}"}
+        )
+
+    # ==================== 6. SYSTEM HEALTH (LATENCY) ====================
+    # UI Destination: "LIVE EVENT LOG" (Debug level mostly)
+
+    def log_latency(self, component: str, duration_ms: float):
+        """Log execution speed to catch lag"""
+        # Only log if slow (>200ms) to reduce noise
+        if duration_ms > 200:
+            self._log_event("WARNING", "SYSTEM_LAG",
+                f"🐢 SLOW EXECUTION: {component} took {duration_ms:.0f}ms",
+                details={"threshold": "200ms"}
+            )
+
 
 # Create a global instance for easy importing
 event_logger = EventLogger()
