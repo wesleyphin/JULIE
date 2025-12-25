@@ -333,8 +333,7 @@ class GeminiSessionOptimizer:
 
             "*** ORIGINAL LOGIC & STRUCTURAL RULES ***\n"
             "- EXPECTING EXPLOSIVE MOVE: LOWER the multiplier to 0.6x - 0.9x to allow for trend breakouts.\n"
-            "- EXPECTING ROTATION/RANGE: RAISE the multiplier to 1.2x - 2.0x to prioritize Fade strategies.\n"
-            "- POC & IB CONFLUENCE: If the current price is hovering at the POC and is inside the IB Range with no HTF FVGs nearby, RAISE the multiplier to 1.5x - 2.0x to signal a high-probability range-bound environment.\n\n"
+            "- EXPECTING ROTATION/RANGE: RAISE the multiplier to 1.2x - 2.0x to prioritize Fade strategies.\n\n"
 
             "*** GENERAL GUIDANCE ***\n"
             "- Seasonal and Intraday protocols take precedence when they conflict with standard structural rules."
