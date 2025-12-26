@@ -1712,7 +1712,7 @@ async def run_bot():
                                 except Exception as e:
                                     logging.error(f"Error in {s_name}: {e}")
 
-            await asyncio.sleep(0.5)  # Faster polling with async (was 2s)
+            await asyncio.sleep(2.0)  # Slower polling to avoid Topstep rate limits
 
         except KeyboardInterrupt:
             print("\nBot Stopped by User.")
