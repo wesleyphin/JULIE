@@ -537,10 +537,10 @@ class ProjectXClient:
         if 'tp_dist' not in signal:
             logging.warning(f"⚠️ Strategy {signal.get('strategy', 'Unknown')} missing tp_dist, using default 6.0")
 
+        # Convert Points to Ticks (Points / 0.25)
+        # e.g., 4.0 points / 0.25 = 16 ticks
         abs_sl_ticks = int(abs(sl_points / 0.25))
-
-        abs_sl_ticks = int(abs(sl_points))   # Convert points to ticks
-        abs_tp_ticks = int(abs(tp_points))  # Convert points to ticks
+        abs_tp_ticks = int(abs(tp_points / 0.25))
 
 
         # 3. Apply Directional Signs based on Side
