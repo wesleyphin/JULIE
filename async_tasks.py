@@ -31,11 +31,12 @@ async def heartbeat_task(client, interval: int = 60):
             # Validate session token
             is_valid = await client.async_validate_session()
 
-            # Print heartbeat status
+            # Format status
             current_time = datetime.datetime.now().strftime('%H:%M:%S')
             status = "✅" if is_valid else "❌"
 
-            print(f"💓 Heartbeat #{heartbeat_count}: {current_time} | Session: {status}")
+            # CHANGED: print -> logging.info so UI can see it
+            logging.info(f"💓 Heartbeat #{heartbeat_count}: {current_time} | Session: {status}")
 
             if not is_valid:
                 logging.warning("⚠️ Heartbeat: Session validation failed!")
@@ -77,10 +78,11 @@ async def position_sync_task(client, interval: int = 30):
                 size = broker_pos['size']
                 avg_price = broker_pos['avg_price']
 
+                # CHANGED: print -> logging.info so UI can see it
                 if side == 'FLAT':
-                    print(f"🔄 Position Sync #{sync_count}: {current_time} | Status: {side}")
+                    logging.info(f"🔄 Position Sync #{sync_count}: {current_time} | Status: {side}")
                 else:
-                    print(f"🔄 Position Sync #{sync_count}: {current_time} | {side} {size} @ {avg_price:.2f}")
+                    logging.info(f"🔄 Position Sync #{sync_count}: {current_time} | {side} {size} @ {avg_price:.2f}")
 
         except Exception as e:
             logging.error(f"❌ Position sync task error: {e}")
