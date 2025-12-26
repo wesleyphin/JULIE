@@ -172,19 +172,30 @@ def determine_current_contract_symbol(
     tz_name: str = "US/Eastern",
     today: Optional[datetime.date] = None,
 ) -> str:
-    """Return the MES contract symbol for the current date (e.g., MESZ25)."""
-
+    """Return the active contract symbol, handling rollover logic."""
     tz = ZoneInfo(tz_name.replace("US/Eastern", "America/New_York"))
     current_date = today or datetime.datetime.now(tz).date()
-    month_code = CONTRACT_MONTH_CODES.get(current_date.month)
 
-    if month_code is None:
-        raise ValueError(f"Unsupported month for contract mapping: {current_date.month}")
+    year = current_date.year
+    month = current_date.month
 
-    year_code = str(current_date.year % 100).zfill(2)
-    # Return short identifier for matching (e.g., MES.Z25)
-    # Full contract ID format is CON.F.US.MES.Z25
-    return f"{root}.{month_code}{year_code}"
+    # Contract Months: H (Mar), M (Jun), U (Sep), Z (Dec)
+    # Rollover logic: If past the 10th of an expiration month, move to next
+    if month == 3 and current_date.day > 10: target_code = "M"
+    elif month == 6 and current_date.day > 10: target_code = "U"
+    elif month == 9 and current_date.day > 10: target_code = "Z"
+    elif month == 12 and current_date.day > 10:
+        target_code = "H"
+        year += 1  # Roll to next year (March 2026)
+    else:
+        # Standard Mapping
+        if month <= 3: target_code = "H"
+        elif month <= 6: target_code = "M"
+        elif month <= 9: target_code = "U"
+        else: target_code = "Z"
+
+    year_code = str(year % 100).zfill(2)
+    return f"{root}.{target_code}{year_code}"
 
 
 def refresh_target_symbol():
