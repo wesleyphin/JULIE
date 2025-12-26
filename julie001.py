@@ -959,6 +959,16 @@ async def run_bot():
                             if sl_mult != 1.0 or tp_mult != 1.0:
                                 logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
 
+                            # [FIX] Enforce HTF range fade directional restriction
+                            # EXCEPTION: Allow "Rev" (Reversal) strategies to bypass this rule
+                            is_reversal = "Rev" in signal.get('strategy', '') or "Rev" in signal.get('id', '')
+
+                            if not is_reversal and allowed_chop_side is not None and signal['side'] != allowed_chop_side:
+                                logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
+                                continue
+                            elif is_reversal and allowed_chop_side is not None and signal['side'] != allowed_chop_side:
+                                logging.info(f"⚡ HTF RULE BYPASS: {signal['strategy']} allowed to fight Range Bias ({allowed_chop_side})")
+
                             # Add to candidate list (Priority 1 = FAST)
                             candidate_signals.append((1, strat, signal, strat_name))
 
@@ -1032,6 +1042,18 @@ async def run_bot():
 
                         if sl_mult != 1.0 or tp_mult != 1.0:
                             logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
+
+                        # [FIX] Enforce HTF range fade directional restriction
+                        # EXCEPTION: Allow "Rev" (Reversal) strategies to bypass this rule
+                        # NOTE: VIXMeanReversion must abide by ALL filters (no bypass)
+                        strat_name_check = signal.get('strategy', '')
+                        is_reversal = ("Rev" in strat_name_check or "Rev" in signal.get('id', '')) and strat_name_check != "VIXMeanReversion"
+
+                        if not is_reversal and allowed_chop_side is not None and signal['side'] != allowed_chop_side:
+                            logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
+                            continue
+                        elif is_reversal and allowed_chop_side is not None and signal['side'] != allowed_chop_side:
+                            logging.info(f"⚡ HTF RULE BYPASS: {signal['strategy']} allowed to fight Range Bias ({allowed_chop_side})")
 
                         # Add to candidate list (Priority 2 = STANDARD)
                         candidate_signals.append((2, strat, signal, strat_name))
@@ -1341,6 +1363,12 @@ async def run_bot():
                                     logging.info(f"🧠 GEMINI OPTIMIZED: {s_name} | SL: {old_sl:.2f}->{sig['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{sig['tp_dist']:.2f} (x{tp_mult})")
                                 # ==========================================
 
+                                # [FIX] Enforce HTF range fade directional restriction
+                                if allowed_chop_side is not None and sig['side'] != allowed_chop_side:
+                                    logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {sig['side']} vs Allowed {allowed_chop_side}")
+                                    del pending_loose_signals[s_name]
+                                    continue
+
                                 # ==========================================
                                 # LAYER 1: TARGET FEASIBILITY CHECK (Master Gate)
                                 # ==========================================
@@ -1584,6 +1612,11 @@ async def run_bot():
                                         if sl_mult != 1.0 or tp_mult != 1.0:
                                             logging.info(f"🧠 GEMINI OPTIMIZED: {s_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
                                         # ==========================================
+
+                                        # [FIX] Enforce HTF range fade directional restriction
+                                        if allowed_chop_side is not None and signal['side'] != allowed_chop_side:
+                                            logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
+                                            continue
 
                                         # Enhanced event logging: Strategy signal generated
                                         event_logger.log_strategy_signal(
