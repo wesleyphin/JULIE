@@ -338,7 +338,7 @@ async def run_bot():
 
                 seconds_since_last_update = (datetime.datetime.now(dt_timezone.utc) - last_bar_time).total_seconds()
 
-                if seconds_since_last_update > 60:
+                if seconds_since_last_update > 300:  # Increased from 60 for low volume periods
                     event_logger.log_error("DATA_STALE", f"🚨 DATA LAG: Last update was {seconds_since_last_update:.0f}s ago. Moving to DEFENSIVE mode.")
                     logging.warning(f"🚨 DATA LAG: Last update was {seconds_since_last_update:.0f}s ago. Attempting to fetch fresh data...")
                     await asyncio.sleep(5)
