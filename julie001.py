@@ -682,12 +682,31 @@ async def run_bot():
             # We pass the locally generated df_60m so the analyzer can use it for breakout shift logic
             is_choppy, chop_reason = chop_analyzer.check_market_state(new_df, df_60m_current=df_60m)
 
-            if is_choppy:
-                # Log every single time
-                logging.info(f"⛔ TRADE BLOCKED: {chop_reason}")
+            # Initialize allowed_chop_side for this iteration (Fixes NameError)
+            allowed_chop_side = None
 
-                await asyncio.sleep(0.5)  # Faster check when choppy
-                continue
+            if is_choppy:
+                # Check if this is a "Range Fade" permission instead of a hard block
+                if "ALLOW_LONG_ONLY" in chop_reason:
+                    allowed_chop_side = "LONG"
+                    # Do NOT continue; allow the loop to proceed but enforce LONG only
+                    if last_chop_reason != chop_reason:
+                        logging.info(f"⚠️ CHOP RESTRICTION: {chop_reason}")
+                        last_chop_reason = chop_reason
+
+                elif "ALLOW_SHORT_ONLY" in chop_reason:
+                    allowed_chop_side = "SHORT"
+                    # Do NOT continue; allow the loop to proceed but enforce SHORT only
+                    if last_chop_reason != chop_reason:
+                        logging.info(f"⚠️ CHOP RESTRICTION: {chop_reason}")
+                        last_chop_reason = chop_reason
+
+                else:
+                    # Hard Block (Standard Chop)
+                    # Log every single time or throttle it
+                    # logging.info(f"⛔ TRADE BLOCKED: {chop_reason}")
+                    await asyncio.sleep(0.5)  # Faster check when choppy
+                    continue
             else:
                 # Clear chop state if no restriction active
                 if last_chop_reason is not None:
