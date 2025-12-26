@@ -340,9 +340,9 @@ async def run_bot():
 
                 if seconds_since_last_update > 60:
                     event_logger.log_error("DATA_STALE", f"🚨 DATA LAG: Last update was {seconds_since_last_update:.0f}s ago. Moving to DEFENSIVE mode.")
-                    logging.warning(f"🚨 DATA LAG: Last update was {seconds_since_last_update:.0f}s ago. Waiting for fresh data...")
+                    logging.warning(f"🚨 DATA LAG: Last update was {seconds_since_last_update:.0f}s ago. Attempting to fetch fresh data...")
                     await asyncio.sleep(5)
-                    continue
+                    # continue  # Removed: Allow bot to proceed to data fetch even when stale
 
             # Periodic chop threshold recalibration (default every 4 hours)
             if chop_analyzer.should_recalibrate(last_chop_calibration):
