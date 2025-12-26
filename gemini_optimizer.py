@@ -185,41 +185,33 @@ class GeminiSessionOptimizer:
     # -------------------------------------------------------------------------
     def _fetch_sltp_optimization(self, session_name, context_str, base_sl, base_tp, base_rr):
         system_instruction = (
-            f"You are a Risk Manager for {session_name}. Your task is to adjust SL and TP multipliers by balancing mathematical volatility (ADX) against structural market barriers.\n\n"
+            f"You are a Risk Manager for {session_name}. Adjust SL and TP multipliers.\n\n"
 
-            "*** MASTER HOLIDAY GAMEPLAN (HIGHEST PRIORITY - OVERRIDE ALL OTHER RULES) ***\n"
+            "*** MASTER SEASONAL RULES (PHASE 2 - DEAD ZONE) ***\n"
+            "- 'PHASE_2_DEAD_ZONE' (Dec 24 - Dec 31): Market is choppy and thin. Stops get hunted.\n"
+            "  >>> YOU MUST INCREASE SL MULTIPLIER (1.2x - 1.5x) to give trades breathing room.\n"
+            "  >>> YOU MUST DECREASE TP MULTIPLIER (0.6x - 0.8x) to take profit early.\n"
+            "  >>> DO NOT TIGHTEN STOPS in this phase. It causes instant stop-outs.\n\n"
+
+            "*** MASTER HOLIDAY GAMEPLAN (OVERRIDES) ***\n"
             "THE VOLATILITY EXPLOSION:\n"
-            "- 'POST_HOLIDAY_EXPLOSION' (Labor Day Tuesday): Volatility is MASSIVE (1.74x). Range is double. YOU MUST WIDEN STOPS (sl_multiplier 1.5x) to survive the noise. Target -39pt moves. Allow TP expansion (1.3x-1.5x).\n\n"
-
-            "THE BEARISH TUESDAYS:\n"
-            "- 'POST_HOLIDAY_TUESDAY' (MLK Day): Gap Fill Reversal pattern. If gap > 10pts, expect Long reversal. Use tight stops (0.9x) but allow TP expansion (1.2x) if reversal holds.\n"
-            "- 'POST_HOLIDAY_TUESDAY' (Presidents Day): Low Volatility (0.8x). REDUCE TP targets to 0.7x-0.8x. Do not expect home runs. Take profits early on -20pt drift.\n"
-            "- 'POST_HOLIDAY_TUESDAY' (Juneteenth): Standard day with -8.5pt gap bias. Normal multipliers but expect downside.\n\n"
+            "- 'POST_HOLIDAY_EXPLOSION' (Labor Day): Volatility is MASSIVE. Widen stops (1.5x). Target expansion (1.3x-1.5x).\n\n"
 
             "THE DEAD ZONES:\n"
-            "- 'PRE_HOLIDAY' (Thanksgiving Eve / July 3rd): Liquidity drying up. REDUCE TP to 0.6x-0.7x. Consider tighter stops (0.8x) to avoid whipsaws.\n"
-            "- 'PRE_HOLIDAY' (July 4th): 'Patriot Drift' - Mean Reversion Only. TP multiplier 0.7x for quick scalps. Bullish drift bias.\n\n"
+            "- 'PRE_HOLIDAY': Liquidity drying up. REDUCE TP to 0.6x-0.7x. Widen SL slightly (1.1x) to survive noise.\n"
+            "- 'HOLIDAY_TODAY': Dead market. Set tp_multiplier to 0.5x. Set sl_multiplier to 1.5x (survival mode).\n\n"
 
-            "*** SEASONAL & INTRADAY PROTOCOLS (SECOND PRIORITY) ***\n"
-            "- 'PHASE_2_DEAD_ZONE': Market structure is broken. Reduce TP multiplier (0.5x-0.7x) to take quick profits. Do not expect trend extensions.\n"
-            "- 'PHASE_3_JAN2_REENTRY': Bias is Short. If trade is Long, severely reduce sizing or tighten SL.\n"
-            "- 'HOLIDAY_TODAY': Market is dead. Set tp_multiplier to 0.5x minimum.\n"
-            "- 'POST_HOLIDAY_RECOVERY': Volatility expands by ~12%. Allow wider stops (sl_multiplier 1.2x).\n"
-            "- 'NY_LUNCH' (10:30-12:30): The 'Zombie Zone'. Liquidity drops to 58%. YOU MUST REDUCE TP MULTIPLIER to 0.5x - 0.7x.\n"
-            "- 'NY_CLOSE' (15:00-16:00): Volume is 124% but non-directional (Program Trading). Reduce TP to 0.8x for scalps.\n\n"
+            "*** INTRADAY PROTOCOLS ***\n"
+            "- 'NY_LUNCH' (10:30-12:30): Zombie Zone. REDUCE TP to 0.6x. MAINTAIN SL (1.0x) or WIDEN (1.1x). Do not tighten.\n"
+            "- 'NY_CLOSE' (15:00-16:00): Reduce TP to 0.8x for scalps.\n\n"
 
-            "*** ORIGINAL CORE VOLATILITY RULES ***\n"
-            "- If the Base Risk/Reward (RR) is > 3.0, DO NOT increase the TP multiplier (keep it ≤ 1.0).\n"
-            "- If the market is Choppy (ADX < 20) or price is 'Inside Value' (between VAH and VAL), you MUST reduce the TP multiplier to 0.8x - 0.9x.\n"
-            "- If the market is Trending (ADX > 30), you may allow TP expansion up to 1.5x, but ONLY if the current Base RR is < 2.5.\n\n"
-
-            "*** ORIGINAL STRUCTURAL BOUNDARY RULES ***\n"
-            "- HTF FVG Hard Boundaries: If a trade's TP target lies beyond an overhead Bearish FVG, you MUST reduce the tp_multiplier to exit before that resistance.\n"
-            "- SL Tightening: If the current price is supported by a Bullish HTF FVG, you may tighten the sl_multiplier to 0.7x - 0.9x.\n\n"
+            "*** ORIGINAL CORE RULES ***\n"
+            "- If Base RR > 3.0, DO NOT increase TP multiplier.\n"
+            "- If market is Choppy (ADX < 20), REDUCE TP multiplier to 0.8x.\n"
+            "- If market is Trending (ADX > 30), allow TP expansion up to 1.5x.\n\n"
 
             "*** GENERAL GUIDANCE ***\n"
-            "- During all special conditions (seasonal, holiday, micro-session), prioritize capital preservation over profit maximization.\n"
-            "- Seasonal and Intraday protocols take precedence when they conflict with standard rules."
+            "- In low volume/chop, WIDER STOPS + TIGHTER TARGETS = Higher Win Rate."
         )
 
         user_prompt = (
@@ -235,16 +227,20 @@ class GeminiSessionOptimizer:
             response = self._call_gemini(system_instruction, user_prompt)
             data = json.loads(response)
 
-            # --- FIX START ---
-            # If Gemini returned a list [{...}], grab the first item
             if isinstance(data, list):
                 if len(data) > 0:
                     data = data[0]
                 else:
                     return {'sl_multiplier': 1.0, 'tp_multiplier': 1.0, 'reasoning': 'Gemini returned empty list'}
-            # --- FIX END ---
 
-            # Apply Hard Guardrails immediately
+            # --- HARD GUARDRAILS FOR DEAD ZONE ---
+            # If we are in the Dead Zone phase, forcibly prevent tightening stops below 1.0x
+            if "PHASE_2_DEAD_ZONE" in context_str:
+                raw_sl = float(data.get('sl_multiplier', 1.0))
+                data['sl_multiplier'] = max(1.0, raw_sl)  # Enforce 1.0x minimum
+                logging.info(f"🛡️ GUARDRAIL: Enforcing Min SL 1.0x for Dead Zone (Gemini asked for {raw_sl})")
+
+            # Standard clamping
             raw_tp = float(data.get('tp_multiplier', 1.0))
             if base_rr >= 4.0: tp_cap = 1.0
             elif base_rr >= 2.5: tp_cap = 1.15
@@ -262,36 +258,24 @@ class GeminiSessionOptimizer:
     # -------------------------------------------------------------------------
     def _fetch_trend_optimization(self, session_name, context_str):
         system_instruction = (
-            f"You are an Execution Algorithm for {session_name}. Configure Trend Filter multipliers to distinguish between high-probability breakouts and traps.\n\n"
+            f"You are an Execution Algorithm for {session_name}. Configure Trend Filter multipliers.\n\n"
 
-            "*** MASTER HOLIDAY GAMEPLAN (HIGHEST PRIORITY - OVERRIDE ALL OTHER RULES) ***\n"
-            "THE VOLATILITY EXPLOSION:\n"
-            "- 'POST_HOLIDAY_EXPLOSION' (Labor Day Tuesday): DISABLE Mean Reversion. ENABLE Trend Following. Aggressive Short Bias. LOWER filters to catch the breakdown early (t1_body 1.2x, t1_vol 1.0x). Set regime to 'TRENDING'.\n\n"
+            "*** SEASONAL RULES (PHASE 2 - DEAD ZONE) ***\n"
+            "- 'PHASE_2_DEAD_ZONE': False breakouts are everywhere. INCREASE filters (2.5x+) to avoid traps.\n\n"
 
-            "THE BEARISH TUESDAYS:\n"
-            "- 'POST_HOLIDAY_TUESDAY' (MLK Day): GAP FILL REVERSAL. If gap > 10pts, look for Longs (Catch Up trade). Lower filters for Long entries (1.5x), raise for Shorts (2.5x).\n"
-            "- 'POST_HOLIDAY_TUESDAY' (Presidents Day): TREND SHORT BIAS. Slow drift lower. Lower filters for Short entries (1.2x-1.5x). Set regime to 'TRENDING' with Short preference.\n"
-            "- 'POST_HOLIDAY_TUESDAY' (Juneteenth): Standard filters but respect downside gap bias. Slightly favor Short setups.\n\n"
+            "*** MASTER HOLIDAY GAMEPLAN ***\n"
+            "- 'POST_HOLIDAY_EXPLOSION': DISABLE Mean Reversion. LOWER filters (1.0x) to catch trends.\n"
+            "- 'PRE_HOLIDAY': INCREASE filters (3.0x - 4.0x) to avoid low-volume traps.\n"
+            "- 'HOLIDAY_TODAY': Max filters (4.0x).\n\n"
 
-            "THE DEAD ZONES:\n"
-            "- 'PRE_HOLIDAY' (Thanksgiving Eve / July 3rd): INCREASE filters drastically (3.0x - 4.0x) to avoid low-volume traps. Breakouts are frequently false.\n"
-            "- 'PRE_HOLIDAY' (July 4th): 'PATRIOT DRIFT' - Mean Reversion ONLY. Set regime to 'CHOPPY'. DISABLE Breakout logic entirely. Buy drops, Sell rallies.\n\n"
+            "*** INTRADAY PROTOCOLS ***\n"
+            "- 'NY_LUNCH': INCREASE filters to 3.0x+.\n"
+            "- 'NY_CLOSE': Set 'regime' to 'CHOPPY'.\n\n"
 
-            "*** SEASONAL & INTRADAY PROTOCOLS (SECOND PRIORITY) ***\n"
-            "- 'PHASE_1_LAST_GASP': Trends are real and violent. Lower filters (t1_body) to capture moves early.\n"
-            "- 'PHASE_2_DEAD_ZONE': Increase filters drastically (2.5x+) to avoid false breakouts on thin volume.\n"
-            "- 'PHASE_3_JAN2_REENTRY': Bearish bias. Set regime to 'CHOPPY' if Long signals appear. Favor Short entries.\n"
-            "- 'POST_HOLIDAY_RECOVERY': First few hours see erratic whipsaws. Maintain elevated filters (2.5x+) until clear directional flow emerges.\n"
-            "- 'NY_LUNCH' (Zombie Zone): 11:03 AM is liquidity bottom. False breakouts are RAMPANT. INCREASE filters to 3.0x+.\n"
-            "- 'NY_CLOSE' (Close Trap): Heavy volume but mean reverting. Set 'regime' to 'CHOPPY' to force Range Fade logic.\n\n"
-
-            "*** ORIGINAL MERGED EXECUTION RULES ***\n"
-            "- HTF FVG ROADBLOCKS: Treat HTF FVGs as structural barriers. If price is approaching a Bearish FVG from below or a Bullish FVG from above, increase the t1_body multiplier (e.g., 2.5x+) to ensure only high-momentum impulses trigger entry.\n"
-            "- VALUE AREA & IB LOGIC: If price is inside the Value Area (VAH/VAL) and below the IB High, maintain HIGHER multipliers (2.5x - 4.0x) to allow for rotational/mean-reversion trades.\n"
-            "- TREND CONFIRMATION: If price breaks the IB High/Low with an ADX > 25, switch to aggressive 'Trending' mode with LOWER multipliers (1.2x - 1.5x).\n\n"
-
-            "*** GENERAL GUIDANCE ***\n"
-            "- Seasonal and Intraday protocols take precedence when they conflict with standard structural rules."
+            "*** ORIGINAL RULES ***\n"
+            "- HTF FVG ROADBLOCKS: Increase t1_body (2.5x+) if approaching resistance.\n"
+            "- VALUE AREA: If inside VA, maintain HIGHER multipliers.\n"
+            "- TREND: If ADX > 25, switch to 'TRENDING' mode with LOWER multipliers."
         )
 
         user_prompt = (
@@ -330,34 +314,21 @@ class GeminiSessionOptimizer:
         system_instruction = (
             f"You are a Volatility Manager for {session_name}. Adjust the 'Chop Threshold' multiplier.\n\n"
 
-            "*** MASTER HOLIDAY GAMEPLAN (HIGHEST PRIORITY - OVERRIDE ALL OTHER RULES) ***\n"
-            "THE VOLATILITY EXPLOSION:\n"
-            "- 'POST_HOLIDAY_EXPLOSION' (Labor Day Tuesday): LOWER chop_multiplier (0.6x). We want to enter trends IMMEDIATELY. Do not filter out volatility. The massive moves are REAL, not noise.\n\n"
+            "*** SEASONAL RULES (PHASE 2 - DEAD ZONE) ***\n"
+            "- 'PHASE_2_DEAD_ZONE': RAISE chop_multiplier (2.0x). We want to FADE moves. Force fade logic.\n\n"
 
-            "THE BEARISH TUESDAYS:\n"
-            "- 'POST_HOLIDAY_TUESDAY' (MLK Day): Gap Fill Reversal. Use moderate multiplier (1.0x-1.2x) to allow entry on the reversal setup.\n"
-            "- 'POST_HOLIDAY_TUESDAY' (Presidents Day): Low volume drift. Set chop_multiplier to 1.3x-1.5x. The slow grind lower can look like chop.\n"
-            "- 'POST_HOLIDAY_TUESDAY' (Juneteenth): Standard multiplier (1.0x).\n\n"
+            "*** MASTER HOLIDAY GAMEPLAN ***\n"
+            "- 'POST_HOLIDAY_EXPLOSION': LOWER chop_multiplier (0.6x). We want to enter trends.\n"
+            "- 'PRE_HOLIDAY': RAISE chop_multiplier (2.0x - 2.5x). Force fading.\n"
+            "- 'HOLIDAY_TODAY': Set chop_multiplier to 3.0x.\n\n"
 
-            "THE DEAD ZONES:\n"
-            "- 'PRE_HOLIDAY' (Thanksgiving Eve / July 3rd): RAISE chop_multiplier (2.0x - 2.5x). The 'drift' is slow and looks like chop. Force fading/standing down.\n"
-            "- 'PRE_HOLIDAY' (July 4th): 'Patriot Drift' is slow mean reversion. RAISE multiplier to 2.0x to prioritize fade setups only.\n\n"
+            "*** INTRADAY PROTOCOLS ***\n"
+            "- 'NY_LUNCH': Set chop_multiplier to 2.5x.\n"
+            "- 'NY_CLOSE': Set chop_multiplier to 1.5x.\n\n"
 
-            "*** SEASONAL & INTRADAY PROTOCOLS (SECOND PRIORITY) ***\n"
-            "- 'PHASE_2_DEAD_ZONE': Set chop_multiplier to 1.5x - 2.0x. We want to FADE moves, so we need a higher threshold to identify overextension.\n"
-            "- 'PHASE_3_JAN2_REENTRY': Set chop_multiplier to 0.8x to allow aggressive entry on the expected sell-off.\n"
-            "- 'HOLIDAY_TODAY': Extreme chop. Set chop_multiplier to 2.0x - 3.0x. Market is essentially a random walk.\n"
-            "- 'POST_HOLIDAY_RECOVERY': Volume returning but directionality uncertain. Use moderate multiplier (1.2x - 1.5x).\n"
-            "- 'NY_LUNCH': High risk of chop. Set chop_multiplier to 2.0x - 2.5x to FORCE the bot to stand down unless a massive outlier occurs.\n"
-            "- 'NY_CLOSE': High volume noise. Set chop_multiplier to 1.5x.\n\n"
-
-            "*** ORIGINAL LOGIC & STRUCTURAL RULES ***\n"
-            "- EXPECTING EXPLOSIVE MOVE: LOWER the multiplier to 0.6x - 0.9x to allow for trend breakouts.\n"
-            "- EXPECTING ROTATION/RANGE: RAISE the multiplier to 1.2x - 2.0x to prioritize Fade strategies.\n"
-            "- POC & IB CONFLUENCE: If the current price is hovering at the POC and is inside the IB Range with no HTF FVGs nearby, RAISE the multiplier to 1.5x - 2.0x to signal a high-probability range-bound environment.\n\n"
-
-            "*** GENERAL GUIDANCE ***\n"
-            "- Seasonal and Intraday protocols take precedence when they conflict with standard structural rules."
+            "*** ORIGINAL RULES ***\n"
+            "- EXPECTING EXPLOSIVE MOVE: LOWER multiplier (0.6x).\n"
+            "- EXPECTING ROTATION: RAISE multiplier (1.5x)."
         )
 
         user_prompt = (
