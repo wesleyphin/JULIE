@@ -537,10 +537,29 @@ class ProjectXClient:
         if 'tp_dist' not in signal:
             logging.warning(f"⚠️ Strategy {signal.get('strategy', 'Unknown')} missing tp_dist, using default 6.0")
 
-        # Convert Points to Ticks (1/2 full size)
-        # Full size = pts / 0.25, Half size = pts / 0.5
-        abs_sl_ticks = int(abs(sl_points / 0.5))  # e.g., 4.0 pts → 8 ticks (2.0 pts)
-        abs_tp_ticks = int(abs(tp_points / 0.5))  # e.g., 8.0 pts → 16 ticks (4.0 pts)
+        # === HYBRID TICK CONVERSION ===
+        # Wide SL/TP: Use Dec 17th logic (raw points as ticks) - no expansion needed
+        # Tight SL/TP: Use half-size (pts / 0.5) - needs expansion to survive
+        WIDE_SL_THRESHOLD = 6.0  # SL >= 6.0 pts considered "wide"
+        WIDE_TP_THRESHOLD = 10.0  # TP >= 10.0 pts considered "wide"
+
+        if sl_points >= WIDE_SL_THRESHOLD:
+            # Wide stop - use Dec 17th raw conversion
+            abs_sl_ticks = int(abs(sl_points))  # e.g., 8.0 pts → 8 ticks (2.0 pts actual)
+            logging.debug(f"📏 Wide SL ({sl_points}pts): Using raw conversion → {abs_sl_ticks} ticks")
+        else:
+            # Tight stop - use half-size expansion
+            abs_sl_ticks = int(abs(sl_points / 0.5))  # e.g., 4.0 pts → 8 ticks (2.0 pts actual)
+            logging.debug(f"📏 Tight SL ({sl_points}pts): Using half-size → {abs_sl_ticks} ticks")
+
+        if tp_points >= WIDE_TP_THRESHOLD:
+            # Wide target - use Dec 17th raw conversion
+            abs_tp_ticks = int(abs(tp_points))  # e.g., 12.0 pts → 12 ticks (3.0 pts actual)
+            logging.debug(f"🎯 Wide TP ({tp_points}pts): Using raw conversion → {abs_tp_ticks} ticks")
+        else:
+            # Tight target - use half-size expansion
+            abs_tp_ticks = int(abs(tp_points / 0.5))  # e.g., 6.0 pts → 12 ticks (3.0 pts actual)
+            logging.debug(f"🎯 Tight TP ({tp_points}pts): Using half-size → {abs_tp_ticks} ticks")
 
 
         # 3. Apply Directional Signs based on Side
