@@ -44,6 +44,8 @@ import param_scaler
 # --- NEW IMPORTS ---
 from vixmeanreversion import VIXReversionStrategy
 from yahoo_vix_client import YahooVIXClient
+from legacy_filters import LegacyFilterSystem
+from filter_arbitrator import FilterArbitrator
 
 # --- ASYNCIO IMPORTS ---
 from async_market_stream import AsyncMarketDataManager
@@ -245,6 +247,11 @@ async def run_bot():
     circuit_breaker = CircuitBreaker(max_daily_loss=600, max_consecutive_losses=7)
     directional_loss_blocker = DirectionalLossBlocker(consecutive_loss_limit=3, block_minutes=15)
     impulse_filter = ImpulseFilter(lookback=20, impulse_multiplier=2.5)
+
+    # === DUAL-FILTER SYSTEM ===
+    # Legacy (Dec 17th) filters for comparison + Arbitrator for override decisions
+    legacy_filters = LegacyFilterSystem()
+    filter_arbitrator = FilterArbitrator(confidence_threshold=0.6)
 
     # Initialize Gemini Session Optimizer
     optimizer = GeminiSessionOptimizer()
@@ -959,15 +966,10 @@ async def run_bot():
                             if sl_mult != 1.0 or tp_mult != 1.0:
                                 logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
 
-                            # [FIX] Enforce HTF range fade directional restriction
-                            # EXCEPTION: Allow "Rev" (Reversal) strategies to bypass this rule
-                            is_reversal = "Rev" in signal.get('strategy', '') or "Rev" in signal.get('id', '')
-
-                            if not is_reversal and allowed_chop_side is not None and signal['side'] != allowed_chop_side:
+                            # Enforce HTF range fade directional restriction
+                            if allowed_chop_side is not None and signal['side'] != allowed_chop_side:
                                 logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
                                 continue
-                            elif is_reversal and allowed_chop_side is not None and signal['side'] != allowed_chop_side:
-                                logging.info(f"⚡ HTF RULE BYPASS: {signal['strategy']} allowed to fight Range Bias ({allowed_chop_side})")
 
                             # Add to candidate list (Priority 1 = FAST)
                             candidate_signals.append((1, strat, signal, strat_name))
@@ -1043,17 +1045,10 @@ async def run_bot():
                         if sl_mult != 1.0 or tp_mult != 1.0:
                             logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
 
-                        # [FIX] Enforce HTF range fade directional restriction
-                        # EXCEPTION: Allow "Rev" (Reversal) strategies to bypass this rule
-                        # NOTE: VIXMeanReversion must abide by ALL filters (no bypass)
-                        strat_name_check = signal.get('strategy', '')
-                        is_reversal = ("Rev" in strat_name_check or "Rev" in signal.get('id', '')) and strat_name_check != "VIXMeanReversion"
-
-                        if not is_reversal and allowed_chop_side is not None and signal['side'] != allowed_chop_side:
+                        # Enforce HTF range fade directional restriction
+                        if allowed_chop_side is not None and signal['side'] != allowed_chop_side:
                             logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
                             continue
-                        elif is_reversal and allowed_chop_side is not None and signal['side'] != allowed_chop_side:
-                            logging.info(f"⚡ HTF RULE BYPASS: {signal['strategy']} allowed to fight Range Bias ({allowed_chop_side})")
 
                         # Add to candidate list (Priority 2 = STANDARD)
                         candidate_signals.append((2, strat, signal, strat_name))
@@ -1195,10 +1190,35 @@ async def run_bot():
                     # Determine if this is a Range Fade setup (used for filter bypasses)
                     is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
 
-                    # 4-Tier Trend Filter (Tier 4 bypassed if is_range_fade, Tiers 1-3 check impulse candles)
-                    trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'], is_range_fade=is_range_fade)
-                    trend_state = ("Strong Bearish" if (trend_reason and "Bearish" in trend_reason)
-                                   else ("Strong Bullish" if (trend_reason and "Bullish" in trend_reason)
+                    # === DUAL-FILTER TREND CHECK ===
+                    # 1. Check Legacy (Dec 17th) trend filter
+                    legacy_trend_blocked, legacy_trend_reason = legacy_filters.check_trend(new_df, signal['side'])
+
+                    # 2. Check Upgraded (4-Tier) trend filter
+                    upgraded_trend_blocked, upgraded_trend_reason = trend_filter.should_block_trade(new_df, signal['side'], is_range_fade=is_range_fade)
+
+                    # 3. Arbitrate if there's disagreement
+                    if legacy_trend_blocked != upgraded_trend_blocked:
+                        arb_result = filter_arbitrator.arbitrate(
+                            df=new_df,
+                            side=signal['side'],
+                            legacy_blocked=legacy_trend_blocked,
+                            legacy_reason=legacy_trend_reason or "",
+                            upgraded_blocked=upgraded_trend_blocked,
+                            upgraded_reason=upgraded_trend_reason or "",
+                            current_price=current_price,
+                            tp_dist=signal.get('tp_dist'),
+                            sl_dist=signal.get('sl_dist')
+                        )
+                        trend_blocked = not arb_result.allow_trade
+                        trend_reason = arb_result.reason
+                    else:
+                        # Both agree - use upgraded decision
+                        trend_blocked = upgraded_trend_blocked
+                        trend_reason = upgraded_trend_reason
+
+                    trend_state = ("Strong Bearish" if (trend_reason and "Bearish" in str(trend_reason))
+                                   else ("Strong Bullish" if (trend_reason and "Bullish" in str(trend_reason))
                                          else "NEUTRAL"))
                     vol_regime, _, _ = volatility_filter.get_regime(new_df)
 
@@ -1363,7 +1383,7 @@ async def run_bot():
                                     logging.info(f"🧠 GEMINI OPTIMIZED: {s_name} | SL: {old_sl:.2f}->{sig['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{sig['tp_dist']:.2f} (x{tp_mult})")
                                 # ==========================================
 
-                                # [FIX] Enforce HTF range fade directional restriction
+                                # Enforce HTF range fade directional restriction
                                 if allowed_chop_side is not None and sig['side'] != allowed_chop_side:
                                     logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {sig['side']} vs Allowed {allowed_chop_side}")
                                     del pending_loose_signals[s_name]
@@ -1471,10 +1491,26 @@ async def run_bot():
                                 # Determine if this is a Range Fade setup (used for filter bypasses)
                                 is_range_fade = (allowed_chop_side is not None and sig['side'] == allowed_chop_side)
 
-                                # 4-Tier Trend Filter (Tier 4 bypassed if is_range_fade, Tiers 1-3 check impulse candles)
-                                trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, sig['side'], is_range_fade=is_range_fade)
-                                trend_state = ("Strong Bearish" if (trend_reason and "Bearish" in trend_reason)
-                                               else ("Strong Bullish" if (trend_reason and "Bullish" in trend_reason)
+                                # === DUAL-FILTER TREND CHECK ===
+                                legacy_trend_blocked, legacy_trend_reason = legacy_filters.check_trend(new_df, sig['side'])
+                                upgraded_trend_blocked, upgraded_trend_reason = trend_filter.should_block_trade(new_df, sig['side'], is_range_fade=is_range_fade)
+
+                                if legacy_trend_blocked != upgraded_trend_blocked:
+                                    arb_result = filter_arbitrator.arbitrate(
+                                        df=new_df, side=sig['side'],
+                                        legacy_blocked=legacy_trend_blocked, legacy_reason=legacy_trend_reason or "",
+                                        upgraded_blocked=upgraded_trend_blocked, upgraded_reason=upgraded_trend_reason or "",
+                                        current_price=current_price,
+                                        tp_dist=sig.get('tp_dist'), sl_dist=sig.get('sl_dist')
+                                    )
+                                    trend_blocked = not arb_result.allow_trade
+                                    trend_reason = arb_result.reason
+                                else:
+                                    trend_blocked = upgraded_trend_blocked
+                                    trend_reason = upgraded_trend_reason
+
+                                trend_state = ("Strong Bearish" if (trend_reason and "Bearish" in str(trend_reason))
+                                               else ("Strong Bullish" if (trend_reason and "Bullish" in str(trend_reason))
                                                      else "NEUTRAL"))
                                 vol_regime, _, _ = volatility_filter.get_regime(new_df)
 
@@ -1613,7 +1649,7 @@ async def run_bot():
                                             logging.info(f"🧠 GEMINI OPTIMIZED: {s_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
                                         # ==========================================
 
-                                        # [FIX] Enforce HTF range fade directional restriction
+                                        # Enforce HTF range fade directional restriction
                                         if allowed_chop_side is not None and signal['side'] != allowed_chop_side:
                                             logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
                                             continue
@@ -1689,10 +1725,26 @@ async def run_bot():
                                         # Determine if this is a Range Fade setup (used for filter bypasses)
                                         is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
 
-                                        # 4-Tier Trend Filter (Tier 4 bypassed if is_range_fade, Tiers 1-3 check impulse candles)
-                                        trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'], is_range_fade=is_range_fade)
-                                        trend_state = ("Strong Bearish" if (trend_reason and "Bearish" in trend_reason)
-                                                       else ("Strong Bullish" if (trend_reason and "Bullish" in trend_reason)
+                                        # === DUAL-FILTER TREND CHECK ===
+                                        legacy_trend_blocked, legacy_trend_reason = legacy_filters.check_trend(new_df, signal['side'])
+                                        upgraded_trend_blocked, upgraded_trend_reason = trend_filter.should_block_trade(new_df, signal['side'], is_range_fade=is_range_fade)
+
+                                        if legacy_trend_blocked != upgraded_trend_blocked:
+                                            arb_result = filter_arbitrator.arbitrate(
+                                                df=new_df, side=signal['side'],
+                                                legacy_blocked=legacy_trend_blocked, legacy_reason=legacy_trend_reason or "",
+                                                upgraded_blocked=upgraded_trend_blocked, upgraded_reason=upgraded_trend_reason or "",
+                                                current_price=current_price,
+                                                tp_dist=signal.get('tp_dist'), sl_dist=signal.get('sl_dist')
+                                            )
+                                            trend_blocked = not arb_result.allow_trade
+                                            trend_reason = arb_result.reason
+                                        else:
+                                            trend_blocked = upgraded_trend_blocked
+                                            trend_reason = upgraded_trend_reason
+
+                                        trend_state = ("Strong Bearish" if (trend_reason and "Bearish" in str(trend_reason))
+                                                       else ("Strong Bullish" if (trend_reason and "Bullish" in str(trend_reason))
                                                              else "NEUTRAL"))
                                         vol_regime, _, _ = volatility_filter.get_regime(new_df)
 
