@@ -87,9 +87,11 @@ class FilterArbitrator:
         """
         # Case 1: Both agree to BLOCK
         if legacy_blocked and upgraded_blocked:
+            reason = f"Unanimous BLOCK: Legacy='{legacy_reason}' | Upgraded='{upgraded_reason}'"
+            logging.info(f"🛡️ DUAL-FILTER [Case 1]: Both BLOCK | {reason}")
             return ArbitrationResult(
                 allow_trade=False,
-                reason=f"Unanimous BLOCK: Legacy='{legacy_reason}' | Upgraded='{upgraded_reason}'",
+                reason=reason,
                 confidence=1.0,
                 legacy_decision="BLOCK",
                 upgraded_decision="BLOCK",
@@ -98,9 +100,11 @@ class FilterArbitrator:
 
         # Case 2: Both agree to ALLOW
         if not legacy_blocked and not upgraded_blocked:
+            reason = "Unanimous ALLOW: Both filter systems approve"
+            logging.info(f"✅ DUAL-FILTER [Case 2]: Both ALLOW | {reason}")
             return ArbitrationResult(
                 allow_trade=True,
-                reason="Unanimous ALLOW: Both filter systems approve",
+                reason=reason,
                 confidence=1.0,
                 legacy_decision="ALLOW",
                 upgraded_decision="ALLOW",
@@ -110,9 +114,11 @@ class FilterArbitrator:
         # Case 3: Legacy BLOCKS but Upgraded ALLOWS (rare - upgraded is usually stricter)
         if legacy_blocked and not upgraded_blocked:
             # Trust the upgraded system's more sophisticated analysis
+            reason = f"Upgraded Override: Legacy blocked ({legacy_reason}) but upgraded approves"
+            logging.info(f"🔄 DUAL-FILTER [Case 3]: Legacy BLOCK, Upgraded ALLOW | {reason}")
             return ArbitrationResult(
                 allow_trade=True,
-                reason=f"Upgraded Override: Legacy blocked ({legacy_reason}) but upgraded approves",
+                reason=reason,
                 confidence=0.8,
                 legacy_decision="BLOCK",
                 upgraded_decision="ALLOW",
@@ -121,6 +127,7 @@ class FilterArbitrator:
 
         # Case 4: Legacy ALLOWS but Upgraded BLOCKS → ANALYZE
         # This is the key case - simpler system would trade, complex system says no
+        logging.info(f"⚖️ DUAL-FILTER [Case 4]: Legacy ALLOW, Upgraded BLOCK → Analyzing override | Upgraded reason: {upgraded_reason}")
         return self._analyze_override(
             df=df,
             side=side,
@@ -186,11 +193,13 @@ class FilterArbitrator:
         if allow_trade:
             self.override_count += 1
             reason = f"OVERRIDE APPROVED (conf={confidence_score:.2f}): Legacy would trade, analysis supports"
-            logging.info(f"🔓 ARBITRATOR: {reason}")
+            logging.info(f"🔓 DUAL-FILTER [Case 4 Result]: {reason}")
+            logging.info(f"   📊 Analysis factors: candle={factors.get('candle_pattern', 0):.2f}, momentum={factors.get('momentum', 0):.2f}, location={factors.get('market_location', 0):.2f}, vol={factors.get('volatility', 0):.2f}, severity={factors.get('block_severity', 0):.2f}, rr={factors.get('risk_reward', 'N/A')}")
         else:
             self.block_count += 1
             reason = f"OVERRIDE DENIED (conf={confidence_score:.2f}): Upgraded block upheld - {upgraded_reason}"
-            logging.info(f"🚫 ARBITRATOR: {reason}")
+            logging.info(f"🚫 DUAL-FILTER [Case 4 Result]: {reason}")
+            logging.info(f"   📊 Analysis factors: candle={factors.get('candle_pattern', 0):.2f}, momentum={factors.get('momentum', 0):.2f}, location={factors.get('market_location', 0):.2f}, vol={factors.get('volatility', 0):.2f}, severity={factors.get('block_severity', 0):.2f}, rr={factors.get('risk_reward', 'N/A')}")
 
         return ArbitrationResult(
             allow_trade=allow_trade,
