@@ -1216,6 +1216,11 @@ async def run_bot():
                         # Both agree - use upgraded decision
                         trend_blocked = upgraded_trend_blocked
                         trend_reason = upgraded_trend_reason
+                        # Log when both agree (so we know dual-filter is running)
+                        if trend_blocked:
+                            logging.info(f"🛡️ DUAL-FILTER: Both BLOCK {signal['side']} | reason: {trend_reason}")
+                        else:
+                            logging.info(f"✅ DUAL-FILTER: Both ALLOW {signal['side']} trend check")
 
                     trend_state = ("Strong Bearish" if (trend_reason and "Bearish" in str(trend_reason))
                                    else ("Strong Bullish" if (trend_reason and "Bullish" in str(trend_reason))
@@ -1508,6 +1513,11 @@ async def run_bot():
                                 else:
                                     trend_blocked = upgraded_trend_blocked
                                     trend_reason = upgraded_trend_reason
+                                    # Log when both agree (so we know dual-filter is running)
+                                    if trend_blocked:
+                                        logging.info(f"🛡️ DUAL-FILTER: Both BLOCK {sig['side']} | reason: {trend_reason}")
+                                    else:
+                                        logging.info(f"✅ DUAL-FILTER: Both ALLOW {sig['side']} trend check")
 
                                 trend_state = ("Strong Bearish" if (trend_reason and "Bearish" in str(trend_reason))
                                                else ("Strong Bullish" if (trend_reason and "Bullish" in str(trend_reason))
@@ -1742,6 +1752,11 @@ async def run_bot():
                                         else:
                                             trend_blocked = upgraded_trend_blocked
                                             trend_reason = upgraded_trend_reason
+                                            # Log when both agree (so we know dual-filter is running)
+                                            if trend_blocked:
+                                                logging.info(f"🛡️ DUAL-FILTER: Both BLOCK {signal['side']} | reason: {trend_reason}")
+                                            else:
+                                                logging.info(f"✅ DUAL-FILTER: Both ALLOW {signal['side']} trend check")
 
                                         trend_state = ("Strong Bearish" if (trend_reason and "Bearish" in str(trend_reason))
                                                        else ("Strong Bullish" if (trend_reason and "Bullish" in str(trend_reason))
