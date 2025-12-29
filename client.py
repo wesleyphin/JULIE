@@ -38,7 +38,7 @@ class ProjectXClient:
     SHARED_BAR_RATE_WINDOW = 30
     SHARED_GENERAL_RATE_LIMIT = 200
     SHARED_GENERAL_RATE_WINDOW = 60
-    SHARED_MIN_FETCH_INTERVAL = 0.5  # Minimum 500ms between any bar fetches across all instances
+    SHARED_MIN_FETCH_INTERVAL = 0.8  # Minimum 800ms between any bar fetches across all instances
 
     @classmethod
     def _get_lock(cls):
