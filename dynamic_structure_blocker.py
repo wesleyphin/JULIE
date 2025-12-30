@@ -197,15 +197,8 @@ class DynamicStructureBlocker:
 
     def check_fade_setup(self, df: pd.DataFrame, signal_type: str) -> bool:
         """
-        Detects Bottoms/Tops using PRICE ACTION + VOLUME (No RSI).
-
-        Logic for LONG Fade (Bottom Catching):
-        1. Volume Spike: Current Vol > 2.0x Average Vol (Capitulation).
-        2. Rejection Wick: Long lower wick (Hammer pattern) OR Bullish Engulfing.
-
-        Logic for SHORT Fade (Top Catching):
-        1. Volume Spike: Current Vol > 2.0x Average Vol.
-        2. Rejection Wick: Long upper wick (Shooting Star) OR Bearish Engulfing.
+        Detects Bottoms/Tops using PRICE ACTION + VOLUME.
+        MODIFIED: Lowered thresholds to prevent blocking valid reversals.
         """
         if len(df) < 20:
             return False
@@ -224,33 +217,31 @@ class DynamicStructureBlocker:
         if range_ == 0:
             return False
 
+        # --- RELAXED THRESHOLDS ---
+        # Was 2.0 (200% vol), now 1.2 (20% above avg)
+        VOL_THRESHOLD = 1.2
+        # Was 0.40 (40% wick), now 0.25 (25% wick)
+        WICK_THRESHOLD = 0.25
+
         # --- FADE A DOWNTREND (Buy the Bottom) ---
         if signal_type == "LONG":
-            # 1. VOLUME FILTER: Is this a "Stopping Volume" event?
-            is_vol_climax = vol_ratio > 2.0
-
-            # 2. WICK FILTER: Is there a long lower wick?
+            is_vol_climax = vol_ratio > VOL_THRESHOLD
             lower_wick = min(open_, close) - low
-            is_hammer = (lower_wick / range_) > 0.40  # Wick is 40% of the candle
+            is_hammer = (lower_wick / range_) > WICK_THRESHOLD
 
-            # 3. ENGULFING FILTER: Did we totally reverse the previous Red candle?
             prev_close = df['close'].iloc[-2]
             prev_open = df['open'].iloc[-2]
             is_engulfing = (close > prev_open) and (open_ < prev_close) and (close > open_)
 
-            # TRIGGER: Volume Spike + (Hammer OR Engulfing)
             if is_vol_climax and (is_hammer or is_engulfing):
                 return True
 
         # --- FADE AN UPTREND (Short the Top) ---
         elif signal_type == "SHORT":
-            is_vol_climax = vol_ratio > 2.0
-
-            # Upper Wick Rejection (Shooting Star)
+            is_vol_climax = vol_ratio > VOL_THRESHOLD
             upper_wick = high - max(open_, close)
-            is_shooting_star = (upper_wick / range_) > 0.40
+            is_shooting_star = (upper_wick / range_) > WICK_THRESHOLD
 
-            # Bearish Engulfing
             prev_close = df['close'].iloc[-2]
             prev_open = df['open'].iloc[-2]
             is_engulfing = (close < prev_open) and (open_ > prev_close) and (close < open_)
