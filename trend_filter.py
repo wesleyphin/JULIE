@@ -86,67 +86,68 @@ class TrendFilter:
     def should_block_trade(self, df: pd.DataFrame, side: str, is_range_fade: bool = False) -> Tuple[bool, Optional[str]]:
         """
         Block Reversals based on 4 Tiers of Impulse/Trend.
-
-        Args:
-            df: DataFrame with OHLCV data
-            side: 'LONG' or 'SHORT'
-            is_range_fade: If True, bypasses Tier 4 (Trend) logic (Smart Bypass).
-
-        Returns:
-            Tuple of (should_block: bool, reason: Optional[str])
         """
         if len(df) < self.lookback:
             return False, None
 
-        # --- Calculate Stats ---
+        # --- 1. Calculate Basic Candle Stats ---
         short_window = 20
         opens = df['open'].iloc[-short_window:]
         closes = df['close'].iloc[-short_window:]
         bodies = np.abs(closes - opens)
         avg_body_size = bodies.mean()
 
-        avg_vol = 0.0
-        if 'volume' in df.columns:
-            volumes = df['volume'].iloc[-short_window:]
-            avg_vol = volumes.mean()
-
-        # Last Candle Data
         last_bar = df.iloc[-1]
         current_price = last_bar['close']
         last_candle_body = abs(last_bar['close'] - last_bar['open'])
-        last_candle_vol = last_bar.get('volume', 0.0)
-        last_candle_dir = 'GREEN' if last_bar['close'] > last_bar['open'] else 'RED'
+
+        # --- 2. Calculate Wicks IMMEDIATELY (Move to Top) ---
         last_candle_high = last_bar['high']
         last_candle_low = last_bar['low']
         last_candle_open = last_bar['open']
         last_candle_close = last_bar['close']
 
-        # --- Macro Trend Stats (Tier 4) ---
+        upper_wick = last_candle_high - max(last_candle_open, last_candle_close)
+        lower_wick = min(last_candle_open, last_candle_close) - last_candle_low
+        # Use existing wick_ratio_threshold (default 0.5 or 50% of body)
+        wick_threshold = last_candle_body * self.wick_ratio_threshold
+
+        # --- 3. Determine Macro Trend State ---
         closes_full = df['close']
         trend_state = "NEUTRAL"
         if len(closes_full) >= self.slow_period:
             ema_fast_val = closes_full.ewm(span=self.fast_period, adjust=False).mean().iloc[-1]
             ema_slow_val = closes_full.ewm(span=self.slow_period, adjust=False).mean().iloc[-1]
 
-            # Strong Bullish: Price > Fast > Slow
             if current_price > ema_fast_val > ema_slow_val:
                 trend_state = "BULLISH"
-            # Strong Bearish: Price < Fast < Slow
             elif current_price < ema_fast_val < ema_slow_val:
                 trend_state = "BEARISH"
 
         # =========================================================
-        # TIER 4: MACRO TREND FILTER (The "Big Picture" Check)
+        # TIER 4: MACRO TREND FILTER (Modified with Wick Override)
         # =========================================================
         if not is_range_fade:
+            # BLOCK SHORTS IN BULL TREND
             if side == "SHORT" and trend_state == "BULLISH":
-                reason = f"Blocked (Tier 4): Strong Bullish Uptrend (Price > {self.fast_period}EMA > {self.slow_period}EMA)"
+                # EXCEPTION: If we have a massive Shooting Star wick, allow the counter-trend trade
+                if upper_wick > wick_threshold:
+                    logging.info(f"✅ TREND EXCEPTION: Bullish Trend overridden by Shooting Star Wick")
+                    return False, "Allowed: Counter-trend Shooting Star"
+
+                reason = f"Blocked (Tier 4): Strong Bullish Uptrend (Price > {self.fast_period} > {self.slow_period})"
                 logging.info(f"🚫 TREND FILTER: {reason}")
                 event_logger.log_filter_check("TrendFilter", side, False, reason)
                 return True, reason
 
+            # BLOCK LONGS IN BEAR TREND
             if side == "LONG" and trend_state == "BEARISH":
-                reason = f"Blocked (Tier 4): Strong Bearish Downtrend (Price < {self.fast_period}EMA < {self.slow_period}EMA)"
+                # EXCEPTION: If we have a massive Hammer wick, allow the counter-trend trade
+                if lower_wick > wick_threshold:
+                    logging.info(f"✅ TREND EXCEPTION: Bearish Trend overridden by Hammer Wick")
+                    return False, "Allowed: Counter-trend Hammer"
+
+                reason = f"Blocked (Tier 4): Strong Bearish Downtrend (Price < {self.fast_period} < {self.slow_period})"
                 logging.info(f"🚫 TREND FILTER: {reason}")
                 event_logger.log_filter_check("TrendFilter", side, False, reason)
                 return True, reason
@@ -155,28 +156,30 @@ class TrendFilter:
                 logging.info(f"🔓 Tier 4 Bypassed: Range Fade Logic Active ({trend_state} Trend ignored)")
 
         # =========================================================
-        # TIERS 1-3: CANDLE IMPULSE FILTERS (The "Immediate" Check)
+        # TIERS 1-3: CANDLE IMPULSE FILTERS (Existing Logic)
         # =========================================================
+        avg_vol = 0.0
+        if 'volume' in df.columns:
+            volumes = df['volume'].iloc[-short_window:]
+            avg_vol = volumes.mean()
 
-        # NEW: Check last 3 candles for Tier 3 Nuke
-        recent_closes = df['close'].iloc[-3:]
+        last_candle_vol = last_bar.get('volume', 0.0)
+        last_candle_dir = 'GREEN' if last_bar['close'] > last_bar['open'] else 'RED'
+
+        # Check for Tier 3 Nuke in last 3 bars
         recent_opens = df['open'].iloc[-3:]
+        recent_closes = df['close'].iloc[-3:]
         recent_bodies = np.abs(recent_closes - recent_opens)
-
-        # Check if ANY of the last 3 bars were Tier 3 events
         tier3_threshold = avg_body_size * self.t3_body_mult
 
         if (recent_bodies > tier3_threshold).any():
-            # If we had a nuke recently, check direction of that nuke
-            # (Simplified logic: assume if recent nuke exists, we are cautious)
-
-            # Allow trade ONLY if we have a rejection wick on the CURRENT bar
+             # If nuke detected, check if CURRENT bar has rejection
             if side == 'LONG' and lower_wick > wick_threshold:
-                pass  # Hammer detected, allow
+                pass
             elif side == 'SHORT' and upper_wick > wick_threshold:
-                pass  # Shooting star, allow
+                pass
             else:
-                return True, "Blocked: Recent Tier 3 'Nuke' detected in last 3 bars (Shockwave protection)"
+                return True, "Blocked: Recent Tier 3 'Nuke' detected (Shockwave protection)"
 
         # Identify Impulse Tiers (Single Candle Check)
         is_tier1 = False
@@ -221,11 +224,6 @@ class TrendFilter:
                 details = f"Vol {last_candle_vol:.0f} > {self.t1_vol_mult}x Avg"
 
         # --- Wick Safety Check (Override for Tiers 1-3) ---
-        # NOTE: Tier 4 (Trend) is NOT overridden by wicks, only by 'is_range_fade'.
-        upper_wick = last_candle_high - max(last_candle_open, last_candle_close)
-        lower_wick = min(last_candle_open, last_candle_close) - last_candle_low
-        wick_threshold = last_candle_body * self.wick_ratio_threshold
-
         # Logic for LONG Signal (Fading a RED Impulse)
         if side == 'LONG' and last_candle_dir == 'RED':
             if lower_wick > wick_threshold:

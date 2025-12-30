@@ -47,14 +47,28 @@ class LegacyTrendFilter:
         ema_slow = closes.ewm(span=self.slow_period, adjust=False).mean().iloc[-1]
         price = closes.iloc[-1]
 
+        # --- ADD WICK CALCULATION ---
+        last_bar = df.iloc[-1]
+        body = abs(last_bar['close'] - last_bar['open'])
+        upper_wick = last_bar['high'] - max(last_bar['open'], last_bar['close'])
+        lower_wick = min(last_bar['open'], last_bar['close']) - last_bar['low']
+        # Simple 50% wick rule
+        wick_threshold = body * 0.5
+
         # Block Shorts in Strong Uptrend
         if price > ema_fast > ema_slow:
             if side == "SHORT":
+                # ALLOW if big wick
+                if upper_wick > wick_threshold:
+                    return False, ""
                 return True, f"Legacy Trend: Price > {self.fast_period}EMA > {self.slow_period}EMA (Strong Bullish)"
 
         # Block Longs in Strong Downtrend
         if price < ema_fast < ema_slow:
             if side == "LONG":
+                # ALLOW if big wick
+                if lower_wick > wick_threshold:
+                    return False, ""
                 return True, f"Legacy Trend: Price < {self.fast_period}EMA < {self.slow_period}EMA (Strong Bearish)"
 
         return False, ""
