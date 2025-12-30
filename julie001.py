@@ -1098,130 +1098,145 @@ async def run_bot():
                         event_logger.log_filter_check("ChopFeasibility", signal['side'], True, strategy=signal.get('strategy', strat_name))
 
                     # ==========================================
-                    # LAYER 2: SIGNAL QUALITY FILTERS
+                    # LAYER 2: PARALLEL FILTER EXECUTION (Legacy vs Upgraded)
                     # ==========================================
-                    # Filters - Rejection Filter
+
+                    # --- A. GLOBAL FILTERS (Run for BOTH systems) ---
+                    # These are fundamental checks (Bias, Losses, Impulse) that apply to everything
+
+                    # Rejection Filter (Bias)
                     rej_blocked, rej_reason = rejection_filter.should_block_trade(signal['side'])
                     if rej_blocked:
-                        event_logger.log_rejection_block("RejectionFilter", signal['side'], rej_reason or "Rejection bias")
-                        continue
+                        event_logger.log_rejection_block("RejectionFilter", signal['side'], rej_reason)
+                        continue  # Global Block
 
-                    # Directional Loss Blocker (3 consecutive losses blocks direction for 15 min)
+                    # Directional Loss Blocker
                     dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
                     if dir_blocked:
                         event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], False, dir_reason, strategy=signal.get('strategy', strat_name))
-                        continue
-                    else:
-                        event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                        continue  # Global Block
 
-                    # Impulse Filter (Prevent catching falling knife / fading rocket ship)
+                    # Impulse Filter
                     impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])
                     if impulse_blocked:
                         event_logger.log_filter_check("ImpulseFilter", signal['side'], False, impulse_reason, strategy=signal.get('strategy', strat_name))
-                        continue
-                    else:
-                        event_logger.log_filter_check("ImpulseFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                        continue  # Global Block
 
-                    # HTF FVG (Memory Based) - CONTEXT AWARE
-                    # Pass the strategy's target profit so we know how much room we need
+                    # --- B. INDEPENDENT SYSTEM CHECKS ---
+
+                    # 1. Check UPGRADED System (The "Team of Rivals")
+                    upgraded_blocked = False
+                    upgraded_reasons = []
+
+                    # HTF FVG (Memory Based)
                     tp_dist = signal.get('tp_dist', 15.0)
-
-                    # === FIX: Relax FVG check if we are trading WITH the Range Fade ===
-                    # If Chop says "Long Only" and we are going Long, we expect to break resistance.
-                    # We reduce the effective TP distance passed to the filter, making it less strict.
                     effective_tp_dist = tp_dist
+                    # Relax FVG check if we are trading WITH the Range Fade
                     if allowed_chop_side is not None and signal['side'] == allowed_chop_side:
-                        effective_tp_dist = tp_dist * 0.5  # Require 50% less room
-                        logging.info(f"🔓 RELAXING FVG CHECK: Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
+                        effective_tp_dist = tp_dist * 0.5
 
                     fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
                         signal['side'], current_price, None, None, tp_dist=effective_tp_dist
                     )
-
-                    # Forensic metrics for debugging
-                    fvg_metrics = {
-                        "req_room": f"{effective_tp_dist * 0.4:.2f}",
-                        "tp_dist": f"{tp_dist:.2f}",
-                        "effective_tp": f"{effective_tp_dist:.2f}"
-                    }
-
                     if fvg_blocked:
-                        logging.info(f"🚫 BLOCKED (HTF FVG): {fvg_reason}")
-                        event_logger.log_filter_check("HTF_FVG", signal['side'], False, fvg_reason, strategy=signal.get('strategy', strat_name), metrics=fvg_metrics)
-                        continue
-                    else:
-                        event_logger.log_filter_check("HTF_FVG", signal['side'], True, strategy=signal.get('strategy', strat_name), metrics=fvg_metrics)
+                        upgraded_blocked = True
+                        upgraded_reasons.append(f"FVG: {fvg_reason}")
 
-                    # Weak Level Blocker (EQH/EQL)
+                    # Dynamic Structure Blocker
                     struct_blocked, struct_reason = structure_blocker.should_block_trade(signal['side'], current_price)
                     if struct_blocked:
-                        logging.info(f"🚫 {struct_reason}")
-                        event_logger.log_filter_check("StructureBlocker", signal['side'], False, struct_reason, strategy=signal.get('strategy', strat_name))
-                        continue
-                    else:
-                        event_logger.log_filter_check("StructureBlocker", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                        upgraded_blocked = True
+                        upgraded_reasons.append(f"Structure: {struct_reason}")
 
-                    # Regime Structure Blocker (EQH/EQL with regime tolerance)
+                    # Regime Structure Blocker
                     regime_blocked, regime_reason = regime_blocker.should_block_trade(signal['side'], current_price)
                     if regime_blocked:
-                        logging.info(f"🚫 {regime_reason}")
-                        event_logger.log_filter_check("RegimeBlocker", signal['side'], False, regime_reason, strategy=signal.get('strategy', strat_name))
-                        continue
-                    else:
-                        event_logger.log_filter_check("RegimeBlocker", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                        upgraded_blocked = True
+                        upgraded_reasons.append(f"Regime: {regime_reason}")
 
-                    # Penalty Box Blocker (Fixed 5.0pt tolerance + 3-bar decay)
+                    # Penalty Box Blocker
                     penalty_blocked, penalty_reason = penalty_blocker.should_block_trade(signal['side'], current_price)
                     if penalty_blocked:
-                        logging.info(f"🚫 {penalty_reason}")
-                        event_logger.log_filter_check("PenaltyBoxBlocker", signal['side'], False, penalty_reason, strategy=signal.get('strategy', strat_name))
-                        continue
-                    else:
-                        event_logger.log_filter_check("PenaltyBoxBlocker", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                        upgraded_blocked = True
+                        upgraded_reasons.append(f"PenaltyBox: {penalty_reason}")
 
+                    # Memory S/R
                     mem_blocked, mem_reason = memory_sr.should_block_trade(signal['side'], current_price)
                     if mem_blocked:
-                        logging.info(f"🚫 {mem_reason}")
-                        event_logger.log_filter_check("MemorySR", signal['side'], False, mem_reason, strategy=signal.get('strategy', strat_name))
-                        continue
-                    else:
-                        event_logger.log_filter_check("MemorySR", signal['side'], True, strategy=signal.get('strategy', strat_name))
+                        upgraded_blocked = True
+                        upgraded_reasons.append(f"MemorySR: {mem_reason}")
 
-                    # Determine if this is a Range Fade setup (used for filter bypasses)
+                    # Upgraded Trend Filter
                     is_range_fade = (allowed_chop_side is not None and signal['side'] == allowed_chop_side)
+                    upg_trend_blocked, upg_trend_reason = trend_filter.should_block_trade(new_df, signal['side'], is_range_fade=is_range_fade)
+                    if upg_trend_blocked:
+                        upgraded_blocked = True
+                        upgraded_reasons.append(f"Trend: {upg_trend_reason}")
 
-                    # === DUAL-FILTER TREND CHECK ===
-                    # 1. Check Legacy (Dec 17th) trend filter
-                    legacy_trend_blocked, legacy_trend_reason = legacy_filters.check_trend(new_df, signal['side'])
+                    # Combine reasons
+                    upgraded_reason_str = " | ".join(upgraded_reasons) if upgraded_reasons else ""
 
-                    # 2. Check Upgraded (4-Tier) trend filter
-                    upgraded_trend_blocked, upgraded_trend_reason = trend_filter.should_block_trade(new_df, signal['side'], is_range_fade=is_range_fade)
+                    # 2. Check LEGACY System (Dec 17th Logic)
+                    legacy_blocked, legacy_reason = legacy_filters.check_trend(new_df, signal['side'])
 
-                    # 3. Arbitrate if there's disagreement
-                    if legacy_trend_blocked != upgraded_trend_blocked:
+                    # --- C. ARBITRATION ---
+                    final_blocked = False
+                    final_reason = ""
+
+                    if legacy_blocked and upgraded_blocked:
+                        # CASE 1: Both Block
+                        final_blocked = True
+                        final_reason = f"Unanimous Block: Legacy({legacy_reason}) & Upgraded({upgraded_reason_str})"
+
+                    elif not legacy_blocked and not upgraded_blocked:
+                        # CASE 2: Both Allow
+                        final_blocked = False
+
+                    elif legacy_blocked and not upgraded_blocked:
+                        # CASE 3: Legacy Blocks, Upgraded Allows (Trust Upgraded)
+                        final_blocked = False
+                        logging.info(f"🔄 DUAL-FILTER: Upgraded OVERRIDES Legacy block ({legacy_reason})")
+
+                    elif not legacy_blocked and upgraded_blocked:
+                        # CASE 4: Legacy Allows, Upgraded Blocks (THE CRITICAL SCENARIO)
+                        # This is where Structure Blocker was killing trades. Now we Arbitrate.
                         arb_result = filter_arbitrator.arbitrate(
                             df=new_df,
                             side=signal['side'],
-                            legacy_blocked=legacy_trend_blocked,
-                            legacy_reason=legacy_trend_reason or "",
-                            upgraded_blocked=upgraded_trend_blocked,
-                            upgraded_reason=upgraded_trend_reason or "",
+                            legacy_blocked=False,
+                            legacy_reason="Allowed",
+                            upgraded_blocked=True,
+                            upgraded_reason=upgraded_reason_str,
                             current_price=current_price,
                             tp_dist=signal.get('tp_dist'),
                             sl_dist=signal.get('sl_dist')
                         )
-                        trend_blocked = not arb_result.allow_trade
-                        trend_reason = arb_result.reason
-                    else:
-                        # Both agree - use upgraded decision
-                        trend_blocked = upgraded_trend_blocked
-                        trend_reason = upgraded_trend_reason
-                        # Log when both agree (so we know dual-filter is running)
-                        if trend_blocked:
-                            logging.info(f"🛡️ DUAL-FILTER: Both BLOCK {signal['side']} | reason: {trend_reason}")
+                        if arb_result.allow_trade:
+                            final_blocked = False
+                            logging.info(f"🔓 ARBITRATOR OVERRIDE: Allowed trade despite Upgraded block ({upgraded_reason_str})")
                         else:
-                            logging.info(f"✅ DUAL-FILTER: Both ALLOW {signal['side']} trend check")
+                            final_blocked = True
+                            final_reason = f"Arbitrator Upheld Block: {arb_result.reason}"
 
+                    # --- D. FINAL DECISION EXECUTION ---
+                    if final_blocked:
+                        # Log the specific blocker that caused the final death
+                        if "Structure" in final_reason:
+                            event_logger.log_filter_check("StructureBlocker", signal['side'], False, final_reason, strategy=signal.get('strategy', strat_name))
+                        elif "FVG" in final_reason:
+                            event_logger.log_filter_check("HTF_FVG", signal['side'], False, final_reason, strategy=signal.get('strategy', strat_name))
+                        elif "Trend" in final_reason:
+                            event_logger.log_filter_check("TrendFilter", signal['side'], False, final_reason, strategy=signal.get('strategy', strat_name))
+                        else:
+                            logging.info(f"⛔ DUAL-FILTER BLOCKED: {final_reason}")
+
+                        continue  # The trade is officially dead
+
+                    # --- E. POST-ARBITRATION FILTERS (Chop, Extension, Volatility) ---
+                    # These run AFTER the dual-filter decision and still act as kill switches
+
+                    # Determine trend state for chop filter
+                    trend_reason = upgraded_reason_str if upgraded_blocked else ""
                     trend_state = ("Strong Bearish" if (trend_reason and "Bearish" in str(trend_reason))
                                    else ("Strong Bullish" if (trend_reason and "Bullish" in str(trend_reason))
                                          else "NEUTRAL"))
@@ -1249,20 +1264,6 @@ async def run_bot():
                         continue
                     else:
                         event_logger.log_filter_check("ExtensionFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
-
-                    # Trend Filter (already checked above with is_range_fade)
-                    if trend_blocked:
-                                # Enhanced logging with trend conflict details
-                        trend_info = {
-                            "Trend": trend_state,
-                            "Signal": signal['side'],
-                            "Conflict": "Counter-Trend"
-                        }
-                        event_logger.log_filter_check("TrendFilter", signal['side'], False, trend_reason,
-                                                     additional_info=trend_info, strategy=signal.get('strategy', strat_name))
-                        continue
-                    else:
-                        event_logger.log_filter_check("TrendFilter", signal['side'], True, strategy=signal.get('strategy', strat_name))
 
                     # Volatility & Guardrail Check
                     # We pass the Gemini-modified params (signal['sl_dist']) into the filter.
