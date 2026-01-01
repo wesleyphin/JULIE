@@ -26,6 +26,36 @@ except ImportError:
     HAS_CONFIG = False
     CONFIG = {}
 
+class ToolTip:
+    """Simple ToolTip implementation for Tkinter widgets"""
+    def __init__(self, widget, text, bg='#333333', fg='#ffffff'):
+        self.widget = widget
+        self.text = text
+        self.bg = bg
+        self.fg = fg
+        self.tooltip = None
+        self.widget.bind("<Enter>", self.enter)
+        self.widget.bind("<Leave>", self.leave)
+
+    def enter(self, event=None):
+        x = self.widget.winfo_rootx() + 25
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 5
+
+        self.tooltip = tk.Toplevel(self.widget)
+        self.tooltip.wm_overrideredirect(True)
+        self.tooltip.wm_geometry(f"+{x}+{y}")
+
+        label = tk.Label(self.tooltip, text=self.text, justify='left',
+                         background=self.bg, foreground=self.fg,
+                         relief='solid', borderwidth=1,
+                         font=("Helvetica", "9", "normal"))
+        label.pack(ipadx=5, ipady=2)
+
+    def leave(self, event=None):
+        if self.tooltip:
+            self.tooltip.destroy()
+            self.tooltip = None
+
 class JulieUI:
     def __init__(self, root):
         self.root = root
@@ -408,6 +438,7 @@ class JulieUI:
                                    padx=20,
                                    pady=8)
         self.stop_btn.pack(side='left', padx=5)
+        ToolTip(self.stop_btn, "IMMEDIATELY terminate the bot process\nUse only in emergencies", bg='#3d1a1a')
 
         self.pause_btn = tk.Button(controls_frame,
                                    text="⏸ PAUSE",
@@ -422,6 +453,7 @@ class JulieUI:
                                    padx=20,
                                    pady=8)
         self.pause_btn.pack(side='left', padx=5)
+        ToolTip(self.pause_btn, "Pause monitoring and freeze logs\nUseful for analyzing current state")
 
         self.play_btn = tk.Button(controls_frame,
                                   text="▶ PLAY",
@@ -437,6 +469,7 @@ class JulieUI:
                                   pady=8,
                                   state='disabled')
         self.play_btn.pack(side='left', padx=5)
+        ToolTip(self.play_btn, "Resume real-time monitoring")
 
         # Main content area
         content = tk.Frame(main, bg=self.colors['bg_dark'])
