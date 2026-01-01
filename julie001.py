@@ -46,6 +46,8 @@ from vixmeanreversion import VIXReversionStrategy
 from yahoo_vix_client import YahooVIXClient
 from legacy_filters import LegacyFilterSystem
 from filter_arbitrator import FilterArbitrator
+# --- NEW IMPORTS ---
+from continuation_strategy import FractalSweepStrategy, STRATEGY_CONFIGS
 
 # --- ASYNCIO IMPORTS ---
 from async_market_stream import AsyncMarketDataManager
@@ -111,6 +113,89 @@ except ImportError as e:
 
 
 # ProjectXClient moved to client.py
+
+class ContinuationRescueManager:
+    """
+    Manages the FractalSweepStrategy (Continuation) lookups.
+    Acts as a 'Second Opinion' when trades are blocked by Bias.
+    """
+    def __init__(self):
+        self.configs = STRATEGY_CONFIGS
+        # Cache instances to avoid recreating them every tick
+        self.strategy_instances = {}
+
+    def get_active_continuation_signal(self, df: pd.DataFrame, current_time, required_bias: str):
+        """
+        Checks if the current time matches a known Continuation Strategy window.
+        If yes, and the signal aligns with 'required_bias', returns the signal.
+        """
+        if df.empty:
+            return None
+
+        # 1. Construct the Key for the current moment
+        # Key Format: Q{q}_W{w}_D{d}_{session} (e.g., Q4_W45_D7_Asia)
+
+        # Calculate derived date fields matches continuation_strategy.py logic
+        quarter = (current_time.month - 1) // 3 + 1
+        week = current_time.isocalendar().week
+        # Fix: Python weekday is 0-6, Strategy expects 1-7 (Mon=1)
+        day = current_time.weekday() + 1
+
+        # Determine Base Session (Matches julie001 logic)
+        h = current_time.hour
+        if 18 <= h or h < 3: session = "Asia"
+        elif 3 <= h < 8: session = "London"
+        elif 8 <= h < 17: session = "NY" # Note: Configs use 'NY', not 'NY_AM'/'NY_PM' generally
+        else: session = "Other"
+
+        # Try to find a matching config key
+        # We might need to handle specific NY_AM/NY_PM if your config uses them,
+        # but based on the file provided, keys look like 'NY'.
+        candidate_key = f"Q{quarter}_W{week}_D{day}_{session}"
+
+        # 2. Check if this is a High Probability Window
+        if candidate_key not in self.configs:
+            return None
+
+        # 3. Instantiate Strategy (Lazy Loading)
+        if candidate_key not in self.strategy_instances:
+            try:
+                self.strategy_instances[candidate_key] = FractalSweepStrategy(candidate_key)
+            except ValueError:
+                return None
+
+        strat = self.strategy_instances[candidate_key]
+
+        # 4. Generate Signal
+        # We pass the full DF. The strategy filters it.
+        # We need to know if the LAST bar is a valid signal.
+        try:
+            # Assuming generate_signals returns a DF of valid rows
+            signals_df = strat.generate_signals(df)
+
+            if not signals_df.empty and signals_df.index[-1] == current_time:
+                # 5. Check Alignment with Bias
+                # Since FractalSweep is a continuation strategy, we assume it trades
+                # in the direction of the active window/trend.
+                # If the strategy code doesn't explicitly return 'side',
+                # we rely on the fact that we are only calling this to RESCUE a trade
+                # that was blocked because it opposed the bias.
+                # Therefore, we only return a signal if we assume the Continuation
+                # intends to follow that bias.
+
+                return {
+                    'strategy': f"Continuation_{candidate_key}",
+                    'side': required_bias, # We inherit the bias we are rescuing
+                    'tp_dist': strat.target if hasattr(strat, 'target') else 6.0,
+                    'sl_dist': strat.stop if hasattr(strat, 'stop') else 4.0,
+                    'size': 5,
+                    'rescued': True
+                }
+        except Exception as e:
+            logging.error(f"Continuation Strategy Error ({candidate_key}): {e}")
+            return None
+
+        return None
 
 # ==========================================
 # 12. MAIN EXECUTION LOOP (ASYNCIO UPGRADED)
@@ -255,6 +340,10 @@ async def run_bot():
 
     # Initialize Gemini Session Optimizer
     optimizer = GeminiSessionOptimizer()
+
+    # Initialize Rescue Manager
+    continuation_manager = ContinuationRescueManager()
+
     last_processed_session = None
     last_processed_quarter = None  # Track quarter for quarterly optimization
 
@@ -967,9 +1056,9 @@ async def run_bot():
                                 logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
 
                             # Enforce HTF range fade directional restriction
-                            if allowed_chop_side is not None and signal['side'] != allowed_chop_side:
-                                logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
-                                continue
+                            # if allowed_chop_side is not None and signal['side'] != allowed_chop_side:
+                            #    logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
+                            #    continue
 
                             # Add to candidate list (Priority 1 = FAST)
                             candidate_signals.append((1, strat, signal, strat_name))
@@ -1046,9 +1135,9 @@ async def run_bot():
                             logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
 
                         # Enforce HTF range fade directional restriction
-                        if allowed_chop_side is not None and signal['side'] != allowed_chop_side:
-                            logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
-                            continue
+                        # if allowed_chop_side is not None and signal['side'] != allowed_chop_side:
+                        #    logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
+                        #    continue
 
                         # Add to candidate list (Priority 2 = STANDARD)
                         candidate_signals.append((2, strat, signal, strat_name))
@@ -1104,11 +1193,75 @@ async def run_bot():
                     # --- A. GLOBAL FILTERS (Run for BOTH systems) ---
                     # These are fundamental checks (Bias, Losses, Impulse) that apply to everything
 
-                    # Rejection Filter (Bias)
+                    # ==========================================
+                    # LAYER 2a: BIAS / REJECTION FILTER + RESCUE
+                    # ==========================================
+
+                    # 1. Check Standard Rejection Filter
                     rej_blocked, rej_reason = rejection_filter.should_block_trade(signal['side'])
-                    if rej_blocked:
-                        event_logger.log_rejection_block("RejectionFilter", signal['side'], rej_reason)
-                        continue  # Global Block
+
+                    # 2. Check HTF Range Fade Bias (Chop Analyzer)
+                    range_bias_blocked = False
+                    if allowed_chop_side is not None and signal['side'] != allowed_chop_side:
+                        range_bias_blocked = True
+                        if not rej_blocked: # Only update reason if not already blocked
+                            rej_reason = f"Opposite HTF Range Bias ({allowed_chop_side} Only)"
+
+                    # 3. Process Block & Attempt Rescue
+                    if rej_blocked or range_bias_blocked:
+                        is_rescued = False
+
+                        # Determine the bias that is doing the blocking
+                        # If blocked by rejection, bias is whatever rejection_filter wants
+                        # If blocked by range, bias is allowed_chop_side
+                        required_bias = None
+                        if range_bias_blocked:
+                            required_bias = allowed_chop_side
+                        elif rej_blocked:
+                            # Rejection filter usually blocks if side != bias
+                            # So the required bias is the opposite of the signal, or the explicit bias
+                            required_bias = rejection_filter.prev_day_pm_bias # Assuming this holds the active bias
+
+                        if required_bias and required_bias != "NEUTRAL":
+                            logging.info(f"🛑 BIAS BLOCK: {signal['strategy']} ({signal['side']}) blocked by {required_bias} bias. Attempting Rescue...")
+
+                            # === CONTINUATION RESCUE CHECK ===
+                            rescue_signal = continuation_manager.get_active_continuation_signal(
+                                new_df, current_time, required_bias
+                            )
+
+                            if rescue_signal:
+                                logging.info(f"🚑 RESCUE SUCCESSFUL: Continuation Strategy confirms {required_bias} bias!")
+
+                                # Log detailed event
+                                event_logger.log_system_event(
+                                    "RESCUE_TRIGGER",
+                                    f"Continuation Strategy Overrode Bias Block",
+                                    {
+                                        "Original": signal['strategy'],
+                                        "Rescuer": rescue_signal['strategy'],
+                                        "Bias": required_bias
+                                    }
+                                )
+
+                                # SWAP THE SIGNAL
+                                # We replace the blocked signal with the Continuation Signal
+                                signal = rescue_signal
+                                is_rescued = True
+                            else:
+                                logging.info(f"❌ RESCUE FAILED: No matching continuation setup found.")
+
+                        # If not rescued, execute the block
+                        if not is_rescued:
+                            # Log the block as usual
+                            if rej_blocked:
+                                event_logger.log_rejection_block("RejectionFilter", signal['side'], rej_reason)
+                            else:
+                                logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
+                            continue # Skip to next candidate
+                        else:
+                            # If rescued, we PROCEED to the next filters (do not continue)
+                            pass
 
                     # Directional Loss Blocker
                     dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
