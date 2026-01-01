@@ -501,6 +501,7 @@ class JulieUI:
 
         self.create_strategy_list(strategy_frame)
         self.create_gemini_logs_section(strategy_frame)
+        self.create_continuation_logs_section(strategy_frame)
         self.create_positions_section(right_col)
         self.create_filters_section(right_col)
 
@@ -587,7 +588,8 @@ class JulieUI:
             "ML Physics",
             "Dynamic Engine 1",
             "SMT Divergence",
-            "VIX Reversion"
+            "VIX Reversion",
+            "Continuation"
         ]
 
         self.strategy_labels = {}
@@ -615,6 +617,48 @@ class JulieUI:
             status_label.pack(side='right', padx=12)
 
             self.strategy_labels[name] = status_label
+
+    def create_continuation_logs_section(self, parent):
+        """Create Continuation Strategy logs section"""
+        section = tk.Frame(parent, bg=self.colors['panel_bg'],
+                          highlightbackground=self.colors['panel_border'],
+                          highlightthickness=1)
+        section.pack(fill='both', expand=True, pady=(10, 0))
+
+        # Header
+        header = tk.Label(section, text="CONTINUATION STRATEGY LOGS",
+                         font=("Helvetica", 10, "bold"),
+                         fg=self.colors['text_gray'],
+                         bg=self.colors['panel_bg'],
+                         anchor='w')
+        header.pack(fill='x', padx=20, pady=(15, 10))
+
+        # Log text widget
+        log_frame = tk.Frame(section, bg=self.colors['panel_bg'])
+        log_frame.pack(fill='both', expand=True, padx=20, pady=(0, 15))
+
+        scrollbar = tk.Scrollbar(log_frame)
+        scrollbar.pack(side='right', fill='y')
+
+        self.continuation_log_text = tk.Text(log_frame,
+                                              bg=self.colors['input_bg'],
+                                              fg=self.colors['text_gray'],
+                                              font=("Courier", 9),
+                                              wrap='word',
+                                              yscrollcommand=scrollbar.set,
+                                              state='disabled',
+                                              relief='flat')
+        self.continuation_log_text.pack(fill='both', expand=True)
+        scrollbar.config(command=self.continuation_log_text.yview)
+
+        # Configure text tags for color coding
+        self.continuation_log_text.tag_config('rescue_success', foreground='#ec4899')  # Pink for rescue success
+        self.continuation_log_text.tag_config('rescue_fail', foreground='#f97316')     # Orange for rescue failed
+        self.continuation_log_text.tag_config('bias_block', foreground=self.colors['yellow'])  # Yellow for bias block
+        self.continuation_log_text.tag_config('active', foreground=self.colors['green_light'])  # Green for active window
+        self.continuation_log_text.tag_config('info', foreground=self.colors['text_gray'])
+
+        self.add_continuation_log("Waiting for Continuation Strategy activity...")
 
     def create_gemini_logs_section(self, parent):
         """Create Gemini LLM logs section"""
@@ -817,6 +861,8 @@ class JulieUI:
         self.log_text.tag_config('latency', foreground='#fbbf24')          # Amber for SLOW EXECUTION
         self.log_text.tag_config('candidate', foreground='#facc15')        # Yellow for CANDIDATE signals
         self.log_text.tag_config('execution', foreground=self.colors['green_light'])  # Green for EXECUTED signals
+        self.log_text.tag_config('rescue', foreground='#ec4899')           # Pink/Magenta for RESCUE events
+        self.log_text.tag_config('rescue_fail', foreground='#f97316')      # Orange for RESCUE FAILED
 
         self.add_log("Waiting for bot activity...")
 
@@ -827,7 +873,11 @@ class JulieUI:
 
             # Determine tag based on message content (priority order matters)
             tag = 'normal'
-            if 'STRATEGY_EXEC' in message or '✅ FAST EXEC' in message or '✅ STANDARD EXEC' in message:
+            if 'RESCUE SUCCESSFUL' in message or '🚑' in message:
+                tag = 'rescue'
+            elif 'RESCUE FAILED' in message:
+                tag = 'rescue_fail'
+            elif 'STRATEGY_EXEC' in message or '✅ FAST EXEC' in message or '✅ STANDARD EXEC' in message:
                 tag = 'execution'
             elif 'CANDIDATE' in message or 'status=CANDIDATE' in message:
                 tag = 'candidate'
@@ -895,6 +945,31 @@ class JulieUI:
             self.gemini_log_text.insert('end', message + '\n', tag)
             self.gemini_log_text.see('end')
             self.gemini_log_text.config(state='disabled')
+
+        if threading.current_thread() != threading.main_thread():
+            self.root.after(0, update)
+        else:
+            update()
+
+    def add_continuation_log(self, message):
+        """Add entry to Continuation Strategy log with color coding"""
+        def update():
+            self.continuation_log_text.config(state='normal')
+
+            # Determine tag based on content (priority order matters)
+            tag = 'info'
+            if 'RESCUE SUCCESSFUL' in message or '🚑 RESCUE' in message:
+                tag = 'rescue_success'
+            elif 'RESCUE FAILED' in message or '❌ RESCUE FAILED' in message:
+                tag = 'rescue_fail'
+            elif '🛑 BIAS BLOCK' in message or 'Attempting Rescue' in message:
+                tag = 'bias_block'
+            elif 'Continuation_Q' in message or 'ACTIVE' in message.upper():
+                tag = 'active'
+
+            self.continuation_log_text.insert('end', message + '\n', tag)
+            self.continuation_log_text.see('end')
+            self.continuation_log_text.config(state='disabled')
 
         if threading.current_thread() != threading.main_thread():
             self.root.after(0, update)
@@ -1026,6 +1101,8 @@ class JulieUI:
             'STRATEGY_SIGNAL',  # Strategy signals
             'Bar:', 'Price:',  # Live bar/price updates
             'missing sl_dist', 'missing tp_dist',  # Missing TP/SL warnings
+            '🛑 BIAS BLOCK', '🚑 RESCUE', 'RESCUE_TRIGGER',  # Continuation rescue events
+            'RESCUE SUCCESSFUL', 'RESCUE FAILED', 'Continuation',  # Continuation strategy logs
         ])
 
         # Determine if this is market context
@@ -1048,6 +1125,14 @@ class JulieUI:
             '🎯 TARGET CALCULATION',  # Target calculation logs
             'Layer 1 - BASE', 'Layer 2 - GEMINI AI', 'Layer 3 - HOLIDAY',  # Target layers
             '📊 COMPOSITE EFFECT', '✅ FINAL TARGETS',  # Composite and final targets
+        ])
+
+        # Determine if this is a Continuation Strategy log
+        is_continuation_log = any(keyword in line for keyword in [
+            'CONTINUATION_BIAS_BLOCK', 'CONTINUATION_RESCUE', 'CONTINUATION_NO_MATCH',
+            'CONTINUATION_WINDOW', 'CONTINUATION_SIGNAL',
+            '🛑 BIAS BLOCK', '🚑 RESCUE SUCCESSFUL', '❌ RESCUE FAILED',
+            'Continuation_Q', '📅 CONTINUATION WINDOW',
         ])
 
         # Determine if this is Gemini LLM activity (case-insensitive)
@@ -1080,7 +1165,12 @@ class JulieUI:
             ])
 
         # Route to appropriate log
-        if is_gemini_log:
+        if is_continuation_log:
+            self.add_continuation_log(line)
+            # Also add to event log for visibility
+            if is_event_log:
+                self.add_log(line)
+        elif is_gemini_log:
             self.add_gemini_log(line)
         elif is_event_log:
             self.add_log(line)
@@ -1185,6 +1275,27 @@ class JulieUI:
                     self.update_filter(filter_name, "BLOCK", self.colors['red'])
                 elif "PASS" in line:
                     self.update_filter(filter_name, "PASS", self.colors['green'])
+
+        # Parse Continuation Strategy / Rescue events
+        if 'RESCUE SUCCESSFUL' in line or '🚑 RESCUE' in line:
+            # Extract bias direction
+            side_match = re.search(r'(LONG|SHORT)', line)
+            side = side_match.group(1) if side_match else ""
+            self.update_strategy("Continuation", f"RESCUED {side}", '#ec4899')  # Pink for rescue
+            self.add_continuation_log(line)
+        elif 'RESCUE FAILED' in line or '❌ RESCUE FAILED' in line:
+            self.update_strategy("Continuation", "NO MATCH", '#f97316')  # Orange for failed
+            self.add_continuation_log(line)
+        elif '🛑 BIAS BLOCK' in line and 'Attempting Rescue' in line:
+            self.update_strategy("Continuation", "CHECKING", self.colors['yellow'])
+            self.add_continuation_log(line)
+        elif 'RESCUE_TRIGGER' in line or 'Continuation Strategy' in line:
+            # Log rescue trigger details
+            self.add_continuation_log(line)
+        elif 'Continuation_Q' in line:
+            # Active continuation window detected
+            self.update_strategy("Continuation", "ACTIVE", self.colors['green'])
+            self.add_continuation_log(line)
 
     def update_strategy(self, name, status, color):
         """Update strategy status"""

@@ -350,6 +350,82 @@ class EventLogger:
                 details={"threshold": "200ms"}
             )
 
+    # ==================== 7. CONTINUATION STRATEGY EVENTS ====================
+    # UI Destination: "CONTINUATION STRATEGY LOGS" section
+
+    def log_continuation_bias_block(self, strategy: str, side: str, bias: str):
+        """
+        Log when a trade is blocked by bias and rescue is being attempted.
+        Ex: "🛑 BIAS BLOCK: RegimeAdaptive (LONG) blocked by SHORT bias. Attempting Rescue..."
+        """
+        self._log_event("INFO", "CONTINUATION_BIAS_BLOCK",
+            f"🛑 BIAS BLOCK: {strategy} ({side}) blocked by {bias} bias. Attempting Rescue...",
+            details={
+                "strategy": strategy,
+                "blocked_side": side,
+                "active_bias": bias
+            }
+        )
+
+    def log_continuation_rescue_success(self, original_strategy: str, rescue_key: str, bias: str):
+        """
+        Log when a continuation strategy successfully rescues a blocked trade.
+        Ex: "🚑 RESCUE SUCCESSFUL: Continuation_Q4_W45_D7_Asia confirms LONG bias!"
+        """
+        self._log_event("INFO", "CONTINUATION_RESCUE",
+            f"🚑 RESCUE SUCCESSFUL: {rescue_key} confirms {bias} bias!",
+            details={
+                "original_strategy": original_strategy,
+                "rescue_strategy": rescue_key,
+                "bias": bias
+            }
+        )
+
+    def log_continuation_rescue_failed(self, strategy: str, side: str):
+        """
+        Log when no matching continuation setup is found.
+        Ex: "❌ RESCUE FAILED: No matching continuation setup found."
+        """
+        self._log_event("INFO", "CONTINUATION_NO_MATCH",
+            f"❌ RESCUE FAILED: No matching continuation setup found.",
+            details={
+                "blocked_strategy": strategy,
+                "blocked_side": side
+            }
+        )
+
+    def log_continuation_window_active(self, key: str, session: str, quarter: int, week: int, day: int):
+        """
+        Log when the current time matches an active continuation window.
+        Ex: "📅 CONTINUATION WINDOW: Q4_W45_D7_Asia is active"
+        """
+        self._log_event("INFO", "CONTINUATION_WINDOW",
+            f"📅 CONTINUATION WINDOW: {key} is active",
+            details={
+                "key": key,
+                "session": session,
+                "quarter": quarter,
+                "week": week,
+                "day": day
+            }
+        )
+
+    def log_continuation_signal(self, key: str, side: str, tp_dist: float, sl_dist: float):
+        """
+        Log when a continuation strategy generates a signal.
+        Ex: "📈 CONTINUATION SIGNAL: Continuation_Q4_W45_D7_Asia LONG"
+        """
+        icon = "📈" if side == "LONG" else "📉"
+        self._log_event("INFO", "CONTINUATION_SIGNAL",
+            f"{icon} CONTINUATION SIGNAL: {key} {side}",
+            details={
+                "strategy": key,
+                "side": side,
+                "tp_dist": f"{tp_dist:.2f}",
+                "sl_dist": f"{sl_dist:.2f}"
+            }
+        )
+
 
 # Create a global instance for easy importing
 event_logger = EventLogger()
