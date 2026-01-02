@@ -1,6 +1,7 @@
 
 import pandas as pd
 import numpy as np
+from zoneinfo import ZoneInfo  # <--- Make sure this is imported
 
 # --- HARDCODED STRATEGY CONFIGURATIONS ---
 # This dictionary contains the specific parameters for all 522 robust strategies.
@@ -16,27 +17,26 @@ class FractalSweepStrategy:
         self.stop = 6.0
 
     def generate_signals(self, df):
-        # Create a copy to avoid SettingWithCopyWarning or modifying original
+        # Create a copy to avoid SettingWithCopyWarning
         local_df = df.copy()
 
-        # Ensure we have a date/time column or index to work with
+        # Ensure we have a date/time column
         if 'Date' not in local_df.columns and isinstance(local_df.index, pd.DatetimeIndex):
              local_df['Date'] = local_df.index
-        elif 'Date' not in local_df.columns:
-             # Fallback or error - if index is not datetime and Date column missing
-             # For now, assuming index is datetime as per client.py
-             pass
 
-        # Filter by Quarter, Week, Day, Session
-        # Use .dt accessor on the 'Date' column we just ensured exists
+        # --- FIX: CONVERT TO NEW YORK TIME ---
+        # This ensures the dataframe matches the 'Day 7' (Sunday) logic of the configs
+        if local_df['Date'].dt.tz is None:
+            # Assume UTC if naive, then convert
+            local_df['Date'] = local_df['Date'].dt.tz_localize('UTC').dt.tz_convert('America/New_York')
+        else:
+            # Just convert if already aware
+            local_df['Date'] = local_df['Date'].dt.tz_convert('America/New_York')
+
+        # Calculate Q/W/D based on NY Time
         local_df['Quarter'] = local_df['Date'].dt.quarter
         local_df['Week'] = local_df['Date'].dt.isocalendar().week
         local_df['Day'] = local_df['Date'].dt.dayofweek + 1  # 1=Monday, 7=Sunday
-
-        # Session Logic (Simplified for example)
-        # Asia: 18:00 - 02:00 (next day)
-        # London: 03:00 - 11:00
-        # NY: 08:00 - 17:00
 
         # Apply filters
         mask = (
@@ -45,15 +45,12 @@ class FractalSweepStrategy:
             (local_df['Day'] == self.params['Day'])
         )
 
-        # (Full logic would go here, simplified for the runner)
         return local_df[mask].copy()
 
     def run_backtest(self, df):
-        # Placeholder for the full backtest logic
-        # In a real scenario, this would iterate through candles
         signals = self.generate_signals(df)
         return {
             'strategy_id': self.params,
             'total_trades': len(signals),
-            'win_rate': 0.0 # Placeholder
+            'win_rate': 0.0
         }
