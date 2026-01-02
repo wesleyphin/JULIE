@@ -121,43 +121,39 @@ class ContinuationRescueManager:
     """
     def __init__(self):
         self.configs = STRATEGY_CONFIGS
-        # Cache instances to avoid recreating them every tick
         self.strategy_instances = {}
+        self.ny_tz = ZoneInfo('America/New_York') # <--- Add Timezone
 
     def get_active_continuation_signal(self, df: pd.DataFrame, current_time, required_bias: str):
-        """
-        Checks if the current time matches a known Continuation Strategy window.
-        If yes, and the signal aligns with 'required_bias', returns the signal.
-        """
         if df.empty:
             return None
 
-        # 1. Construct the Key for the current moment
-        # Key Format: Q{q}_W{w}_D{d}_{session} (e.g., Q4_W45_D7_Asia)
+        # --- FIX: CONVERT INPUT TIME TO NY TIME ---
+        # If current_time is naive, assume UTC. If aware, convert to NY.
+        if current_time.tzinfo is None:
+             current_time = current_time.replace(tzinfo=dt_timezone.utc)
 
-        # Calculate derived date fields matches continuation_strategy.py logic
-        quarter = (current_time.month - 1) // 3 + 1
-        week = current_time.isocalendar().week
-        # Fix: Python weekday is 0-6, Strategy expects 1-7 (Mon=1)
-        day = current_time.weekday() + 1
+        ny_time = current_time.astimezone(self.ny_tz)
 
-        # Determine Base Session (Matches julie001 logic)
-        h = current_time.hour
+        # 1. Construct Key using NY TIME
+        quarter = (ny_time.month - 1) // 3 + 1
+        week = ny_time.isocalendar().week
+        day = ny_time.weekday() + 1
+        h = ny_time.hour
+
+        # Determine Session (Logic based on NY Hours)
         if 18 <= h or h < 3: session = "Asia"
         elif 3 <= h < 8: session = "London"
-        elif 8 <= h < 17: session = "NY" # Note: Configs use 'NY', not 'NY_AM'/'NY_PM' generally
+        elif 8 <= h < 17: session = "NY"
         else: session = "Other"
 
-        # Try to find a matching config key
-        # We might need to handle specific NY_AM/NY_PM if your config uses them,
-        # but based on the file provided, keys look like 'NY'.
         candidate_key = f"Q{quarter}_W{week}_D{day}_{session}"
 
-        # 2. Check if this is a High Probability Window
+        # 2. Check Config
         if candidate_key not in self.configs:
             return None
 
-        # 3. Instantiate Strategy (Lazy Loading)
+        # 3. Instantiate Strategy
         if candidate_key not in self.strategy_instances:
             try:
                 self.strategy_instances[candidate_key] = FractalSweepStrategy(candidate_key)
@@ -167,30 +163,31 @@ class ContinuationRescueManager:
         strat = self.strategy_instances[candidate_key]
 
         # 4. Generate Signal
-        # We pass the full DF. The strategy filters it.
-        # We need to know if the LAST bar is a valid signal.
         try:
-            # Assuming generate_signals returns a DF of valid rows
             signals_df = strat.generate_signals(df)
 
-            if not signals_df.empty and signals_df.index[-1] == current_time:
-                # 5. Check Alignment with Bias
-                # Since FractalSweep is a continuation strategy, we assume it trades
-                # in the direction of the active window/trend.
-                # If the strategy code doesn't explicitly return 'side',
-                # we rely on the fact that we are only calling this to RESCUE a trade
-                # that was blocked because it opposed the bias.
-                # Therefore, we only return a signal if we assume the Continuation
-                # intends to follow that bias.
+            # Check if the last bar in the DF matches our current time
+            # We must compare timestamps carefully (UTC vs UTC or NY vs NY)
+            if not signals_df.empty:
+                last_sig_time = signals_df.index[-1]
+                # Normalize both to UTC for comparison
+                if last_sig_time.tzinfo is None:
+                    last_sig_time = last_sig_time.replace(tzinfo=dt_timezone.utc)
+                else:
+                    last_sig_time = last_sig_time.astimezone(dt_timezone.utc)
 
-                return {
-                    'strategy': f"Continuation_{candidate_key}",
-                    'side': required_bias, # We inherit the bias we are rescuing
-                    'tp_dist': strat.target if hasattr(strat, 'target') else 6.0,
-                    'sl_dist': strat.stop if hasattr(strat, 'stop') else 4.0,
-                    'size': 5,
-                    'rescued': True
-                }
+                check_time = current_time.astimezone(dt_timezone.utc)
+
+                # Allow a small buffer (e.g. signal generated on the exact candle)
+                if last_sig_time == check_time:
+                    return {
+                        'strategy': f"Continuation_{candidate_key}",
+                        'side': required_bias,
+                        'tp_dist': strat.target if hasattr(strat, 'target') else 6.0,
+                        'sl_dist': strat.stop if hasattr(strat, 'stop') else 4.0,
+                        'size': 5,
+                        'rescued': True
+                    }
         except Exception as e:
             logging.error(f"Continuation Strategy Error ({candidate_key}): {e}")
             return None
