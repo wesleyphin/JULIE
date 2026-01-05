@@ -1186,24 +1186,25 @@ async def run_bot():
                         continue
 
                     # ==========================================
-                    # LAYER 2: FILTER GAUNTLET (With Rescue Logic)
+                    # LAYER 2: FILTER GAUNTLET (Safe Rescue Logic)
                     # ==========================================
 
                     # --- Helper Logic to Trigger Rescue ---
                     def try_rescue_trigger(block_reason, filter_name):
                         nonlocal signal, is_rescued, potential_rescue
+                        # RESCUE LOGIC: Only flip if we have a ticket AND the block isn't a "Hard Stop"
                         if potential_rescue and not is_rescued:
                             logging.info(f"♻️ RESCUE FLIP: Blocked by {filter_name} ({block_reason}). Flipping to {potential_rescue['strategy']} ({potential_rescue['side']})")
                             signal = potential_rescue  # FLIP TO OPPOSITE SIGNAL
                             is_rescued = True
                             potential_rescue = None  # Ticket used
-                            return True  # Rescue successful, proceed
+                            return True
                         else:
                             logging.info(f"⛔ BLOCKED by {filter_name}: {block_reason}")
-                            return False  # Die
+                            return False
                     # ---------------------------------------
 
-                    # 1. Rejection / Bias
+                    # 1. Rejection / Bias (SAFE TO RESCUE: Aligning with Bias)
                     rej_blocked, rej_reason = rejection_filter.should_block_trade(signal['side'])
                     range_bias_blocked = (allowed_chop_side is not None and signal['side'] != allowed_chop_side)
 
@@ -1211,26 +1212,36 @@ async def run_bot():
                         reason = rej_reason if rej_blocked else f"Opposite HTF Range Bias ({allowed_chop_side})"
                         if not try_rescue_trigger(reason, "Rejection/Bias"): continue
 
-                    # 2. Directional Loss Blocker
+                    # 2. Directional Loss Blocker (SAFE TO RESCUE: Aligning with Performance)
                     dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
                     if dir_blocked:
                         if not try_rescue_trigger(dir_reason, "DirectionalLoss"): continue
 
-                    # 3. Impulse Filter
+                    # 3. Impulse Filter (SAFE TO RESCUE: Aligning with Momentum)
                     impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])
                     if impulse_blocked:
                         if not try_rescue_trigger(impulse_reason, "ImpulseFilter"): continue
 
-                    # 4. Independent System Checks (Structure, FVG, Trend)
+                    # 4. Regime Structure Blocker (EQH/EQL)
+                    # 🛑 HARD STOP: DO NOT RESCUE 🛑
+                    # If we are at EQH/EQL, a flip is dangerous because it could be a breakout.
+                    regime_blocked, regime_reason = regime_blocker.should_block_trade(signal['side'], current_price)
+                    if regime_blocked:
+                        # Log and Die. No Rescue.
+                        logging.info(f"⛔ HARD STOP by RegimeBlocker (EQH/EQL): {regime_reason} - No Rescue Allowed (Breakout Risk)")
+                        continue
+
+                    # 5. Independent System Checks (Trend/Macro)
                     # Note: If we just flipped to Rescue, we are now checking the NEW signal against these filters.
-                    # If is_rescued is True, we generally want to bypass these 'Opinion' filters.
 
                     upgraded_blocked = False
                     upgraded_reasons = []
 
+                    # HTF FVG (Memory Based)
                     fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(signal['side'], current_price, None, None, tp_dist=signal.get('tp_dist', 15.0))
                     if fvg_blocked: upgraded_reasons.append(f"FVG: {fvg_reason}")
 
+                    # Macro Structure Trend (SAFE TO RESCUE: Aligning with Macro Trend)
                     struct_blocked, struct_reason = structure_blocker.should_block_trade(signal['side'], current_price)
                     if struct_blocked: upgraded_reasons.append(f"Structure: {struct_reason}")
 
@@ -1256,16 +1267,14 @@ async def run_bot():
                         if not arb.allow_trade: final_blocked = True; final_reason = arb.reason
 
                     if final_blocked:
-                        # If we are ALREADY rescued, we use 'Diplomatic Immunity' to ignore these opinion filters
+                        # If we are ALREADY rescued, we have 'Diplomatic Immunity'
                         if is_rescued:
                             logging.info(f"🛡️ BYPASS Filters ({final_reason}): Rescued by {signal['strategy']}")
                         else:
-                            # Attempt Rescue Trigger
+                            # Attempt Rescue Trigger (Trend/Macro blocks are safe to flip)
                             if not try_rescue_trigger(final_reason, "FilterStack"): continue
-                            # If rescue triggered here, we technically proceed.
-                            # (Safety: Ideally we re-check Safety filters, but for now we proceed as 'Rescued')
 
-                    # 5. Chop & Extension (Post-Arb)
+                    # 6. Chop & Extension (Post-Arb)
                     vol_regime, _, _ = volatility_filter.get_regime(new_df)
                     chop_blocked, chop_reason = chop_filter.should_block_trade(signal['side'], rejection_filter.prev_day_pm_bias, current_price, "NEUTRAL", vol_regime)
                     if chop_blocked:
@@ -1277,7 +1286,7 @@ async def run_bot():
                         if is_rescued: logging.info(f"🛡️ BYPASS Extension: Rescued by {signal['strategy']}")
                         elif not try_rescue_trigger(ext_reason, "ExtensionFilter"): continue
 
-                    # 6. Volatility Guardrail (Physics - Apply to Rescued too)
+                    # 7. Volatility Guardrail (Physics - Apply to Rescued too)
                     should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0), base_size=5)
                     if not should_trade:
                         # If physics fail, we can't trade.
