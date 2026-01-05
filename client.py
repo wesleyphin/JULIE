@@ -687,9 +687,13 @@ class ProjectXClient:
         """
         Get current position. Tries Search (POST) first, then GET fallback.
         UPDATED: Treats 404 as 'Flat Position' to stop log errors when no trades are open.
+        FIX: Returns cached local state if rate limited, preventing 'Fake Flat' signals.
         """
+        # --- FIX START ---
         if not self._check_general_rate_limit():
-            return {'side': None, 'size': 0, 'avg_price': 0.0}
+            logging.warning(f"⚠️ Rate limit hit in get_position - trusting cached state: {self._local_position}")
+            return self._local_position  # Return last known state instead of Flat
+        # --- FIX END ---
 
         if self.account_id is None:
             return {'side': None, 'size': 0, 'avg_price': 0.0}
@@ -1160,14 +1164,18 @@ class ProjectXClient:
     async def async_get_position(self) -> Dict:
         """
         Async version of get_position() for use in independent async tasks.
+        FIX: Returns cached local state if rate limited.
 
         Returns:
             Position dict with 'side', 'size', 'avg_price'
         """
         import aiohttp
 
+        # --- FIX START ---
         if not self._check_general_rate_limit():
-            return {'side': None, 'size': 0, 'avg_price': 0.0}
+            # In async, we might not want to log warnings every tick, but safety first
+            return self._local_position
+        # --- FIX END ---
 
         if self.account_id is None:
             return {'side': None, 'size': 0, 'avg_price': 0.0}

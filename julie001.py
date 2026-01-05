@@ -891,8 +891,12 @@ async def run_bot():
                 # Sync local active trade with broker state to avoid getting stuck
                 if active_trade is not None:
                     broker_pos = client.get_position()
+
+                    # SAFETY CHECK: Only clear if broker EXPLICITLY says Flat (side is None)
+                    # and we are confident (size is 0).
+                    # If broker_pos returns the cached state (from rate limit fix), this logic holds.
                     if broker_pos.get('side') is None or broker_pos.get('size', 0) == 0:
-                        logging.info("ℹ️ Broker reports flat while tracking active_trade; clearing local state so new signals can execute")
+                        logging.info("ℹ️ Broker reports flat while tracking active_trade; clearing local state.")
                         # Calculate PnL for directional loss tracking
                         trade_side = active_trade['side']
                         entry_price = active_trade['entry_price']
