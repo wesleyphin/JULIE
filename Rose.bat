@@ -1,135 +1,94 @@
 @echo off
+TITLE JULIE TRADING SYSTEM // INSTITUTIONAL ENGINE
+COLOR 03
+CLS
 
-color 03
-
-echo ========================================
-
-echo JULIE001 BOT LAUNCHER
-
-echo ========================================
+:: ===========================================================================
+::                           JULIE ALGORITHMIC SYSTEM
+:: ===========================================================================
 
 echo.
+echo      JJJJJJJJJ   UU     UU   LL          IIIIII    EEEEEEE
+echo         JJ       UU     UU   LL            II      EE
+echo         JJ       UU     UU   LL            II      EEEEE
+echo      J  JJ       UU     UU   LL            II      EE
+echo       JJJJ        UUUUUUU    LLLLLLL     IIIIII    EEEEEEE
+echo.
+echo ===========================================================================
+echo                 INSTITUTIONAL EXECUTION ENGINE v2.0
+echo ===========================================================================
+echo.
 
-REM Step 1: Check if venv exists, if not create it
+:: ---------------------------------------------------------------------------
+:: STEP 1: ENVIRONMENT SECURITY CHECK
+:: ---------------------------------------------------------------------------
+echo [SYSTEM] Checking Secure Environment (VENV)...
 
 if not exist "venv" (
-
-echo [1] Creating virtual environment...
-
-python -m venv venv
-
-echo.
-
-) else (
-
-echo [1] Virtual environment already exists
-
-echo.
+    echo [WARN]  Virtual Environment not found.
+    echo [INIT]  Building containment field...
+    python -m venv venv
 )
 
-
-REM Step 2: Activate venv
-
-echo [2] Activating venv...
-
+:: Activate the Venv
 call venv\Scripts\activate.bat
-
+echo [OK]    Environment Activated.
 echo.
 
-REM Step 3: Check if packages are installed
+:: ---------------------------------------------------------------------------
+:: STEP 2: FORCE DEPENDENCY UPDATE
+:: ---------------------------------------------------------------------------
+echo [SCAN]  Validating Strategy Drivers...
 
-python -c "import pandas, numpy, requests, joblib, sklearn, rich, colorama, click, tkinter, PIL" 2>nul
+:: We update PIP first to prevent installation errors
+python -m pip install --upgrade pip >nul
 
-if errorlevel 1 (
+:: Group 1: The New v2.0 Async Drivers (Added signalrcore_async here)
+echo [1/4]   Installing Stream Engine (Async IO)...
+pip install aiohttp signalrcore signalrcore_async websockets websocket-client >nul
 
-echo [3] Upgrading pip...
+:: Group 2: Market Data Feeds
+echo [2/4]   Installing Data Feeds (YFinance, Timezones)...
+pip install yfinance pytz tzdata requests >nul
 
-python -m pip install --upgrade pip
+:: Group 3: Math & ML
+echo [3/4]   Installing Neural Engine (SciPy, Sklearn)...
+pip install numpy pandas scipy joblib scikit-learn >nul
 
+:: Group 4: UI Components
+echo [4/4]   Installing Dashboard Graphics...
+pip install rich colorama click Pillow >nul
+
+echo [DONE]  All drivers operational.
 echo.
 
-echo [4] Installing packages...
-
+:: ---------------------------------------------------------------------------
+:: STEP 3: EXECUTION
+:: ---------------------------------------------------------------------------
+echo ===========================================================================
+echo                       SYSTEM READY - LAUNCHING UI
+echo ===========================================================================
 echo.
 
-echo Installing pandas...
-
-pip install pandas
-
-echo.
-
-echo Installing numpy...
-
-pip install numpy
-
-echo.
-
-echo Installing requests...
-
-pip install requests
-
-echo.
-
-echo Installing joblib...
-
-pip install joblib
-
-echo.
-
-echo Installing scikit-learn...
-
-pip install scikit-learn
-
-echo.
-
-echo Installing rich...
-
-pip install rich
-
-echo.
-
-echo Installing colorama...
-
-pip install colorama
-
-echo.
-
-echo Installing click...
-
-pip install click
-
-echo.
-
-echo Installing tkinter...
-
-pip install tk
-
-echo.
-
-echo Installing pillow...
-
-pip install pillow
-
-echo.
-
+if exist launch_ui.py (
+    python launch_ui.py
 ) else (
-
-echo [3] All packages already installed
-
-echo.
-
+    python julie_tkinter_ui.py
 )
 
-REM Step 4: Run the UI Monitor
-
-echo ========================================
-
-echo LAUNCHING JULIE UI MONITOR
-
-echo ========================================
-
-echo.
-
-python launch_ui.py
+:: ---------------------------------------------------------------------------
+:: STEP 4: CRASH REPORT
+:: ---------------------------------------------------------------------------
+if %ERRORLEVEL% NEQ 0 (
+    color 0C
+    echo.
+    echo ===========================================================================
+    echo [CRITICAL ERROR] SYSTEM HALTED
+    echo ===========================================================================
+    echo.
+    echo The bot crashed. Please read the error message above.
+    echo.
+    pause
+)
 
 pause
