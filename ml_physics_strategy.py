@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Dict, Optional
 
 import numpy as np
@@ -49,6 +50,10 @@ ML_FEATURE_COLUMNS = [
     'High_Volatility',
 ]
 
+OPTIONAL_FEATURE_COLUMNS = {
+    'RVol_ZScore',
+}
+
 
 def ml_calculate_rsi(series, period=RSI_PERIOD):
     """RSI calculation (same as ml_train_v11.calculate_rsi)"""
@@ -89,8 +94,10 @@ def ml_calculate_adx(high, low, close, period=ADX_PERIOD):
 
     # Smoothed values
     atr = tr.rolling(window=period).mean()
-    plus_di = 100 * pd.Series(plus_dm).rolling(window=period).mean() / atr
-    minus_di = 100 * pd.Series(minus_dm).rolling(window=period).mean() / atr
+    plus_series = pd.Series(plus_dm, index=high.index)
+    minus_series = pd.Series(minus_dm, index=high.index)
+    plus_di = 100 * plus_series.rolling(window=period).mean() / atr
+    minus_di = 100 * minus_series.rolling(window=period).mean() / atr
 
     # ADX
     dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di + 1e-10)
@@ -161,6 +168,40 @@ class MLPhysicsStrategy(Strategy):
         self.sm = SessionManager()
         self.window_size = CONFIG.get("WINDOW_SIZE", 15)
         self.model_loaded = any(self.sm.brains.values())  # True if at least one model loaded
+        self._last_feature_log_ts = 0.0
+        self._feature_log_interval = 300.0
+        self._logged_resample = False
+
+    def _log_feature_issue(self, cols, bar_count, optional=False):
+        now = time.time()
+        if now - self._last_feature_log_ts < self._feature_log_interval:
+            return
+        status = "optional" if optional else "critical"
+        level = logging.info if optional else logging.warning
+        level(f"MLPhysics: {status} feature NaNs: {', '.join(cols)} | bars={bar_count}")
+        self._last_feature_log_ts = now
+
+    def _resample_ohlcv(self, df: pd.DataFrame, minutes: int) -> pd.DataFrame:
+        if df is None or df.empty:
+            return df
+        required_cols = {'open', 'high', 'low', 'close', 'volume'}
+        if not required_cols.issubset({c.lower() for c in df.columns}):
+            return df
+        if not isinstance(df.index, pd.DatetimeIndex):
+            try:
+                df = df.copy()
+                df.index = pd.to_datetime(df.index)
+            except Exception:
+                return df
+        rule = f"{int(minutes)}min"
+        resampled = df.resample(rule).agg({
+            'open': 'first',
+            'high': 'max',
+            'low': 'min',
+            'close': 'last',
+            'volume': 'sum'
+        }).dropna()
+        return resampled
 
     def calculate_slope(self, values):
         """Exact copy from juliemlsession.py"""
@@ -299,13 +340,23 @@ class MLPhysicsStrategy(Strategy):
         # Final row must have a complete feature vector (no NaNs)
         last = w_df.iloc[-1]
         feature_vals = []
+        critical_missing = []
+        optional_filled = []
         for col in ML_FEATURE_COLUMNS:
             val = last.get(col, np.nan)
+            if pd.isna(val):
+                if col in OPTIONAL_FEATURE_COLUMNS:
+                    val = 0.0
+                    optional_filled.append(col)
+                else:
+                    critical_missing.append(col)
             feature_vals.append(val)
 
-        if any(pd.isna(feature_vals)):
-            # Still warming up rolling windows
+        if critical_missing:
+            self._log_feature_issue(sorted(critical_missing), len(w_df), optional=False)
             return None
+        if optional_filled:
+            self._log_feature_issue(sorted(optional_filled), len(w_df), optional=True)
 
         X = pd.DataFrame([feature_vals], columns=ML_FEATURE_COLUMNS)
         return X
@@ -330,6 +381,12 @@ class MLPhysicsStrategy(Strategy):
         # 2. Convert df to the format expected by prepare_features
         # Need columns: datetime, Open, High, Low, Close, Volume
         hist_df = df.copy()
+        tf_minutes = CONFIG.get("ML_PHYSICS_TIMEFRAME_MINUTES", 1)
+        if isinstance(tf_minutes, (int, float)) and tf_minutes > 1:
+            hist_df = self._resample_ohlcv(hist_df, int(tf_minutes))
+            if not self._logged_resample:
+                logging.info(f"MLPhysics: resampling to {int(tf_minutes)}min for feature build")
+                self._logged_resample = True
         hist_df['datetime'] = hist_df.index
 
         # Rename columns to match expected format (capitalize)

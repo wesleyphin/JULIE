@@ -13,7 +13,7 @@ class GeminiSessionOptimizer:
         self.model = self.config.get('model', 'gemini-3-pro-preview')
         self.url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model}:generateContent?key={self.api_key}"
         self.headers = {"Content-Type": "application/json"}
-        self.csv_path = 'es_2023_2024_2025.csv'
+        self.csv_path = 'ml_mes_et.csv'
 
     def _slice_dataframe_by_session(self, df, session_name):
         session_hours = CONFIG.get('SESSIONS', {}).get(session_name, {}).get('HOURS', [])
@@ -26,9 +26,18 @@ class GeminiSessionOptimizer:
         try:
             df = pd.read_csv(self.csv_path, thousands=',', low_memory=False)
             df.columns = [c.strip().lower() for c in df.columns]
-            date_col = next((c for c in df.columns if 'date' in c), None)
-            if not date_col: return None
-            df['timestamp'] = pd.to_datetime(df[date_col], errors='coerce')
+            date_col = None
+            if 'ts_event' in df.columns:
+                date_col = 'ts_event'
+            elif 'timestamp' in df.columns:
+                date_col = 'timestamp'
+            else:
+                date_col = next((c for c in df.columns if 'date' in c), None)
+            if not date_col:
+                return None
+            df['timestamp'] = pd.to_datetime(df[date_col], errors='coerce', utc=True)
+            if df['timestamp'].dt.tz is not None:
+                df['timestamp'] = df['timestamp'].dt.tz_convert('America/New_York')
             df.dropna(subset=['timestamp'], inplace=True)
             df.set_index('timestamp', inplace=True)
             for col in ['open', 'high', 'low', 'close', 'volume']:
@@ -48,17 +57,46 @@ class GeminiSessionOptimizer:
         df['tr1'] = abs(df['high'] - df['close'].shift(1))
         df['tr2'] = abs(df['low'] - df['close'].shift(1))
         df['tr'] = df[['tr0', 'tr1', 'tr2']].max(axis=1)
-        df['up_move'] = df['high'] - df['high'].shift(1)
-        df['down_move'] = df['low'].shift(1) - df['low']
-        df['plus_dm'] = np.where((df['up_move'] > df['down_move']) & (df['up_move'] > 0), df['up_move'], 0)
-        df['minus_dm'] = np.where((df['down_move'] > df['up_move']) & (df['down_move'] > 0), df['down_move'], 0)
-        tr_smooth = df['tr'].rolling(period).sum()
-        plus_di = 100 * (df['plus_dm'].rolling(period).sum() / tr_smooth)
-        minus_di = 100 * (df['minus_dm'].rolling(period).sum() / tr_smooth)
-        sum_di = plus_di + minus_di
-        dx = 100 * abs(plus_di - minus_di) / sum_di.replace(0, 1)
-        adx = dx.rolling(period).mean().iloc[-1]
-        return round(adx, 2)
+        up_move = df['high'].diff()
+        down_move = -df['low'].diff()
+
+        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
+        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
+
+        alpha = 1 / period
+        truerange = df['tr'].ewm(alpha=alpha, adjust=False).mean()
+        plus = 100 * pd.Series(plus_dm, index=df.index).ewm(alpha=alpha, adjust=False).mean() / truerange
+        minus = 100 * pd.Series(minus_dm, index=df.index).ewm(alpha=alpha, adjust=False).mean() / truerange
+
+        sum_di = plus + minus
+        dx = 100 * (plus - minus).abs() / sum_di.replace(0, 1)
+        adx_series = dx.ewm(alpha=alpha, adjust=False).mean()
+        adx = adx_series.iloc[-1]
+        if pd.isna(adx):
+            try:
+                last_ts = df.index[-1] if isinstance(df.index, pd.DatetimeIndex) else None
+                logging.warning(f"Gemini ADX NaN -> 0 | bars={len(df)} | last_ts={last_ts}")
+            except Exception:
+                logging.warning("Gemini ADX NaN -> 0 | bars=unknown")
+        return round(float(adx) if pd.notna(adx) else 0, 2)
+
+    def _calculate_choppiness_index(self, df, period=14):
+        if df.empty or len(df) < period:
+            return 0
+        df = df.copy()
+        df['tr0'] = abs(df['high'] - df['low'])
+        df['tr1'] = abs(df['high'] - df['close'].shift(1))
+        df['tr2'] = abs(df['low'] - df['close'].shift(1))
+        df['tr'] = df[['tr0', 'tr1', 'tr2']].max(axis=1)
+
+        recent = df.iloc[-period:]
+        sum_tr = recent['tr'].sum()
+        price_range = recent['high'].max() - recent['low'].min()
+        if price_range <= 0 or sum_tr <= 0:
+            return 0
+
+        chop = 100 * (np.log10(sum_tr / price_range) / np.log10(period))
+        return round(float(chop), 2)
 
     def _calculate_market_profile(self, df):
         if df.empty: return {}
@@ -102,11 +140,9 @@ class GeminiSessionOptimizer:
         if master_df.empty: return None
 
         # --- STEP 1: CALCULATE SHARED CONTEXT (Done Once) ---
-        # Use base_session_name for data slicing if this is a micro-session (NY_LUNCH, NY_CLOSE)
-        slice_target = base_session_name if base_session_name else session_name
-        session_aligned_df = self._slice_dataframe_by_session(master_df, slice_target)
+        # Use full 24h data for ADX/market profile to match chart session settings
+        session_aligned_df = master_df
         if session_aligned_df.empty: return None
-
         base_rr = base_tp / base_sl if base_sl > 0 else 0.0
         daily_session_stats = session_aligned_df.resample('D').agg({'high': 'max', 'low': 'min', 'volume': 'sum'}).dropna()
         daily_session_stats['range'] = daily_session_stats['high'] - daily_session_stats['low']
@@ -114,7 +150,9 @@ class GeminiSessionOptimizer:
 
         df_15m = session_aligned_df.resample('15min').agg({'high': 'max', 'low': 'min', 'close': 'last'}).dropna()
         adx_score = self._calculate_adx(df_15m) if not df_15m.empty else 0
+        chop_score = self._calculate_choppiness_index(df_15m) if not df_15m.empty else 0
         trend_status = "TRENDING" if adx_score > 25 else "CHOPPY/RANGING"
+        chop_status = "CHOPPY" if chop_score >= 61.8 else ("TRENDING" if chop_score <= 38.2 else "NEUTRAL")
 
         profile = self._calculate_market_profile(session_aligned_df)
         curr_price = profile.get('current_price', 0)
@@ -151,6 +189,7 @@ class GeminiSessionOptimizer:
             f"IB Range: {profile.get('IB_Low')} - {profile.get('IB_High')}\n"
             f"HTF FVGs: {fvg_summary}\n"
             f"ADX: {adx_score} ({trend_status})\n"
+            f"CHOP_INDEX: {chop_score} ({chop_status})\n"
             f"News: {events_data}\n"
         )
 
@@ -209,6 +248,8 @@ class GeminiSessionOptimizer:
             "- If Base RR > 3.0, DO NOT increase TP multiplier.\n"
             "- If market is Choppy (ADX < 20), REDUCE TP multiplier to 0.8x.\n"
             "- If market is Trending (ADX > 30), allow TP expansion up to 1.5x.\n\n"
+            "- If CHOP_INDEX >= 61.8, treat as CHOPPY and bias toward tighter TP.\n"
+            "- If CHOP_INDEX <= 38.2, treat as TRENDING and allow TP expansion.\n\n"
 
             "*** GENERAL GUIDANCE ***\n"
             "- In low volume/chop, WIDER STOPS + TIGHTER TARGETS = Higher Win Rate."
@@ -275,7 +316,9 @@ class GeminiSessionOptimizer:
             "*** ORIGINAL RULES ***\n"
             "- HTF FVG ROADBLOCKS: Increase t1_body (2.5x+) if approaching resistance.\n"
             "- VALUE AREA: If inside VA, maintain HIGHER multipliers.\n"
-            "- TREND: If ADX > 25, switch to 'TRENDING' mode with LOWER multipliers."
+            "- TREND: If ADX > 25, switch to 'TRENDING' mode with LOWER multipliers.\n"
+            "- CHOP: If CHOP_INDEX >= 61.8, switch to 'CHOPPY' mode with HIGHER multipliers.\n"
+            "- TREND: If CHOP_INDEX <= 38.2, reinforce 'TRENDING' mode with LOWER multipliers."
         )
 
         user_prompt = (
@@ -328,7 +371,9 @@ class GeminiSessionOptimizer:
 
             "*** ORIGINAL RULES ***\n"
             "- EXPECTING EXPLOSIVE MOVE: LOWER multiplier (0.6x).\n"
-            "- EXPECTING ROTATION: RAISE multiplier (1.5x)."
+            "- EXPECTING ROTATION: RAISE multiplier (1.5x).\n"
+            "- If CHOP_INDEX >= 61.8, bias toward ROTATION.\n"
+            "- If CHOP_INDEX <= 38.2, bias toward EXPLOSIVE MOVE."
         )
 
         user_prompt = (
