@@ -38,6 +38,7 @@ CONFIG = {
 
     # --- ML SESSION-BASED STRATEGY SETTINGS ---
     "WINDOW_SIZE": 15,
+    "ML_PHYSICS_TIMEFRAME_MINUTES": 1,
 
     # --- EARLY EXIT OPTIMIZATION (from 2023-2025 backtest analysis) ---
     # Combined early exit rules:
@@ -105,7 +106,7 @@ CONFIG = {
     # --- GEMINI 3.0 PRO OPTIMIZATION ---
     "GEMINI": {
         "enabled": True,
-        "api_key": "YOUR_GEMINI_API_KEY_HERE",
+        "api_key": "",
         "model": "gemini-3-pro-preview",
     },
 

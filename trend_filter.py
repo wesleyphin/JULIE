@@ -83,6 +83,36 @@ class TrendFilter:
         except Exception as e:
             logging.error(f"❌ Error updating TrendFilter params: {e}")
 
+    def _calculate_adx(self, df: pd.DataFrame, period: int = 14) -> float:
+        if df.empty or len(df) < period:
+            return 0.0
+        if not {'high', 'low', 'close'}.issubset(df.columns):
+            return 0.0
+
+        local_df = df.copy()
+        local_df['tr0'] = (local_df['high'] - local_df['low']).abs()
+        local_df['tr1'] = (local_df['high'] - local_df['close'].shift(1)).abs()
+        local_df['tr2'] = (local_df['low'] - local_df['close'].shift(1)).abs()
+        local_df['tr'] = local_df[['tr0', 'tr1', 'tr2']].max(axis=1)
+
+        up_move = local_df['high'].diff()
+        down_move = -local_df['low'].diff()
+        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+
+        alpha = 1 / period
+        truerange = local_df['tr'].ewm(alpha=alpha, adjust=False).mean()
+        plus = 100 * pd.Series(plus_dm, index=local_df.index).ewm(alpha=alpha, adjust=False).mean() / truerange
+        minus = 100 * pd.Series(minus_dm, index=local_df.index).ewm(alpha=alpha, adjust=False).mean() / truerange
+
+        sum_di = plus + minus
+        dx = 100 * (plus - minus).abs() / sum_di.replace(0, 1)
+        adx_series = dx.ewm(alpha=alpha, adjust=False).mean()
+        adx = adx_series.iloc[-1]
+        if pd.isna(adx):
+            return 0.0
+        return float(adx)
+
     def should_block_trade(self, df: pd.DataFrame, side: str, is_range_fade: bool = False) -> Tuple[bool, Optional[str]]:
         """
         Block Reversals based on 4 Tiers of Impulse/Trend.
@@ -127,7 +157,12 @@ class TrendFilter:
         # =========================================================
         # TIER 4: MACRO TREND FILTER (Modified with Wick Override)
         # =========================================================
-        if not is_range_fade:
+        adx_current = self._calculate_adx(df)
+        tier4_bypass = adx_current > 25.0
+        if tier4_bypass and trend_state != "NEUTRAL":
+            logging.info(f"🔓 Tier 4 Bypassed: ADX {adx_current:.2f} > 25 ({trend_state} trend ignored)")
+
+        if not is_range_fade and not tier4_bypass:
             # BLOCK SHORTS IN BULL TREND
             if side == "SHORT" and trend_state == "BULLISH":
                 # EXCEPTION: If we have a massive Shooting Star wick, allow the counter-trend trade

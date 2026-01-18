@@ -11,6 +11,7 @@ import uuid
 from typing import Dict, Optional, List, Tuple
 import random
 import asyncio
+from pathlib import Path
 
 from config import CONFIG, refresh_target_symbol, determine_current_contract_symbol
 from dynamic_sltp_params import dynamic_sltp_engine, get_sltp
@@ -77,6 +78,127 @@ def resample_dataframe(df: pd.DataFrame, timeframe_minutes: int) -> pd.DataFrame
     resampled_df = df.resample(tf_code).agg(agg_dict).dropna()
 
     return resampled_df
+
+
+class CsvBarAppender:
+    """
+    Appends 1-minute bars to the existing history CSV without duplicates.
+    """
+
+    def __init__(self, csv_path: str, symbol: str, tz: ZoneInfo):
+        self.csv_path = Path(csv_path)
+        self.symbol = (symbol or "").replace(".", "")
+        self.tz = tz
+        self.mode = self._detect_mode()
+        self._ensure_header()
+        self.last_ts = self._read_last_timestamp()
+
+    def _detect_mode(self) -> str:
+        if not self.csv_path.exists():
+            return "databento"
+        try:
+            with self.csv_path.open("r", errors="ignore") as f:
+                first = f.readline().strip().lower()
+            if first.startswith("ts_event"):
+                return "databento"
+            if first.startswith("time series"):
+                return "legacy"
+        except Exception:
+            pass
+        return "databento"
+
+    def _ensure_header(self):
+        if self.csv_path.exists() and self.csv_path.stat().st_size > 0:
+            return
+        if self.mode == "legacy":
+            header_symbol = self.symbol or "MES"
+            lines = [
+                f"Time Series,{header_symbol},,,,,",
+                "Date,Symbol,Open,High,Low,Close,Volume",
+            ]
+            self.csv_path.write_text("\n".join(lines) + "\n")
+        else:
+            header = "ts_event,rtype,publisher_id,instrument_id,open,high,low,close,volume,symbol"
+            self.csv_path.write_text(header + "\n")
+
+    def _parse_date_from_line(self, line: str) -> Optional[datetime.datetime]:
+        parts = line.split(",", 1)
+        if not parts:
+            return None
+        try:
+            if self.mode == "legacy":
+                dt = datetime.datetime.strptime(parts[0], "%m/%d/%Y %I:%M %p")
+                return dt.replace(tzinfo=self.tz)
+            dt = pd.to_datetime(parts[0], utc=True, errors="coerce")
+            if pd.isna(dt):
+                return None
+            return dt.tz_convert(self.tz)
+        except Exception:
+            return None
+
+    def _read_last_timestamp(self) -> Optional[datetime.datetime]:
+        if not self.csv_path.exists():
+            return None
+        try:
+            with self.csv_path.open("rb") as f:
+                f.seek(0, 2)
+                size = f.tell()
+                if size == 0:
+                    return None
+                read_size = min(size, 65536)
+                f.seek(-read_size, 2)
+                data = f.read().decode("utf-8", errors="ignore")
+            lines = [line.strip() for line in data.splitlines() if line.strip()]
+            for line in reversed(lines):
+                if line.startswith("Time Series") or line.startswith("Date,"):
+                    continue
+                ts = self._parse_date_from_line(line)
+                if ts:
+                    return ts
+        except Exception as e:
+            logging.warning(f"CSV logger: failed reading last timestamp: {e}")
+        return None
+
+    def _format_row(self, ts: datetime.datetime, row: pd.Series) -> str:
+        if self.mode == "legacy":
+            ts_local = ts.astimezone(self.tz)
+            ts_str = ts_local.strftime("%m/%d/%Y %I:%M %p")
+            o = f"{float(row['open']):,.2f}"
+            h = f"{float(row['high']):,.2f}"
+            l = f"{float(row['low']):,.2f}"
+            c = f"{float(row['close']):,.2f}"
+            v = int(row.get("volume", 0))
+            return f'{ts_str},{self.symbol},"{o}","{h}","{l}","{c}",{v}'
+
+        ts_local = ts.astimezone(self.tz)
+        ts_str = ts_local.replace(microsecond=0).isoformat(sep=" ")
+        o = f"{float(row['open'])}"
+        h = f"{float(row['high'])}"
+        l = f"{float(row['low'])}"
+        c = f"{float(row['close'])}"
+        v = int(row.get("volume", 0))
+        symbol = row.get("symbol") if "symbol" in row else None
+        symbol = symbol or self.symbol or "MES"
+        return f"{ts_str},33,1,0,{o},{h},{l},{c},{v},{symbol}"
+
+    def append_from_df(self, df: pd.DataFrame) -> int:
+        if df is None or df.empty:
+            return 0
+        df = df.sort_index()
+        if self.last_ts is not None:
+            df = df[df.index > self.last_ts]
+        if df.empty:
+            return 0
+
+        lines = []
+        for ts, row in df.iterrows():
+            lines.append(self._format_row(ts, row))
+
+        with self.csv_path.open("a", newline="") as f:
+            f.write("\n".join(lines) + "\n")
+
+        self.last_ts = df.index[-1]
+        return len(lines)
 
 
 logging.basicConfig(
@@ -356,6 +478,8 @@ async def run_bot():
     print("  ✓ Position Sync Task (syncs broker position every 30s)")
     print("\nListening for market data (faster polling with async)...")
 
+    bar_logger = CsvBarAppender("ml_mes_et.csv", CONFIG.get("TARGET_SYMBOL"), NY_TZ)
+
     # === LAUNCH INDEPENDENT ASYNC TASKS ===
     # These tasks run independently and cannot be blocked by strategy calculations
     heartbeat = asyncio.create_task(heartbeat_task(client, interval=60))
@@ -397,6 +521,11 @@ async def run_bot():
     if master_df.empty:
         logging.warning("⚠️ Startup fetch returned empty data (MES). Bot will attempt to build history in loop.")
         master_df = pd.DataFrame()
+
+    if not master_df.empty:
+        appended = bar_logger.append_from_df(master_df)
+        if appended:
+            logging.info(f"CSV logger: appended {appended} bars to {bar_logger.csv_path}")
 
     # --- 10/10 UPGRADE: DYNAMIC VOLATILITY CALIBRATION ---
     # Use the 20,000 bars (approx 2 weeks) to recalibrate the Volatility Map
@@ -690,6 +819,9 @@ async def run_bot():
             recent_vix_data = vix_client.get_market_data(lookback_minutes=15, force_fetch=True)
 
             if not recent_data.empty:
+                appended = bar_logger.append_from_df(recent_data)
+                if appended:
+                    logging.debug(f"CSV logger: appended {appended} bars")
                 # Append new data to our master history
                 master_df = pd.concat([master_df, recent_data])
 
@@ -1163,6 +1295,19 @@ async def run_bot():
                     signal = sig
                     priority_label = "FAST" if priority == 1 else "STANDARD"
 
+                    def should_log_ui(current_signal, fallback_name):
+                        return True
+
+                    def log_filter_block(filter_name, reason, side_override=None):
+                        if should_log_ui(signal, strat_name):
+                            event_logger.log_filter_check(
+                                filter_name,
+                                side_override or signal['side'],
+                                False,
+                                reason,
+                                strategy=signal.get('strategy', strat_name)
+                            )
+
                     # === 1. PREPARE THE RESCUE TICKET (OPPOSITE SIDE) ===
                     is_rescued = False
 
@@ -1182,6 +1327,7 @@ async def run_bot():
                         entry_price=current_price, side=signal['side'], tp_distance=signal.get('tp_dist', 6.0), df_1m=new_df
                     )
                     if not is_feasible:
+                        log_filter_block("TargetFeasibility", feasibility_reason)
                         logging.info(f"⛔ Signal ignored ({priority_label}): {feasibility_reason}")
                         continue
 
@@ -1192,9 +1338,22 @@ async def run_bot():
                     # --- Helper Logic to Trigger Rescue ---
                     def try_rescue_trigger(block_reason, filter_name):
                         nonlocal signal, is_rescued, potential_rescue
+                        log_filter_block(filter_name, block_reason)
                         # RESCUE LOGIC: Only flip if we have a ticket AND the block isn't a "Hard Stop"
                         if potential_rescue and not is_rescued:
+                            # Enforce TrendFilter on the rescue side before flipping
+                            rescue_blocked, rescue_reason = trend_filter.should_block_trade(new_df, potential_rescue['side'])
+                            if rescue_blocked:
+                                logging.info(f"⛔ RESCUE DENIED by TrendFilter ({potential_rescue['side']}): {rescue_reason}")
+                                log_filter_block("TrendFilter", rescue_reason, side_override=potential_rescue['side'])
+                                return False
+                            original_strategy = signal.get('strategy', strat_name)
                             logging.info(f"♻️ RESCUE FLIP: Blocked by {filter_name} ({block_reason}). Flipping to {potential_rescue['strategy']} ({potential_rescue['side']})")
+                            event_logger.log_continuation_rescue_success(
+                                original_strategy,
+                                potential_rescue['strategy'],
+                                potential_rescue['side']
+                            )
                             signal = potential_rescue  # FLIP TO OPPOSITE SIGNAL
                             is_rescued = True
                             potential_rescue = None  # Ticket used
@@ -1228,6 +1387,7 @@ async def run_bot():
                     regime_blocked, regime_reason = regime_blocker.should_block_trade(signal['side'], current_price)
                     if regime_blocked:
                         # Log and Die. No Rescue.
+                        log_filter_block("RegimeBlocker", regime_reason)
                         logging.info(f"⛔ HARD STOP by RegimeBlocker (EQH/EQL): {regime_reason} - No Rescue Allowed (Breakout Risk)")
                         continue
 
@@ -1238,8 +1398,7 @@ async def run_bot():
                     upgraded_reasons = []
 
                     # HTF FVG (Memory Based)
-                    fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(signal['side'], current_price, None, None, tp_dist=signal.get('tp_dist', 15.0))
-                    if fvg_blocked: upgraded_reasons.append(f"FVG: {fvg_reason}")
+                    fvg_blocked, fvg_reason = False, None
 
                     # Macro Structure Trend (SAFE TO RESCUE: Aligning with Macro Trend)
                     struct_blocked, struct_reason = structure_blocker.should_block_trade(signal['side'], current_price)
@@ -1290,6 +1449,7 @@ async def run_bot():
                     should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0), base_size=5)
                     if not should_trade:
                         # If physics fail, we can't trade.
+                        log_filter_block("VolatilityGuardrail", "Volatility check failed")
                         logging.info(f"⛔ BLOCKED by Volatility Guardrail")
                         continue
 

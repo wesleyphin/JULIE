@@ -79,6 +79,7 @@ class JulieUI:
             'green_light': '#4ade80',
             'red': '#ef4444',
             'yellow': '#fbbf24',
+            'orange': '#f97316',
             'blue': '#3b82f6',
         }
 
@@ -765,7 +766,7 @@ class JulieUI:
             ("Volatility", "IDLE"),
             ("Trend", "IDLE"),
             ("Impulse", "IDLE"),
-            ("HTF FVG", "IDLE"),
+            ("HTF FVG", "DISABLED"),
             ("Bank Level", "IDLE"),
             ("Memory S/R", "IDLE"),
             ("News", "IDLE"),
@@ -791,6 +792,9 @@ class JulieUI:
         elif status in ["BLOCK", "FAIL"]:
             bg_color = '#3d1a1a'  # Dark red
             status_color = self.colors['red']
+        elif status == "DISABLED":
+            bg_color = '#3a2616'  # Dark orange
+            status_color = self.colors['orange']
         else:  # IDLE or neutral
             bg_color = self.colors['input_bg']  # Neutral gray
             status_color = self.colors['text_gray']
@@ -1308,6 +1312,8 @@ class JulieUI:
         """Update filter status and background color"""
         def update():
             if name in self.filter_labels:
+                if name == "HTF FVG" and status != "DISABLED":
+                    return
                 filter_info = self.filter_labels[name]
 
                 # Determine background color based on status
@@ -1317,6 +1323,9 @@ class JulieUI:
                 elif status in ["BLOCK", "FAIL"]:
                     bg_color = '#3d1a1a'  # Dark red
                     status_color = self.colors['red']
+                elif status == "DISABLED":
+                    bg_color = '#3a2616'  # Dark orange
+                    status_color = self.colors['orange']
                 else:  # IDLE or neutral
                     bg_color = self.colors['input_bg']  # Neutral gray
                     status_color = self.colors['text_gray']
