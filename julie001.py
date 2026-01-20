@@ -1001,8 +1001,15 @@ async def run_bot():
                             known_size = active_trade.get('size', 1)
                             stop_order_id = active_trade.get('stop_order_id')
 
-                            if client.modify_stop_to_breakeven(new_stop_price, active_trade['side'], known_size, stop_order_id):
+                            if client.modify_stop_to_breakeven(
+                                new_stop_price,
+                                active_trade['side'],
+                                known_size,
+                                stop_order_id,
+                                current_stop_price=current_stop
+                            ):
                                 old_stop = active_trade.get('current_stop_price', entry_price - tp_dist if active_trade['side'] == 'LONG' else entry_price + tp_dist)
+                                active_trade['stop_order_id'] = client._active_stop_order_id
                                 active_trade['break_even_triggered'] = True
                                 active_trade['current_stop_price'] = new_stop_price
                                 profit_pct = (current_profit / tp_dist) * 100
@@ -1214,9 +1221,6 @@ async def run_bot():
                 # -----------------------------------------------------------------
                 # Shuffle standard strategies
                 current_standard = standard_strategies.copy()
-                if ml_strategy.model_loaded and ml_signal:
-                    # Add ML signal as a candidate if it exists
-                    current_standard.append(ml_strategy)
                 random.shuffle(current_standard)
 
                 for strat in current_standard:
@@ -1290,10 +1294,37 @@ async def run_bot():
                 # -----------------------------------------------------------------
                 candidate_signals.sort(key=lambda x: x[0])
 
+                # Multi-strategy consensus override (vote-based)
+                direction_counts = {"LONG": 0, "SHORT": 0}
+                smt_side = None
+                for _, _, sig, s_name in candidate_signals:
+                    side = sig.get("side")
+                    if side in direction_counts:
+                        direction_counts[side] += 1
+                    if s_name == "SMTStrategy":
+                        smt_side = side
+
+                consensus_side = None
+                max_count = max(direction_counts.values()) if direction_counts else 0
+                if max_count >= 2:
+                    if direction_counts["LONG"] != direction_counts["SHORT"]:
+                        consensus_side = "LONG" if direction_counts["LONG"] > direction_counts["SHORT"] else "SHORT"
+                    elif smt_side:
+                        consensus_side = smt_side
+                        logging.info(f"🧲 SMT TIEBREAK: {smt_side} ({direction_counts['LONG']}L/{direction_counts['SHORT']}S)")
+
+                if consensus_side:
+                    logging.info(f"🧠 CONSENSUS OVERRIDE: {consensus_side} ({direction_counts['LONG']}L/{direction_counts['SHORT']}S)")
+
                 signal_executed = False
                 for priority, strat, sig, strat_name in candidate_signals:
                     signal = sig
                     priority_label = "FAST" if priority == 1 else "STANDARD"
+                    do_execute = False
+
+                    if consensus_side and signal['side'] != consensus_side:
+                        logging.info(f"⏭️ Skipping {strat_name} {signal['side']} due to consensus {consensus_side}")
+                        continue
 
                     def should_log_ui(current_signal, fallback_name):
                         return True
@@ -1308,154 +1339,176 @@ async def run_bot():
                                 strategy=signal.get('strategy', strat_name)
                             )
 
-                    # === 1. PREPARE THE RESCUE TICKET (OPPOSITE SIDE) ===
-                    is_rescued = False
+                    if consensus_side and signal['side'] == consensus_side:
+                        logging.info("🚦 CONSENSUS OVERRIDE: bypassing filters except RegimeBlocker")
+                        regime_blocked, regime_reason = regime_blocker.should_block_trade(signal['side'], current_price)
+                        if regime_blocked:
+                            log_filter_block("RegimeBlocker", regime_reason)
+                            logging.info(f"⛔ CONSENSUS BLOCKED by RegimeBlocker: {regime_reason}")
+                            continue
 
-                    # Determine the OPPOSITE direction
-                    original_side = signal['side']
-                    rescue_side = 'SHORT' if original_side == 'LONG' else 'LONG'
+                        vol_adj = volatility_filter.get_adjustments(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0), base_size=5)
+                        volatility_filter.log_status(vol_adj)
+                        signal['sl_dist'] = vol_adj.get('sl_dist', signal.get('sl_dist', 4.0))
+                        signal['tp_dist'] = vol_adj.get('tp_dist', signal.get('tp_dist', 6.0))
+                        if vol_adj.get('adjustment_applied', False):
+                            signal['size'] = vol_adj['size']
 
-                    # Fetch potential rescue signal for the OPPOSITE side
-                    potential_rescue = continuation_manager.get_active_continuation_signal(
-                        new_df, current_time, rescue_side
-                    )
+                        do_execute = True
+                    else:
+                        # === 1. PREPARE THE RESCUE TICKET (OPPOSITE SIDE) ===
+                        is_rescued = False
 
-                    logging.info(f"🔍 EVALUATING {priority_label}: {strat_name} {original_side} | Rescue Available ({rescue_side}): {potential_rescue is not None}")
+                        # Determine the OPPOSITE direction
+                        original_side = signal['side']
+                        rescue_side = 'SHORT' if original_side == 'LONG' else 'LONG'
 
-                    # === 2. TARGET FEASIBILITY (Physics Check - No Rescue) ===
-                    is_feasible, feasibility_reason = chop_analyzer.check_target_feasibility(
-                        entry_price=current_price, side=signal['side'], tp_distance=signal.get('tp_dist', 6.0), df_1m=new_df
-                    )
-                    if not is_feasible:
-                        log_filter_block("TargetFeasibility", feasibility_reason)
-                        logging.info(f"⛔ Signal ignored ({priority_label}): {feasibility_reason}")
-                        continue
+                        # Fetch potential rescue signal for the OPPOSITE side
+                        potential_rescue = continuation_manager.get_active_continuation_signal(
+                            new_df, current_time, rescue_side
+                        )
 
-                    # ==========================================
-                    # LAYER 2: FILTER GAUNTLET (Safe Rescue Logic)
-                    # ==========================================
+                        logging.info(f"🔍 EVALUATING {priority_label}: {strat_name} {original_side} | Rescue Available ({rescue_side}): {potential_rescue is not None}")
 
-                    # --- Helper Logic to Trigger Rescue ---
-                    def try_rescue_trigger(block_reason, filter_name):
-                        nonlocal signal, is_rescued, potential_rescue
-                        log_filter_block(filter_name, block_reason)
-                        # RESCUE LOGIC: Only flip if we have a ticket AND the block isn't a "Hard Stop"
-                        if potential_rescue and not is_rescued:
-                            # Enforce TrendFilter on the rescue side before flipping
-                            rescue_blocked, rescue_reason = trend_filter.should_block_trade(new_df, potential_rescue['side'])
-                            if rescue_blocked:
-                                logging.info(f"⛔ RESCUE DENIED by TrendFilter ({potential_rescue['side']}): {rescue_reason}")
-                                log_filter_block("TrendFilter", rescue_reason, side_override=potential_rescue['side'])
+                        # === 2. TARGET FEASIBILITY (Physics Check - No Rescue) ===
+                        is_feasible, feasibility_reason = chop_analyzer.check_target_feasibility(
+                            entry_price=current_price, side=signal['side'], tp_distance=signal.get('tp_dist', 6.0), df_1m=new_df
+                        )
+                        if not is_feasible:
+                            log_filter_block("TargetFeasibility", feasibility_reason)
+                            logging.info(f"⛔ Signal ignored ({priority_label}): {feasibility_reason}")
+                            continue
+
+                        # ==========================================
+                        # LAYER 2: FILTER GAUNTLET (Safe Rescue Logic)
+                        # ==========================================
+
+                        # --- Helper Logic to Trigger Rescue ---
+                        def try_rescue_trigger(block_reason, filter_name):
+                            nonlocal signal, is_rescued, potential_rescue
+                            log_filter_block(filter_name, block_reason)
+                            # RESCUE LOGIC: Only flip if we have a ticket AND the block isn't a "Hard Stop"
+                            if potential_rescue and not is_rescued:
+                                # Enforce TrendFilter on the rescue side before flipping
+                                rescue_blocked, rescue_reason = trend_filter.should_block_trade(new_df, potential_rescue['side'])
+                                if rescue_blocked:
+                                    logging.info(f"⛔ RESCUE DENIED by TrendFilter ({potential_rescue['side']}): {rescue_reason}")
+                                    log_filter_block("TrendFilter", rescue_reason, side_override=potential_rescue['side'])
+                                    return False
+                                original_strategy = signal.get('strategy', strat_name)
+                                logging.info(f"♻️ RESCUE FLIP: Blocked by {filter_name} ({block_reason}). Flipping to {potential_rescue['strategy']} ({potential_rescue['side']})")
+                                event_logger.log_continuation_rescue_success(
+                                    original_strategy,
+                                    potential_rescue['strategy'],
+                                    potential_rescue['side']
+                                )
+                                signal = potential_rescue  # FLIP TO OPPOSITE SIGNAL
+                                is_rescued = True
+                                potential_rescue = None  # Ticket used
+                                return True
+                            else:
+                                logging.info(f"⛔ BLOCKED by {filter_name}: {block_reason}")
                                 return False
-                            original_strategy = signal.get('strategy', strat_name)
-                            logging.info(f"♻️ RESCUE FLIP: Blocked by {filter_name} ({block_reason}). Flipping to {potential_rescue['strategy']} ({potential_rescue['side']})")
-                            event_logger.log_continuation_rescue_success(
-                                original_strategy,
-                                potential_rescue['strategy'],
-                                potential_rescue['side']
-                            )
-                            signal = potential_rescue  # FLIP TO OPPOSITE SIGNAL
-                            is_rescued = True
-                            potential_rescue = None  # Ticket used
-                            return True
-                        else:
-                            logging.info(f"⛔ BLOCKED by {filter_name}: {block_reason}")
-                            return False
-                    # ---------------------------------------
+                        # ---------------------------------------
 
-                    # 1. Rejection / Bias (SAFE TO RESCUE: Aligning with Bias)
-                    rej_blocked, rej_reason = rejection_filter.should_block_trade(signal['side'])
-                    range_bias_blocked = (allowed_chop_side is not None and signal['side'] != allowed_chop_side)
+                        # 1. Rejection / Bias (SAFE TO RESCUE: Aligning with Bias)
+                        rej_blocked, rej_reason = rejection_filter.should_block_trade(signal['side'])
+                        range_bias_blocked = (allowed_chop_side is not None and signal['side'] != allowed_chop_side)
 
-                    if rej_blocked or range_bias_blocked:
-                        reason = rej_reason if rej_blocked else f"Opposite HTF Range Bias ({allowed_chop_side})"
-                        if not try_rescue_trigger(reason, "Rejection/Bias"): continue
+                        if rej_blocked or range_bias_blocked:
+                            reason = rej_reason if rej_blocked else f"Opposite HTF Range Bias ({allowed_chop_side})"
+                            if not try_rescue_trigger(reason, "Rejection/Bias"): continue
 
-                    # 2. Directional Loss Blocker (SAFE TO RESCUE: Aligning with Performance)
-                    dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
-                    if dir_blocked:
-                        if not try_rescue_trigger(dir_reason, "DirectionalLoss"): continue
+                        # 2. Directional Loss Blocker (SAFE TO RESCUE: Aligning with Performance)
+                        dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
+                        if dir_blocked:
+                            if not try_rescue_trigger(dir_reason, "DirectionalLoss"): continue
 
-                    # 3. Impulse Filter (SAFE TO RESCUE: Aligning with Momentum)
-                    impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])
-                    if impulse_blocked:
-                        if not try_rescue_trigger(impulse_reason, "ImpulseFilter"): continue
+                        # 3. Impulse Filter (SAFE TO RESCUE: Aligning with Momentum)
+                        impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])
+                        if impulse_blocked:
+                            if not try_rescue_trigger(impulse_reason, "ImpulseFilter"): continue
 
-                    # 4. Regime Structure Blocker (EQH/EQL)
-                    # 🛑 HARD STOP: DO NOT RESCUE 🛑
-                    # If we are at EQH/EQL, a flip is dangerous because it could be a breakout.
-                    regime_blocked, regime_reason = regime_blocker.should_block_trade(signal['side'], current_price)
-                    if regime_blocked:
-                        # Log and Die. No Rescue.
-                        log_filter_block("RegimeBlocker", regime_reason)
-                        logging.info(f"⛔ HARD STOP by RegimeBlocker (EQH/EQL): {regime_reason} - No Rescue Allowed (Breakout Risk)")
+                        # 4. Regime Structure Blocker (EQH/EQL)
+                        # 🛑 HARD STOP: DO NOT RESCUE 🛑
+                        # If we are at EQH/EQL, a flip is dangerous because it could be a breakout.
+                        regime_blocked, regime_reason = regime_blocker.should_block_trade(signal['side'], current_price)
+                        if regime_blocked:
+                            # Log and Die. No Rescue.
+                            log_filter_block("RegimeBlocker", regime_reason)
+                            logging.info(f"⛔ HARD STOP by RegimeBlocker (EQH/EQL): {regime_reason} - No Rescue Allowed (Breakout Risk)")
+                            continue
+
+                        # 5. Independent System Checks (Trend/Macro)
+                        # Note: If we just flipped to Rescue, we are now checking the NEW signal against these filters.
+
+                        upgraded_blocked = False
+                        upgraded_reasons = []
+
+                        # HTF FVG (Memory Based)
+                        fvg_blocked, fvg_reason = False, None
+
+                        # Macro Structure Trend (SAFE TO RESCUE: Aligning with Macro Trend)
+                        struct_blocked, struct_reason = structure_blocker.should_block_trade(signal['side'], current_price)
+                        if struct_blocked: upgraded_reasons.append(f"Structure: {struct_reason}")
+
+                        bank_blocked, bank_reason = bank_filter.should_block_trade(signal['side'])
+                        if bank_blocked: upgraded_reasons.append(f"Bank: {bank_reason}")
+
+                        # Trend Check
+                        upg_trend_blocked, upg_trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
+                        if upg_trend_blocked: upgraded_reasons.append(f"Trend: {upg_trend_reason}")
+
+                        if upgraded_reasons: upgraded_blocked = True
+
+                        # Legacy Check
+                        legacy_blocked, legacy_reason = legacy_filters.check_trend(new_df, signal['side'])
+
+                        # Arbitration
+                        final_blocked = False
+                        final_reason = ""
+                        if legacy_blocked and upgraded_blocked:
+                            final_blocked = True; final_reason = f"Unanimous: {legacy_reason} & {upgraded_reasons}"
+                        elif not legacy_blocked and upgraded_blocked:
+                            arb = filter_arbitrator.arbitrate(new_df, signal['side'], False, "", True, "|".join(upgraded_reasons), current_price, signal.get('tp_dist'), signal.get('sl_dist'))
+                            if not arb.allow_trade: final_blocked = True; final_reason = arb.reason
+
+                        if final_blocked:
+                            # If we are ALREADY rescued, we have 'Diplomatic Immunity'
+                            if is_rescued:
+                                logging.info(f"🛡️ BYPASS Filters ({final_reason}): Rescued by {signal['strategy']}")
+                            else:
+                                # Attempt Rescue Trigger (Trend/Macro blocks are safe to flip)
+                                if not try_rescue_trigger(final_reason, "FilterStack"): continue
+
+                        # 6. Chop & Extension (Post-Arb)
+                        vol_regime, _, _ = volatility_filter.get_regime(new_df)
+                        chop_blocked, chop_reason = chop_filter.should_block_trade(signal['side'], rejection_filter.prev_day_pm_bias, current_price, "NEUTRAL", vol_regime)
+                        if chop_blocked:
+                            if is_rescued: logging.info(f"🛡️ BYPASS Chop: Rescued by {signal['strategy']}")
+                            elif not try_rescue_trigger(chop_reason, "ChopFilter"): continue
+
+                        ext_blocked, ext_reason = extension_filter.should_block_trade(signal['side'])
+                        if ext_blocked:
+                            if is_rescued: logging.info(f"🛡️ BYPASS Extension: Rescued by {signal['strategy']}")
+                            elif not try_rescue_trigger(ext_reason, "ExtensionFilter"): continue
+
+                        # 7. Volatility Guardrail (Physics - Apply to Rescued too)
+                        should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0), base_size=5)
+                        if not should_trade:
+                            # If physics fail, we can't trade.
+                            log_filter_block("VolatilityGuardrail", "Volatility check failed")
+                            logging.info(f"⛔ BLOCKED by Volatility Guardrail")
+                            continue
+
+                        signal['sl_dist'] = vol_adj['sl_dist']
+                        signal['tp_dist'] = vol_adj['tp_dist']
+                        if vol_adj.get('adjustment_applied', False): signal['size'] = vol_adj['size']
+
+                        do_execute = True
+
+                    if not do_execute:
                         continue
-
-                    # 5. Independent System Checks (Trend/Macro)
-                    # Note: If we just flipped to Rescue, we are now checking the NEW signal against these filters.
-
-                    upgraded_blocked = False
-                    upgraded_reasons = []
-
-                    # HTF FVG (Memory Based)
-                    fvg_blocked, fvg_reason = False, None
-
-                    # Macro Structure Trend (SAFE TO RESCUE: Aligning with Macro Trend)
-                    struct_blocked, struct_reason = structure_blocker.should_block_trade(signal['side'], current_price)
-                    if struct_blocked: upgraded_reasons.append(f"Structure: {struct_reason}")
-
-                    bank_blocked, bank_reason = bank_filter.should_block_trade(signal['side'])
-                    if bank_blocked: upgraded_reasons.append(f"Bank: {bank_reason}")
-
-                    # Trend Check
-                    upg_trend_blocked, upg_trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
-                    if upg_trend_blocked: upgraded_reasons.append(f"Trend: {upg_trend_reason}")
-
-                    if upgraded_reasons: upgraded_blocked = True
-
-                    # Legacy Check
-                    legacy_blocked, legacy_reason = legacy_filters.check_trend(new_df, signal['side'])
-
-                    # Arbitration
-                    final_blocked = False
-                    final_reason = ""
-                    if legacy_blocked and upgraded_blocked:
-                        final_blocked = True; final_reason = f"Unanimous: {legacy_reason} & {upgraded_reasons}"
-                    elif not legacy_blocked and upgraded_blocked:
-                        arb = filter_arbitrator.arbitrate(new_df, signal['side'], False, "", True, "|".join(upgraded_reasons), current_price, signal.get('tp_dist'), signal.get('sl_dist'))
-                        if not arb.allow_trade: final_blocked = True; final_reason = arb.reason
-
-                    if final_blocked:
-                        # If we are ALREADY rescued, we have 'Diplomatic Immunity'
-                        if is_rescued:
-                            logging.info(f"🛡️ BYPASS Filters ({final_reason}): Rescued by {signal['strategy']}")
-                        else:
-                            # Attempt Rescue Trigger (Trend/Macro blocks are safe to flip)
-                            if not try_rescue_trigger(final_reason, "FilterStack"): continue
-
-                    # 6. Chop & Extension (Post-Arb)
-                    vol_regime, _, _ = volatility_filter.get_regime(new_df)
-                    chop_blocked, chop_reason = chop_filter.should_block_trade(signal['side'], rejection_filter.prev_day_pm_bias, current_price, "NEUTRAL", vol_regime)
-                    if chop_blocked:
-                        if is_rescued: logging.info(f"🛡️ BYPASS Chop: Rescued by {signal['strategy']}")
-                        elif not try_rescue_trigger(chop_reason, "ChopFilter"): continue
-
-                    ext_blocked, ext_reason = extension_filter.should_block_trade(signal['side'])
-                    if ext_blocked:
-                        if is_rescued: logging.info(f"🛡️ BYPASS Extension: Rescued by {signal['strategy']}")
-                        elif not try_rescue_trigger(ext_reason, "ExtensionFilter"): continue
-
-                    # 7. Volatility Guardrail (Physics - Apply to Rescued too)
-                    should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0), base_size=5)
-                    if not should_trade:
-                        # If physics fail, we can't trade.
-                        log_filter_block("VolatilityGuardrail", "Volatility check failed")
-                        logging.info(f"⛔ BLOCKED by Volatility Guardrail")
-                        continue
-
-                    signal['sl_dist'] = vol_adj['sl_dist']
-                    signal['tp_dist'] = vol_adj['tp_dist']
-                    if vol_adj.get('adjustment_applied', False): signal['size'] = vol_adj['size']
 
                     # === EXECUTION ===
                     strategy_results['executed'] = strat_name

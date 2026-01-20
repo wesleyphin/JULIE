@@ -114,6 +114,8 @@ class ProjectXClient:
 
         # Stop order tracking (avoids search_orders calls)
         self._active_stop_order_id = None
+        self._order_cache = {}
+        self._order_cache_ts = 0.0
 
     def _check_general_rate_limit(self) -> bool:
         """Check if we're within general rate limits"""
@@ -879,6 +881,76 @@ class ProjectXClient:
         logging.info(f"Waiting for {3 - opposite_signal_count} more opposite signals before closing position")
         return False, opposite_signal_count
 
+    def _update_order_cache(self, orders: List[Dict]) -> None:
+        self._order_cache = {
+            o.get("orderId"): o
+            for o in orders
+            if o.get("orderId") is not None
+        }
+        self._order_cache_ts = time.time()
+
+    def _get_cached_orders(self, max_age_sec: float = 2.0, force_refresh: bool = False) -> List[Dict]:
+        if force_refresh or not self._order_cache or (time.time() - self._order_cache_ts) > max_age_sec:
+            orders = self.search_orders()
+            self._update_order_cache(orders)
+        return list(self._order_cache.values())
+
+    def _extract_order_stop_price(self, order: Dict) -> Optional[float]:
+        for key in ("stopPrice", "triggerPrice", "price"):
+            value = order.get(key)
+            if value is None:
+                continue
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def _select_stop_order(
+        self,
+        orders: List[Dict],
+        expected_side: Optional[int],
+        expected_price: Optional[float],
+        expected_size: Optional[int],
+        prefer_order_id: Optional[int],
+        price_tolerance: float = 0.5,
+    ) -> Optional[Dict]:
+        candidates = [
+            o for o in orders
+            if o.get("type") in [4, 5]
+            and str(o.get("status", "")).lower() in ["working", "pending", "accepted", "active"]
+        ]
+        if expected_side is not None:
+            candidates = [o for o in candidates if o.get("side") == expected_side]
+
+        if prefer_order_id is not None:
+            for o in candidates:
+                if o.get("orderId") == prefer_order_id:
+                    return o
+
+        if expected_size is not None:
+            size_matches = [o for o in candidates if o.get("size") == expected_size]
+            if size_matches:
+                candidates = size_matches
+
+        if expected_price is not None:
+            scored = []
+            for o in candidates:
+                stop_price = self._extract_order_stop_price(o)
+                if stop_price is None:
+                    continue
+                scored.append((abs(stop_price - expected_price), o))
+            if scored:
+                scored.sort(key=lambda item: item[0])
+                if scored[0][0] <= price_tolerance:
+                    return scored[0][1]
+                return None
+
+        if not candidates:
+            return None
+        candidates.sort(key=lambda o: o.get("orderId", 0), reverse=True)
+        return candidates[0]
+
     def search_orders(self) -> List[Dict]:
         """
         Search for open orders (bracket orders) for the account.
@@ -902,7 +974,9 @@ class ProjectXClient:
                 data = resp.json()
                 orders = data.get('orders', [])
                 # Filter for our contract
-                return [o for o in orders if o.get('contractId') == self.contract_id]
+                filtered = [o for o in orders if o.get('contractId') == self.contract_id]
+                self._update_order_cache(filtered)
+                return filtered
             elif resp.status_code == 400:
                 # 400 often means no orders exist - treat as empty
                 logging.debug("Order search returned 400 - treating as no orders")
@@ -1003,7 +1077,14 @@ class ProjectXClient:
             logging.error(f"Order modification exception: {e}")
             return False
 
-    def modify_stop_to_breakeven(self, stop_price: float, side: str, known_size: int = None, stop_order_id: int = None) -> bool:
+    def modify_stop_to_breakeven(
+        self,
+        stop_price: float,
+        side: str,
+        known_size: int = None,
+        stop_order_id: int = None,
+        current_stop_price: float = None
+    ) -> bool:
         """
         Aggressively modify stop to break-even.
         Updates:
@@ -1020,44 +1101,53 @@ class ProjectXClient:
         # 2. Use the stop price directly
         be_price = round(stop_price * 4) / 4  # Tick alignment
 
-        # 3. Find stop order ID
+        expected_side = 1 if side == 'LONG' else 0
+        expected_size = position_size if known_size is not None else None
+
+        # 3. Try direct modify if we have an ID
         target_stop_id = stop_order_id or self._active_stop_order_id
-
-        # If we don't have an ID, search for it
-        if target_stop_id is None:
-            orders = self.search_orders()
-            # Filter for working stop orders (Type 4=Stop Market, 5=Stop Limit)
-            stop_orders = [
-                o for o in orders
-                if o.get('type') in [4, 5]
-                and str(o.get('status', '')).lower() in ['working', 'pending', 'accepted', 'active']
-            ]
-
-            if stop_orders:
-                # Use the most recent one
-                target_stop_id = stop_orders[0].get('orderId')
-                current_stop_val = stop_orders[0].get('stopPrice') or stop_orders[0].get('triggerPrice') or stop_orders[0].get('price') or 0
-                logging.info(f"Found active stop order {target_stop_id} @ {current_stop_val}")
-            else:
-                logging.warning("No active stop orders found via search.")
-
-        # 4. EXECUTE MODIFICATION
         if target_stop_id:
             logging.info(f"🔒 MOVING STOP: {side} -> {be_price:.2f} (Order ID: {target_stop_id})")
-
-            # Try standard modification
             if self.modify_order(target_stop_id, stop_price=be_price):
                 logging.info(f"✅ STOP UPDATED to {be_price:.2f}")
+                self._active_stop_order_id = target_stop_id
                 return True
-            else:
-                logging.warning(f"⚠️ Modify failed for {target_stop_id}. Attempting Cancel/Replace...")
-                self.cancel_order(target_stop_id)
-                # Clear cached ID since we just cancelled it
+            logging.warning(f"⚠️ Modify failed for {target_stop_id}. Attempting Cancel/Replace...")
+
+        # 4. Find the best matching stop order for this trade
+        orders = self._get_cached_orders(force_refresh=True)
+        candidate = self._select_stop_order(
+            orders,
+            expected_side=expected_side,
+            expected_price=current_stop_price,
+            expected_size=expected_size,
+            prefer_order_id=target_stop_id,
+        )
+
+        if candidate:
+            candidate_id = candidate.get("orderId")
+            current_stop_val = self._extract_order_stop_price(candidate) or 0
+            logging.info(f"Matched stop order {candidate_id} @ {current_stop_val}")
+
+            # Try modify against matched stop order
+            if candidate_id and self.modify_order(candidate_id, stop_price=be_price):
+                logging.info(f"✅ STOP UPDATED to {be_price:.2f}")
+                self._active_stop_order_id = candidate_id
+                return True
+
+            if candidate_id:
+                logging.warning(f"⚠️ Modify failed for {candidate_id}. Attempting Cancel/Replace...")
+                self.cancel_order(candidate_id)
                 self._active_stop_order_id = None
-                time.sleep(0.5)  # Short wait for cancel to process
+                time.sleep(0.5)
+                remaining = self._get_cached_orders(force_refresh=True)
+                if any(o.get("orderId") == candidate_id for o in remaining):
+                    logging.warning("Cancel failed; skipping new stop to avoid duplicates.")
+                    return False
+        else:
+            logging.warning("No matching stop order found; placing new stop.")
 
         # 5. FALLBACK: Place New Stop Order
-        # This runs if target_stop_id was None OR if modify failed/cancelled
         logging.info(f"🔄 PLACING NEW STOP at {be_price:.2f}...")
         return self._place_breakeven_stop(be_price, side, position_size)
 
