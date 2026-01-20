@@ -948,81 +948,6 @@ async def run_bot():
             # See: htf_structure_task() launched at startup
             # This task runs independently and cannot be blocked by strategy logic
 
-            # === TRAILING STOP / BREAK-EVEN CHECK (EVERY TICK) ===
-            if active_trade is not None:
-                be_config = CONFIG.get('BREAK_EVEN', {})
-                if be_config.get('enabled', False):
-                    tp_dist = active_trade.get('tp_dist', 6.0)
-                    entry_price = active_trade['entry_price']
-                    trigger_pct = be_config.get('trigger_pct', 0.40)
-                    trail_pct = be_config.get('trail_pct', 0.25)  # Lock in 25% of profit above trigger
-
-                    if active_trade['side'] == 'LONG':
-                        current_profit = current_price - entry_price
-                    else:
-                        current_profit = entry_price - current_price
-
-                    profit_threshold = tp_dist * trigger_pct
-
-                    # Only act if we're above the initial trigger threshold
-                    if current_profit >= profit_threshold:
-                        buffer = be_config.get('buffer_ticks', 1) * 0.25
-
-                        # Calculate trailing stop price based on current profit
-                        # Start at break-even, then trail as profit increases
-                        if not active_trade.get('break_even_triggered', False):
-                            # First trigger: move to break-even
-                            new_stop_price = entry_price + buffer if active_trade['side'] == 'LONG' else entry_price - buffer
-                            logging.info(f"🔒 BREAK-EVEN TRIGGER: Profit {current_profit:.2f} >= {profit_threshold:.2f}")
-                        else:
-                            # Trailing: lock in trail_pct of profit above entry
-                            # e.g., if profit is 4.0 pts and trail_pct is 0.5, lock in 2.0 pts
-                            trail_amount = current_profit * trail_pct
-                            if active_trade['side'] == 'LONG':
-                                new_stop_price = entry_price + trail_amount
-                            else:
-                                new_stop_price = entry_price - trail_amount
-                            # Round to nearest tick (0.25)
-                            new_stop_price = round(new_stop_price * 4) / 4
-
-                        # Get current stop level to avoid unnecessary modifications
-                        current_stop = active_trade.get('current_stop_price', 0)
-
-                        # Only modify if new stop is better than current stop
-                        should_modify = False
-                        if active_trade['side'] == 'LONG':
-                            if new_stop_price > current_stop + 0.25:  # At least 1 tick better
-                                should_modify = True
-                        else:  # SHORT
-                            if new_stop_price < current_stop - 0.25:
-                                should_modify = True
-
-                        if should_modify:
-                            known_size = active_trade.get('size', 1)
-                            stop_order_id = active_trade.get('stop_order_id')
-
-                            if client.modify_stop_to_breakeven(
-                                new_stop_price,
-                                active_trade['side'],
-                                known_size,
-                                stop_order_id,
-                                current_stop_price=current_stop
-                            ):
-                                old_stop = active_trade.get('current_stop_price', entry_price - tp_dist if active_trade['side'] == 'LONG' else entry_price + tp_dist)
-                                active_trade['stop_order_id'] = client._active_stop_order_id
-                                active_trade['break_even_triggered'] = True
-                                active_trade['current_stop_price'] = new_stop_price
-                                profit_pct = (current_profit / tp_dist) * 100
-                                logging.info(f"✅ TRAILING STOP: Moved from {old_stop:.2f} to {new_stop_price:.2f} | Profit: {current_profit:.2f} ({profit_pct:.0f}% to TP)")
-
-                                # Enhanced event logging: Breakeven/Trailing adjustment
-                                event_logger.log_breakeven_adjustment(
-                                    old_sl=old_stop,
-                                    new_sl=new_stop_price,
-                                    current_price=current_price,
-                                    profit_points=current_profit
-                                )
-
             # Only process signals on NEW bars
             is_new_bar = (last_processed_bar is None or current_time > last_processed_bar)
             
@@ -1360,7 +1285,6 @@ async def run_bot():
                         bypassed_filters = [
                             "TargetFeasibility",
                             "Rejection/Bias",
-                            "DirectionalLoss",
                             "ImpulseFilter",
                             "HTF_FVG",
                             "StructureBlocker",
@@ -1377,6 +1301,11 @@ async def run_bot():
                         if regime_blocked:
                             log_filter_block("RegimeBlocker", regime_reason)
                             logging.info(f"⛔ CONSENSUS BLOCKED by RegimeBlocker: {regime_reason}")
+                            continue
+                        dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
+                        if dir_blocked:
+                            log_filter_block("DirectionalLossBlocker", dir_reason)
+                            logging.info(f"⛔ CONSENSUS BLOCKED by DirectionalLossBlocker: {dir_reason}")
                             continue
                         if consensus_tp_source:
                             signal['tp_dist'] = consensus_tp_signal.get('tp_dist', signal.get('tp_dist', 6.0))
@@ -1590,7 +1519,6 @@ async def run_bot():
 
                     if success:
                         sl_dist = signal.get('sl_dist', 4.0)
-                        initial_stop = current_price - sl_dist if signal['side'] == 'LONG' else current_price + sl_dist
                         active_trade = {
                             'strategy': signal['strategy'],
                             'side': signal['side'],
@@ -1600,9 +1528,7 @@ async def run_bot():
                             'tp_dist': signal['tp_dist'],
                             'sl_dist': sl_dist,
                             'size': signal.get('size', 5),
-                            'stop_order_id': client._active_stop_order_id,
-                            'current_stop_price': initial_stop,
-                            'break_even_triggered': False
+                            'stop_order_id': client._active_stop_order_id
                         }
 
                     signal_executed = True
@@ -1862,7 +1788,6 @@ async def run_bot():
                                 success, opposite_signal_count = client.close_and_reverse(sig, current_price, opposite_signal_count)
                                 if success:
                                     sl_dist = sig.get('sl_dist', 4.0)  # Standard default, NOT tp_dist
-                                    initial_stop = current_price - sl_dist if sig['side'] == 'LONG' else current_price + sl_dist
                                     active_trade = {
                                         'strategy': s_name,
                                         'side': sig['side'],
@@ -1872,9 +1797,7 @@ async def run_bot():
                                         'tp_dist': sig['tp_dist'],
                                         'sl_dist': sl_dist,  # Store SL for consistency
                                         'size': sig.get('size', 5),  # Use signal size (volatility-adjusted)
-                                        'stop_order_id': client._active_stop_order_id,
-                                        'current_stop_price': initial_stop,  # Track for trailing stop
-                                        'break_even_triggered': False
+                                        'stop_order_id': client._active_stop_order_id
                                     }
 
                                 del pending_loose_signals[s_name]
