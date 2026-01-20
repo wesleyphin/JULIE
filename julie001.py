@@ -1316,6 +1316,23 @@ async def run_bot():
                 if consensus_side:
                     logging.info(f"🧠 CONSENSUS OVERRIDE: {consensus_side} ({direction_counts['LONG']}L/{direction_counts['SHORT']}S)")
 
+                consensus_tp_source = None
+                if consensus_side:
+                    consensus_candidates = [
+                        (sig, s_name) for _, _, sig, s_name in candidate_signals
+                        if sig.get("side") == consensus_side
+                    ]
+                    if consensus_candidates:
+                        consensus_tp_signal, consensus_tp_source = min(
+                            consensus_candidates,
+                            key=lambda item: item[0].get('tp_dist', float('inf'))
+                        )
+                        logging.info(
+                            "🧮 CONSENSUS TP PICK: "
+                            f"{consensus_tp_source} TP={consensus_tp_signal.get('tp_dist', 0):.2f} "
+                            f"SL={consensus_tp_signal.get('sl_dist', 0):.2f}"
+                        )
+
                 signal_executed = False
                 for priority, strat, sig, strat_name in candidate_signals:
                     signal = sig
@@ -1340,12 +1357,40 @@ async def run_bot():
                             )
 
                     if consensus_side and signal['side'] == consensus_side:
-                        logging.info("🚦 CONSENSUS OVERRIDE: bypassing filters except RegimeBlocker")
+                        bypassed_filters = [
+                            "TargetFeasibility",
+                            "Rejection/Bias",
+                            "DirectionalLoss",
+                            "ImpulseFilter",
+                            "HTF_FVG",
+                            "StructureBlocker",
+                            "BankFilter",
+                            "LegacyTrend",
+                            "FilterArbitrator",
+                            "ChopFilter",
+                            "ExtensionFilter",
+                            "VolatilityGuardrail",
+                        ]
+                        if is_choppy:
+                            bypassed_filters.append("TrendFilter")
                         regime_blocked, regime_reason = regime_blocker.should_block_trade(signal['side'], current_price)
                         if regime_blocked:
                             log_filter_block("RegimeBlocker", regime_reason)
                             logging.info(f"⛔ CONSENSUS BLOCKED by RegimeBlocker: {regime_reason}")
                             continue
+                        if consensus_tp_source:
+                            signal['tp_dist'] = consensus_tp_signal.get('tp_dist', signal.get('tp_dist', 6.0))
+                            signal['sl_dist'] = consensus_tp_signal.get('sl_dist', signal.get('sl_dist', 4.0))
+                            logging.info(
+                                "🧮 CONSENSUS TP SOURCE: "
+                                f"{consensus_tp_source} TP={signal['tp_dist']:.2f} SL={signal['sl_dist']:.2f}"
+                            )
+                        if not is_choppy:
+                            trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
+                            if trend_blocked:
+                                log_filter_block("TrendFilter", trend_reason)
+                                logging.info(f"⛔ CONSENSUS BLOCKED by TrendFilter: {trend_reason}")
+                                continue
 
                         vol_adj = volatility_filter.get_adjustments(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0), base_size=5)
                         volatility_filter.log_status(vol_adj)
@@ -1354,6 +1399,7 @@ async def run_bot():
                         if vol_adj.get('adjustment_applied', False):
                             signal['size'] = vol_adj['size']
 
+                        logging.info(f"🛡️ CONSENSUS BYPASS: {', '.join(bypassed_filters)}")
                         do_execute = True
                     else:
                         # === 1. PREPARE THE RESCUE TICKET (OPPOSITE SIDE) ===
@@ -1445,8 +1491,18 @@ async def run_bot():
                         upgraded_blocked = False
                         upgraded_reasons = []
 
-                        # HTF FVG (Memory Based)
-                        fvg_blocked, fvg_reason = False, None
+                        # HTF FVG (Memory Based) - CONTEXT AWARE
+                        tp_dist = signal.get('tp_dist', 15.0)
+                        effective_tp_dist = tp_dist
+                        if allowed_chop_side is not None and signal['side'] == allowed_chop_side:
+                            effective_tp_dist = tp_dist * 0.5  # Require 50% less room
+                            logging.info(f"🔓 RELAXING FVG CHECK (Main): Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
+
+                        fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
+                            signal['side'], current_price, None, None, tp_dist=effective_tp_dist
+                        )
+                        if fvg_blocked:
+                            upgraded_reasons.append(f"HTF_FVG: {fvg_reason}")
 
                         # Macro Structure Trend (SAFE TO RESCUE: Aligning with Macro Trend)
                         struct_blocked, struct_reason = structure_blocker.should_block_trade(signal['side'], current_price)

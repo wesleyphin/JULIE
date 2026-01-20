@@ -88,6 +88,16 @@ class LogMonitor:
                 price = match.group(2)
                 self.ui.add_event("ORDER", f"Placing {side} order @ {price}")
 
+        # Extract consensus override/bypass info
+        elif "CONSENSUS OVERRIDE" in line:
+            match = re.search(r'CONSENSUS OVERRIDE:\s*(.*)$', line)
+            detail = match.group(1) if match else line
+            self.ui.add_event("SIGNAL", f"Consensus override: {detail}")
+        elif "CONSENSUS BYPASS" in line:
+            match = re.search(r'CONSENSUS BYPASS:\s*(.*)$', line)
+            detail = match.group(1) if match else line
+            self.ui.add_event("SIGNAL", f"Consensus bypass: {detail}")
+
         # Extract TP/SL info
         elif "TP:" in line and "pts" in line:
             match = re.search(r'TP:\s+([\d.]+)pts', line)

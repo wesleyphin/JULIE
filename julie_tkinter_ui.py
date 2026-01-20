@@ -766,7 +766,7 @@ class JulieUI:
             ("Volatility", "IDLE"),
             ("Trend", "IDLE"),
             ("Impulse", "IDLE"),
-            ("HTF FVG", "DISABLED"),
+            ("HTF FVG", "IDLE"),
             ("Bank Level", "IDLE"),
             ("Memory S/R", "IDLE"),
             ("News", "IDLE"),
@@ -867,6 +867,7 @@ class JulieUI:
         self.log_text.tag_config('execution', foreground=self.colors['green_light'])  # Green for EXECUTED signals
         self.log_text.tag_config('rescue', foreground='#ec4899')           # Pink/Magenta for RESCUE events
         self.log_text.tag_config('rescue_fail', foreground='#f97316')      # Orange for RESCUE FAILED
+        self.log_text.tag_config('consensus', foreground=self.colors['yellow'])  # Yellow for consensus overrides
 
         self.add_log("Waiting for bot activity...")
 
@@ -883,6 +884,8 @@ class JulieUI:
                 tag = 'rescue_fail'
             elif 'STRATEGY_EXEC' in message or '✅ FAST EXEC' in message or '✅ STANDARD EXEC' in message:
                 tag = 'execution'
+            elif 'CONSENSUS OVERRIDE' in message or 'CONSENSUS BYPASS' in message:
+                tag = 'consensus'
             elif 'CANDIDATE' in message or 'status=CANDIDATE' in message:
                 tag = 'candidate'
             elif 'STRATEGY_METRIC' in message:
@@ -1105,6 +1108,8 @@ class JulieUI:
             'STRATEGY_SIGNAL',  # Strategy signals
             'Bar:', 'Price:',  # Live bar/price updates
             'missing sl_dist', 'missing tp_dist',  # Missing TP/SL warnings
+            'CONSENSUS OVERRIDE',  # Consensus bypass diagnostics
+            'CONSENSUS BYPASS',
             '🛑 BIAS BLOCK', '🚑 RESCUE', 'RESCUE_TRIGGER',  # Continuation rescue events
             'RESCUE SUCCESSFUL', 'RESCUE FAILED', 'Continuation',  # Continuation strategy logs
         ])
@@ -1312,8 +1317,6 @@ class JulieUI:
         """Update filter status and background color"""
         def update():
             if name in self.filter_labels:
-                if name == "HTF FVG" and status != "DISABLED":
-                    return
                 filter_info = self.filter_labels[name]
 
                 # Determine background color based on status
