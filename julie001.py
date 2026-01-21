@@ -8,7 +8,7 @@ import logging
 from zoneinfo import ZoneInfo
 from datetime import timezone as dt_timezone
 import uuid
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Optional, List
 import random
 import asyncio
 from pathlib import Path
@@ -403,12 +403,15 @@ async def run_bot():
 
     # HIGH PRIORITY - Execute immediately on signal
     # CHANGED: Dynamic Engine stays here. VIX added. Intraday Dip removed.
-    dynamic_engine_strat = DynamicEngineStrategy()
     fast_strategies = [
         RegimeAdaptiveStrategy(),
         vix_strategy,          # Promoted to Fast
-        dynamic_engine_strat,  # Kept in Fast (Not Demoted)
     ]
+    ENABLE_DYNAMIC_ENGINE_1 = True
+    ALLOW_DYNAMIC_ENGINE_SOLO = False
+    if ENABLE_DYNAMIC_ENGINE_1:
+        dynamic_engine_strat = DynamicEngineStrategy()
+        fast_strategies.append(dynamic_engine_strat)  # Kept in Fast (Not Demoted)
 
     # STANDARD PRIORITY - Normal execution
     ml_strategy = MLPhysicsStrategy()
@@ -505,6 +508,117 @@ async def run_bot():
 
     # Chop state tracking (only log when state changes)
     last_chop_reason = None
+
+    # Hostile day guard (DynamicEngine + Continuation)
+    hostile_guard = {
+        "enabled": True,
+        "max_trades": 3,
+        "min_trades": 2,
+        "loss_threshold": 2,
+    }
+    hostile_day_active = False
+    hostile_day_reason = ""
+    hostile_day_date = None
+    hostile_engine_stats = {
+        "DynamicEngine": {"trades": 0, "losses": 0},
+        "Continuation": {"trades": 0, "losses": 0},
+    }
+    mom_rescue_date = None
+    mom_rescue_scores = {"Long_Mom": 0, "Short_Mom": 0}
+
+    def reset_mom_rescues(day: date) -> None:
+        nonlocal mom_rescue_date, mom_rescue_scores
+        mom_rescue_date = day
+        mom_rescue_scores = {"Long_Mom": 0, "Short_Mom": 0}
+
+    def get_mom_rescue_key(origin_strategy: Optional[str], origin_sub: Optional[str]) -> Optional[str]:
+        if not origin_strategy or not str(origin_strategy).startswith("DynamicEngine"):
+            return None
+        sub = str(origin_sub or "")
+        if "_Long_Mom_" in sub:
+            return "Long_Mom"
+        if "_Short_Mom_" in sub:
+            return "Short_Mom"
+        return None
+
+    def mom_rescue_banned(
+        current_time: datetime.datetime,
+        origin_strategy: Optional[str],
+        origin_sub: Optional[str],
+    ) -> bool:
+        key = get_mom_rescue_key(origin_strategy, origin_sub)
+        if key is None:
+            return False
+        day = current_time.astimezone(NY_TZ).date()
+        if mom_rescue_date != day:
+            reset_mom_rescues(day)
+        return mom_rescue_scores.get(key, 0) <= -1
+
+    def update_mom_rescue_score(trade: dict, pnl_points: float, exit_time: datetime.datetime) -> None:
+        if trade.get("entry_mode") != "rescued":
+            return
+        if not str(trade.get("strategy", "")).startswith("Continuation_"):
+            return
+        key = get_mom_rescue_key(trade.get("rescue_from_strategy"), trade.get("rescue_from_sub_strategy"))
+        if key is None:
+            return
+        day = exit_time.astimezone(NY_TZ).date()
+        if mom_rescue_date != day:
+            reset_mom_rescues(day)
+        mom_rescue_scores[key] += 1 if pnl_points >= 0 else -1
+
+    def is_hostile_disabled_strategy(signal: dict, fallback_name: Optional[str] = None) -> bool:
+        strategy_name = signal.get("strategy") or fallback_name or ""
+        if strategy_name == "DynamicEngine" or strategy_name == "DynamicEngineStrategy":
+            return True
+        if strategy_name == "MLPhysics" or strategy_name == "MLPhysicsStrategy":
+            return True
+        return str(strategy_name).startswith("Continuation_")
+
+    def reset_hostile_day(day: date) -> None:
+        nonlocal hostile_day_active, hostile_day_reason, hostile_day_date, hostile_engine_stats
+        hostile_day_active = False
+        hostile_day_reason = ""
+        hostile_day_date = day
+        hostile_engine_stats = {
+            "DynamicEngine": {"trades": 0, "losses": 0},
+            "Continuation": {"trades": 0, "losses": 0},
+        }
+
+    def update_hostile_day_on_close(strategy_name: Optional[str], pnl_points: float, exit_time: datetime.datetime) -> None:
+        nonlocal hostile_day_active, hostile_day_reason
+        if not hostile_guard["enabled"] or exit_time is None:
+            return
+        day = exit_time.astimezone(NY_TZ).date()
+        if hostile_day_date != day:
+            reset_hostile_day(day)
+        engine_key = None
+        if strategy_name == "DynamicEngine":
+            engine_key = "DynamicEngine"
+        elif strategy_name and str(strategy_name).startswith("Continuation_"):
+            engine_key = "Continuation"
+        if engine_key is None:
+            return
+        stats = hostile_engine_stats[engine_key]
+        if stats["trades"] >= hostile_guard["max_trades"]:
+            return
+        stats["trades"] += 1
+        if pnl_points < 0:
+            stats["losses"] += 1
+        dyn = hostile_engine_stats["DynamicEngine"]
+        cont = hostile_engine_stats["Continuation"]
+        if (
+            dyn["trades"] >= hostile_guard["min_trades"]
+            and cont["trades"] >= hostile_guard["min_trades"]
+            and dyn["losses"] >= hostile_guard["loss_threshold"]
+            and cont["losses"] >= hostile_guard["loss_threshold"]
+        ):
+            hostile_day_active = True
+            hostile_day_reason = (
+                f"DynamicEngine {dyn['losses']}/{dyn['trades']} losses + "
+                f"Continuation {cont['losses']}/{cont['trades']} losses"
+            )
+            logging.warning(f"🛑 HOSTILE DAY: {hostile_day_reason} (trading disabled)")
 
     # === STEP 1: INITIAL DATA LOAD (MAX HISTORY) ===
     event_logger.log_system_event("STARTUP", "⏳ Startup: Fetching 20,000 bar history (MES)...", {"status": "IN_PROGRESS"})
@@ -937,6 +1051,13 @@ async def run_bot():
                     logging.info("✅ CHOP RESTRICTION CLEARED")
                     last_chop_reason = None
 
+            if hostile_guard["enabled"]:
+                current_day = current_time.astimezone(NY_TZ).date()
+                if hostile_day_date != current_day:
+                    reset_hostile_day(current_day)
+                if hostile_day_active:
+                    await asyncio.sleep(0.5)
+
             # ==========================================
             # HEARTBEAT & POSITION SYNC NOW HANDLED BY INDEPENDENT ASYNC TASKS
             # See: heartbeat_task() and position_sync_task() launched at startup
@@ -971,6 +1092,8 @@ async def run_bot():
                             pnl_points = entry_price - current_price
                         # Convert points to dollars: MES = $5 per point per contract
                         pnl_dollars = pnl_points * 5.0 * trade_size
+                        update_mom_rescue_score(active_trade, pnl_points, current_time)
+                        update_hostile_day_on_close(active_trade.get('strategy'), pnl_points, current_time)
                         directional_loss_blocker.record_trade_result(trade_side, pnl_points, current_time)
                         circuit_breaker.update_trade_result(pnl_dollars)
                         logging.info(f"📊 Trade closed: {trade_side} | Entry: {entry_price:.2f} | Exit: {current_price:.2f} | PnL: {pnl_points:.2f} pts (${pnl_dollars:.2f})")
@@ -1003,17 +1126,17 @@ async def run_bot():
                     active_trade['bars_held'] += 1
                     strategy_name = active_trade['strategy']
                     early_exit_config = CONFIG.get('EARLY_EXIT', {}).get(strategy_name, {})
-                        
+
                     if active_trade['side'] == 'LONG':
                         is_green = current_price > active_trade['entry_price']
                     else:
                         is_green = current_price < active_trade['entry_price']
-                        
+
                     was_green = active_trade.get('was_green')
                     if was_green is not None and is_green != was_green:
                         active_trade['profit_crosses'] = active_trade.get('profit_crosses', 0) + 1
                     active_trade['was_green'] = is_green
-                    
+
                     if early_exit_config.get('enabled', False):
                         exit_time = early_exit_config.get('exit_if_not_green_by', 50)
                         exit_cross = early_exit_config.get('max_profit_crosses', 100)
@@ -1025,11 +1148,10 @@ async def run_bot():
                         if active_trade.get('profit_crosses', 0) > exit_cross:
                             should_exit = True
                             exit_reason = f"choppy ({active_trade['profit_crosses']} crosses)"
-                            
+
                         if should_exit:
                             logging.info(f"⏰ EARLY EXIT: {strategy_name} - {exit_reason}")
 
-                            # Enhanced event logging: Early exit
                             event_logger.log_early_exit(
                                 reason=exit_reason,
                                 bars_held=active_trade['bars_held'],
@@ -1037,7 +1159,6 @@ async def run_bot():
                                 entry_price=active_trade['entry_price']
                             )
 
-                            # Calculate PnL for directional loss tracking
                             trade_side = active_trade['side']
                             entry_price = active_trade['entry_price']
                             trade_size = active_trade.get('size', 5)
@@ -1045,11 +1166,15 @@ async def run_bot():
                                 pnl_points = current_price - entry_price
                             else:
                                 pnl_points = entry_price - current_price
-                            # Convert points to dollars: MES = $5 per point per contract
                             pnl_dollars = pnl_points * 5.0 * trade_size
+                            update_mom_rescue_score(active_trade, pnl_points, current_time)
+                            update_hostile_day_on_close(strategy_name, pnl_points, current_time)
                             directional_loss_blocker.record_trade_result(trade_side, pnl_points, current_time)
                             circuit_breaker.update_trade_result(pnl_dollars)
-                            logging.info(f"📊 Early exit closed: {trade_side} | Entry: {entry_price:.2f} | Exit: {current_price:.2f} | PnL: {pnl_points:.2f} pts (${pnl_dollars:.2f})")
+                            logging.info(
+                                f"📊 Early exit closed: {trade_side} | Entry: {entry_price:.2f} | "
+                                f"Exit: {current_price:.2f} | PnL: {pnl_points:.2f} pts (${pnl_dollars:.2f})"
+                            )
 
                             position = client.get_position()
                             if position['side'] is not None:
@@ -1067,6 +1192,8 @@ async def run_bot():
                         if ml_signal: strategy_results['checked'].append('MLPhysics')
                     except Exception as e:
                         logging.error(f"ML Strategy Error: {e}")
+                if ml_signal and base_session == "ASIA":
+                    ml_signal = None
 
                 # =================================================================
                 # 🎯 HARVEST ALL SIGNALS (Solves "Ghost Signal" Problem)
@@ -1091,6 +1218,9 @@ async def run_bot():
                             signal = strat.on_bar(new_df)
 
                         if signal:
+                            if hostile_day_active and is_hostile_disabled_strategy(signal, strat_name):
+                                logging.info(f"🛑 HOSTILE DAY: Skipping {strat_name}")
+                                continue
                             # ==========================================
                             # 🧠 GEMINI 3.0: APPLY OPTIMIZATION
                             # ==========================================
@@ -1201,6 +1331,9 @@ async def run_bot():
                         #    continue
 
                         # Add to candidate list (Priority 2 = STANDARD)
+                        if hostile_day_active and is_hostile_disabled_strategy(signal, strat_name):
+                            logging.info(f"🛑 HOSTILE DAY: Skipping {strat_name}")
+                            continue
                         candidate_signals.append((2, strat, signal, strat_name))
 
                         # Log as candidate
@@ -1223,9 +1356,12 @@ async def run_bot():
                 direction_counts = {"LONG": 0, "SHORT": 0}
                 smt_side = None
                 for _, _, sig, s_name in candidate_signals:
+                    if hostile_day_active and is_hostile_disabled_strategy(sig, s_name):
+                        continue
                     side = sig.get("side")
                     if side in direction_counts:
-                        direction_counts[side] += 1
+                        weight = 2 if s_name == "SMTStrategy" else 1
+                        direction_counts[side] += weight
                     if s_name == "SMTStrategy":
                         smt_side = side
 
@@ -1263,9 +1399,18 @@ async def run_bot():
                     signal = sig
                     priority_label = "FAST" if priority == 1 else "STANDARD"
                     do_execute = False
+                    signal.setdefault("strategy", strat_name)
+                    origin_strategy = signal.get("strategy", strat_name)
+                    origin_sub_strategy = signal.get("sub_strategy")
+                    allow_rescue = not str(origin_strategy).startswith("MLPhysics")
+                    is_rescued = False
+                    consensus_rescued = False
 
                     if consensus_side and signal['side'] != consensus_side:
                         logging.info(f"⏭️ Skipping {strat_name} {signal['side']} due to consensus {consensus_side}")
+                        continue
+                    if hostile_day_active and is_hostile_disabled_strategy(signal, strat_name):
+                        logging.info(f"🛑 HOSTILE DAY: Skipping {strat_name}")
                         continue
 
                     def should_log_ui(current_signal, fallback_name):
@@ -1283,7 +1428,6 @@ async def run_bot():
 
                     if consensus_side and signal['side'] == consensus_side:
                         bypassed_filters = [
-                            "TargetFeasibility",
                             "Rejection/Bias",
                             "ImpulseFilter",
                             "HTF_FVG",
@@ -1293,20 +1437,40 @@ async def run_bot():
                             "FilterArbitrator",
                             "ChopFilter",
                             "ExtensionFilter",
-                            "VolatilityGuardrail",
                         ]
-                        if is_choppy:
-                            bypassed_filters.append("TrendFilter")
-                        regime_blocked, regime_reason = regime_blocker.should_block_trade(signal['side'], current_price)
-                        if regime_blocked:
-                            log_filter_block("RegimeBlocker", regime_reason)
-                            logging.info(f"⛔ CONSENSUS BLOCKED by RegimeBlocker: {regime_reason}")
-                            continue
-                        dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
-                        if dir_blocked:
-                            log_filter_block("DirectionalLossBlocker", dir_reason)
-                            logging.info(f"⛔ CONSENSUS BLOCKED by DirectionalLossBlocker: {dir_reason}")
-                            continue
+                        rescue_side = 'SHORT' if signal['side'] == 'LONG' else 'LONG'
+
+                        def try_consensus_rescue(trigger: str) -> bool:
+                            nonlocal signal, is_rescued, consensus_rescued
+                            if not allow_rescue:
+                                return False
+                            if mom_rescue_banned(current_time, origin_strategy, origin_sub_strategy):
+                                logging.info("⛔ CONSENSUS RESCUE BLOCKED: MomRescueBan")
+                                return False
+                            if hostile_day_active:
+                                return False
+                            potential_rescue = continuation_manager.get_active_continuation_signal(
+                                new_df, current_time, rescue_side
+                            )
+                            if not potential_rescue:
+                                return False
+                            rescue_blocked, rescue_reason = trend_filter.should_block_trade(new_df, potential_rescue['side'])
+                            if rescue_blocked:
+                                log_filter_block("TrendFilter", rescue_reason, side_override=potential_rescue['side'])
+                                return False
+                            event_logger.log_continuation_rescue_success(
+                                origin_strategy,
+                                potential_rescue['strategy'],
+                                potential_rescue['side']
+                            )
+                            signal = potential_rescue
+                            signal['entry_mode'] = "rescued"
+                            signal['rescue_from_strategy'] = origin_strategy
+                            if origin_sub_strategy:
+                                signal['rescue_from_sub_strategy'] = origin_sub_strategy
+                            is_rescued = True
+                            consensus_rescued = True
+                            return True
                         if consensus_tp_source:
                             signal['tp_dist'] = consensus_tp_signal.get('tp_dist', signal.get('tp_dist', 6.0))
                             signal['sl_dist'] = consensus_tp_signal.get('sl_dist', signal.get('sl_dist', 4.0))
@@ -1314,34 +1478,101 @@ async def run_bot():
                                 "🧮 CONSENSUS TP SOURCE: "
                                 f"{consensus_tp_source} TP={signal['tp_dist']:.2f} SL={signal['sl_dist']:.2f}"
                             )
-                        if not is_choppy:
+                        is_feasible, feasibility_reason = chop_analyzer.check_target_feasibility(
+                            entry_price=current_price,
+                            side=signal['side'],
+                            tp_distance=signal.get('tp_dist', 6.0),
+                            df_1m=new_df,
+                        )
+                        if not is_feasible:
+                            if try_consensus_rescue("TargetFeasibility"):
+                                do_execute = True
+                            else:
+                                log_filter_block("TargetFeasibility", feasibility_reason)
+                                logging.info(f"⛔ CONSENSUS BLOCKED by TargetFeasibility: {feasibility_reason}")
+                                continue
+                        if not consensus_rescued:
+                            regime_blocked, regime_reason = regime_blocker.should_block_trade(signal['side'], current_price)
+                            if regime_blocked:
+                                if try_consensus_rescue("RegimeBlocker"):
+                                    do_execute = True
+                                else:
+                                    log_filter_block("RegimeBlocker", regime_reason)
+                                    logging.info(f"⛔ CONSENSUS BLOCKED by RegimeBlocker: {regime_reason}")
+                                    continue
+                        if not consensus_rescued:
+                            dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
+                            if dir_blocked:
+                                if try_consensus_rescue("DirectionalLossBlocker"):
+                                    do_execute = True
+                                else:
+                                    log_filter_block("DirectionalLossBlocker", dir_reason)
+                                    logging.info(f"⛔ CONSENSUS BLOCKED by DirectionalLossBlocker: {dir_reason}")
+                                    continue
+                        if not consensus_rescued:
                             trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
                             if trend_blocked:
-                                log_filter_block("TrendFilter", trend_reason)
-                                logging.info(f"⛔ CONSENSUS BLOCKED by TrendFilter: {trend_reason}")
-                                continue
+                                if try_consensus_rescue("TrendFilter"):
+                                    do_execute = True
+                                else:
+                                    log_filter_block("TrendFilter", trend_reason)
+                                    logging.info(f"⛔ CONSENSUS BLOCKED by TrendFilter: {trend_reason}")
+                                    continue
+                        if not consensus_rescued:
+                            vol_regime, _, _ = volatility_filter.get_regime(new_df)
+                            chop_blocked, chop_reason = chop_filter.should_block_trade(
+                                signal['side'],
+                                rejection_filter.prev_day_pm_bias,
+                                current_price,
+                                "NEUTRAL",
+                                vol_regime,
+                            )
+                            if chop_blocked:
+                                if try_consensus_rescue("ChopFilter"):
+                                    do_execute = True
+                                else:
+                                    log_filter_block("ChopFilter", chop_reason)
+                                    logging.info(f"⛔ CONSENSUS BLOCKED by ChopFilter: {chop_reason}")
+                                    continue
+                        if not consensus_rescued:
+                            should_trade, vol_adj = check_volatility(
+                                new_df,
+                                signal.get('sl_dist', 4.0),
+                                signal.get('tp_dist', 6.0),
+                                base_size=5,
+                            )
+                            if not should_trade:
+                                skip_reason = vol_adj.get("skip_reason", "Volatility check failed")
+                                if try_consensus_rescue("VolatilityGuardrail"):
+                                    do_execute = True
+                                else:
+                                    log_filter_block("VolatilityGuardrail", skip_reason)
+                                    logging.info(f"⛔ CONSENSUS BLOCKED by Volatility Guardrail: {skip_reason}")
+                                    continue
+                            signal['sl_dist'] = vol_adj.get('sl_dist', signal.get('sl_dist', 4.0))
+                            signal['tp_dist'] = vol_adj.get('tp_dist', signal.get('tp_dist', 6.0))
+                            if vol_adj.get('adjustment_applied', False):
+                                signal['size'] = vol_adj['size']
 
-                        vol_adj = volatility_filter.get_adjustments(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0), base_size=5)
-                        volatility_filter.log_status(vol_adj)
-                        signal['sl_dist'] = vol_adj.get('sl_dist', signal.get('sl_dist', 4.0))
-                        signal['tp_dist'] = vol_adj.get('tp_dist', signal.get('tp_dist', 6.0))
-                        if vol_adj.get('adjustment_applied', False):
-                            signal['size'] = vol_adj['size']
-
-                        logging.info(f"🛡️ CONSENSUS BYPASS: {', '.join(bypassed_filters)}")
-                        do_execute = True
+                        if not consensus_rescued:
+                            logging.info(f"🛡️ CONSENSUS BYPASS: {', '.join(bypassed_filters)}")
+                            signal['entry_mode'] = "consensus"
+                            do_execute = True
+                        elif not do_execute:
+                            do_execute = True
                     else:
                         # === 1. PREPARE THE RESCUE TICKET (OPPOSITE SIDE) ===
-                        is_rescued = False
-
                         # Determine the OPPOSITE direction
                         original_side = signal['side']
                         rescue_side = 'SHORT' if original_side == 'LONG' else 'LONG'
 
                         # Fetch potential rescue signal for the OPPOSITE side
-                        potential_rescue = continuation_manager.get_active_continuation_signal(
-                            new_df, current_time, rescue_side
-                        )
+                        if hostile_day_active:
+                            potential_rescue = None
+                        else:
+                            potential_rescue = continuation_manager.get_active_continuation_signal(
+                                new_df, current_time, rescue_side
+                            )
 
                         logging.info(f"🔍 EVALUATING {priority_label}: {strat_name} {original_side} | Rescue Available ({rescue_side}): {potential_rescue is not None}")
 
@@ -1361,6 +1592,11 @@ async def run_bot():
                         # --- Helper Logic to Trigger Rescue ---
                         def try_rescue_trigger(block_reason, filter_name):
                             nonlocal signal, is_rescued, potential_rescue
+                            if not allow_rescue:
+                                return False
+                            if mom_rescue_banned(current_time, origin_strategy, origin_sub_strategy):
+                                logging.info("⛔ RESCUE BLOCKED: MomRescueBan")
+                                return False
                             log_filter_block(filter_name, block_reason)
                             # RESCUE LOGIC: Only flip if we have a ticket AND the block isn't a "Hard Stop"
                             if potential_rescue and not is_rescued:
@@ -1370,14 +1606,17 @@ async def run_bot():
                                     logging.info(f"⛔ RESCUE DENIED by TrendFilter ({potential_rescue['side']}): {rescue_reason}")
                                     log_filter_block("TrendFilter", rescue_reason, side_override=potential_rescue['side'])
                                     return False
-                                original_strategy = signal.get('strategy', strat_name)
                                 logging.info(f"♻️ RESCUE FLIP: Blocked by {filter_name} ({block_reason}). Flipping to {potential_rescue['strategy']} ({potential_rescue['side']})")
                                 event_logger.log_continuation_rescue_success(
-                                    original_strategy,
+                                    origin_strategy,
                                     potential_rescue['strategy'],
                                     potential_rescue['side']
                                 )
                                 signal = potential_rescue  # FLIP TO OPPOSITE SIGNAL
+                                signal['entry_mode'] = "rescued"
+                                signal['rescue_from_strategy'] = origin_strategy
+                                if origin_sub_strategy:
+                                    signal['rescue_from_sub_strategy'] = origin_sub_strategy
                                 is_rescued = True
                                 potential_rescue = None  # Ticket used
                                 return True
@@ -1492,10 +1731,18 @@ async def run_bot():
 
                         do_execute = True
 
-                    if not do_execute:
-                        continue
+                        if not do_execute:
+                            continue
 
                     # === EXECUTION ===
+                    signal.setdefault('entry_mode', "standard")
+                    if (
+                        not ALLOW_DYNAMIC_ENGINE_SOLO
+                        and signal.get('strategy') in ("DynamicEngine", "DynamicEngineStrategy")
+                        and signal.get('entry_mode') not in ("consensus", "rescued")
+                    ):
+                        log_filter_block("DynamicEngineSolo", "DynamicEngine solo blocked")
+                        continue
                     strategy_results['executed'] = strat_name
                     logging.info(f"✅ {priority_label} EXEC: {signal['strategy']} ({signal['side']})")
 
@@ -1511,6 +1758,8 @@ async def run_bot():
                             old_pnl_points = old_entry - current_price
                         # Convert points to dollars: MES = $5 per point per contract
                         old_pnl_dollars = old_pnl_points * 5.0 * old_size
+                        update_mom_rescue_score(active_trade, old_pnl_points, current_time)
+                        update_hostile_day_on_close(active_trade.get('strategy'), old_pnl_points, current_time)
                         directional_loss_blocker.record_trade_result(old_side, old_pnl_points, current_time)
                         circuit_breaker.update_trade_result(old_pnl_dollars)
                         logging.info(f"📊 Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | Exit: {current_price:.2f} | PnL: {old_pnl_points:.2f} pts (${old_pnl_dollars:.2f})")
@@ -1521,6 +1770,7 @@ async def run_bot():
                         sl_dist = signal.get('sl_dist', 4.0)
                         active_trade = {
                             'strategy': signal['strategy'],
+                            'sub_strategy': signal.get('sub_strategy'),
                             'side': signal['side'],
                             'entry_price': current_price,
                             'entry_bar': bar_count,
@@ -1528,7 +1778,12 @@ async def run_bot():
                             'tp_dist': signal['tp_dist'],
                             'sl_dist': sl_dist,
                             'size': signal.get('size', 5),
-                            'stop_order_id': client._active_stop_order_id
+                            'stop_order_id': client._active_stop_order_id,
+                            'entry_mode': signal.get('entry_mode', "standard"),
+                            'profit_crosses': 0,
+                            'was_green': None,
+                            'rescue_from_strategy': signal.get('rescue_from_strategy'),
+                            'rescue_from_sub_strategy': signal.get('rescue_from_sub_strategy'),
                         }
 
                     signal_executed = True
@@ -1542,6 +1797,7 @@ async def run_bot():
                             pending['bar_count'] += 1
                             if pending['bar_count'] >= 1:
                                 sig = pending['signal']
+                                sig.setdefault('entry_mode', "loose")
 
                                 # ==========================================
                                 # 🧠 GEMINI 3.0: APPLY OPTIMIZATION
@@ -1781,6 +2037,8 @@ async def run_bot():
                                         old_pnl_points = old_entry - current_price
                                     # Convert points to dollars: MES = $5 per point per contract
                                     old_pnl_dollars = old_pnl_points * 5.0 * old_size
+                                    update_mom_rescue_score(active_trade, old_pnl_points, current_time)
+                                    update_hostile_day_on_close(active_trade.get('strategy'), old_pnl_points, current_time)
                                     directional_loss_blocker.record_trade_result(old_side, old_pnl_points, current_time)
                                     circuit_breaker.update_trade_result(old_pnl_dollars)
                                     logging.info(f"📊 Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | Exit: {current_price:.2f} | PnL: {old_pnl_points:.2f} pts (${old_pnl_dollars:.2f})")
@@ -1790,6 +2048,7 @@ async def run_bot():
                                     sl_dist = sig.get('sl_dist', 4.0)  # Standard default, NOT tp_dist
                                     active_trade = {
                                         'strategy': s_name,
+                                        'sub_strategy': sig.get('sub_strategy'),
                                         'side': sig['side'],
                                         'entry_price': current_price,
                                         'entry_bar': bar_count,
@@ -1797,7 +2056,12 @@ async def run_bot():
                                         'tp_dist': sig['tp_dist'],
                                         'sl_dist': sl_dist,  # Store SL for consistency
                                         'size': sig.get('size', 5),  # Use signal size (volatility-adjusted)
-                                        'stop_order_id': client._active_stop_order_id
+                                        'stop_order_id': client._active_stop_order_id,
+                                        'entry_mode': sig.get('entry_mode', "loose"),
+                                        'profit_crosses': 0,
+                                        'was_green': None,
+                                        'rescue_from_strategy': sig.get('rescue_from_strategy'),
+                                        'rescue_from_sub_strategy': sig.get('rescue_from_sub_strategy'),
                                     }
 
                                 del pending_loose_signals[s_name]
@@ -1844,6 +2108,8 @@ async def run_bot():
                                         if sl_mult != 1.0 or tp_mult != 1.0:
                                             logging.info(f"🧠 GEMINI OPTIMIZED: {s_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
                                         # ==========================================
+
+                                        signal['entry_mode'] = "loose"
 
                                         # Enforce HTF range fade directional restriction
                                         if allowed_chop_side is not None and signal['side'] != allowed_chop_side:
