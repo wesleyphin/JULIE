@@ -116,6 +116,7 @@ class ProjectXClient:
         self._active_stop_order_id = None
         self._order_cache = {}
         self._order_cache_ts = 0.0
+        self._last_order_details = None
 
     def _check_general_rate_limit(self) -> bool:
         """Check if we're within general rate limits"""
@@ -521,6 +522,7 @@ class ProjectXClient:
             return
 
         url = f"{self.base_url}/api/Order/place"
+        self._last_order_details = None
 
         # 1. Determine Side (0=Buy, 1=Sell)
         is_long = (signal['side'] == "LONG")
@@ -539,29 +541,11 @@ class ProjectXClient:
         if 'tp_dist' not in signal:
             logging.warning(f"⚠️ Strategy {signal.get('strategy', 'Unknown')} missing tp_dist, using default 6.0")
 
-        # === HYBRID TICK CONVERSION ===
-        # Wide SL/TP: Use Dec 17th logic (raw points as ticks) - no expansion needed
-        # Tight SL/TP: Use half-size (pts / 0.5) - needs expansion to survive
-        WIDE_SL_THRESHOLD = 6.0  # SL >= 6.0 pts considered "wide"
-        WIDE_TP_THRESHOLD = 10.0  # TP >= 10.0 pts considered "wide"
-
-        if sl_points >= WIDE_SL_THRESHOLD:
-            # Wide stop - use Dec 17th raw conversion
-            abs_sl_ticks = int(abs(sl_points))  # e.g., 8.0 pts → 8 ticks (2.0 pts actual)
-            logging.debug(f"📏 Wide SL ({sl_points}pts): Using raw conversion → {abs_sl_ticks} ticks")
-        else:
-            # Tight stop - use half-size expansion
-            abs_sl_ticks = int(abs(sl_points / 0.5))  # e.g., 4.0 pts → 8 ticks (2.0 pts actual)
-            logging.debug(f"📏 Tight SL ({sl_points}pts): Using half-size → {abs_sl_ticks} ticks")
-
-        if tp_points >= WIDE_TP_THRESHOLD:
-            # Wide target - use Dec 17th raw conversion
-            abs_tp_ticks = int(abs(tp_points))  # e.g., 12.0 pts → 12 ticks (3.0 pts actual)
-            logging.debug(f"🎯 Wide TP ({tp_points}pts): Using raw conversion → {abs_tp_ticks} ticks")
-        else:
-            # Tight target - use half-size expansion
-            abs_tp_ticks = int(abs(tp_points / 0.5))  # e.g., 6.0 pts → 12 ticks (3.0 pts actual)
-            logging.debug(f"🎯 Tight TP ({tp_points}pts): Using half-size → {abs_tp_ticks} ticks")
+        # === TICK CONVERSION ===
+        # Convert points to ticks using the contract tick size.
+        tick_size = 0.25
+        abs_sl_ticks = max(1, int(round(abs(sl_points) / tick_size)))
+        abs_tp_ticks = max(1, int(round(abs(tp_points) / tick_size)))
 
 
         # 3. Apply Directional Signs based on Side
@@ -573,6 +557,9 @@ class ProjectXClient:
             # SHORT: Profit is DOWN (-), Stop is UP (+)
             final_tp_ticks = -abs_tp_ticks
             final_sl_ticks = abs_sl_ticks
+
+        actual_tp_points = abs(final_tp_ticks) * tick_size
+        actual_sl_points = abs(final_sl_ticks) * tick_size
 
         # 4. Generate Unique Client Order ID
         unique_order_id = str(uuid.uuid4())
@@ -600,23 +587,22 @@ class ProjectXClient:
         }
 
         try:
-            # Log exact details for verification
-            direction_str = "UP (+)" if is_long else "DOWN (-)"
-            tp_price = current_price + tp_points if is_long else current_price - tp_points
-            sl_price = current_price - sl_points if is_long else current_price + sl_points
+            # Log exact details for verification (use final tick-derived distances)
+            tp_price = current_price + actual_tp_points if is_long else current_price - actual_tp_points
+            sl_price = current_price - actual_sl_points if is_long else current_price + actual_sl_points
 
             # Enhanced event logging: Order about to be placed
             event_logger.log_trade_signal_generated(
                 strategy=signal.get('strategy', 'Unknown'),
                 side=signal['side'],
                 price=current_price,
-                tp_dist=tp_points,
-                sl_dist=sl_points
+                tp_dist=actual_tp_points,
+                sl_dist=actual_sl_points
             )
 
             logging.info(f"SENDING ORDER: {signal['side']} @ ~{current_price:.2f}")
-            logging.info(f"   TP: {tp_points}pts ({final_tp_ticks} ticks)")
-            logging.info(f"   SL: {sl_points}pts ({final_sl_ticks} ticks)")
+            logging.info(f"   TP: {actual_tp_points:.2f}pts ({final_tp_ticks} ticks, req {tp_points:.2f})")
+            logging.info(f"   SL: {actual_sl_points:.2f}pts ({final_sl_ticks} ticks, req {sl_points:.2f})")
 
             resp = self.session.post(url, json=payload)
             self._track_general_request()
@@ -653,11 +639,24 @@ class ProjectXClient:
 
             logging.info(f"Order Placed Successfully [{unique_order_id[:8]}]")
 
+            entry_price = current_price
+            for key in ("averagePrice", "avgPrice", "fillPrice", "price"):
+                if key not in resp_data:
+                    continue
+                try:
+                    entry_price = float(resp_data[key])
+                    break
+                except (TypeError, ValueError):
+                    continue
+
+            tp_price = entry_price + actual_tp_points if is_long else entry_price - actual_tp_points
+            sl_price = entry_price - actual_sl_points if is_long else entry_price + actual_sl_points
+
             # Enhanced event logging: Order placed successfully
             event_logger.log_trade_order_placed(
                 order_id=unique_order_id,
                 side=signal['side'],
-                price=current_price,
+                price=entry_price,
                 tp_price=tp_price,
                 sl_price=sl_price,
                 strategy=signal.get('strategy', 'Unknown')
@@ -666,8 +665,20 @@ class ProjectXClient:
             # Update shadow position state
             self._local_position = {
                 'side': signal['side'],
-                'size': 5,  # Fixed size
-                'avg_price': current_price
+                'size': order_size,
+                'avg_price': entry_price
+            }
+            self._last_order_details = {
+                "order_id": unique_order_id,
+                "side": signal['side'],
+                "entry_price": entry_price,
+                "tp_points": actual_tp_points,
+                "sl_points": actual_sl_points,
+                "tp_price": tp_price,
+                "sl_price": sl_price,
+                "tp_ticks": final_tp_ticks,
+                "sl_ticks": final_sl_ticks,
+                "size": order_size,
             }
 
             # Try to capture stop order ID from response if available

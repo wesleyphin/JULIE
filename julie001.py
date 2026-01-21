@@ -657,6 +657,7 @@ async def run_bot():
 
     # --- NEW: Initialize VIX master dataframe ---
     master_vix_df = pd.DataFrame()
+    vix_fetch_toggle = True
 
     # One-time backfill flag
     data_backfilled = False
@@ -930,7 +931,12 @@ async def run_bot():
             recent_data = client.get_market_data(lookback_minutes=15, force_fetch=True)
             recent_mnq_data = mnq_client.get_market_data(lookback_minutes=15, force_fetch=True)
             # --- NEW: Fetch VIX Data ---
-            recent_vix_data = vix_client.get_market_data(lookback_minutes=15, force_fetch=True)
+            fetch_vix = vix_fetch_toggle
+            vix_fetch_toggle = not vix_fetch_toggle
+            if fetch_vix:
+                recent_vix_data = vix_client.get_market_data(lookback_minutes=15, force_fetch=True)
+            else:
+                recent_vix_data = pd.DataFrame()
 
             if not recent_data.empty:
                 appended = bar_logger.append_from_df(recent_data)
@@ -1086,17 +1092,35 @@ async def run_bot():
                         trade_side = active_trade['side']
                         entry_price = active_trade['entry_price']
                         trade_size = active_trade.get('size', 5)
+                        exit_price = current_price
+                        tp_dist = active_trade.get('tp_dist')
+                        sl_dist = active_trade.get('sl_dist')
+                        if tp_dist is not None and sl_dist is not None:
+                            if trade_side == 'LONG':
+                                tp_price = entry_price + tp_dist
+                                sl_price = entry_price - sl_dist
+                                if current_price >= tp_price:
+                                    exit_price = tp_price
+                                elif current_price <= sl_price:
+                                    exit_price = sl_price
+                            else:
+                                tp_price = entry_price - tp_dist
+                                sl_price = entry_price + sl_dist
+                                if current_price <= tp_price:
+                                    exit_price = tp_price
+                                elif current_price >= sl_price:
+                                    exit_price = sl_price
                         if trade_side == 'LONG':
-                            pnl_points = current_price - entry_price
+                            pnl_points = exit_price - entry_price
                         else:
-                            pnl_points = entry_price - current_price
+                            pnl_points = entry_price - exit_price
                         # Convert points to dollars: MES = $5 per point per contract
                         pnl_dollars = pnl_points * 5.0 * trade_size
                         update_mom_rescue_score(active_trade, pnl_points, current_time)
                         update_hostile_day_on_close(active_trade.get('strategy'), pnl_points, current_time)
                         directional_loss_blocker.record_trade_result(trade_side, pnl_points, current_time)
                         circuit_breaker.update_trade_result(pnl_dollars)
-                        logging.info(f"📊 Trade closed: {trade_side} | Entry: {entry_price:.2f} | Exit: {current_price:.2f} | PnL: {pnl_points:.2f} pts (${pnl_dollars:.2f})")
+                        logging.info(f"📊 Trade closed: {trade_side} | Entry: {entry_price:.2f} | Exit: {exit_price:.2f} | PnL: {pnl_points:.2f} pts (${pnl_dollars:.2f})")
                         active_trade = None
                         opposite_signal_count = 0
                         client._local_position = {'side': None, 'size': 0, 'avg_price': 0.0}
@@ -1440,8 +1464,9 @@ async def run_bot():
                         ]
                         rescue_side = 'SHORT' if signal['side'] == 'LONG' else 'LONG'
 
-                        def try_consensus_rescue(trigger: str) -> bool:
+                        def try_consensus_rescue(filter_name: str, reason: str) -> bool:
                             nonlocal signal, is_rescued, consensus_rescued
+                            log_filter_block(filter_name, reason)
                             if not allow_rescue:
                                 return False
                             if mom_rescue_banned(current_time, origin_strategy, origin_sub_strategy):
@@ -1485,37 +1510,33 @@ async def run_bot():
                             df_1m=new_df,
                         )
                         if not is_feasible:
-                            if try_consensus_rescue("TargetFeasibility"):
+                            if try_consensus_rescue("TargetFeasibility", feasibility_reason):
                                 do_execute = True
                             else:
-                                log_filter_block("TargetFeasibility", feasibility_reason)
                                 logging.info(f"⛔ CONSENSUS BLOCKED by TargetFeasibility: {feasibility_reason}")
                                 continue
                         if not consensus_rescued:
                             regime_blocked, regime_reason = regime_blocker.should_block_trade(signal['side'], current_price)
                             if regime_blocked:
-                                if try_consensus_rescue("RegimeBlocker"):
+                                if try_consensus_rescue("RegimeBlocker", regime_reason):
                                     do_execute = True
                                 else:
-                                    log_filter_block("RegimeBlocker", regime_reason)
                                     logging.info(f"⛔ CONSENSUS BLOCKED by RegimeBlocker: {regime_reason}")
                                     continue
                         if not consensus_rescued:
                             dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
                             if dir_blocked:
-                                if try_consensus_rescue("DirectionalLossBlocker"):
+                                if try_consensus_rescue("DirectionalLossBlocker", dir_reason):
                                     do_execute = True
                                 else:
-                                    log_filter_block("DirectionalLossBlocker", dir_reason)
                                     logging.info(f"⛔ CONSENSUS BLOCKED by DirectionalLossBlocker: {dir_reason}")
                                     continue
                         if not consensus_rescued:
                             trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
                             if trend_blocked:
-                                if try_consensus_rescue("TrendFilter"):
+                                if try_consensus_rescue("TrendFilter", trend_reason):
                                     do_execute = True
                                 else:
-                                    log_filter_block("TrendFilter", trend_reason)
                                     logging.info(f"⛔ CONSENSUS BLOCKED by TrendFilter: {trend_reason}")
                                     continue
                         if not consensus_rescued:
@@ -1528,10 +1549,9 @@ async def run_bot():
                                 vol_regime,
                             )
                             if chop_blocked:
-                                if try_consensus_rescue("ChopFilter"):
+                                if try_consensus_rescue("ChopFilter", chop_reason):
                                     do_execute = True
                                 else:
-                                    log_filter_block("ChopFilter", chop_reason)
                                     logging.info(f"⛔ CONSENSUS BLOCKED by ChopFilter: {chop_reason}")
                                     continue
                         if not consensus_rescued:
@@ -1543,10 +1563,9 @@ async def run_bot():
                             )
                             if not should_trade:
                                 skip_reason = vol_adj.get("skip_reason", "Volatility check failed")
-                                if try_consensus_rescue("VolatilityGuardrail"):
+                                if try_consensus_rescue("VolatilityGuardrail", skip_reason):
                                     do_execute = True
                                 else:
-                                    log_filter_block("VolatilityGuardrail", skip_reason)
                                     logging.info(f"⛔ CONSENSUS BLOCKED by Volatility Guardrail: {skip_reason}")
                                     continue
                             signal['sl_dist'] = vol_adj.get('sl_dist', signal.get('sl_dist', 4.0))
@@ -1592,12 +1611,12 @@ async def run_bot():
                         # --- Helper Logic to Trigger Rescue ---
                         def try_rescue_trigger(block_reason, filter_name):
                             nonlocal signal, is_rescued, potential_rescue
+                            log_filter_block(filter_name, block_reason)
                             if not allow_rescue:
                                 return False
                             if mom_rescue_banned(current_time, origin_strategy, origin_sub_strategy):
                                 logging.info("⛔ RESCUE BLOCKED: MomRescueBan")
                                 return False
-                            log_filter_block(filter_name, block_reason)
                             # RESCUE LOGIC: Only flip if we have a ticket AND the block isn't a "Hard Stop"
                             if potential_rescue and not is_rescued:
                                 # Enforce TrendFilter on the rescue side before flipping
@@ -1767,17 +1786,21 @@ async def run_bot():
                     success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
 
                     if success:
-                        sl_dist = signal.get('sl_dist', 4.0)
+                        order_details = getattr(client, "_last_order_details", None) or {}
+                        entry_price = order_details.get("entry_price", current_price)
+                        tp_dist = order_details.get("tp_points", signal.get('tp_dist', 6.0))
+                        sl_dist = order_details.get("sl_points", signal.get('sl_dist', 4.0))
+                        size = order_details.get("size", signal.get('size', 5))
                         active_trade = {
                             'strategy': signal['strategy'],
                             'sub_strategy': signal.get('sub_strategy'),
                             'side': signal['side'],
-                            'entry_price': current_price,
+                            'entry_price': entry_price,
                             'entry_bar': bar_count,
                             'bars_held': 0,
-                            'tp_dist': signal['tp_dist'],
+                            'tp_dist': tp_dist,
                             'sl_dist': sl_dist,
-                            'size': signal.get('size', 5),
+                            'size': size,
                             'stop_order_id': client._active_stop_order_id,
                             'entry_mode': signal.get('entry_mode', "standard"),
                             'profit_crosses': 0,
@@ -2045,17 +2068,21 @@ async def run_bot():
 
                                 success, opposite_signal_count = client.close_and_reverse(sig, current_price, opposite_signal_count)
                                 if success:
-                                    sl_dist = sig.get('sl_dist', 4.0)  # Standard default, NOT tp_dist
+                                    order_details = getattr(client, "_last_order_details", None) or {}
+                                    entry_price = order_details.get("entry_price", current_price)
+                                    tp_dist = order_details.get("tp_points", sig.get('tp_dist', 6.0))
+                                    sl_dist = order_details.get("sl_points", sig.get('sl_dist', 4.0))
+                                    size = order_details.get("size", sig.get('size', 5))
                                     active_trade = {
                                         'strategy': s_name,
                                         'sub_strategy': sig.get('sub_strategy'),
                                         'side': sig['side'],
-                                        'entry_price': current_price,
+                                        'entry_price': entry_price,
                                         'entry_bar': bar_count,
                                         'bars_held': 0,
-                                        'tp_dist': sig['tp_dist'],
+                                        'tp_dist': tp_dist,
                                         'sl_dist': sl_dist,  # Store SL for consistency
-                                        'size': sig.get('size', 5),  # Use signal size (volatility-adjusted)
+                                        'size': size,  # Use order size when available
                                         'stop_order_id': client._active_stop_order_id,
                                         'entry_mode': sig.get('entry_mode', "loose"),
                                         'profit_crosses': 0,
