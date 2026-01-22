@@ -209,6 +209,175 @@ logging.basicConfig(
 )
 
 NY_TZ = ZoneInfo('America/New_York')
+TREND_DAY_ENABLED = True
+ATR_BASELINE_WINDOW = 390
+ATR_EXP_T1 = 1.4
+ATR_EXP_T2 = 1.6
+VWAP_SIGMA_T1 = 1.5
+VWAP_NO_RECLAIM_BARS_T1 = 20
+VWAP_NO_RECLAIM_BARS_T2 = 20
+VWAP_RECLAIM_SIGMA = 0.5
+VWAP_RECLAIM_CONSECUTIVE_BARS = 15
+TREND_DAY_STICKY_RECLAIM_BARS = 30
+SIGMA_WINDOW = 30
+IMPULSE_MIN_BARS = 30
+IMPULSE_MAX_RETRACE = 0.25
+TICK_SIZE = 0.25
+TREND_UP_EMA_SLOPE_BARS = 20
+TREND_UP_ATR_EXP = 1.4
+TREND_UP_ABOVE_EMA50_WINDOW = 10
+TREND_UP_ABOVE_EMA50_COUNT = 8
+TREND_UP_HL_SEGMENT = 5
+TREND_DOWN_EMA_SLOPE_BARS = 20
+TREND_DOWN_ATR_EXP = 1.4
+TREND_DOWN_BELOW_EMA50_WINDOW = 10
+TREND_DOWN_BELOW_EMA50_COUNT = 8
+TREND_DOWN_LH_SEGMENT = 5
+ADX_PERIOD = 14
+ADX_FLIP_THRESHOLD = 25.0
+ADX_FLIP_BARS = 50
+TREND_DAY_T1_REQUIRE_CONFIRMATION = False
+ALT_PRE_TIER1_VWAP_SIGMA = 2.0
+
+# ==========================================
+# TREND DAY DETECTOR (LIVE)
+# ==========================================
+def compute_trend_day_series(df: pd.DataFrame) -> dict:
+    close = df["close"]
+    ema50 = close.ewm(span=50, adjust=False).mean()
+    ema200 = close.ewm(span=200, adjust=False).mean()
+    sma50 = close.rolling(50, min_periods=50).mean()
+
+    prev_close = close.shift(1)
+    tr_components = pd.concat(
+        [
+            (df["high"] - df["low"]).abs(),
+            (df["high"] - prev_close).abs(),
+            (df["low"] - prev_close).abs(),
+        ],
+        axis=1,
+    )
+    tr = tr_components.max(axis=1)
+    atr20 = tr.ewm(alpha=1 / 20, adjust=False).mean()
+    atr_baseline = atr20.rolling(ATR_BASELINE_WINDOW, min_periods=ATR_BASELINE_WINDOW).median()
+    atr_expansion = atr20 / atr_baseline.replace(0, np.nan)
+
+    idx = df.index
+    if idx.tz is not None:
+        idx = idx.tz_convert(NY_TZ)
+    day_index = idx.date
+
+    typical_price = (df["high"] + df["low"] + df["close"]) / 3
+    volume = df["volume"].fillna(0)
+    cum_pv = (typical_price * volume).groupby(day_index).cumsum()
+    cum_v = volume.groupby(day_index).cumsum()
+    vwap = cum_pv / cum_v.replace(0, np.nan)
+
+    ret = close.diff()
+    sigma = ret.rolling(SIGMA_WINDOW, min_periods=SIGMA_WINDOW).std()
+    sigma = sigma.ffill().clip(lower=TICK_SIZE)
+    vwap_sigma_dist = (close - vwap) / sigma
+
+    close_ge = close > vwap
+    close_le = close < vwap
+    reclaim_down = (
+        close_ge.rolling(
+            VWAP_RECLAIM_CONSECUTIVE_BARS, min_periods=VWAP_RECLAIM_CONSECUTIVE_BARS
+        ).sum()
+        == VWAP_RECLAIM_CONSECUTIVE_BARS
+    )
+    reclaim_up = (
+        close_le.rolling(
+            VWAP_RECLAIM_CONSECUTIVE_BARS, min_periods=VWAP_RECLAIM_CONSECUTIVE_BARS
+        ).sum()
+        == VWAP_RECLAIM_CONSECUTIVE_BARS
+    )
+
+    no_reclaim_down_t1 = (
+        reclaim_down.rolling(VWAP_NO_RECLAIM_BARS_T1, min_periods=VWAP_NO_RECLAIM_BARS_T1).sum() == 0
+    )
+    no_reclaim_up_t1 = (
+        reclaim_up.rolling(VWAP_NO_RECLAIM_BARS_T1, min_periods=VWAP_NO_RECLAIM_BARS_T1).sum() == 0
+    )
+    no_reclaim_down_t2 = (
+        reclaim_down.rolling(VWAP_NO_RECLAIM_BARS_T2, min_periods=VWAP_NO_RECLAIM_BARS_T2).sum() == 0
+    )
+    no_reclaim_up_t2 = (
+        reclaim_up.rolling(VWAP_NO_RECLAIM_BARS_T2, min_periods=VWAP_NO_RECLAIM_BARS_T2).sum() == 0
+    )
+
+    session_open = df["open"].groupby(day_index).transform("first")
+    daily_low = df["low"].groupby(day_index).min()
+    daily_high = df["high"].groupby(day_index).max()
+    prior_session_low = pd.Series(day_index, index=df.index).map(daily_low.shift(1))
+    prior_session_high = pd.Series(day_index, index=df.index).map(daily_high.shift(1))
+
+    sma50_slope_up = (sma50 - sma50.shift(TREND_UP_EMA_SLOPE_BARS)) > 0
+    above_ema50 = close > ema50
+    above_ema50_count = above_ema50.rolling(
+        TREND_UP_ABOVE_EMA50_WINDOW, min_periods=TREND_UP_ABOVE_EMA50_WINDOW
+    ).sum()
+    above_ema50_ok = above_ema50_count >= TREND_UP_ABOVE_EMA50_COUNT
+    seg = TREND_UP_HL_SEGMENT
+    low_seg1 = df["low"].rolling(seg, min_periods=seg).min()
+    low_seg2 = df["low"].shift(seg).rolling(seg, min_periods=seg).min()
+    low_seg3 = df["low"].shift(seg * 2).rolling(seg, min_periods=seg).min()
+    higher_lows = (low_seg1 > low_seg2) & (low_seg2 > low_seg3)
+    trend_up_alt = sma50_slope_up & above_ema50_ok & higher_lows & (atr_expansion >= TREND_UP_ATR_EXP)
+
+    sma50_slope_down = (sma50 - sma50.shift(TREND_DOWN_EMA_SLOPE_BARS)) < 0
+    below_ema50 = close < ema50
+    below_ema50_count = below_ema50.rolling(
+        TREND_DOWN_BELOW_EMA50_WINDOW, min_periods=TREND_DOWN_BELOW_EMA50_WINDOW
+    ).sum()
+    below_ema50_ok = below_ema50_count >= TREND_DOWN_BELOW_EMA50_COUNT
+    seg_down = TREND_DOWN_LH_SEGMENT
+    high_seg1 = df["high"].rolling(seg_down, min_periods=seg_down).max()
+    high_seg2 = df["high"].shift(seg_down).rolling(seg_down, min_periods=seg_down).max()
+    high_seg3 = df["high"].shift(seg_down * 2).rolling(seg_down, min_periods=seg_down).max()
+    lower_highs = (high_seg1 < high_seg2) & (high_seg2 < high_seg3)
+    trend_down_alt = sma50_slope_down & below_ema50_ok & lower_highs & (atr_expansion >= TREND_DOWN_ATR_EXP)
+
+    up_move = df["high"].diff()
+    down_move = -df["low"].diff()
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+    plus_dm = pd.Series(plus_dm, index=df.index)
+    minus_dm = pd.Series(minus_dm, index=df.index)
+    tr_smooth = tr.ewm(alpha=1 / ADX_PERIOD, adjust=False).mean()
+    plus_dm_smooth = plus_dm.ewm(alpha=1 / ADX_PERIOD, adjust=False).mean()
+    minus_dm_smooth = minus_dm.ewm(alpha=1 / ADX_PERIOD, adjust=False).mean()
+    plus_di = 100 * plus_dm_smooth / tr_smooth.replace(0, np.nan)
+    minus_di = 100 * minus_dm_smooth / tr_smooth.replace(0, np.nan)
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
+    adx = dx.ewm(alpha=1 / ADX_PERIOD, adjust=False).mean()
+    adx_strong_up = (adx >= ADX_FLIP_THRESHOLD) & (plus_di > minus_di)
+    adx_strong_down = (adx >= ADX_FLIP_THRESHOLD) & (minus_di > plus_di)
+
+    return {
+        "ema50": ema50,
+        "ema200": ema200,
+        "sma50": sma50,
+        "atr20": atr20,
+        "atr_expansion": atr_expansion,
+        "vwap": vwap,
+        "sigma": sigma,
+        "vwap_sigma_dist": vwap_sigma_dist,
+        "reclaim_down": reclaim_down.fillna(False),
+        "reclaim_up": reclaim_up.fillna(False),
+        "no_reclaim_down_t1": no_reclaim_down_t1.fillna(False),
+        "no_reclaim_up_t1": no_reclaim_up_t1.fillna(False),
+        "no_reclaim_down_t2": no_reclaim_down_t2.fillna(False),
+        "no_reclaim_up_t2": no_reclaim_up_t2.fillna(False),
+        "session_open": session_open,
+        "prior_session_low": prior_session_low,
+        "prior_session_high": prior_session_high,
+        "trend_up_alt": trend_up_alt.fillna(False),
+        "trend_down_alt": trend_down_alt.fillna(False),
+        "adx_strong_up": adx_strong_up.fillna(False),
+        "adx_strong_down": adx_strong_down.fillna(False),
+        "day_index": pd.Series(day_index, index=df.index),
+    }
 
 # ==========================================
 # 2a. REJECTION FILTER (Trade Direction Filters)
@@ -525,6 +694,25 @@ async def run_bot():
     }
     mom_rescue_date = None
     mom_rescue_scores = {"Long_Mom": 0, "Short_Mom": 0}
+    trend_day_tier = 0
+    trend_day_dir = None
+    impulse_day = None
+    impulse_active = False
+    impulse_dir = None
+    impulse_start_price = None
+    impulse_extreme = None
+    pullback_extreme = None
+    max_retracement = 0.0
+    bars_since_impulse = 0
+    last_trend_day_tier = 0
+    last_trend_day_dir = None
+    tier1_down_until = None
+    tier1_up_until = None
+    tier1_seen = False
+    sticky_trend_dir = None
+    sticky_reclaim_count = 0
+    sticky_opposite_count = 0
+    last_trend_session = None
 
     def reset_mom_rescues(day: date) -> None:
         nonlocal mom_rescue_date, mom_rescue_scores
@@ -1129,6 +1317,325 @@ async def run_bot():
                 logging.info(f"Bar: {current_time.strftime('%Y-%m-%d %H:%M:%S')} ET | Price: {current_price:.2f}")
                 last_processed_bar = current_time
 
+                # === TREND DAY DETECTOR (Tier 1/2 + sticky direction) ===
+                if TREND_DAY_ENABLED:
+                    try:
+                        trend_day_series = compute_trend_day_series(new_df)
+                        trend_session = "NY" if base_session in ("NY_AM", "NY_PM") else base_session
+                        if last_trend_session != trend_session:
+                            last_trend_session = trend_session
+                            trend_day_tier = 0
+                            trend_day_dir = None
+                            impulse_day = None
+                            impulse_active = False
+                            impulse_dir = None
+                            impulse_start_price = None
+                            impulse_extreme = None
+                            pullback_extreme = None
+                            max_retracement = 0.0
+                            bars_since_impulse = 0
+                            tier1_down_until = None
+                            tier1_up_until = None
+                            tier1_seen = False
+                            sticky_trend_dir = None
+                            sticky_reclaim_count = 0
+                            sticky_opposite_count = 0
+
+                        day_key = trend_day_series["day_index"].iloc[-1]
+                        if impulse_day != day_key:
+                            impulse_day = day_key
+                            impulse_active = False
+                            impulse_dir = None
+                            impulse_start_price = None
+                            impulse_extreme = None
+                            pullback_extreme = None
+                            max_retracement = 0.0
+                            bars_since_impulse = 0
+                            tier1_down_until = None
+                            tier1_up_until = None
+                            tier1_seen = False
+                            sticky_trend_dir = None
+                            sticky_reclaim_count = 0
+                            sticky_opposite_count = 0
+
+                        bar_close = float(currbar["close"])
+                        bar_high = float(currbar["high"])
+                        bar_low = float(currbar["low"])
+
+                        ema50_val = trend_day_series["ema50"].iloc[-1]
+                        atr_expansion = trend_day_series["atr_expansion"].iloc[-1]
+                        vwap_val = trend_day_series["vwap"].iloc[-1]
+                        vwap_sigma = trend_day_series["vwap_sigma_dist"].iloc[-1]
+                        session_open = trend_day_series["session_open"].iloc[-1]
+                        prior_session_low = trend_day_series["prior_session_low"].iloc[-1]
+                        prior_session_high = trend_day_series["prior_session_high"].iloc[-1]
+                        trend_up_alt = bool(trend_day_series["trend_up_alt"].iloc[-1])
+                        trend_down_alt = bool(trend_day_series["trend_down_alt"].iloc[-1])
+                        adx_strong_up = bool(trend_day_series["adx_strong_up"].iloc[-1])
+                        adx_strong_down = bool(trend_day_series["adx_strong_down"].iloc[-1])
+
+                        trend_day_tier = 0
+                        trend_day_dir = None
+                        ema_down = False
+                        ema_up = False
+                        atr_ok_t1 = False
+                        atr_ok_t2 = False
+                        displaced_down = False
+                        displaced_up = False
+                        no_reclaim_down_t1 = False
+                        no_reclaim_up_t1 = False
+                        no_reclaim_down_t2 = False
+                        no_reclaim_up_t2 = False
+                        reclaim_down = False
+                        reclaim_up = False
+                        confirm_down = False
+                        confirm_up = False
+
+                        if pd.notna(atr_expansion) and pd.notna(vwap_sigma):
+                            atr_ok_t1 = atr_expansion >= ATR_EXP_T1
+                            atr_ok_t2 = atr_expansion >= ATR_EXP_T2
+                            displaced_down = vwap_sigma <= -VWAP_SIGMA_T1
+                            displaced_up = vwap_sigma >= VWAP_SIGMA_T1
+                            no_reclaim_down_t1 = bool(trend_day_series["no_reclaim_down_t1"].iloc[-1])
+                            no_reclaim_up_t1 = bool(trend_day_series["no_reclaim_up_t1"].iloc[-1])
+                            no_reclaim_down_t2 = bool(trend_day_series["no_reclaim_down_t2"].iloc[-1])
+                            no_reclaim_up_t2 = bool(trend_day_series["no_reclaim_up_t2"].iloc[-1])
+                            reclaim_down = bool(trend_day_series["reclaim_down"].iloc[-1])
+                            reclaim_up = bool(trend_day_series["reclaim_up"].iloc[-1])
+
+                        if pd.notna(ema50_val):
+                            ema_down = bar_close < ema50_val
+                            ema_up = bar_close > ema50_val
+                            confirm_down = confirm_down or ema_down
+                            confirm_up = confirm_up or ema_up
+                        if pd.notna(session_open):
+                            confirm_down = confirm_down or (bar_close < session_open)
+                            confirm_up = confirm_up or (bar_close > session_open)
+                        if pd.notna(prior_session_low) or pd.notna(prior_session_high):
+                            prev_close = float(new_df.iloc[-2]["close"]) if len(new_df) > 1 else bar_close
+                            if pd.notna(prior_session_low):
+                                confirm_down = confirm_down or (
+                                    bar_close < prior_session_low and prev_close < prior_session_low
+                                )
+                            if pd.notna(prior_session_high):
+                                confirm_up = confirm_up or (
+                                    bar_close > prior_session_high and prev_close > prior_session_high
+                                )
+
+                        if impulse_active:
+                            if impulse_dir == "down" and reclaim_down:
+                                impulse_active = False
+                            elif impulse_dir == "up" and reclaim_up:
+                                impulse_active = False
+                            if not impulse_active:
+                                impulse_dir = None
+                                impulse_start_price = None
+                                impulse_extreme = None
+                                pullback_extreme = None
+                                max_retracement = 0.0
+                                bars_since_impulse = 0
+
+                        impulse_started = False
+                        if not impulse_active and pd.notna(vwap_val):
+                            start_down = displaced_down and bar_close < vwap_val
+                            start_up = displaced_up and bar_close > vwap_val
+                            if start_down and start_up:
+                                if abs(vwap_sigma) >= VWAP_SIGMA_T1:
+                                    start_up = vwap_sigma > 0
+                                    start_down = not start_up
+                            if start_down:
+                                impulse_active = True
+                                impulse_dir = "down"
+                                impulse_start_price = bar_close
+                                impulse_extreme = bar_low
+                                pullback_extreme = bar_high
+                                max_retracement = 0.0
+                                bars_since_impulse = 1
+                                impulse_started = True
+                            elif start_up:
+                                impulse_active = True
+                                impulse_dir = "up"
+                                impulse_start_price = bar_close
+                                impulse_extreme = bar_high
+                                pullback_extreme = bar_low
+                                max_retracement = 0.0
+                                bars_since_impulse = 1
+                                impulse_started = True
+
+                        if impulse_active:
+                            if not impulse_started:
+                                bars_since_impulse += 1
+                            if impulse_dir == "down":
+                                if bar_low < impulse_extreme:
+                                    impulse_extreme = bar_low
+                                    pullback_extreme = bar_high
+                                else:
+                                    pullback_extreme = max(pullback_extreme, bar_high)
+                                impulse_range = (impulse_start_price or bar_close) - impulse_extreme
+                                if impulse_range >= TICK_SIZE:
+                                    retracement = (pullback_extreme - impulse_extreme) / impulse_range
+                                    max_retracement = max(max_retracement, retracement)
+                            elif impulse_dir == "up":
+                                if bar_high > impulse_extreme:
+                                    impulse_extreme = bar_high
+                                    pullback_extreme = bar_low
+                                else:
+                                    pullback_extreme = min(pullback_extreme, bar_low)
+                                impulse_range = impulse_extreme - (impulse_start_price or bar_close)
+                                if impulse_range >= TICK_SIZE:
+                                    retracement = (impulse_extreme - pullback_extreme) / impulse_range
+                                    max_retracement = max(max_retracement, retracement)
+
+                        confirm_ok_down = (not TREND_DAY_T1_REQUIRE_CONFIRMATION) or confirm_down
+                        confirm_ok_up = (not TREND_DAY_T1_REQUIRE_CONFIRMATION) or confirm_up
+
+                        tier1_down = atr_ok_t1 and displaced_down and no_reclaim_down_t1 and confirm_ok_down
+                        tier1_up = atr_ok_t1 and displaced_up and no_reclaim_up_t1 and confirm_ok_up
+
+                        if tier1_down:
+                            tier1_down_until = current_time + datetime.timedelta(
+                                minutes=TREND_DAY_STICKY_RECLAIM_BARS
+                            )
+                        if tier1_up:
+                            tier1_up_until = current_time + datetime.timedelta(
+                                minutes=TREND_DAY_STICKY_RECLAIM_BARS
+                            )
+
+                        tier1_down_active = bool(tier1_down_until and current_time <= tier1_down_until)
+                        tier1_up_active = bool(tier1_up_until and current_time <= tier1_up_until)
+                        if tier1_down_active or tier1_up_active:
+                            tier1_seen = True
+                        allow_alt = tier1_seen or (
+                            pd.notna(vwap_sigma) and abs(vwap_sigma) >= ALT_PRE_TIER1_VWAP_SIGMA
+                        )
+
+                        tier2_down = (
+                            atr_ok_t2
+                            and displaced_down
+                            and no_reclaim_down_t2
+                            and impulse_active
+                            and impulse_dir == "down"
+                            and bars_since_impulse >= IMPULSE_MIN_BARS
+                            and max_retracement <= IMPULSE_MAX_RETRACE
+                        )
+                        tier2_up = (
+                            atr_ok_t2
+                            and displaced_up
+                            and no_reclaim_up_t2
+                            and impulse_active
+                            and impulse_dir == "up"
+                            and bars_since_impulse >= IMPULSE_MIN_BARS
+                            and max_retracement <= IMPULSE_MAX_RETRACE
+                        )
+
+                        computed_tier = 0
+                        computed_dir = None
+                        if tier2_down and tier2_up:
+                            computed_dir = "down" if vwap_sigma < 0 else "up"
+                            computed_tier = 2
+                        elif tier2_down:
+                            computed_dir = "down"
+                            computed_tier = 2
+                        elif tier2_up:
+                            computed_dir = "up"
+                            computed_tier = 2
+                        elif tier1_down_active and tier1_up_active:
+                            computed_dir = "down" if vwap_sigma < 0 else "up"
+                            computed_tier = 1
+                        elif tier1_down_active:
+                            computed_dir = "down"
+                            computed_tier = 1
+                        elif tier1_up_active:
+                            computed_dir = "up"
+                            computed_tier = 1
+                        elif trend_up_alt and allow_alt:
+                            computed_dir = "up"
+                            computed_tier = 1
+                        elif trend_down_alt and allow_alt:
+                            computed_dir = "down"
+                            computed_tier = 1
+
+                        if sticky_trend_dir is None:
+                            if computed_dir:
+                                sticky_trend_dir = computed_dir
+                                sticky_opposite_count = 0
+                        else:
+                            if computed_dir and computed_dir != sticky_trend_dir:
+                                adx_ok = (
+                                    (computed_dir == "up" and adx_strong_up)
+                                    or (computed_dir == "down" and adx_strong_down)
+                                )
+                                if adx_ok:
+                                    sticky_opposite_count += 1
+                                else:
+                                    sticky_opposite_count = 0
+                            else:
+                                sticky_opposite_count = 0
+                            if sticky_opposite_count >= ADX_FLIP_BARS:
+                                sticky_trend_dir = computed_dir
+                                sticky_opposite_count = 0
+
+                        if sticky_trend_dir:
+                            trend_day_dir = sticky_trend_dir
+                            if computed_dir == sticky_trend_dir and computed_tier == 2:
+                                trend_day_tier = 2
+                            else:
+                                trend_day_tier = 1
+                        else:
+                            trend_day_dir = computed_dir
+                            trend_day_tier = computed_tier
+
+                        if trend_day_tier > 0 and trend_day_dir:
+                            loss_limit = directional_loss_blocker.consecutive_loss_limit
+                            if trend_day_dir == "up":
+                                loss_count = directional_loss_blocker.long_consecutive_losses
+                            else:
+                                loss_count = directional_loss_blocker.short_consecutive_losses
+                            if loss_count >= loss_limit:
+                                logging.warning(
+                                    "[TrendDay] Deactivating tier/alt after "
+                                    f"{loss_count} consecutive {trend_day_dir.upper()} losses"
+                                )
+                                trend_day_tier = 0
+                                trend_day_dir = None
+                                last_trend_day_tier = 0
+                                last_trend_day_dir = None
+                                tier1_down_until = None
+                                tier1_up_until = None
+                                tier1_seen = False
+                                sticky_trend_dir = None
+                                sticky_opposite_count = 0
+                                sticky_reclaim_count = 0
+
+                        if trend_day_tier > 0 and (
+                            trend_day_tier != last_trend_day_tier or trend_day_dir != last_trend_day_dir
+                        ):
+                            logging.warning(
+                                f"🛑 TrendDay Tier {trend_day_tier} {trend_day_dir} activated "
+                                f"@ {current_time.strftime('%Y-%m-%d %H:%M')}"
+                            )
+                        last_trend_day_tier = trend_day_tier
+                        last_trend_day_dir = trend_day_dir
+                    except Exception as e:
+                        logging.error(f"TrendDay calculation failed: {e}")
+                        trend_day_tier = 0
+                        trend_day_dir = None
+                        last_trend_day_tier = 0
+                        last_trend_day_dir = None
+                        sticky_trend_dir = None
+                        sticky_reclaim_count = 0
+                        sticky_opposite_count = 0
+                        tier1_seen = False
+                else:
+                    trend_day_tier = 0
+                    trend_day_dir = None
+                    last_trend_day_tier = 0
+                    last_trend_day_dir = None
+                    sticky_trend_dir = None
+                    sticky_reclaim_count = 0
+                    sticky_opposite_count = 0
+                    tier1_seen = False
+
                 # === RISK TELEMETRY (PERIODIC HEARTBEAT) ===
                 # Calculate current risk metrics
                 current_dd = abs(min(circuit_breaker.daily_pnl, 0))  # Current daily loss (positive value)
@@ -1424,6 +1931,14 @@ async def run_bot():
                     priority_label = "FAST" if priority == 1 else "STANDARD"
                     do_execute = False
                     signal.setdefault("strategy", strat_name)
+                    trend_day_counter = False
+                    if trend_day_tier > 0 and trend_day_dir:
+                        trend_day_counter = (
+                            (trend_day_dir == "down" and signal["side"] == "LONG")
+                            or (trend_day_dir == "up" and signal["side"] == "SHORT")
+                        )
+                        signal["trend_day_tier"] = trend_day_tier
+                        signal["trend_day_dir"] = trend_day_dir
                     origin_strategy = signal.get("strategy", strat_name)
                     origin_sub_strategy = signal.get("sub_strategy")
                     allow_rescue = not str(origin_strategy).startswith("MLPhysics")
@@ -1469,6 +1984,16 @@ async def run_bot():
                             log_filter_block(filter_name, reason)
                             if not allow_rescue:
                                 return False
+                            if trend_day_tier > 0 and trend_day_dir:
+                                if (trend_day_dir == "down" and rescue_side == "LONG") or (
+                                    trend_day_dir == "up" and rescue_side == "SHORT"
+                                ):
+                                    log_filter_block(
+                                        f"TrendDayTier{trend_day_tier}",
+                                        "Rescue side counter-trend",
+                                        side_override=rescue_side,
+                                    )
+                                    return False
                             if mom_rescue_banned(current_time, origin_strategy, origin_sub_strategy):
                                 logging.info("⛔ CONSENSUS RESCUE BLOCKED: MomRescueBan")
                                 return False
@@ -1493,9 +2018,21 @@ async def run_bot():
                             signal['rescue_from_strategy'] = origin_strategy
                             if origin_sub_strategy:
                                 signal['rescue_from_sub_strategy'] = origin_sub_strategy
+                            if trend_day_tier > 0 and trend_day_dir:
+                                signal["trend_day_tier"] = trend_day_tier
+                                signal["trend_day_dir"] = trend_day_dir
                             is_rescued = True
                             consensus_rescued = True
                             return True
+                        if trend_day_counter:
+                            if not try_consensus_rescue(
+                                f"TrendDayTier{trend_day_tier}",
+                                "Counter-trend",
+                            ):
+                                logging.info(
+                                    f"⛔ CONSENSUS BLOCKED by TrendDayTier{trend_day_tier}"
+                                )
+                                continue
                         if consensus_tp_source:
                             signal['tp_dist'] = consensus_tp_signal.get('tp_dist', signal.get('tp_dist', 6.0))
                             signal['sl_dist'] = consensus_tp_signal.get('sl_dist', signal.get('sl_dist', 4.0))
@@ -1596,14 +2133,6 @@ async def run_bot():
                         logging.info(f"🔍 EVALUATING {priority_label}: {strat_name} {original_side} | Rescue Available ({rescue_side}): {potential_rescue is not None}")
 
                         # === 2. TARGET FEASIBILITY (Physics Check - No Rescue) ===
-                        is_feasible, feasibility_reason = chop_analyzer.check_target_feasibility(
-                            entry_price=current_price, side=signal['side'], tp_distance=signal.get('tp_dist', 6.0), df_1m=new_df
-                        )
-                        if not is_feasible:
-                            log_filter_block("TargetFeasibility", feasibility_reason)
-                            logging.info(f"⛔ Signal ignored ({priority_label}): {feasibility_reason}")
-                            continue
-
                         # ==========================================
                         # LAYER 2: FILTER GAUNTLET (Safe Rescue Logic)
                         # ==========================================
@@ -1614,6 +2143,16 @@ async def run_bot():
                             log_filter_block(filter_name, block_reason)
                             if not allow_rescue:
                                 return False
+                            if trend_day_tier > 0 and trend_day_dir:
+                                if (trend_day_dir == "down" and rescue_side == "LONG") or (
+                                    trend_day_dir == "up" and rescue_side == "SHORT"
+                                ):
+                                    log_filter_block(
+                                        f"TrendDayTier{trend_day_tier}",
+                                        "Rescue side counter-trend",
+                                        side_override=rescue_side,
+                                    )
+                                    return False
                             if mom_rescue_banned(current_time, origin_strategy, origin_sub_strategy):
                                 logging.info("⛔ RESCUE BLOCKED: MomRescueBan")
                                 return False
@@ -1636,6 +2175,9 @@ async def run_bot():
                                 signal['rescue_from_strategy'] = origin_strategy
                                 if origin_sub_strategy:
                                     signal['rescue_from_sub_strategy'] = origin_sub_strategy
+                                if trend_day_tier > 0 and trend_day_dir:
+                                    signal["trend_day_tier"] = trend_day_tier
+                                    signal["trend_day_dir"] = trend_day_dir
                                 is_rescued = True
                                 potential_rescue = None  # Ticket used
                                 return True
@@ -1643,6 +2185,19 @@ async def run_bot():
                                 logging.info(f"⛔ BLOCKED by {filter_name}: {block_reason}")
                                 return False
                         # ---------------------------------------
+
+                        if trend_day_counter:
+                            if not try_rescue_trigger("Counter-trend", f"TrendDayTier{trend_day_tier}"):
+                                continue
+
+                        # === 2. TARGET FEASIBILITY (Physics Check - No Rescue) ===
+                        is_feasible, feasibility_reason = chop_analyzer.check_target_feasibility(
+                            entry_price=current_price, side=signal['side'], tp_distance=signal.get('tp_dist', 6.0), df_1m=new_df
+                        )
+                        if not is_feasible:
+                            log_filter_block("TargetFeasibility", feasibility_reason)
+                            logging.info(f"⛔ Signal ignored ({priority_label}): {feasibility_reason}")
+                            continue
 
                         # 1. Rejection / Bias (SAFE TO RESCUE: Aligning with Bias)
                         rej_blocked, rej_reason = rejection_filter.should_block_trade(signal['side'])
@@ -1807,6 +2362,8 @@ async def run_bot():
                             'was_green': None,
                             'rescue_from_strategy': signal.get('rescue_from_strategy'),
                             'rescue_from_sub_strategy': signal.get('rescue_from_sub_strategy'),
+                            'trend_day_tier': signal.get('trend_day_tier'),
+                            'trend_day_dir': signal.get('trend_day_dir'),
                         }
 
                     signal_executed = True
@@ -1857,6 +2414,21 @@ async def run_bot():
                                 # ==========================================
 
                                 # Enforce HTF range fade directional restriction
+                                if trend_day_tier > 0 and trend_day_dir:
+                                    if (trend_day_dir == "down" and sig["side"] == "LONG") or (
+                                        trend_day_dir == "up" and sig["side"] == "SHORT"
+                                    ):
+                                        event_logger.log_filter_check(
+                                            f"TrendDayTier{trend_day_tier}",
+                                            sig["side"],
+                                            False,
+                                            "Counter-trend",
+                                            strategy=sig.get('strategy', s_name),
+                                        )
+                                        del pending_loose_signals[s_name]
+                                        continue
+                                    sig["trend_day_tier"] = trend_day_tier
+                                    sig["trend_day_dir"] = trend_day_dir
                                 if allowed_chop_side is not None and sig['side'] != allowed_chop_side:
                                     logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {sig['side']} vs Allowed {allowed_chop_side}")
                                     del pending_loose_signals[s_name]
@@ -2089,6 +2661,8 @@ async def run_bot():
                                         'was_green': None,
                                         'rescue_from_strategy': sig.get('rescue_from_strategy'),
                                         'rescue_from_sub_strategy': sig.get('rescue_from_sub_strategy'),
+                                        'trend_day_tier': sig.get('trend_day_tier'),
+                                        'trend_day_dir': sig.get('trend_day_dir'),
                                     }
 
                                 del pending_loose_signals[s_name]
@@ -2139,6 +2713,20 @@ async def run_bot():
                                         signal['entry_mode'] = "loose"
 
                                         # Enforce HTF range fade directional restriction
+                                        if trend_day_tier > 0 and trend_day_dir:
+                                            if (trend_day_dir == "down" and signal["side"] == "LONG") or (
+                                                trend_day_dir == "up" and signal["side"] == "SHORT"
+                                            ):
+                                                event_logger.log_filter_check(
+                                                    f"TrendDayTier{trend_day_tier}",
+                                                    signal["side"],
+                                                    False,
+                                                    "Counter-trend",
+                                                    strategy=signal.get('strategy', s_name),
+                                                )
+                                                continue
+                                            signal["trend_day_tier"] = trend_day_tier
+                                            signal["trend_day_dir"] = trend_day_dir
                                         if allowed_chop_side is not None and signal['side'] != allowed_chop_side:
                                             logging.info(f"⛔ BLOCKED by HTF Range Rule: Signal {signal['side']} vs Allowed {allowed_chop_side}")
                                             continue

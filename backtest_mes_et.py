@@ -6,6 +6,7 @@ from collections import Counter, defaultdict, deque
 from pathlib import Path
 from typing import Callable, Optional
 
+import numpy as np
 import pandas as pd
 from zoneinfo import ZoneInfo
 
@@ -67,10 +68,50 @@ ENABLE_HOSTILE_DAY_GUARD = True
 HOSTILE_DAY_MAX_TRADES = 3
 HOSTILE_DAY_MIN_TRADES = 2
 HOSTILE_DAY_LOSS_THRESHOLD = 2
+TREND_DAY_ENABLED = True
+ENABLE_CIRCUIT_BREAKER = False
+ATR_BASELINE_WINDOW = 390
+ATR_EXP_T1 = 1.4
+ATR_EXP_T2 = 1.6
+VWAP_SIGMA_T1 = 1.5
+VWAP_NO_RECLAIM_BARS_T1 = 20
+VWAP_NO_RECLAIM_BARS_T2 = 20
+VWAP_RECLAIM_SIGMA = 0.5
+VWAP_RECLAIM_CONSECUTIVE_BARS = 15
+TREND_DAY_STICKY_RECLAIM_BARS = 30
+TREND_UP_EMA_SLOPE_BARS = 20
+TREND_UP_ATR_EXP = 1.4
+TREND_UP_ABOVE_EMA50_WINDOW = 10
+TREND_UP_ABOVE_EMA50_COUNT = 8
+TREND_UP_HL_SEGMENT = 5
+TREND_DOWN_EMA_SLOPE_BARS = 20
+TREND_DOWN_ATR_EXP = 1.4
+TREND_DOWN_BELOW_EMA50_WINDOW = 10
+TREND_DOWN_BELOW_EMA50_COUNT = 8
+TREND_DOWN_LH_SEGMENT = 5
+ADX_PERIOD = 14
+ADX_FLIP_THRESHOLD = 25.0
+ADX_FLIP_BARS = 50
+SIGMA_WINDOW = 30
+IMPULSE_MIN_BARS = 30
+IMPULSE_MAX_RETRACE = 0.25
+TREND_DAY_T1_REQUIRE_CONFIRMATION = False
+TREND_DAY_TIMEFRAME_MINUTES = 1
+ALT_PRE_TIER1_VWAP_SIGMA = 2.0
 
 SL_BUCKETS = [4.0, 6.0, 8.0, 10.0, 15.0]
 TP_BUCKETS = [6.0, 8.0, 10.0, 15.0, 20.0, 30.0]
 RR_BUCKETS = [1.0, 1.5, 2.0, 3.0]
+CONSENSUS_BYPASSED_FILTERS = [
+    "RejectionFilter",
+    "ImpulseFilter",
+    "HTF_FVG",
+    "StructureBlocker",
+    "BankLevelQuarterFilter",
+    "LegacyTrend",
+    "FilterArbitrator",
+    "ExtensionFilter",
+]
 
 
 def get_session_name(ts: dt.datetime) -> str:
@@ -91,6 +132,14 @@ def bucket_label(value: float, edges: list[float]) -> str:
         if value <= edge:
             return f"<= {edge:.2f}"
     return f"> {edges[-1]:.2f}"
+
+
+def format_strategy_label(signal: dict, fallback: str) -> str:
+    label = signal.get("strategy", fallback)
+    sub = signal.get("sub_strategy")
+    if sub:
+        label = f"{label}:{sub}"
+    return label
 
 
 def format_rows(title: str, rows: list[tuple], headers: list[str], max_rows: int = 10) -> str:
@@ -591,6 +640,198 @@ def compute_pnl_points(side: str, entry_price: float, exit_price: float) -> floa
     return exit_price - entry_price if side == "LONG" else entry_price - exit_price
 
 
+def round_points_to_tick(points: float) -> float:
+    ticks = max(1, int(round(abs(points) / TICK_SIZE)))
+    return ticks * TICK_SIZE
+
+
+def add_bypass_filters_from_trigger(bypass_list: list[str], trigger: Optional[str]) -> None:
+    if not trigger:
+        return
+    if trigger.startswith("FilterStack:"):
+        raw = trigger.split(":", 1)[1]
+        for name in raw.split("+"):
+            if name and name not in bypass_list:
+                bypass_list.append(name)
+        return
+    if trigger not in bypass_list:
+        bypass_list.append(trigger)
+
+
+def align_trend_day_series(series_dict: dict, target_index: pd.Index) -> dict:
+    bool_keys = {
+        "reclaim_down",
+        "reclaim_up",
+        "no_reclaim_down_t1",
+        "no_reclaim_up_t1",
+        "no_reclaim_down_t2",
+        "no_reclaim_up_t2",
+        "trend_up_alt",
+        "trend_down_alt",
+        "adx_strong_up",
+        "adx_strong_down",
+    }
+    aligned: dict = {}
+    for key, series in series_dict.items():
+        if key == "day_index":
+            idx = target_index
+            if idx.tz is not None:
+                idx = idx.tz_convert(NY_TZ)
+            aligned[key] = pd.Series(idx.date, index=target_index)
+            continue
+        if not isinstance(series, pd.Series):
+            aligned[key] = series
+            continue
+        s = series.reindex(target_index, method="ffill")
+        if key in bool_keys:
+            s = s.fillna(False).astype(bool)
+        aligned[key] = s
+    return aligned
+
+
+def compute_trend_day_series(df: pd.DataFrame) -> dict:
+    close = df["close"]
+    open_ = df["open"]
+    high = df["high"]
+    low = df["low"]
+    ema50 = close.ewm(span=50, adjust=False).mean()
+    ema200 = close.ewm(span=200, adjust=False).mean()
+    sma50 = close.rolling(50, min_periods=50).mean()
+
+    prev_close = close.shift(1)
+    tr_components = pd.concat(
+        [
+            (high - low).abs(),
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ],
+        axis=1,
+    )
+    tr = tr_components.max(axis=1)
+    atr20 = tr.ewm(alpha=1 / 20, adjust=False).mean()
+    atr_baseline = atr20.rolling(ATR_BASELINE_WINDOW, min_periods=ATR_BASELINE_WINDOW).median()
+    atr_expansion = atr20 / atr_baseline.replace(0, np.nan)
+
+    up_move = high.diff()
+    down_move = -low.diff()
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+    plus_dm = pd.Series(plus_dm, index=df.index)
+    minus_dm = pd.Series(minus_dm, index=df.index)
+    tr_smooth = tr.ewm(alpha=1 / ADX_PERIOD, adjust=False).mean()
+    plus_dm_smooth = plus_dm.ewm(alpha=1 / ADX_PERIOD, adjust=False).mean()
+    minus_dm_smooth = minus_dm.ewm(alpha=1 / ADX_PERIOD, adjust=False).mean()
+    plus_di = 100 * plus_dm_smooth / tr_smooth.replace(0, np.nan)
+    minus_di = 100 * minus_dm_smooth / tr_smooth.replace(0, np.nan)
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
+    adx = dx.ewm(alpha=1 / ADX_PERIOD, adjust=False).mean()
+    adx_strong_up = (adx >= ADX_FLIP_THRESHOLD) & (plus_di > minus_di)
+    adx_strong_down = (adx >= ADX_FLIP_THRESHOLD) & (minus_di > plus_di)
+
+    idx = df.index
+    if idx.tz is not None:
+        idx = idx.tz_convert(NY_TZ)
+    day_index = idx.date
+
+    typical_price = (high + low + close) / 3
+    volume = df["volume"].fillna(0)
+    cum_pv = (typical_price * volume).groupby(day_index).cumsum()
+    cum_v = volume.groupby(day_index).cumsum()
+    vwap = cum_pv / cum_v.replace(0, np.nan)
+
+    ret = close.diff()
+    sigma = ret.rolling(SIGMA_WINDOW, min_periods=SIGMA_WINDOW).std()
+    sigma = sigma.ffill().clip(lower=TICK_SIZE)
+    vwap_sigma_dist = (close - vwap) / sigma
+
+    close_ge = close > vwap
+    close_le = close < vwap
+    reclaim_down = (
+        close_ge.rolling(
+            VWAP_RECLAIM_CONSECUTIVE_BARS, min_periods=VWAP_RECLAIM_CONSECUTIVE_BARS
+        ).sum()
+        == VWAP_RECLAIM_CONSECUTIVE_BARS
+    )
+    reclaim_up = (
+        close_le.rolling(
+            VWAP_RECLAIM_CONSECUTIVE_BARS, min_periods=VWAP_RECLAIM_CONSECUTIVE_BARS
+        ).sum()
+        == VWAP_RECLAIM_CONSECUTIVE_BARS
+    )
+
+    no_reclaim_down_t1 = (
+        reclaim_down.rolling(VWAP_NO_RECLAIM_BARS_T1, min_periods=VWAP_NO_RECLAIM_BARS_T1).sum() == 0
+    )
+    no_reclaim_up_t1 = (
+        reclaim_up.rolling(VWAP_NO_RECLAIM_BARS_T1, min_periods=VWAP_NO_RECLAIM_BARS_T1).sum() == 0
+    )
+    no_reclaim_down_t2 = (
+        reclaim_down.rolling(VWAP_NO_RECLAIM_BARS_T2, min_periods=VWAP_NO_RECLAIM_BARS_T2).sum() == 0
+    )
+    no_reclaim_up_t2 = (
+        reclaim_up.rolling(VWAP_NO_RECLAIM_BARS_T2, min_periods=VWAP_NO_RECLAIM_BARS_T2).sum() == 0
+    )
+
+    session_open = open_.groupby(day_index).transform("first")
+    daily_low = low.groupby(day_index).min()
+    daily_high = high.groupby(day_index).max()
+    prior_session_low = pd.Series(day_index, index=df.index).map(daily_low.shift(1))
+    prior_session_high = pd.Series(day_index, index=df.index).map(daily_high.shift(1))
+
+    sma50_slope_up = sma50 - sma50.shift(TREND_UP_EMA_SLOPE_BARS)
+    sma50_slope_up = sma50_slope_up > 0
+    above_ema50 = close > ema50
+    above_ema50_count = above_ema50.rolling(
+        TREND_UP_ABOVE_EMA50_WINDOW, min_periods=TREND_UP_ABOVE_EMA50_WINDOW
+    ).sum()
+    above_ema50_ok = above_ema50_count >= TREND_UP_ABOVE_EMA50_COUNT
+    seg = TREND_UP_HL_SEGMENT
+    low_seg1 = low.rolling(seg, min_periods=seg).min()
+    low_seg2 = low.shift(seg).rolling(seg, min_periods=seg).min()
+    low_seg3 = low.shift(seg * 2).rolling(seg, min_periods=seg).min()
+    higher_lows = (low_seg1 > low_seg2) & (low_seg2 > low_seg3)
+    trend_up_alt = sma50_slope_up & above_ema50_ok & higher_lows & (atr_expansion >= TREND_UP_ATR_EXP)
+
+    sma50_slope_down = sma50 - sma50.shift(TREND_DOWN_EMA_SLOPE_BARS)
+    sma50_slope_down = sma50_slope_down < 0
+    below_ema50 = close < ema50
+    below_ema50_count = below_ema50.rolling(
+        TREND_DOWN_BELOW_EMA50_WINDOW, min_periods=TREND_DOWN_BELOW_EMA50_WINDOW
+    ).sum()
+    below_ema50_ok = below_ema50_count >= TREND_DOWN_BELOW_EMA50_COUNT
+    seg_down = TREND_DOWN_LH_SEGMENT
+    high_seg1 = high.rolling(seg_down, min_periods=seg_down).max()
+    high_seg2 = high.shift(seg_down).rolling(seg_down, min_periods=seg_down).max()
+    high_seg3 = high.shift(seg_down * 2).rolling(seg_down, min_periods=seg_down).max()
+    lower_highs = (high_seg1 < high_seg2) & (high_seg2 < high_seg3)
+    trend_down_alt = sma50_slope_down & below_ema50_ok & lower_highs & (atr_expansion >= TREND_DOWN_ATR_EXP)
+
+    return {
+        "ema50": ema50,
+        "ema200": ema200,
+        "sma50": sma50,
+        "atr20": atr20,
+        "atr_expansion": atr_expansion,
+        "vwap": vwap,
+        "sigma": sigma,
+        "vwap_sigma_dist": vwap_sigma_dist,
+        "reclaim_down": reclaim_down.fillna(False),
+        "reclaim_up": reclaim_up.fillna(False),
+        "no_reclaim_down_t1": no_reclaim_down_t1.fillna(False),
+        "no_reclaim_up_t1": no_reclaim_up_t1.fillna(False),
+        "no_reclaim_down_t2": no_reclaim_down_t2.fillna(False),
+        "no_reclaim_up_t2": no_reclaim_up_t2.fillna(False),
+        "session_open": session_open,
+        "prior_session_low": prior_session_low,
+        "prior_session_high": prior_session_high,
+        "trend_up_alt": trend_up_alt.fillna(False),
+        "trend_down_alt": trend_down_alt.fillna(False),
+        "adx_strong_up": adx_strong_up.fillna(False),
+        "adx_strong_down": adx_strong_down.fillna(False),
+        "day_index": pd.Series(day_index, index=df.index),
+    }
+
+
 def format_recent_trade(trade: dict) -> str:
     entry_time = trade.get("entry_time")
     exit_time = trade.get("exit_time")
@@ -615,6 +856,12 @@ def format_recent_trade(trade: dict) -> str:
         if rescue_trigger:
             rescue_label = f"{rescue_label} via {rescue_trigger}"
     suffix = f" rescue_from={rescue_label}" if rescue_label else ""
+    consensus_contrib = trade.get("consensus_contributors")
+    if consensus_contrib:
+        suffix += f" consensus_from={','.join(consensus_contrib)}"
+    bypassed = trade.get("bypassed_filters")
+    if bypassed:
+        suffix += f" bypassed={'+'.join(bypassed)}"
     return f"{entry_str} {exit_str} {side} {strategy} {mode} pnl={pnl:.2f} exit={reason}{suffix}"
 
 
@@ -758,6 +1005,31 @@ def run_backtest(
         except Exception:
             pass
 
+    trend_day_source_df = full_df
+    if TREND_DAY_TIMEFRAME_MINUTES > 1:
+        trend_day_source_df = resample_dataframe(full_df, TREND_DAY_TIMEFRAME_MINUTES)
+    trend_day_series_raw = compute_trend_day_series(trend_day_source_df)
+    trend_day_series = align_trend_day_series(trend_day_series_raw, full_df.index)
+    td_ema50 = trend_day_series["ema50"]
+    td_ema200 = trend_day_series["ema200"]
+    td_atr_exp = trend_day_series["atr_expansion"]
+    td_vwap = trend_day_series["vwap"]
+    td_vwap_sigma = trend_day_series["vwap_sigma_dist"]
+    td_reclaim_down = trend_day_series["reclaim_down"]
+    td_reclaim_up = trend_day_series["reclaim_up"]
+    td_no_reclaim_down_t1 = trend_day_series["no_reclaim_down_t1"]
+    td_no_reclaim_up_t1 = trend_day_series["no_reclaim_up_t1"]
+    td_no_reclaim_down_t2 = trend_day_series["no_reclaim_down_t2"]
+    td_no_reclaim_up_t2 = trend_day_series["no_reclaim_up_t2"]
+    td_session_open = trend_day_series["session_open"]
+    td_prior_session_low = trend_day_series["prior_session_low"]
+    td_prior_session_high = trend_day_series["prior_session_high"]
+    td_trend_up_alt = trend_day_series["trend_up_alt"]
+    td_trend_down_alt = trend_day_series["trend_down_alt"]
+    td_adx_strong_up = trend_day_series["adx_strong_up"]
+    td_adx_strong_down = trend_day_series["adx_strong_down"]
+    td_day_index = trend_day_series["day_index"]
+
     resample_cache_60 = ResampleCache(full_df, 60)
     resample_cache_240 = ResampleCache(full_df, 240)
 
@@ -796,6 +1068,26 @@ def run_backtest(
     }
     mom_rescue_date = None
     mom_rescue_scores = {"Long_Mom": 0, "Short_Mom": 0}
+
+    trend_day_tier = 0
+    trend_day_dir = None
+    impulse_day = None
+    impulse_active = False
+    impulse_dir = None
+    impulse_start_price = None
+    impulse_extreme = None
+    pullback_extreme = None
+    max_retracement = 0.0
+    bars_since_impulse = 0
+    last_trend_day_tier = 0
+    last_trend_day_dir = None
+    tier1_down_until = None
+    tier1_up_until = None
+    tier1_seen = False
+    sticky_trend_dir = None
+    sticky_reclaim_count = 0
+    sticky_opposite_count = 0
+    last_trend_session = None
 
     def reset_mom_rescues(day: dt.date) -> None:
         nonlocal mom_rescue_date, mom_rescue_scores
@@ -837,6 +1129,7 @@ def run_backtest(
         if mom_rescue_date != day:
             reset_mom_rescues(day)
         mom_rescue_scores[key] += 1 if pnl_net >= 0 else -1
+
 
     def reset_hostile_day(day: dt.date) -> None:
         nonlocal hostile_day_active, hostile_day_reason, hostile_day_date, hostile_engine_stats
@@ -928,6 +1221,10 @@ def run_backtest(
             "rescue_from_strategy": active_trade.get("rescue_from_strategy"),
             "rescue_from_sub_strategy": active_trade.get("rescue_from_sub_strategy"),
             "rescue_trigger": active_trade.get("rescue_trigger"),
+            "consensus_contributors": active_trade.get("consensus_contributors"),
+            "bypassed_filters": active_trade.get("bypassed_filters"),
+            "trend_day_tier": active_trade.get("trend_day_tier"),
+            "trend_day_dir": active_trade.get("trend_day_dir"),
         }
         tracker.record_trade(trade_record)
         update_mom_rescue_score(trade_record, pnl_net, exit_time)
@@ -984,11 +1281,24 @@ def run_backtest(
 
     def record_filter(name: str, kind: str = "block") -> None:
         tracker.record_filter(name, kind)
+        if kind == "block" and name.startswith("TrendDayTier"):
+            try:
+                ts = current_time.strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                ts = "N/A"
+            try:
+                price = f"{bar_close:.2f}"
+            except Exception:
+                price = "N/A"
+            color = "\033[92m" if trend_day_dir == "up" else "\033[91m"
+            print(f"{color}[TrendDay] {name} blocked counter-trend signal @ {ts} price={price}\033[0m")
 
     def open_trade(signal: dict, entry_price: float, entry_time: dt.datetime) -> None:
         nonlocal active_trade
-        sl_dist = float(signal.get("sl_dist", MIN_SL))
-        tp_dist = float(signal.get("tp_dist", MIN_TP))
+        raw_sl = float(signal.get("sl_dist", MIN_SL))
+        raw_tp = float(signal.get("tp_dist", MIN_TP))
+        sl_dist = round_points_to_tick(max(raw_sl, MIN_SL))
+        tp_dist = round_points_to_tick(max(raw_tp, MIN_TP))
         side = signal["side"]
         size = int(signal.get("size", CONTRACTS))
         stop_price = entry_price - sl_dist if side == "LONG" else entry_price + sl_dist
@@ -1002,6 +1312,8 @@ def run_backtest(
             "bars_held": 0,
             "tp_dist": tp_dist,
             "sl_dist": sl_dist,
+            "requested_tp_dist": raw_tp,
+            "requested_sl_dist": raw_sl,
             "size": size,
             "current_stop_price": stop_price,
             "profit_crosses": 0,
@@ -1013,6 +1325,10 @@ def run_backtest(
             "rescue_from_strategy": signal.get("rescue_from_strategy"),
             "rescue_from_sub_strategy": signal.get("rescue_from_sub_strategy"),
             "rescue_trigger": signal.get("rescue_trigger"),
+            "consensus_contributors": signal.get("consensus_contributors"),
+            "bypassed_filters": signal.get("bypassed_filters"),
+            "trend_day_tier": signal.get("trend_day_tier"),
+            "trend_day_dir": signal.get("trend_day_dir"),
         }
 
     def check_stop_take(bar_high: float, bar_low: float) -> Optional[tuple[float, str]]:
@@ -1086,6 +1402,8 @@ def run_backtest(
             break
         history_df = full_df.iloc[: i + 1]
         current_time = history_df.index[-1]
+        current_session = get_session_name(current_time)
+        trend_session = "NY" if current_session in ("NY_AM", "NY_PM") else current_session
         currbar = history_df.iloc[-1]
         bar_open = float(currbar["open"])
         bar_high = float(currbar["high"])
@@ -1095,6 +1413,313 @@ def run_backtest(
         last_time = current_time
         last_close = bar_close
 
+        if TREND_DAY_ENABLED:
+            if last_trend_session != trend_session:
+                last_trend_session = trend_session
+                trend_day_tier = 0
+                trend_day_dir = None
+                impulse_day = None
+                impulse_active = False
+                impulse_dir = None
+                impulse_start_price = None
+                impulse_extreme = None
+                pullback_extreme = None
+                max_retracement = 0.0
+                bars_since_impulse = 0
+                tier1_down_until = None
+                tier1_up_until = None
+                tier1_seen = False
+                sticky_trend_dir = None
+                sticky_reclaim_count = 0
+                sticky_opposite_count = 0
+            day_key = td_day_index.iloc[i]
+            if impulse_day != day_key:
+                impulse_day = day_key
+                impulse_active = False
+                impulse_dir = None
+                impulse_start_price = None
+                impulse_extreme = None
+                pullback_extreme = None
+                max_retracement = 0.0
+                bars_since_impulse = 0
+                tier1_down_until = None
+                tier1_up_until = None
+                tier1_seen = False
+                sticky_trend_dir = None
+                sticky_reclaim_count = 0
+                sticky_opposite_count = 0
+
+            ema50_val = td_ema50.iloc[i]
+            ema200_val = td_ema200.iloc[i]
+            atr_expansion = td_atr_exp.iloc[i]
+            vwap_val = td_vwap.iloc[i]
+            vwap_sigma = td_vwap_sigma.iloc[i]
+            session_open = td_session_open.iloc[i]
+            prior_session_low = td_prior_session_low.iloc[i]
+            prior_session_high = td_prior_session_high.iloc[i]
+            trend_up_alt = bool(td_trend_up_alt.iloc[i])
+            trend_down_alt = bool(td_trend_down_alt.iloc[i])
+            adx_strong_up = bool(td_adx_strong_up.iloc[i])
+            adx_strong_down = bool(td_adx_strong_down.iloc[i])
+
+            trend_day_tier = 0
+            trend_day_dir = None
+            ema_down = False
+            ema_up = False
+            atr_ok_t1 = False
+            atr_ok_t2 = False
+            displaced_down = False
+            displaced_up = False
+            no_reclaim_down_t1 = False
+            no_reclaim_up_t1 = False
+            no_reclaim_down_t2 = False
+            no_reclaim_up_t2 = False
+            reclaim_down = False
+            reclaim_up = False
+            confirm_down = False
+            confirm_up = False
+
+            if pd.notna(atr_expansion) and pd.notna(vwap_sigma):
+                atr_ok_t1 = atr_expansion >= ATR_EXP_T1
+                atr_ok_t2 = atr_expansion >= ATR_EXP_T2
+                displaced_down = vwap_sigma <= -VWAP_SIGMA_T1
+                displaced_up = vwap_sigma >= VWAP_SIGMA_T1
+                no_reclaim_down_t1 = bool(td_no_reclaim_down_t1.iloc[i])
+                no_reclaim_up_t1 = bool(td_no_reclaim_up_t1.iloc[i])
+                no_reclaim_down_t2 = bool(td_no_reclaim_down_t2.iloc[i])
+                no_reclaim_up_t2 = bool(td_no_reclaim_up_t2.iloc[i])
+
+                reclaim_down = bool(td_reclaim_down.iloc[i])
+                reclaim_up = bool(td_reclaim_up.iloc[i])
+            if pd.notna(ema50_val):
+                ema_down = bar_close < ema50_val
+                ema_up = bar_close > ema50_val
+                confirm_down = confirm_down or ema_down
+                confirm_up = confirm_up or ema_up
+            if pd.notna(session_open):
+                confirm_down = confirm_down or (bar_close < session_open)
+                confirm_up = confirm_up or (bar_close > session_open)
+            if pd.notna(prior_session_low) or pd.notna(prior_session_high):
+                prev_close = float(history_df.iloc[-2]["close"]) if len(history_df) > 1 else bar_close
+                if pd.notna(prior_session_low):
+                    confirm_down = confirm_down or (bar_close < prior_session_low and prev_close < prior_session_low)
+                if pd.notna(prior_session_high):
+                    confirm_up = confirm_up or (bar_close > prior_session_high and prev_close > prior_session_high)
+            if impulse_active:
+                if impulse_dir == "down" and reclaim_down:
+                    impulse_active = False
+                elif impulse_dir == "up" and reclaim_up:
+                    impulse_active = False
+                if not impulse_active:
+                    impulse_dir = None
+                    impulse_start_price = None
+                    impulse_extreme = None
+                    pullback_extreme = None
+                    max_retracement = 0.0
+                    bars_since_impulse = 0
+
+            impulse_started = False
+            if not impulse_active and pd.notna(vwap_val):
+                start_down = displaced_down and bar_close < vwap_val
+                start_up = displaced_up and bar_close > vwap_val
+                if start_down and start_up:
+                    if abs(vwap_sigma) >= VWAP_SIGMA_T1:
+                        start_up = vwap_sigma > 0
+                        start_down = not start_up
+                if start_down:
+                    impulse_active = True
+                    impulse_dir = "down"
+                    impulse_start_price = bar_close
+                    impulse_extreme = bar_low
+                    pullback_extreme = bar_high
+                    max_retracement = 0.0
+                    bars_since_impulse = 1
+                    impulse_started = True
+                elif start_up:
+                    impulse_active = True
+                    impulse_dir = "up"
+                    impulse_start_price = bar_close
+                    impulse_extreme = bar_high
+                    pullback_extreme = bar_low
+                    max_retracement = 0.0
+                    bars_since_impulse = 1
+                    impulse_started = True
+
+            if impulse_active:
+                if not impulse_started:
+                    bars_since_impulse += 1
+                if impulse_dir == "down":
+                    if bar_low < impulse_extreme:
+                        impulse_extreme = bar_low
+                        pullback_extreme = bar_high
+                    else:
+                        pullback_extreme = max(pullback_extreme, bar_high)
+                    impulse_range = (impulse_start_price or bar_close) - impulse_extreme
+                    if impulse_range >= TICK_SIZE:
+                        retracement = (pullback_extreme - impulse_extreme) / impulse_range
+                        max_retracement = max(max_retracement, retracement)
+                elif impulse_dir == "up":
+                    if bar_high > impulse_extreme:
+                        impulse_extreme = bar_high
+                        pullback_extreme = bar_low
+                    else:
+                        pullback_extreme = min(pullback_extreme, bar_low)
+                    impulse_range = impulse_extreme - (impulse_start_price or bar_close)
+                    if impulse_range >= TICK_SIZE:
+                        retracement = (impulse_extreme - pullback_extreme) / impulse_range
+                        max_retracement = max(max_retracement, retracement)
+
+            confirm_ok_down = (not TREND_DAY_T1_REQUIRE_CONFIRMATION) or confirm_down
+            confirm_ok_up = (not TREND_DAY_T1_REQUIRE_CONFIRMATION) or confirm_up
+
+            tier1_down = atr_ok_t1 and displaced_down and no_reclaim_down_t1 and confirm_ok_down
+            tier1_up = atr_ok_t1 and displaced_up and no_reclaim_up_t1 and confirm_ok_up
+
+            if tier1_down:
+                tier1_down_until = current_time + dt.timedelta(minutes=30)
+            if tier1_up:
+                tier1_up_until = current_time + dt.timedelta(minutes=30)
+
+            tier1_down_active = bool(tier1_down_until and current_time <= tier1_down_until)
+            tier1_up_active = bool(tier1_up_until and current_time <= tier1_up_until)
+            if tier1_down_active or tier1_up_active:
+                tier1_seen = True
+            allow_alt = tier1_seen or (pd.notna(vwap_sigma) and abs(vwap_sigma) >= ALT_PRE_TIER1_VWAP_SIGMA)
+
+            tier2_down = (
+                atr_ok_t2
+                and displaced_down
+                and no_reclaim_down_t2
+                and impulse_active
+                and impulse_dir == "down"
+                and bars_since_impulse >= IMPULSE_MIN_BARS
+                and max_retracement <= IMPULSE_MAX_RETRACE
+            )
+            tier2_up = (
+                atr_ok_t2
+                and displaced_up
+                and no_reclaim_up_t2
+                and impulse_active
+                and impulse_dir == "up"
+                and bars_since_impulse >= IMPULSE_MIN_BARS
+                and max_retracement <= IMPULSE_MAX_RETRACE
+            )
+
+            computed_tier = 0
+            computed_dir = None
+            if tier2_down and tier2_up:
+                computed_dir = "down" if vwap_sigma < 0 else "up"
+                computed_tier = 2
+            elif tier2_down:
+                computed_dir = "down"
+                computed_tier = 2
+            elif tier2_up:
+                computed_dir = "up"
+                computed_tier = 2
+            elif tier1_down_active and tier1_up_active:
+                computed_dir = "down" if vwap_sigma < 0 else "up"
+                computed_tier = 1
+            elif tier1_down_active:
+                computed_dir = "down"
+                computed_tier = 1
+            elif tier1_up_active:
+                computed_dir = "up"
+                computed_tier = 1
+            elif trend_up_alt and allow_alt:
+                computed_dir = "up"
+                computed_tier = 1
+            elif trend_down_alt and allow_alt:
+                computed_dir = "down"
+                computed_tier = 1
+
+            if sticky_trend_dir is None:
+                if computed_dir:
+                    sticky_trend_dir = computed_dir
+                    sticky_opposite_count = 0
+            else:
+                if computed_dir and computed_dir != sticky_trend_dir:
+                    adx_ok = (
+                        (computed_dir == "up" and adx_strong_up)
+                        or (computed_dir == "down" and adx_strong_down)
+                    )
+                    if adx_ok:
+                        sticky_opposite_count += 1
+                    else:
+                        sticky_opposite_count = 0
+                else:
+                    sticky_opposite_count = 0
+                if sticky_opposite_count >= ADX_FLIP_BARS:
+                    sticky_trend_dir = computed_dir
+                    sticky_opposite_count = 0
+
+            if sticky_trend_dir:
+                trend_day_dir = sticky_trend_dir
+                if computed_dir == sticky_trend_dir and computed_tier == 2:
+                    trend_day_tier = 2
+                else:
+                    trend_day_tier = 1
+            else:
+                trend_day_dir = computed_dir
+                trend_day_tier = computed_tier
+
+            if trend_day_tier > 0 and trend_day_dir:
+                loss_limit = directional_loss_blocker.consecutive_loss_limit
+                if trend_day_dir == "up":
+                    loss_count = directional_loss_blocker.long_consecutive_losses
+                else:
+                    loss_count = directional_loss_blocker.short_consecutive_losses
+                if loss_count >= loss_limit:
+                    logging.warning(
+                        "[TrendDay] Deactivating tier/alt after "
+                        f"{loss_count} consecutive {trend_day_dir.upper()} losses"
+                    )
+                    trend_day_tier = 0
+                    trend_day_dir = None
+                    last_trend_day_tier = 0
+                    last_trend_day_dir = None
+                    tier1_down_until = None
+                    tier1_up_until = None
+                    tier1_seen = False
+                    sticky_trend_dir = None
+                    sticky_opposite_count = 0
+                    sticky_reclaim_count = 0
+            if trend_day_tier > 0 and (
+                trend_day_tier != last_trend_day_tier or trend_day_dir != last_trend_day_dir
+            ):
+                color = "\033[92m" if trend_day_dir == "up" else "\033[91m"
+                print(
+                    f"{color}[TrendDay] Tier {trend_day_tier} {trend_day_dir} activated @ "
+                    f"{current_time.strftime('%Y-%m-%d %H:%M')}\033[0m"
+                )
+                atr_dbg = f"{atr_expansion:.3f}" if pd.notna(atr_expansion) else "na"
+                vwap_dbg = f"{vwap_sigma:.3f}" if pd.notna(vwap_sigma) else "na"
+                ema_dbg = f"{ema50_val:.2f}" if pd.notna(ema50_val) else "na"
+                vwap_val_dbg = f"{vwap_val:.2f}" if pd.notna(vwap_val) else "na"
+                print(
+                    "[TrendDayDebug] "
+                    f"atr_exp={atr_dbg} vwap_sigma={vwap_dbg} ema50={ema_dbg} vwap={vwap_val_dbg} "
+                    f"disp_down={displaced_down} disp_up={displaced_up} "
+                    f"nr_dn_t1={no_reclaim_down_t1} nr_up_t1={no_reclaim_up_t1} "
+                    f"nr_dn_t2={no_reclaim_down_t2} nr_up_t2={no_reclaim_up_t2} "
+                    f"tier1_dn_active={tier1_down_active} tier1_up_active={tier1_up_active} "
+                    f"tier2_dn={tier2_down} tier2_up={tier2_up} "
+                    f"trend_dn_alt={trend_down_alt} trend_up_alt={trend_up_alt} "
+                    f"confirm_dn={confirm_down} confirm_up={confirm_up} "
+                    f"adx_dn={adx_strong_down} adx_up={adx_strong_up} "
+                    f"sticky_dir={sticky_trend_dir} computed_dir={computed_dir} computed_tier={computed_tier}"
+                )
+            last_trend_day_tier = trend_day_tier
+            last_trend_day_dir = trend_day_dir
+        else:
+            trend_day_tier = 0
+            trend_day_dir = None
+            last_trend_day_tier = 0
+            last_trend_day_dir = None
+            sticky_trend_dir = None
+            sticky_reclaim_count = 0
+            sticky_opposite_count = 0
+            tier1_seen = False
+
         in_test_range = current_time >= start_time
 
         if in_test_range:
@@ -1103,8 +1728,18 @@ def run_backtest(
                 pending_exit = False
                 pending_exit_reason = None
             if pending_entry is not None:
-                open_trade(pending_entry, bar_open, current_time)
-                pending_entry = None
+                if trend_day_tier > 0 and trend_day_dir:
+                    if (trend_day_dir == "down" and pending_entry["side"] == "LONG") or (
+                        trend_day_dir == "up" and pending_entry["side"] == "SHORT"
+                    ):
+                        record_filter(f"TrendDayTier{trend_day_tier}")
+                        pending_entry = None
+                    else:
+                        pending_entry["trend_day_tier"] = trend_day_tier
+                        pending_entry["trend_day_dir"] = trend_day_dir
+                if pending_entry is not None:
+                    open_trade(pending_entry, bar_open, current_time)
+                    pending_entry = None
 
         if active_trade is not None:
             entry_price = active_trade["entry_price"]
@@ -1149,10 +1784,11 @@ def run_backtest(
             pending_exit = True
             pending_exit_reason = "early_exit"
 
-        cb_blocked, _ = circuit_breaker.should_block_trade()
-        if cb_blocked:
-            record_filter("CircuitBreaker")
-            continue
+        if ENABLE_CIRCUIT_BREAKER:
+            cb_blocked, _ = circuit_breaker.should_block_trade()
+            if cb_blocked:
+                record_filter("CircuitBreaker")
+                continue
 
         news_blocked, _ = news_filter.should_block_trade(current_time)
         if news_blocked:
@@ -1253,6 +1889,7 @@ def run_backtest(
 
         consensus_tp_source = None
         consensus_tp_signal = None
+        consensus_supporters: list[str] = []
         if consensus_side:
             consensus_candidates = [
                 (sig, s_name)
@@ -1264,6 +1901,10 @@ def run_backtest(
                     consensus_candidates,
                     key=lambda item: item[0].get("tp_dist", float("inf")),
                 )
+                for sig, s_name in consensus_candidates:
+                    label = format_strategy_label(sig, s_name)
+                    if label not in consensus_supporters:
+                        consensus_supporters.append(label)
 
         signal_executed = False
 
@@ -1275,11 +1916,24 @@ def run_backtest(
             signal.setdefault("sl_dist", MIN_SL)
             signal.setdefault("tp_dist", MIN_TP)
             signal.setdefault("strategy", strat_name)
+            trend_day_counter = False
+            if trend_day_tier > 0 and trend_day_dir:
+                trend_day_counter = (
+                    (trend_day_dir == "down" and signal["side"] == "LONG")
+                    or (trend_day_dir == "up" and signal["side"] == "SHORT")
+                )
+                signal["trend_day_tier"] = trend_day_tier
+                signal["trend_day_dir"] = trend_day_dir
             origin_strategy = signal.get("strategy", strat_name)
             origin_sub_strategy = signal.get("sub_strategy")
             allow_rescue = not str(signal.get("strategy", "")).startswith("MLPhysics")
             is_rescued = False
             consensus_rescued = False
+            bypassed_filters: list[str] = []
+            primary_label = format_strategy_label(signal, strat_name)
+            consensus_secondary = [
+                label for label in consensus_supporters if label != primary_label
+            ]
 
             if consensus_side and signal.get("side") == consensus_side:
                 rescue_side = "SHORT" if signal["side"] == "LONG" else "LONG"
@@ -1288,6 +1942,12 @@ def run_backtest(
                     nonlocal signal, is_rescued, consensus_rescued
                     if not allow_rescue:
                         return False
+                    if trend_day_tier > 0 and trend_day_dir:
+                        if (trend_day_dir == "down" and rescue_side == "LONG") or (
+                            trend_day_dir == "up" and rescue_side == "SHORT"
+                        ):
+                            record_filter(f"TrendDayTier{trend_day_tier}", kind="rescue")
+                            return False
                     if mom_rescue_banned(current_time, origin_strategy, origin_sub_strategy):
                         record_filter("MomRescueBan")
                         return False
@@ -1311,9 +1971,21 @@ def run_backtest(
                         signal["rescue_from_sub_strategy"] = origin_sub_strategy
                     signal["rescue_trigger"] = trigger
                     signal["entry_mode"] = "rescued"
+                    if consensus_secondary:
+                        signal["consensus_contributors"] = consensus_secondary
+                    add_bypass_filters_from_trigger(bypassed_filters, trigger)
+                    if bypassed_filters:
+                        signal["bypassed_filters"] = list(bypassed_filters)
                     is_rescued = True
                     consensus_rescued = True
                     return True
+
+                if trend_day_counter:
+                    if try_consensus_rescue(f"TrendDayTier{trend_day_tier}"):
+                        record_filter(f"TrendDayTier{trend_day_tier}", kind="rescue")
+                    else:
+                        record_filter(f"TrendDayTier{trend_day_tier}")
+                        continue
 
                 if consensus_tp_signal is not None:
                     signal["tp_dist"] = consensus_tp_signal.get("tp_dist", signal.get("tp_dist", MIN_TP))
@@ -1389,6 +2061,59 @@ def run_backtest(
                         signal["size"] = vol_adj["size"]
                     signal["vol_regime"] = vol_adj.get("regime", "UNKNOWN")
                 if not consensus_rescued:
+                    if consensus_secondary:
+                        signal["consensus_contributors"] = consensus_secondary
+                    consensus_bypassed: list[str] = []
+                    rej_blocked, _ = rejection_filter.should_block_trade(signal["side"])
+                    if rej_blocked:
+                        consensus_bypassed.append("RejectionFilter")
+                    range_bias_blocked = allowed_chop_side is not None and signal["side"] != allowed_chop_side
+                    if range_bias_blocked:
+                        consensus_bypassed.append("ChopRangeBias")
+                    impulse_blocked, _ = impulse_filter.should_block_trade(signal["side"])
+                    if impulse_blocked:
+                        consensus_bypassed.append("ImpulseFilter")
+                    ext_blocked, _ = extension_filter.should_block_trade(signal["side"])
+                    if ext_blocked:
+                        consensus_bypassed.append("ExtensionFilter")
+                    bank_blocked, bank_reason = bank_filter.should_block_trade(signal["side"])
+                    upg_trend_blocked, upg_trend_reason = trend_filter.should_block_trade(history_df, signal["side"])
+                    legacy_blocked, _ = legacy_filters.check_trend(history_df, signal["side"])
+                    upgraded_reasons = []
+                    if bank_blocked:
+                        upgraded_reasons.append(f"Bank: {bank_reason}")
+                    if upg_trend_blocked:
+                        upgraded_reasons.append(f"Trend: {upg_trend_reason}")
+                    final_blocked = False
+                    arb_blocked = False
+                    if legacy_blocked and upgraded_reasons:
+                        final_blocked = True
+                    elif not legacy_blocked and upgraded_reasons:
+                        arb = filter_arbitrator.arbitrate(
+                            df=history_df,
+                            side=signal["side"],
+                            legacy_blocked=False,
+                            legacy_reason="",
+                            upgraded_blocked=True,
+                            upgraded_reason="|".join(upgraded_reasons),
+                            current_price=bar_close,
+                            tp_dist=signal.get("tp_dist"),
+                            sl_dist=signal.get("sl_dist"),
+                        )
+                        if not arb.allow_trade:
+                            final_blocked = True
+                            arb_blocked = True
+                    if final_blocked:
+                        if legacy_blocked:
+                            consensus_bypassed.append("LegacyTrend")
+                        if bank_blocked:
+                            consensus_bypassed.append("BankLevelQuarterFilter")
+                        if upg_trend_blocked:
+                            consensus_bypassed.append("TrendFilter")
+                        if arb_blocked:
+                            consensus_bypassed.append("FilterArbitrator")
+                    if consensus_bypassed:
+                        signal["bypassed_filters"] = consensus_bypassed
                     signal["entry_mode"] = "consensus"
                     handle_signal(signal)
                     signal_executed = True
@@ -1423,9 +2148,18 @@ def run_backtest(
                         signal["rescue_from_sub_strategy"] = origin_sub_strategy
                     signal["rescue_trigger"] = trigger
                     is_rescued = True
+                    add_bypass_filters_from_trigger(bypassed_filters, trigger)
+                    if bypassed_filters:
+                        signal["bypassed_filters"] = list(bypassed_filters)
                     potential_rescue = None
                     return True
                 return False
+
+            if trend_day_counter:
+                if not try_rescue(f"TrendDayTier{trend_day_tier}"):
+                    record_filter(f"TrendDayTier{trend_day_tier}")
+                    continue
+                record_filter(f"TrendDayTier{trend_day_tier}", kind="rescue")
 
             is_feasible, _ = chop_analyzer.check_target_feasibility(
                 entry_price=bar_close,
@@ -1523,6 +2257,7 @@ def run_backtest(
                 if is_rescued:
                     for name in blocked_filters:
                         record_filter(name, kind="bypass")
+                        bypassed_filters.append(name)
                 else:
                     rescue_reason = "FilterStack"
                     if blocked_filters:
@@ -1545,6 +2280,7 @@ def run_backtest(
             if chop_blocked:
                 if is_rescued:
                     record_filter("ChopFilter", kind="bypass")
+                    bypassed_filters.append("ChopFilter")
                 else:
                     if not try_rescue("ChopFilter"):
                         record_filter("ChopFilter")
@@ -1555,6 +2291,7 @@ def run_backtest(
             if ext_blocked:
                 if is_rescued:
                     record_filter("ExtensionFilter", kind="bypass")
+                    bypassed_filters.append("ExtensionFilter")
                 else:
                     if not try_rescue("ExtensionFilter"):
                         record_filter("ExtensionFilter")
@@ -1587,6 +2324,8 @@ def run_backtest(
                 record_filter("DynamicEngineSolo")
                 continue
 
+            if bypassed_filters:
+                signal["bypassed_filters"] = bypassed_filters
             handle_signal(signal)
             signal_executed = True
             break
@@ -1603,6 +2342,15 @@ def run_backtest(
                 sig.setdefault("sl_dist", MIN_SL)
                 sig.setdefault("tp_dist", MIN_TP)
                 sig.setdefault("strategy", s_name)
+                if trend_day_tier > 0 and trend_day_dir:
+                    if (trend_day_dir == "down" and sig["side"] == "LONG") or (
+                        trend_day_dir == "up" and sig["side"] == "SHORT"
+                    ):
+                        record_filter(f"TrendDayTier{trend_day_tier}")
+                        del pending_loose_signals[s_name]
+                        continue
+                    sig["trend_day_tier"] = trend_day_tier
+                    sig["trend_day_dir"] = trend_day_dir
 
                 if allowed_chop_side is not None and sig["side"] != allowed_chop_side:
                     record_filter("ChopRangeBias")
@@ -1764,6 +2512,14 @@ def run_backtest(
                     continue
                 apply_multipliers(signal)
                 signal.setdefault("strategy", s_name)
+                if trend_day_tier > 0 and trend_day_dir:
+                    if (trend_day_dir == "down" and signal["side"] == "LONG") or (
+                        trend_day_dir == "up" and signal["side"] == "SHORT"
+                    ):
+                        record_filter(f"TrendDayTier{trend_day_tier}")
+                        continue
+                    signal["trend_day_tier"] = trend_day_tier
+                    signal["trend_day_dir"] = trend_day_dir
                 if allowed_chop_side is not None and signal["side"] != allowed_chop_side:
                     continue
                 pending_loose_signals[s_name] = {"signal": signal, "bar_count": 0}

@@ -139,6 +139,7 @@ class TrendFilter:
 
         upper_wick = last_candle_high - max(last_candle_open, last_candle_close)
         lower_wick = min(last_candle_open, last_candle_close) - last_candle_low
+
         # Use existing wick_ratio_threshold (default 0.5 or 50% of body)
         wick_threshold = last_candle_body * self.wick_ratio_threshold
 

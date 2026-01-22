@@ -107,6 +107,9 @@ class JulieUI:
         self.logo_label = None
         self.logo_animation_id = None
 
+        # TrendDay indicator
+        self.trend_day_indicator = None
+
         # Setup cleanup on window close
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -425,6 +428,19 @@ class JulieUI:
         controls_frame = tk.Frame(header, bg=self.colors['bg_dark'])
         controls_frame.pack(side='right')
 
+        # TrendDay status indicator (left of STOP button)
+        self.trend_day_indicator = tk.Label(
+            controls_frame,
+            text="TREND DAY: OFF",
+            font=("Helvetica", 11, "bold"),
+            bg=self.colors['panel_border'],
+            fg=self.colors['text_gray'],
+            padx=12,
+            pady=8
+        )
+        self.trend_day_indicator.pack(side='left', padx=5)
+        ToolTip(self.trend_day_indicator, "TrendDay status (directional bias)")
+
         # Emergency Stop Button
         self.stop_btn = tk.Button(controls_frame,
                                    text="STOP",
@@ -511,6 +527,23 @@ class JulieUI:
 
         # Start monitoring (log file only - no API polling)
         self.start_monitoring()
+
+    def set_trend_day_status(self, direction=None, tier=None):
+        """Update TrendDay indicator color and text."""
+        if not self.trend_day_indicator:
+            return
+        if direction in ("up", "down"):
+            color = self.colors['green'] if direction == "up" else self.colors['red']
+            label = f"TREND DAY {direction.upper()}"
+            if tier:
+                label = f"{label} T{tier}"
+            self.trend_day_indicator.configure(text=label, bg=color, fg="#000000")
+        else:
+            self.trend_day_indicator.configure(
+                text="TREND DAY: OFF",
+                bg=self.colors['panel_border'],
+                fg=self.colors['text_gray']
+            )
 
     def create_market_section(self, parent):
         """Create market context section"""
@@ -1058,6 +1091,16 @@ class JulieUI:
         """Parse bot log line and update UI"""
         if not line:
             return
+
+        # TrendDay activation/deactivation
+        if "TrendDay Tier" in line and "activated" in line:
+            match = re.search(r"TrendDay Tier\s+(\d+)\s+(up|down)", line, re.IGNORECASE)
+            if match:
+                tier = int(match.group(1))
+                direction = match.group(2).lower()
+                self.set_trend_day_status(direction, tier)
+        elif "Deactivating tier/alt" in line:
+            self.set_trend_day_status(None, None)
 
         # Extract price from heartbeat or bar messages
         # Format: "💓 Heartbeat: HH:MM:SS | Price: 5880.25" or "Bar: ... | Price: 5880.25"
