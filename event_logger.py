@@ -394,6 +394,21 @@ class EventLogger:
             }
         )
 
+    def log_continuation_rescue_blocked(self, original_strategy: str, rescue_key: str, bias: str, reason: str):
+        """
+        Log when a rescue flip occurs but the rescued signal is later blocked.
+        Ex: "❌ RESCUE FAILED: Continuation_Q1_W4_D4_NY blocked (ChopFilter: IN_CHOP)"
+        """
+        self._log_event("INFO", "CONTINUATION_RESCUE",
+            f"❌ RESCUE FAILED: {rescue_key} blocked ({reason})",
+            details={
+                "original_strategy": original_strategy,
+                "rescue_strategy": rescue_key,
+                "bias": bias,
+                "reason": reason
+            }
+        )
+
     def log_continuation_window_active(self, key: str, session: str, quarter: int, week: int, day: int):
         """
         Log when the current time matches an active continuation window.

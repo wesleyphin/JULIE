@@ -573,6 +573,7 @@ class ProjectXClient:
             final_tp_ticks = -abs_tp_ticks
             final_sl_ticks = abs_sl_ticks
 
+        tick_size = 0.25
         actual_tp_points = abs(final_tp_ticks) * tick_size
         actual_sl_points = abs(final_sl_ticks) * tick_size
 

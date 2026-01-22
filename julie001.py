@@ -1944,6 +1944,8 @@ async def run_bot():
                     allow_rescue = not str(origin_strategy).startswith("MLPhysics")
                     is_rescued = False
                     consensus_rescued = False
+                    rescue_context = None
+                    rescue_logged = False
 
                     if consensus_side and signal['side'] != consensus_side:
                         logging.info(f"⏭️ Skipping {strat_name} {signal['side']} due to consensus {consensus_side}")
@@ -1965,6 +1967,27 @@ async def run_bot():
                                 strategy=signal.get('strategy', strat_name)
                             )
 
+                    def log_rescue_success():
+                        nonlocal rescue_logged, rescue_context
+                        if rescue_context and not rescue_logged:
+                            event_logger.log_continuation_rescue_success(
+                                rescue_context["original_strategy"],
+                                rescue_context["rescue_strategy"],
+                                rescue_context["bias"]
+                            )
+                            rescue_logged = True
+
+                    def log_rescue_failed(reason: str):
+                        nonlocal rescue_logged, rescue_context
+                        if rescue_context and not rescue_logged:
+                            event_logger.log_continuation_rescue_blocked(
+                                rescue_context["original_strategy"],
+                                rescue_context["rescue_strategy"],
+                                rescue_context["bias"],
+                                reason
+                            )
+                            rescue_logged = True
+
                     if consensus_side and signal['side'] == consensus_side:
                         bypassed_filters = [
                             "Rejection/Bias",
@@ -1980,7 +2003,7 @@ async def run_bot():
                         rescue_side = 'SHORT' if signal['side'] == 'LONG' else 'LONG'
 
                         def try_consensus_rescue(filter_name: str, reason: str) -> bool:
-                            nonlocal signal, is_rescued, consensus_rescued
+                            nonlocal signal, is_rescued, consensus_rescued, rescue_context
                             log_filter_block(filter_name, reason)
                             if not allow_rescue:
                                 return False
@@ -2008,11 +2031,6 @@ async def run_bot():
                             if rescue_blocked:
                                 log_filter_block("TrendFilter", rescue_reason, side_override=potential_rescue['side'])
                                 return False
-                            event_logger.log_continuation_rescue_success(
-                                origin_strategy,
-                                potential_rescue['strategy'],
-                                potential_rescue['side']
-                            )
                             signal = potential_rescue
                             signal['entry_mode'] = "rescued"
                             signal['rescue_from_strategy'] = origin_strategy
@@ -2021,6 +2039,11 @@ async def run_bot():
                             if trend_day_tier > 0 and trend_day_dir:
                                 signal["trend_day_tier"] = trend_day_tier
                                 signal["trend_day_dir"] = trend_day_dir
+                            rescue_context = {
+                                "original_strategy": origin_strategy,
+                                "rescue_strategy": potential_rescue['strategy'],
+                                "bias": potential_rescue['side'],
+                            }
                             is_rescued = True
                             consensus_rescued = True
                             return True
@@ -2139,7 +2162,7 @@ async def run_bot():
 
                         # --- Helper Logic to Trigger Rescue ---
                         def try_rescue_trigger(block_reason, filter_name):
-                            nonlocal signal, is_rescued, potential_rescue
+                            nonlocal signal, is_rescued, potential_rescue, rescue_context
                             log_filter_block(filter_name, block_reason)
                             if not allow_rescue:
                                 return False
@@ -2165,11 +2188,6 @@ async def run_bot():
                                     log_filter_block("TrendFilter", rescue_reason, side_override=potential_rescue['side'])
                                     return False
                                 logging.info(f"♻️ RESCUE FLIP: Blocked by {filter_name} ({block_reason}). Flipping to {potential_rescue['strategy']} ({potential_rescue['side']})")
-                                event_logger.log_continuation_rescue_success(
-                                    origin_strategy,
-                                    potential_rescue['strategy'],
-                                    potential_rescue['side']
-                                )
                                 signal = potential_rescue  # FLIP TO OPPOSITE SIGNAL
                                 signal['entry_mode'] = "rescued"
                                 signal['rescue_from_strategy'] = origin_strategy
@@ -2178,11 +2196,18 @@ async def run_bot():
                                 if trend_day_tier > 0 and trend_day_dir:
                                     signal["trend_day_tier"] = trend_day_tier
                                     signal["trend_day_dir"] = trend_day_dir
+                                rescue_context = {
+                                    "original_strategy": origin_strategy,
+                                    "rescue_strategy": potential_rescue['strategy'],
+                                    "bias": potential_rescue['side'],
+                                }
                                 is_rescued = True
                                 potential_rescue = None  # Ticket used
                                 return True
                             else:
                                 logging.info(f"⛔ BLOCKED by {filter_name}: {block_reason}")
+                                if is_rescued:
+                                    log_rescue_failed(f"{filter_name}: {block_reason}")
                                 return False
                         # ---------------------------------------
 
@@ -2197,6 +2222,8 @@ async def run_bot():
                         if not is_feasible:
                             log_filter_block("TargetFeasibility", feasibility_reason)
                             logging.info(f"⛔ Signal ignored ({priority_label}): {feasibility_reason}")
+                            if is_rescued:
+                                log_rescue_failed(f"TargetFeasibility: {feasibility_reason}")
                             continue
 
                         # 1. Rejection / Bias (SAFE TO RESCUE: Aligning with Bias)
@@ -2224,6 +2251,8 @@ async def run_bot():
                         if regime_blocked:
                             # Log and Die. No Rescue.
                             log_filter_block("RegimeBlocker", regime_reason)
+                            if is_rescued:
+                                log_rescue_failed(f"RegimeBlocker: {regime_reason}")
                             logging.info(f"⛔ HARD STOP by RegimeBlocker (EQH/EQL): {regime_reason} - No Rescue Allowed (Breakout Risk)")
                             continue
 
@@ -2297,6 +2326,8 @@ async def run_bot():
                             # If physics fail, we can't trade.
                             log_filter_block("VolatilityGuardrail", "Volatility check failed")
                             logging.info(f"⛔ BLOCKED by Volatility Guardrail")
+                            if is_rescued:
+                                log_rescue_failed("VolatilityGuardrail: Volatility check failed")
                             continue
 
                         signal['sl_dist'] = vol_adj['sl_dist']
@@ -2317,6 +2348,7 @@ async def run_bot():
                     ):
                         log_filter_block("DynamicEngineSolo", "DynamicEngine solo blocked")
                         continue
+                    log_rescue_success()
                     strategy_results['executed'] = strat_name
                     logging.info(f"✅ {priority_label} EXEC: {signal['strategy']} ({signal['side']})")
 
