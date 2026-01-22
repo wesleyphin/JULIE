@@ -14,7 +14,7 @@ Logic:
 Based on MES 2023-2025 historical data.
 """
 
-from datetime import datetime
+from datetime import datetime, date
 from typing import Tuple, Optional, Dict
 import logging
 import pandas as pd
@@ -580,15 +580,72 @@ class ExtensionFilter:
             'extension_direction': self.extension_direction
         }
 
+    def get_state(self) -> Dict:
+        return {
+            "state": self.state,
+            "extension_direction": self.extension_direction,
+            "current_session": self.current_session,
+            "current_date": self.current_date.isoformat() if self.current_date else None,
+            "daily_high": self.daily_high,
+            "daily_low": self.daily_low,
+            "session_high": self.session_high,
+            "session_low": self.session_low,
+        }
+
+    def load_state(self, state: Optional[Dict]) -> None:
+        if not state:
+            return
+        self.state = state.get("state", self.state)
+        self.extension_direction = state.get("extension_direction", self.extension_direction)
+        self.current_session = state.get("current_session", self.current_session)
+        current_date = state.get("current_date")
+        if current_date:
+            try:
+                self.current_date = date.fromisoformat(current_date)
+            except Exception:
+                pass
+        self.daily_high = state.get("daily_high", self.daily_high)
+        self.daily_low = state.get("daily_low", self.daily_low)
+        self.session_high = state.get("session_high", self.session_high)
+        self.session_low = state.get("session_low", self.session_low)
+
     def backfill(self, df: pd.DataFrame):
         """Pre-load daily high/low from historical data on startup."""
         if df.empty:
             return
 
-        # Filter for today's data (assuming df index is localized or handled elsewhere)
-        # Simplified logic: just grab the max/min of the provided dataframe
-        # Ideally, filter for 'current session' if df contains multiple days
-        self.daily_high = df['high'].max()
-        self.daily_low = df['low'].min()
+        df = df.sort_index()
+        last_ts = df.index[-1]
+        if isinstance(last_ts, pd.Timestamp):
+            last_hour = last_ts.hour
+        else:
+            last_ts = pd.Timestamp(last_ts)
+            last_hour = last_ts.hour
 
-        logging.info(f"✅ ExtensionFilter Backfilled: Daily Range {self.daily_low} - {self.daily_high}")
+        # Align to "trading day" that starts at 6pm ET (same logic as update()).
+        trading_day_start = last_ts.replace(hour=18, minute=0, second=0, microsecond=0)
+        if last_hour < 18:
+            trading_day_start = trading_day_start - pd.Timedelta(days=1)
+
+        df_day = df[df.index >= trading_day_start]
+        if df_day.empty:
+            df_day = df
+
+        self.daily_high = df_day['high'].max()
+        self.daily_low = df_day['low'].min()
+        self.current_date = trading_day_start.date()
+
+        # Optional: seed current session range from the same trading day
+        session = self._get_session(last_hour)
+        if session != 'CLOSED':
+            df_session = df_day[df_day.index.map(lambda ts: self._get_session(ts.hour) == session)]
+            if not df_session.empty:
+                self.session_high = df_session['high'].max()
+                self.session_low = df_session['low'].min()
+                self.current_session = session
+
+        logging.info(
+            f"✅ ExtensionFilter Backfilled: "
+            f"TradingDayStart={trading_day_start} "
+            f"DailyRange={self.daily_low:.2f}-{self.daily_high:.2f}"
+        )

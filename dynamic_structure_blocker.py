@@ -131,6 +131,22 @@ class PenaltyBoxBlocker:
             'tolerance': self.tolerance,
         }
 
+    def get_state(self) -> dict:
+        return {
+            "ceiling": self.ceiling,
+            "floor": self.floor,
+            "long_block_counter": self.long_block_counter,
+            "short_block_counter": self.short_block_counter,
+        }
+
+    def load_state(self, state: dict) -> None:
+        if not state:
+            return
+        self.ceiling = state.get("ceiling", self.ceiling)
+        self.floor = state.get("floor", self.floor)
+        self.long_block_counter = int(state.get("long_block_counter", self.long_block_counter))
+        self.short_block_counter = int(state.get("short_block_counter", self.short_block_counter))
+
 
 # =============================================================================
 # DYNAMIC STRUCTURE BLOCKER: Macro Trend + Fade Detection (Price Action)

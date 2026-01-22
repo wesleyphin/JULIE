@@ -42,6 +42,7 @@ from client import ProjectXClient
 from risk_engine import OptimizedTPEngine
 from gemini_optimizer import GeminiSessionOptimizer
 import param_scaler
+from bot_state import STATE_PATH, STATE_VERSION, load_bot_state, save_bot_state, trading_day_start, parse_dt
 # --- NEW IMPORTS ---
 from vixmeanreversion import VIXReversionStrategy
 from yahoo_vix_client import YahooVIXClient
@@ -722,6 +723,129 @@ async def run_bot():
     sticky_reclaim_count = 0
     sticky_opposite_count = 0
     last_trend_session = None
+    persisted_state = load_bot_state(STATE_PATH)
+    last_state_save = 0.0
+    state_restored = False
+
+    def _state_is_fresh(current_time: datetime.datetime) -> bool:
+        if not persisted_state or persisted_state.get("version") != STATE_VERSION:
+            return False
+        saved_start = parse_dt(persisted_state.get("trading_day_start"))
+        if saved_start is None:
+            return False
+        current_start = trading_day_start(current_time.astimezone(NY_TZ))
+        return saved_start == current_start
+
+    def restore_persisted_state(current_time: datetime.datetime) -> None:
+        nonlocal state_restored
+        nonlocal mom_rescue_date, mom_rescue_scores
+        nonlocal hostile_day_active, hostile_day_reason, hostile_day_date, hostile_engine_stats
+        nonlocal trend_day_tier, trend_day_dir, impulse_day, impulse_active, impulse_dir
+        nonlocal impulse_start_price, impulse_extreme, pullback_extreme, max_retracement, bars_since_impulse
+        nonlocal last_trend_day_tier, last_trend_day_dir, tier1_down_until, tier1_up_until, tier1_seen
+        nonlocal sticky_trend_dir, sticky_reclaim_count, sticky_opposite_count, last_trend_session
+
+        if state_restored or not _state_is_fresh(current_time):
+            return
+
+        extension_filter.load_state(persisted_state.get("extension_filter"))
+        chop_filter.load_state(persisted_state.get("chop_filter"))
+        directional_loss_blocker.load_state(persisted_state.get("directional_loss_blocker"))
+        circuit_breaker.load_state(persisted_state.get("circuit_breaker"))
+        penalty_blocker.load_state(persisted_state.get("penalty_box_blocker"))
+
+        trend_state = persisted_state.get("trend_day", {})
+        trend_day_tier = int(trend_state.get("trend_day_tier", trend_day_tier))
+        trend_day_dir = trend_state.get("trend_day_dir", trend_day_dir)
+        impulse_day_val = trend_state.get("impulse_day")
+        if impulse_day_val:
+            try:
+                impulse_day = date.fromisoformat(impulse_day_val)
+            except Exception:
+                pass
+        impulse_active = bool(trend_state.get("impulse_active", impulse_active))
+        impulse_dir = trend_state.get("impulse_dir", impulse_dir)
+        impulse_start_price = trend_state.get("impulse_start_price", impulse_start_price)
+        impulse_extreme = trend_state.get("impulse_extreme", impulse_extreme)
+        pullback_extreme = trend_state.get("pullback_extreme", pullback_extreme)
+        max_retracement = float(trend_state.get("max_retracement", max_retracement))
+        bars_since_impulse = int(trend_state.get("bars_since_impulse", bars_since_impulse))
+        last_trend_day_tier = int(trend_state.get("last_trend_day_tier", last_trend_day_tier))
+        last_trend_day_dir = trend_state.get("last_trend_day_dir", last_trend_day_dir)
+        tier1_down_until = parse_dt(trend_state.get("tier1_down_until")) or tier1_down_until
+        tier1_up_until = parse_dt(trend_state.get("tier1_up_until")) or tier1_up_until
+        tier1_seen = bool(trend_state.get("tier1_seen", tier1_seen))
+        sticky_trend_dir = trend_state.get("sticky_trend_dir", sticky_trend_dir)
+        sticky_reclaim_count = int(trend_state.get("sticky_reclaim_count", sticky_reclaim_count))
+        sticky_opposite_count = int(trend_state.get("sticky_opposite_count", sticky_opposite_count))
+        last_trend_session = trend_state.get("last_trend_session", last_trend_session)
+
+        mom_state = persisted_state.get("mom_rescue", {})
+        mom_rescue_date_val = mom_state.get("mom_rescue_date")
+        if mom_rescue_date_val:
+            try:
+                mom_rescue_date = date.fromisoformat(mom_rescue_date_val)
+            except Exception:
+                pass
+        mom_rescue_scores = mom_state.get("mom_rescue_scores", mom_rescue_scores)
+
+        hostile_state = persisted_state.get("hostile_day", {})
+        hostile_day_active = bool(hostile_state.get("hostile_day_active", hostile_day_active))
+        hostile_day_reason = hostile_state.get("hostile_day_reason", hostile_day_reason)
+        hostile_day_date_val = hostile_state.get("hostile_day_date")
+        if hostile_day_date_val:
+            try:
+                hostile_day_date = date.fromisoformat(hostile_day_date_val)
+            except Exception:
+                pass
+        hostile_engine_stats = hostile_state.get("hostile_engine_stats", hostile_engine_stats)
+
+        state_restored = True
+        logging.info("✅ Bot state restored from disk")
+
+    def build_persisted_state(current_time: datetime.datetime) -> dict:
+        current_time = current_time.astimezone(NY_TZ)
+        return {
+            "version": STATE_VERSION,
+            "timestamp": current_time.isoformat(),
+            "trading_day_start": trading_day_start(current_time).isoformat(),
+            "extension_filter": extension_filter.get_state(),
+            "chop_filter": chop_filter.get_state(),
+            "directional_loss_blocker": directional_loss_blocker.get_state(),
+            "circuit_breaker": circuit_breaker.get_state(),
+            "penalty_box_blocker": penalty_blocker.get_state(),
+            "trend_day": {
+                "trend_day_tier": trend_day_tier,
+                "trend_day_dir": trend_day_dir,
+                "impulse_day": impulse_day.isoformat() if impulse_day else None,
+                "impulse_active": impulse_active,
+                "impulse_dir": impulse_dir,
+                "impulse_start_price": impulse_start_price,
+                "impulse_extreme": impulse_extreme,
+                "pullback_extreme": pullback_extreme,
+                "max_retracement": max_retracement,
+                "bars_since_impulse": bars_since_impulse,
+                "last_trend_day_tier": last_trend_day_tier,
+                "last_trend_day_dir": last_trend_day_dir,
+                "tier1_down_until": tier1_down_until.isoformat() if tier1_down_until else None,
+                "tier1_up_until": tier1_up_until.isoformat() if tier1_up_until else None,
+                "tier1_seen": tier1_seen,
+                "sticky_trend_dir": sticky_trend_dir,
+                "sticky_reclaim_count": sticky_reclaim_count,
+                "sticky_opposite_count": sticky_opposite_count,
+                "last_trend_session": last_trend_session,
+            },
+            "mom_rescue": {
+                "mom_rescue_date": mom_rescue_date.isoformat() if mom_rescue_date else None,
+                "mom_rescue_scores": mom_rescue_scores,
+            },
+            "hostile_day": {
+                "hostile_day_active": hostile_day_active,
+                "hostile_day_reason": hostile_day_reason,
+                "hostile_day_date": hostile_day_date.isoformat() if hostile_day_date else None,
+                "hostile_engine_stats": hostile_engine_stats,
+            },
+        }
 
     def reset_mom_rescues(day: date) -> None:
         nonlocal mom_rescue_date, mom_rescue_scores
@@ -1200,6 +1324,7 @@ async def run_bot():
                     bank_filter.update(ts, row['high'], row['low'], row['close'])
 
                 data_backfilled = True
+                restore_persisted_state(new_df.index[-1])
                 event_logger.log_system_event("STARTUP", "✅ State restored. Bot is ready.", {"status": "READY"})
                 logging.info("✅ State restored from history.")
 
@@ -2016,6 +2141,12 @@ async def run_bot():
                             log_filter_block(filter_name, reason)
                             if not allow_rescue:
                                 return False
+                            if filter_name == "ChopFilter" and reason:
+                                reason_lc = str(reason).lower()
+                                if "wait for breakout" in reason_lc or "range too tight" in reason_lc:
+                                    logging.info("⛔ CONSENSUS RESCUE BLOCKED: ChopFilter hard block")
+                                    return False
+                                return False
                             if trend_day_tier > 0 and trend_day_dir:
                                 if (trend_day_dir == "down" and rescue_side == "LONG") or (
                                     trend_day_dir == "up" and rescue_side == "SHORT"
@@ -2175,6 +2306,11 @@ async def run_bot():
                             log_filter_block(filter_name, block_reason)
                             if not allow_rescue:
                                 return False
+                            if filter_name == "ChopFilter" and block_reason:
+                                reason_lc = str(block_reason).lower()
+                                if "wait for breakout" in reason_lc or "range too tight" in reason_lc:
+                                    logging.info("⛔ RESCUE BLOCKED: ChopFilter hard block")
+                                    return False
                             if trend_day_tier > 0 and trend_day_dir:
                                 if (trend_day_dir == "down" and rescue_side == "LONG") or (
                                     trend_day_dir == "up" and rescue_side == "SHORT"
@@ -2321,6 +2457,14 @@ async def run_bot():
                         vol_regime, _, _ = volatility_filter.get_regime(new_df)
                         chop_blocked, chop_reason = chop_filter.should_block_trade(signal['side'], rejection_filter.prev_day_pm_bias, current_price, "NEUTRAL", vol_regime)
                         if chop_blocked:
+                            if chop_reason:
+                                reason_lc = str(chop_reason).lower()
+                                if "wait for breakout" in reason_lc or "range too tight" in reason_lc:
+                                    log_filter_block("ChopFilter", chop_reason)
+                                    logging.info("⛔ BLOCKED: ChopFilter hard block (no rescue)")
+                                    if is_rescued:
+                                        log_rescue_failed(f"ChopFilter: {chop_reason}")
+                                    continue
                             if is_rescued: logging.info(f"🛡️ BYPASS Chop: Rescued by {signal['strategy']}")
                             elif not try_rescue_trigger(chop_reason, "ChopFilter"): continue
 
@@ -2947,10 +3091,24 @@ async def run_bot():
                                 except Exception as e:
                                     logging.error(f"Error in {s_name}: {e}")
 
+            if is_new_bar:
+                now_save = time.time()
+                if now_save - last_state_save >= 30:
+                    try:
+                        save_bot_state(build_persisted_state(current_time), STATE_PATH)
+                        last_state_save = now_save
+                    except Exception as e:
+                        logging.warning(f"State save failed: {e}")
+
             await asyncio.sleep(2.0)  # Slower polling to avoid Topstep rate limits
 
         except KeyboardInterrupt:
             print("\nBot Stopped by User.")
+            try:
+                now_et = datetime.datetime.now(NY_TZ)
+                save_bot_state(build_persisted_state(now_et), STATE_PATH)
+            except Exception as e:
+                logging.warning(f"State save on shutdown failed: {e}")
             break
         except Exception as e:
             logging.error(f"Main Loop Error: {e}")

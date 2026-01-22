@@ -386,6 +386,7 @@ class ChopFilter:
 
         # NEW: Time decay tracking - "The longer the base, the higher in space"
         self.bars_in_chop = 0  # How many bars we've been consolidating
+        self.last_dt = None  # Prevent double-counting on same bar
 
         # NEW: Volatility Scalar - Baseline ATR for threshold adjustment
         # Average 5m ATR for MES (2023-2025 Reference Value)
@@ -604,6 +605,11 @@ class ChopFilter:
             dt: Bar datetime
             current_atr: Current ATR value for volatility scaling (optional)
         """
+        # Only process once per new bar timestamp
+        if self.last_dt is not None and dt <= self.last_dt:
+            return self.state
+        self.last_dt = dt
+
         self.highs.append(high)
         self.lows.append(low)
         self.closes.append(close)
@@ -877,6 +883,47 @@ class ChopFilter:
             'current_atr': current_atr,
             'baseline_atr': self.baseline_atr,
         }
+
+    def get_state(self) -> dict:
+        return {
+            "state": self.state,
+            "bars_in_chop": self.bars_in_chop,
+            "bar_count": self.bar_count,
+            "chop_high": self.chop_high,
+            "chop_low": self.chop_low,
+            "breakout_level": self.breakout_level,
+            "breakout_direction": self.breakout_direction,
+            "swing_highs": self.swing_highs,
+            "swing_lows": self.swing_lows,
+            "highs": list(self.highs),
+            "lows": list(self.lows),
+            "closes": list(self.closes),
+            "last_dt": self.last_dt.isoformat() if self.last_dt else None,
+            "current_threshold": self.current_threshold,
+        }
+
+    def load_state(self, state: dict) -> None:
+        if not state:
+            return
+        self.state = state.get("state", self.state)
+        self.bars_in_chop = int(state.get("bars_in_chop", self.bars_in_chop))
+        self.bar_count = int(state.get("bar_count", self.bar_count))
+        self.chop_high = state.get("chop_high", self.chop_high)
+        self.chop_low = state.get("chop_low", self.chop_low)
+        self.breakout_level = state.get("breakout_level", self.breakout_level)
+        self.breakout_direction = state.get("breakout_direction", self.breakout_direction)
+        self.swing_highs = state.get("swing_highs", self.swing_highs) or []
+        self.swing_lows = state.get("swing_lows", self.swing_lows) or []
+        self.highs = deque(state.get("highs", []), maxlen=self.lookback)
+        self.lows = deque(state.get("lows", []), maxlen=self.lookback)
+        self.closes = deque(state.get("closes", []), maxlen=self.lookback)
+        last_dt = state.get("last_dt")
+        if last_dt:
+            try:
+                self.last_dt = datetime.fromisoformat(last_dt)
+            except Exception:
+                pass
+        self.current_threshold = state.get("current_threshold", self.current_threshold)
     
     def reset(self):
         """Reset filter state (e.g., at session change)."""
@@ -892,3 +939,4 @@ class ChopFilter:
         self.state = 'NORMAL'
         self.bar_count = 0
         self.bars_in_chop = 0  # NEW: Reset time decay counter
+        self.last_dt = None

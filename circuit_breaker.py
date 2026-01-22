@@ -41,3 +41,17 @@ class CircuitBreaker:
         self.consecutive_losses = 0
         self.is_tripped = False
         logging.info("🔄 Circuit Breaker reset for new day")
+
+    def get_state(self) -> dict:
+        return {
+            "daily_pnl": self.daily_pnl,
+            "consecutive_losses": self.consecutive_losses,
+            "is_tripped": self.is_tripped,
+        }
+
+    def load_state(self, state: dict) -> None:
+        if not state:
+            return
+        self.daily_pnl = float(state.get("daily_pnl", self.daily_pnl))
+        self.consecutive_losses = int(state.get("consecutive_losses", self.consecutive_losses))
+        self.is_tripped = bool(state.get("is_tripped", self.is_tripped))

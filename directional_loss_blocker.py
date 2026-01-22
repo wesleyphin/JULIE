@@ -288,3 +288,35 @@ class DirectionalLossBlocker:
         self.reversal_session = None
         self.reversal_quarter = 0
         logging.info("🔄 DirectionalLossBlocker reset for new day")
+
+    def get_state(self) -> dict:
+        return {
+            "long_consecutive_losses": self.long_consecutive_losses,
+            "short_consecutive_losses": self.short_consecutive_losses,
+            "long_blocked_until": self.long_blocked_until.isoformat() if self.long_blocked_until else None,
+            "short_blocked_until": self.short_blocked_until.isoformat() if self.short_blocked_until else None,
+            "reversed_bias": self.reversed_bias,
+            "reversal_session": self.reversal_session,
+            "reversal_quarter": self.reversal_quarter,
+        }
+
+    def load_state(self, state: dict) -> None:
+        if not state:
+            return
+        self.long_consecutive_losses = int(state.get("long_consecutive_losses", self.long_consecutive_losses))
+        self.short_consecutive_losses = int(state.get("short_consecutive_losses", self.short_consecutive_losses))
+        long_until = state.get("long_blocked_until")
+        short_until = state.get("short_blocked_until")
+        if long_until:
+            try:
+                self.long_blocked_until = datetime.datetime.fromisoformat(long_until)
+            except Exception:
+                pass
+        if short_until:
+            try:
+                self.short_blocked_until = datetime.datetime.fromisoformat(short_until)
+            except Exception:
+                pass
+        self.reversed_bias = state.get("reversed_bias", self.reversed_bias)
+        self.reversal_session = state.get("reversal_session", self.reversal_session)
+        self.reversal_quarter = state.get("reversal_quarter", self.reversal_quarter)
