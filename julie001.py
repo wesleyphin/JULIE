@@ -470,11 +470,20 @@ class ContinuationRescueManager:
                 check_time = current_time.astimezone(dt_timezone.utc)
 
                 if last_sig_time == check_time:
+                    tp_dist = strat.target if hasattr(strat, 'target') else 6.0
+                    sl_dist = strat.stop if hasattr(strat, 'stop') else 4.0
+                    try:
+                        sltp = dynamic_sltp_engine.calculate_sltp("Continuation", df, ts=ny_time)
+                        tp_dist = float(sltp.get("tp_dist", tp_dist))
+                        sl_dist = float(sltp.get("sl_dist", sl_dist))
+                    except Exception as e:
+                        logging.warning(f"Continuation SL/TP ATR calc failed: {e}")
+
                     return {
                         'strategy': f"Continuation_{candidate_key}",
                         'side': required_side, # FORCE the direction we need (The Rescue Side)
-                        'tp_dist': strat.target if hasattr(strat, 'target') else 6.0,
-                        'sl_dist': strat.stop if hasattr(strat, 'stop') else 4.0,
+                        'tp_dist': tp_dist,
+                        'sl_dist': sl_dist,
                         'size': 5,
                         'rescued': True
                     }
