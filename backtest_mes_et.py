@@ -591,16 +591,6 @@ def compute_pnl_points(side: str, entry_price: float, exit_price: float) -> floa
     return exit_price - entry_price if side == "LONG" else entry_price - exit_price
 
 
-def convert_points_to_live(points: float, is_tp: bool) -> float:
-    abs_points = abs(points)
-    threshold = 10.0 if is_tp else 6.0
-    if abs_points >= threshold:
-        abs_ticks = int(abs_points)
-    else:
-        abs_ticks = int(abs_points / 0.5)
-    return abs_ticks * TICK_SIZE
-
-
 def format_recent_trade(trade: dict) -> str:
     entry_time = trade.get("entry_time")
     exit_time = trade.get("exit_time")
@@ -999,8 +989,6 @@ def run_backtest(
         nonlocal active_trade
         sl_dist = float(signal.get("sl_dist", MIN_SL))
         tp_dist = float(signal.get("tp_dist", MIN_TP))
-        sl_dist = convert_points_to_live(sl_dist, is_tp=False)
-        tp_dist = convert_points_to_live(tp_dist, is_tp=True)
         side = signal["side"]
         size = int(signal.get("size", CONTRACTS))
         stop_price = entry_price - sl_dist if side == "LONG" else entry_price + sl_dist
