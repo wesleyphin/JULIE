@@ -2346,6 +2346,10 @@ async def run_bot():
                         tp_dist = order_details.get("tp_points", signal.get('tp_dist', 6.0))
                         sl_dist = order_details.get("sl_points", signal.get('sl_dist', 4.0))
                         size = order_details.get("size", signal.get('size', 5))
+                        signal['tp_dist'] = tp_dist
+                        signal['sl_dist'] = sl_dist
+                        signal['size'] = size
+                        signal['entry_price'] = entry_price
                         active_trade = {
                             'strategy': signal['strategy'],
                             'sub_strategy': signal.get('sub_strategy'),
@@ -2645,6 +2649,10 @@ async def run_bot():
                                     tp_dist = order_details.get("tp_points", sig.get('tp_dist', 6.0))
                                     sl_dist = order_details.get("sl_points", sig.get('sl_dist', 4.0))
                                     size = order_details.get("size", sig.get('size', 5))
+                                    sig['tp_dist'] = tp_dist
+                                    sig['sl_dist'] = sl_dist
+                                    sig['size'] = size
+                                    sig['entry_price'] = entry_price
                                     active_trade = {
                                         'strategy': s_name,
                                         'sub_strategy': sig.get('sub_strategy'),

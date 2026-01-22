@@ -542,10 +542,25 @@ class ProjectXClient:
             logging.warning(f"⚠️ Strategy {signal.get('strategy', 'Unknown')} missing tp_dist, using default 6.0")
 
         # === TICK CONVERSION ===
-        # Convert points to ticks using the contract tick size.
-        tick_size = 0.25
-        abs_sl_ticks = max(1, int(round(abs(sl_points) / tick_size)))
-        abs_tp_ticks = max(1, int(round(abs(tp_points) / tick_size)))
+        # === HYBRID TICK CONVERSION ===
+        # Wide SL/TP: Use raw points as ticks (legacy behavior)
+        # Tight SL/TP: Expand using half-size to avoid too-tight brackets
+        WIDE_SL_THRESHOLD = 6.0
+        WIDE_TP_THRESHOLD = 10.0
+
+        if sl_points >= WIDE_SL_THRESHOLD:
+            abs_sl_ticks = max(1, int(abs(sl_points)))
+            logging.debug(f"📏 Wide SL ({sl_points}pts): Using raw conversion → {abs_sl_ticks} ticks")
+        else:
+            abs_sl_ticks = max(1, int(abs(sl_points / 0.5)))
+            logging.debug(f"📏 Tight SL ({sl_points}pts): Using half-size → {abs_sl_ticks} ticks")
+
+        if tp_points >= WIDE_TP_THRESHOLD:
+            abs_tp_ticks = max(1, int(abs(tp_points)))
+            logging.debug(f"🎯 Wide TP ({tp_points}pts): Using raw conversion → {abs_tp_ticks} ticks")
+        else:
+            abs_tp_ticks = max(1, int(abs(tp_points / 0.5)))
+            logging.debug(f"🎯 Tight TP ({tp_points}pts): Using half-size → {abs_tp_ticks} ticks")
 
 
         # 3. Apply Directional Signs based on Side
