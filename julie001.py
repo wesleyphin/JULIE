@@ -1994,10 +1994,10 @@ async def run_bot():
                         retest_ok = currbar["low"] <= signal_price
                         close_ok = currbar["close"] >= signal_close
 
-                    if retest_ok and close_ok:
+                    if retest_ok or close_ok:
                         pending_signal.setdefault("entry_mode", "rescued")
                         logging.info(
-                            "✅ RESCUE CONFIRMED: impulse-rescue passed retest + close confirmation"
+                            "✅ RESCUE CONFIRMED: impulse-rescue passed retest or close confirmation"
                         )
 
                         if active_trade is not None:
