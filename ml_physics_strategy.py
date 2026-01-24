@@ -361,14 +361,14 @@ class MLPhysicsStrategy(Strategy):
         X = pd.DataFrame([feature_vals], columns=ML_FEATURE_COLUMNS)
         return X
 
-    def on_bar(self, df: pd.DataFrame) -> Optional[Dict]:
+    def on_bar(self, df: pd.DataFrame, current_time=None) -> Optional[Dict]:
         """
         Adapted from juliemlsession.py on_bar method.
         Uses SessionManager to get the correct model and parameters.
         Uses the full dataframe passed in (which already has 500 bars of history).
         """
         # 1. Get current session setup
-        setup = self.sm.get_current_setup()
+        setup = self.sm.get_current_setup(current_time)
 
         if setup is None:
             logging.info("💤 Market Closed (No active session strategy)")
@@ -420,17 +420,26 @@ class MLPhysicsStrategy(Strategy):
             try:
                 # Ask the Specialist Brain
                 prob_up = setup['model'].predict_proba(X)[0][1]
+                prob_down = 1.0 - prob_up
 
                 status = "💚" if prob_up > 0.5 else "🔴"
                 req = setup['threshold']
+                short_req = 1.0 - req
 
-                logging.info(f"{setup['name']} Analysis {status} | Conf: {prob_up:.1%} | Req: {req:.1%}")
+                logging.info(
+                    f"{setup['name']} Analysis {status} | "
+                    f"ConfUp: {prob_up:.1%} (Req>= {req:.1%}) | "
+                    f"ConfDn: {prob_down:.1%} (Req>= {short_req:.1%})"
+                )
 
                 # LONG signal: high probability of up move
                 if prob_up >= req:
                     # Get dynamic SL/TP from engine
                     sltp = dynamic_sltp_engine.calculate_dynamic_sltp(hist_df)
-                    logging.info(f"🎯 {setup['name']} LONG SIGNAL CONFIRMED (prob={prob_up:.1%})")
+                    logging.info(
+                        f"🎯 {setup['name']} LONG SIGNAL CONFIRMED "
+                        f"(ConfUp={prob_up:.1%} >= {req:.1%})"
+                    )
                     dynamic_sltp_engine.log_params(sltp)
                     return {
                         "strategy": f"MLPhysics_{setup['name']}",
@@ -442,7 +451,10 @@ class MLPhysicsStrategy(Strategy):
                 # SHORT signal: high probability of down move (low prob_up)
                 elif prob_up <= (1.0 - req):
                     sltp = dynamic_sltp_engine.calculate_dynamic_sltp(hist_df)
-                    logging.info(f"🎯 {setup['name']} SHORT SIGNAL CONFIRMED (prob={prob_up:.1%})")
+                    logging.info(
+                        f"🎯 {setup['name']} SHORT SIGNAL CONFIRMED "
+                        f"(ConfDn={prob_down:.1%} >= {short_req:.1%})"
+                    )
                     dynamic_sltp_engine.log_params(sltp)
                     return {
                         "strategy": f"MLPhysics_{setup['name']}",

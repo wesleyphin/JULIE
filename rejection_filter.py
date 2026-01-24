@@ -420,3 +420,56 @@ class RejectionFilter:
             logging.info(f"   ORB Loaded: {self.midnight_orb_high} - {self.midnight_orb_low}")
         if self.prev_day_pm_high:
             logging.info(f"   Prev PM Loaded: {self.prev_day_pm_high} - {self.prev_day_pm_low}")
+
+    def get_state(self) -> dict:
+        return {
+            "prev_day_pm_high": self.prev_day_pm_high,
+            "prev_day_pm_low": self.prev_day_pm_low,
+            "current_date": self.current_date.isoformat() if self.current_date else None,
+            "current_pm_high": self.current_pm_high,
+            "current_pm_low": self.current_pm_low,
+            "prev_session_high": self.prev_session_high,
+            "prev_session_low": self.prev_session_low,
+            "curr_session_high": self.curr_session_high,
+            "curr_session_low": self.curr_session_low,
+            "last_session": self.last_session,
+            "midnight_orb_high": self.midnight_orb_high,
+            "midnight_orb_low": self.midnight_orb_low,
+            "midnight_orb_set": self.midnight_orb_set,
+            "prev_day_pm_bias": self.prev_day_pm_bias,
+            "prev_session_bias": self.prev_session_bias,
+            "midnight_orb_bias": self.midnight_orb_bias,
+            "current_quarter": self.current_quarter,
+            "current_session_name": self.current_session_name,
+            "last_rejection_level": self.last_rejection_level,
+            "last_rejection_source": self.last_rejection_source,
+        }
+
+    def load_state(self, state: dict) -> None:
+        if not state:
+            return
+        self.prev_day_pm_high = state.get("prev_day_pm_high", self.prev_day_pm_high)
+        self.prev_day_pm_low = state.get("prev_day_pm_low", self.prev_day_pm_low)
+        current_date = state.get("current_date")
+        if current_date:
+            try:
+                self.current_date = datetime.date.fromisoformat(current_date)
+            except Exception:
+                pass
+        self.current_pm_high = state.get("current_pm_high", self.current_pm_high)
+        self.current_pm_low = state.get("current_pm_low", self.current_pm_low)
+        self.prev_session_high = state.get("prev_session_high", self.prev_session_high)
+        self.prev_session_low = state.get("prev_session_low", self.prev_session_low)
+        self.curr_session_high = state.get("curr_session_high", self.curr_session_high)
+        self.curr_session_low = state.get("curr_session_low", self.curr_session_low)
+        self.last_session = state.get("last_session", self.last_session)
+        self.midnight_orb_high = state.get("midnight_orb_high", self.midnight_orb_high)
+        self.midnight_orb_low = state.get("midnight_orb_low", self.midnight_orb_low)
+        self.midnight_orb_set = bool(state.get("midnight_orb_set", self.midnight_orb_set))
+        self.prev_day_pm_bias = state.get("prev_day_pm_bias", self.prev_day_pm_bias)
+        self.prev_session_bias = state.get("prev_session_bias", self.prev_session_bias)
+        self.midnight_orb_bias = state.get("midnight_orb_bias", self.midnight_orb_bias)
+        self.current_quarter = int(state.get("current_quarter", self.current_quarter or 0))
+        self.current_session_name = state.get("current_session_name", self.current_session_name)
+        self.last_rejection_level = state.get("last_rejection_level", self.last_rejection_level)
+        self.last_rejection_source = state.get("last_rejection_source", self.last_rejection_source)

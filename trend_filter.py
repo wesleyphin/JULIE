@@ -55,6 +55,10 @@ class TrendFilter:
 
         # Track current regime for logging
         self.current_regime = "DEFAULT"
+        # Cooldown after opposite-direction wick rejection on impulse bars
+        self._cooldown_long = 0
+        self._cooldown_short = 0
+        self._last_bar_ts = None
 
     def update_dynamic_params(self, params: dict):
         """
@@ -119,6 +123,14 @@ class TrendFilter:
         """
         if len(df) < self.lookback:
             return False, None
+        # Decrement cooldowns only once per new bar
+        last_ts = df.index[-1]
+        if last_ts != self._last_bar_ts:
+            if self._cooldown_long > 0:
+                self._cooldown_long -= 1
+            if self._cooldown_short > 0:
+                self._cooldown_short -= 1
+            self._last_bar_ts = last_ts
 
         # --- 1. Calculate Basic Candle Stats ---
         short_window = 20
@@ -142,6 +154,7 @@ class TrendFilter:
 
         # Use existing wick_ratio_threshold (default 0.5 or 50% of body)
         wick_threshold = last_candle_body * self.wick_ratio_threshold
+        full_range = max(last_candle_high - last_candle_low, 0.0)
 
         # --- 3. Determine Macro Trend State ---
         closes_full = df['close']
@@ -235,6 +248,35 @@ class TrendFilter:
             if (last_candle_body > (avg_body_size * self.t1_body_mult)) and \
                (last_candle_vol > (avg_vol * self.t1_vol_mult)):
                 is_tier1 = True
+
+        # After impulse: if opposite-direction wick rejection, start/refresh cooldown
+        if is_tier1 or is_tier2 or is_tier3:
+            if last_candle_dir == "RED" and full_range > 0:
+                if upper_wick >= 0.5 * full_range:
+                    self._cooldown_long = 3
+            elif last_candle_dir == "GREEN" and full_range > 0:
+                if lower_wick >= 0.5 * full_range:
+                    self._cooldown_short = 3
+
+        # Cooldown blocks (impulse-related, not Tier 4)
+        if side == "LONG" and self._cooldown_long > 0:
+            reason = f"Blocked: Impulse wick rejection cooldown ({self._cooldown_long} bars left)"
+            logging.info(f"🚫 TREND FILTER: {reason}")
+            logging.info(
+                f"⚠️ TrendFilter Cooldown: LONG {self._cooldown_long} bars "
+                "(impulse wick rejection)"
+            )
+            event_logger.log_filter_check("TrendFilter", side, False, reason)
+            return True, reason
+        if side == "SHORT" and self._cooldown_short > 0:
+            reason = f"Blocked: Impulse wick rejection cooldown ({self._cooldown_short} bars left)"
+            logging.info(f"🚫 TREND FILTER: {reason}")
+            logging.info(
+                f"⚠️ TrendFilter Cooldown: SHORT {self._cooldown_short} bars "
+                "(impulse wick rejection)"
+            )
+            event_logger.log_filter_check("TrendFilter", side, False, reason)
+            return True, reason
 
         # If no candle impulse detected, we are clear
         if not (is_tier1 or is_tier2 or is_tier3):

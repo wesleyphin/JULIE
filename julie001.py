@@ -239,6 +239,9 @@ ADX_FLIP_THRESHOLD = 25.0
 ADX_FLIP_BARS = 50
 TREND_DAY_T1_REQUIRE_CONFIRMATION = False
 ALT_PRE_TIER1_VWAP_SIGMA = 2.0
+TREND_DAY_SMA9_REVERSAL_BARS = 3
+TREND_DAY_SMA9_MIN_SLOPE = 0.2
+TREND_DAY_ATR_CONTRACTION = 1.1
 
 # ==========================================
 # TREND DAY DETECTOR (LIVE)
@@ -248,6 +251,8 @@ def compute_trend_day_series(df: pd.DataFrame) -> dict:
     ema50 = close.ewm(span=50, adjust=False).mean()
     ema200 = close.ewm(span=200, adjust=False).mean()
     sma50 = close.rolling(50, min_periods=50).mean()
+    sma9 = close.rolling(9, min_periods=9).mean()
+    sma9_slope = sma9.diff()
 
     prev_close = close.shift(1)
     tr_components = pd.concat(
@@ -359,6 +364,8 @@ def compute_trend_day_series(df: pd.DataFrame) -> dict:
         "ema50": ema50,
         "ema200": ema200,
         "sma50": sma50,
+        "sma9": sma9,
+        "sma9_slope": sma9_slope,
         "atr20": atr20,
         "atr_expansion": atr_expansion,
         "vwap": vwap,
@@ -678,6 +685,7 @@ async def run_bot():
     pending_loose_signals = {}
     last_processed_bar = None
     opposite_signal_count = 0
+    pending_impulse_rescue = None
 
     # Early Exit Tracking
     active_trade = None
@@ -706,6 +714,8 @@ async def run_bot():
     mom_rescue_scores = {"Long_Mom": 0, "Short_Mom": 0}
     trend_day_tier = 0
     trend_day_dir = None
+    trend_day_lockout_until = None
+    was_news_blocked = False
     impulse_day = None
     impulse_active = False
     impulse_dir = None
@@ -753,6 +763,8 @@ async def run_bot():
         directional_loss_blocker.load_state(persisted_state.get("directional_loss_blocker"))
         circuit_breaker.load_state(persisted_state.get("circuit_breaker"))
         penalty_blocker.load_state(persisted_state.get("penalty_box_blocker"))
+        rejection_filter.load_state(persisted_state.get("rejection_filter"))
+        bank_filter.load_state(persisted_state.get("bank_filter"))
 
         trend_state = persisted_state.get("trend_day", {})
         trend_day_tier = int(trend_state.get("trend_day_tier", trend_day_tier))
@@ -814,6 +826,8 @@ async def run_bot():
             "directional_loss_blocker": directional_loss_blocker.get_state(),
             "circuit_breaker": circuit_breaker.get_state(),
             "penalty_box_blocker": penalty_blocker.get_state(),
+            "rejection_filter": rejection_filter.get_state(),
+            "bank_filter": bank_filter.get_state(),
             "trend_day": {
                 "trend_day_tier": trend_day_tier,
                 "trend_day_dir": trend_day_dir,
@@ -1031,8 +1045,26 @@ async def run_bot():
                         news_info["Wait"] = f"{match.group(1)}m"
                 event_logger.log_filter_check("NewsFilter", "ALL", False, news_reason,
                                              additional_info=news_info, strategy="Global")
-                await asyncio.sleep(10)
-                continue
+                if trend_day_tier > 0 or trend_day_dir:
+                    logging.warning("🛑 TrendDay reset due to news blackout")
+                    trend_day_tier = 0
+                    trend_day_dir = None
+                    last_trend_day_tier = 0
+                    last_trend_day_dir = None
+                    tier1_down_until = None
+                    tier1_up_until = None
+                    tier1_seen = False
+                    sticky_trend_dir = None
+                    sticky_opposite_count = 0
+                    sticky_reclaim_count = 0
+                was_news_blocked = True
+            elif was_news_blocked:
+                trend_day_lockout_until = current_time + datetime.timedelta(minutes=10)
+                logging.info(
+                    f"🕒 TrendDay lockout until {trend_day_lockout_until.strftime('%Y-%m-%d %H:%M')} "
+                    "after news blackout"
+                )
+                was_news_blocked = False
 
             # ==========================================
             # 🕒 UPDATED SESSION DETECTION (INTRADAY + MICRO-ZONES)
@@ -1312,19 +1344,28 @@ async def run_bot():
             if not data_backfilled:
                 event_logger.log_system_event("STARTUP", "🔄 Restoring filter states from history...", {"type": "BACKFILL", "status": "IN_PROGRESS"})
                 logging.info("🔄 Performing one-time backfill of filter state from history...")
-                # Replay the history we just fetched
-                # This restores Midnight ORB, Prev Session, etc. instantly
-                rejection_filter.backfill(new_df)
+                last_ts = new_df.index[-1]
+                has_persisted = _state_is_fresh(last_ts)
+                has_rejection = bool(persisted_state.get("rejection_filter"))
+                has_bank = bool(persisted_state.get("bank_filter"))
+                has_extension = bool(persisted_state.get("extension_filter"))
 
-                # Backfill extension_filter (prevents Mid-Day Amnesia bug)
-                extension_filter.backfill(new_df)
+                if has_persisted and has_rejection and has_bank and has_extension:
+                    logging.info("✅ Persisted state valid. Skipping full backfill.")
+                else:
+                    # Replay the history we just fetched
+                    # This restores Midnight ORB, Prev Session, etc. instantly
+                    rejection_filter.backfill(new_df)
 
-                # Also backfill bank_filter (has same update() signature)
-                for ts, row in new_df.sort_index().iterrows():
-                    bank_filter.update(ts, row['high'], row['low'], row['close'])
+                    # Backfill extension_filter (prevents Mid-Day Amnesia bug)
+                    extension_filter.backfill(new_df)
+
+                    # Also backfill bank_filter (has same update() signature)
+                    for ts, row in new_df.sort_index().iterrows():
+                        bank_filter.update(ts, row['high'], row['low'], row['close'])
 
                 data_backfilled = True
-                restore_persisted_state(new_df.index[-1])
+                restore_persisted_state(last_ts)
                 event_logger.log_system_event("STARTUP", "✅ State restored. Bot is ready.", {"status": "READY"})
                 logging.info("✅ State restored from history.")
 
@@ -1454,6 +1495,18 @@ async def run_bot():
                 # === TREND DAY DETECTOR (Tier 1/2 + sticky direction) ===
                 if TREND_DAY_ENABLED:
                     try:
+                        if trend_day_lockout_until and current_time < trend_day_lockout_until:
+                            trend_day_tier = 0
+                            trend_day_dir = None
+                            last_trend_day_tier = 0
+                            last_trend_day_dir = None
+                            tier1_down_until = None
+                            tier1_up_until = None
+                            tier1_seen = False
+                            sticky_trend_dir = None
+                            sticky_opposite_count = 0
+                            sticky_reclaim_count = 0
+                            raise ValueError("TrendDay lockout active (post-news)")
                         trend_day_series = compute_trend_day_series(new_df)
                         trend_session = "NY" if base_session in ("NY_AM", "NY_PM") else base_session
                         if last_trend_session != trend_session:
@@ -1740,6 +1793,80 @@ async def run_bot():
                                 sticky_trend_dir = None
                                 sticky_opposite_count = 0
                                 sticky_reclaim_count = 0
+                        if trend_day_tier > 0 and trend_day_dir:
+                            # Disable TrendDay if a large impulse prints in the OPPOSITE direction.
+                            # Uses the same impulse criteria + wick override as ImpulseFilter.
+                            opp_impulse = False
+                            opp_reason = ""
+                            if impulse_filter.avg_body_size > 0:
+                                impulse_threshold = impulse_filter.avg_body_size * impulse_filter.impulse_multiplier
+                                if impulse_filter.last_candle_body > impulse_threshold:
+                                    upper_wick = impulse_filter.last_candle_high - max(
+                                        impulse_filter.last_candle_open, impulse_filter.last_candle_close
+                                    )
+                                    lower_wick = min(
+                                        impulse_filter.last_candle_open, impulse_filter.last_candle_close
+                                    ) - impulse_filter.last_candle_low
+                                    wick_threshold = impulse_filter.last_candle_body * impulse_filter.wick_ratio_threshold
+                                    if trend_day_dir == "up" and impulse_filter.last_candle_dir == "RED":
+                                        if lower_wick <= wick_threshold:
+                                            opp_impulse = True
+                                            opp_reason = (
+                                                f"Red impulse {impulse_filter.last_candle_body:.2f} > "
+                                                f"{impulse_threshold:.2f}"
+                                            )
+                                    elif trend_day_dir == "down" and impulse_filter.last_candle_dir == "GREEN":
+                                        if upper_wick <= wick_threshold:
+                                            opp_impulse = True
+                                            opp_reason = (
+                                                f"Green impulse {impulse_filter.last_candle_body:.2f} > "
+                                                f"{impulse_threshold:.2f}"
+                                            )
+                            if opp_impulse:
+                                logging.warning(
+                                    "[TrendDay] Deactivating tier/alt due to opposite impulse: "
+                                    f"{opp_reason}"
+                                )
+                                trend_day_tier = 0
+                                trend_day_dir = None
+                                last_trend_day_tier = 0
+                                last_trend_day_dir = None
+                                tier1_down_until = None
+                                tier1_up_until = None
+                                tier1_seen = False
+                                sticky_trend_dir = None
+                                sticky_opposite_count = 0
+                                sticky_reclaim_count = 0
+                        if trend_day_tier > 0 and trend_day_dir:
+                            sma9_slope_series = trend_day_series.get("sma9_slope")
+                            atr_contract_ok = pd.notna(atr_expansion) and atr_expansion <= TREND_DAY_ATR_CONTRACTION
+                            reversal_ok = False
+                            if (
+                                sma9_slope_series is not None
+                                and len(sma9_slope_series) >= TREND_DAY_SMA9_REVERSAL_BARS
+                            ):
+                                recent_slopes = sma9_slope_series.iloc[-TREND_DAY_SMA9_REVERSAL_BARS:]
+                                if not recent_slopes.isna().any():
+                                    if trend_day_dir == "up":
+                                        reversal_ok = (recent_slopes <= -TREND_DAY_SMA9_MIN_SLOPE).all()
+                                    elif trend_day_dir == "down":
+                                        reversal_ok = (recent_slopes >= TREND_DAY_SMA9_MIN_SLOPE).all()
+                            if reversal_ok and atr_contract_ok:
+                                avg_slope = float(recent_slopes.mean())
+                                logging.warning(
+                                    "[TrendDay] Deactivating tier/alt due to SMA9 reversal + ATR contraction: "
+                                    f"slope_avg={avg_slope:.3f} atr_exp={atr_expansion:.3f}"
+                                )
+                                trend_day_tier = 0
+                                trend_day_dir = None
+                                last_trend_day_tier = 0
+                                last_trend_day_dir = None
+                                tier1_down_until = None
+                                tier1_up_until = None
+                                tier1_seen = False
+                                sticky_trend_dir = None
+                                sticky_opposite_count = 0
+                                sticky_reclaim_count = 0
 
                         if trend_day_tier > 0 and (
                             trend_day_tier != last_trend_day_tier or trend_day_dir != last_trend_day_dir
@@ -1847,7 +1974,89 @@ async def run_bot():
                             active_trade = None
 
                 # === STRATEGY EXECUTION ===
+                if news_blocked:
+                    logging.info("📰 NEWS BLACKOUT: Skipping trade execution (data continues)")
+                    await asyncio.sleep(10)
+                    continue
                 strategy_results = {'checked': [], 'rejected': [], 'executed': None}
+
+                # === PENDING IMPULSE-RESCUE CONFIRMATION ===
+                if pending_impulse_rescue and current_time > pending_impulse_rescue["signal_time"]:
+                    pending_signal = pending_impulse_rescue["signal"]
+                    signal_price = pending_impulse_rescue["signal_price"]
+                    signal_close = pending_impulse_rescue["signal_close"]
+                    pending_impulse_rescue = None
+
+                    if pending_signal.get("side") == "SHORT":
+                        retest_ok = currbar["high"] >= signal_price
+                        close_ok = currbar["close"] <= signal_close
+                    else:
+                        retest_ok = currbar["low"] <= signal_price
+                        close_ok = currbar["close"] >= signal_close
+
+                    if retest_ok and close_ok:
+                        pending_signal.setdefault("entry_mode", "rescued")
+                        logging.info(
+                            "✅ RESCUE CONFIRMED: impulse-rescue passed retest + close confirmation"
+                        )
+
+                        if active_trade is not None:
+                            old_side = active_trade['side']
+                            old_entry = active_trade['entry_price']
+                            old_size = active_trade.get('size', 5)
+                            if old_side == 'LONG':
+                                old_pnl_points = current_price - old_entry
+                            else:
+                                old_pnl_points = old_entry - current_price
+                            old_pnl_dollars = old_pnl_points * 5.0 * old_size
+                            update_mom_rescue_score(active_trade, old_pnl_points, current_time)
+                            update_hostile_day_on_close(active_trade.get('strategy'), old_pnl_points, current_time)
+                            directional_loss_blocker.record_trade_result(old_side, old_pnl_points, current_time)
+                            circuit_breaker.update_trade_result(old_pnl_dollars)
+                            logging.info(
+                                f"📊 Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | "
+                                f"Exit: {current_price:.2f} | PnL: {old_pnl_points:.2f} pts (${old_pnl_dollars:.2f})"
+                            )
+
+                        success, opposite_signal_count = client.close_and_reverse(
+                            pending_signal, current_price, opposite_signal_count
+                        )
+                        if success:
+                            order_details = getattr(client, "_last_order_details", None) or {}
+                            entry_price = order_details.get("entry_price", current_price)
+                            tp_dist = order_details.get("tp_points", pending_signal.get('tp_dist', 6.0))
+                            sl_dist = order_details.get("sl_points", pending_signal.get('sl_dist', 4.0))
+                            size = order_details.get("size", pending_signal.get('size', 5))
+                            pending_signal['tp_dist'] = tp_dist
+                            pending_signal['sl_dist'] = sl_dist
+                            pending_signal['size'] = size
+                            pending_signal['entry_price'] = entry_price
+                            active_trade = {
+                                'strategy': pending_signal['strategy'],
+                                'sub_strategy': pending_signal.get('sub_strategy'),
+                                'side': pending_signal['side'],
+                                'entry_price': entry_price,
+                                'entry_bar': bar_count,
+                                'bars_held': 0,
+                                'tp_dist': tp_dist,
+                                'sl_dist': sl_dist,
+                                'size': size,
+                                'stop_order_id': client._active_stop_order_id,
+                                'entry_mode': pending_signal.get('entry_mode', "rescued"),
+                                'profit_crosses': 0,
+                                'was_green': None,
+                                'rescue_from_strategy': pending_signal.get('rescue_from_strategy'),
+                                'rescue_from_sub_strategy': pending_signal.get('rescue_from_sub_strategy'),
+                                'trend_day_tier': pending_signal.get('trend_day_tier'),
+                                'trend_day_dir': pending_signal.get('trend_day_dir'),
+                            }
+                        signal_executed = True
+                        continue
+                    else:
+                        logging.info(
+                            "⛔ RESCUE FAILED: impulse-rescue confirmation not met "
+                            f"(retest={retest_ok}, close_confirm={close_ok})"
+                        )
 
                 # Run ML Analysis
                 ml_signal = None
@@ -2101,6 +2310,17 @@ async def run_bot():
                                 strategy=signal.get('strategy', strat_name)
                             )
 
+                    def is_wick_rejection_block(reason: Optional[str]) -> bool:
+                        return "wick rejection" in str(reason or "").lower()
+
+                    def should_defer_impulse_rescue(filter_name: str, reason: Optional[str]) -> bool:
+                        if filter_name == "ImpulseFilter":
+                            return True
+                        reason_text = str(reason or "")
+                        if "Tier 1-3" in reason_text:
+                            return True
+                        return False
+
                     def log_rescue_success():
                         nonlocal rescue_logged, rescue_context
                         if rescue_context and not rescue_logged:
@@ -2139,6 +2359,9 @@ async def run_bot():
                         def try_consensus_rescue(filter_name: str, reason: str) -> bool:
                             nonlocal signal, is_rescued, consensus_rescued, rescue_context
                             log_filter_block(filter_name, reason)
+                            if is_wick_rejection_block(reason):
+                                logging.info("⛔ CONSENSUS RESCUE BLOCKED: TrendFilter wick rejection cooldown")
+                                return False
                             if not allow_rescue:
                                 return False
                             if filter_name == "ChopFilter" and reason:
@@ -2184,6 +2407,11 @@ async def run_bot():
                                 "rescue_strategy": potential_rescue['strategy'],
                                 "bias": potential_rescue['side'],
                             }
+                            if should_defer_impulse_rescue(filter_name, reason):
+                                signal["_defer_impulse_rescue"] = True
+                                signal["_impulse_rescue_signal_time"] = current_time
+                                signal["_impulse_rescue_signal_price"] = current_price
+                                signal["_impulse_rescue_signal_close"] = float(currbar["close"])
                             is_rescued = True
                             consensus_rescued = True
                             return True
@@ -2304,6 +2532,9 @@ async def run_bot():
                         def try_rescue_trigger(block_reason, filter_name):
                             nonlocal signal, is_rescued, potential_rescue, rescue_context
                             log_filter_block(filter_name, block_reason)
+                            if is_wick_rejection_block(block_reason):
+                                logging.info("⛔ RESCUE BLOCKED: TrendFilter wick rejection cooldown")
+                                return False
                             if not allow_rescue:
                                 return False
                             if filter_name == "ChopFilter" and block_reason:
@@ -2346,6 +2577,11 @@ async def run_bot():
                                     "rescue_strategy": potential_rescue['strategy'],
                                     "bias": potential_rescue['side'],
                                 }
+                                if should_defer_impulse_rescue(filter_name, block_reason):
+                                    signal["_defer_impulse_rescue"] = True
+                                    signal["_impulse_rescue_signal_time"] = current_time
+                                    signal["_impulse_rescue_signal_price"] = current_price
+                                    signal["_impulse_rescue_signal_close"] = float(currbar["close"])
                                 is_rescued = True
                                 potential_rescue = None  # Ticket used
                                 return True
@@ -2494,10 +2730,47 @@ async def run_bot():
 
                     # === EXECUTION ===
                     signal.setdefault('entry_mode', "standard")
+                    if signal.get("_defer_impulse_rescue"):
+                        pending_impulse_rescue = {
+                            "signal": signal,
+                            "signal_time": signal.pop("_impulse_rescue_signal_time", current_time),
+                            "signal_price": signal.pop("_impulse_rescue_signal_price", current_price),
+                            "signal_close": signal.pop("_impulse_rescue_signal_close", current_price),
+                        }
+                        signal.pop("_defer_impulse_rescue", None)
+                        logging.info("⏳ RESCUE DEFERRED: waiting for next bar confirmation")
+                        signal_executed = True
+                        break
+                    allow_dyn_mom_solo = False
+                    if (
+                        signal.get('strategy') in ("DynamicEngine", "DynamicEngineStrategy")
+                        and signal.get('entry_mode') not in ("consensus", "rescued")
+                    ):
+                        mom_key = get_mom_rescue_key(signal.get('strategy'), signal.get('sub_strategy'))
+                        if mom_key:
+                            mom_side_ok = (
+                                (mom_key == "Long_Mom" and signal.get("side") == "LONG")
+                                or (mom_key == "Short_Mom" and signal.get("side") == "SHORT")
+                            )
+                            trend_day_align = (
+                                trend_day_tier > 0
+                                and trend_day_dir is not None
+                                and (
+                                    (trend_day_dir == "up" and signal.get("side") == "LONG")
+                                    or (trend_day_dir == "down" and signal.get("side") == "SHORT")
+                                )
+                            )
+                            if mom_side_ok and trend_day_align:
+                                allow_dyn_mom_solo = True
+                                logging.info(
+                                    "🟢 DynamicEngine solo allowed (TrendDay-aligned Mom): "
+                                    f"{mom_key} {signal.get('side')} | tier={trend_day_tier} dir={trend_day_dir}"
+                                )
                     if (
                         not ALLOW_DYNAMIC_ENGINE_SOLO
                         and signal.get('strategy') in ("DynamicEngine", "DynamicEngineStrategy")
                         and signal.get('entry_mode') not in ("consensus", "rescued")
+                        and not allow_dyn_mom_solo
                     ):
                         log_filter_block("DynamicEngineSolo", "DynamicEngine solo blocked")
                         continue

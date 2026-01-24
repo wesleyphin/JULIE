@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 from typing import Any, Dict, Optional
 
 NY_TZ = ZoneInfo("America/New_York")
-STATE_VERSION = 1
+STATE_VERSION = 2
 STATE_PATH = Path(__file__).with_name("bot_state.json")
 
 

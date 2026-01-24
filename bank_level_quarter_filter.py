@@ -58,6 +58,66 @@ class BankLevelQuarterFilter:
         self.pending_source: Optional[str] = None   # description of level
         self.pending_count: int = 0
 
+    def get_state(self) -> dict:
+        return {
+            "prev_day_pm_high": self.prev_day_pm_high,
+            "prev_day_pm_low": self.prev_day_pm_low,
+            "current_pm_high": self.current_pm_high,
+            "current_pm_low": self.current_pm_low,
+            "prev_session_high": self.prev_session_high,
+            "prev_session_low": self.prev_session_low,
+            "curr_session_high": self.curr_session_high,
+            "curr_session_low": self.curr_session_low,
+            "last_session": self.last_session,
+            "midnight_orb_high": self.midnight_orb_high,
+            "midnight_orb_low": self.midnight_orb_low,
+            "midnight_orb_set": self.midnight_orb_set,
+            "bank_below_prev_pm_low": self.bank_below_prev_pm_low,
+            "bank_above_prev_pm_high": self.bank_above_prev_pm_high,
+            "bank_below_prev_session_low": self.bank_below_prev_session_low,
+            "bank_above_prev_session_high": self.bank_above_prev_session_high,
+            "bank_below_orb_low": self.bank_below_orb_low,
+            "bank_above_orb_high": self.bank_above_orb_high,
+            "current_date": self.current_date.isoformat() if self.current_date else None,
+            "current_session": self.current_session,
+            "current_quarter": self.current_quarter,
+            "bank_rejection_bias": self.bank_rejection_bias,
+            "rejection_source": self.rejection_source,
+            "pending_dir": self.pending_dir,
+            "pending_source": self.pending_source,
+            "pending_count": self.pending_count,
+        }
+
+    def load_state(self, state: dict) -> None:
+        if not state:
+            return
+        self.prev_day_pm_high = state.get("prev_day_pm_high", self.prev_day_pm_high)
+        self.prev_day_pm_low = state.get("prev_day_pm_low", self.prev_day_pm_low)
+        self.current_pm_high = state.get("current_pm_high", self.current_pm_high)
+        self.current_pm_low = state.get("current_pm_low", self.current_pm_low)
+        self.prev_session_high = state.get("prev_session_high", self.prev_session_high)
+        self.prev_session_low = state.get("prev_session_low", self.prev_session_low)
+        self.curr_session_high = state.get("curr_session_high", self.curr_session_high)
+        self.curr_session_low = state.get("curr_session_low", self.curr_session_low)
+        self.last_session = state.get("last_session", self.last_session)
+        self.midnight_orb_high = state.get("midnight_orb_high", self.midnight_orb_high)
+        self.midnight_orb_low = state.get("midnight_orb_low", self.midnight_orb_low)
+        self.midnight_orb_set = bool(state.get("midnight_orb_set", self.midnight_orb_set))
+        current_date = state.get("current_date")
+        if current_date:
+            try:
+                self.current_date = datetime.date.fromisoformat(current_date)
+            except Exception:
+                pass
+        self.current_session = state.get("current_session", self.current_session)
+        self.current_quarter = int(state.get("current_quarter", self.current_quarter or 0))
+        self.bank_rejection_bias = state.get("bank_rejection_bias", self.bank_rejection_bias)
+        self.rejection_source = state.get("rejection_source", self.rejection_source)
+        self.pending_dir = state.get("pending_dir", self.pending_dir)
+        self.pending_source = state.get("pending_source", self.pending_source)
+        self.pending_count = int(state.get("pending_count", self.pending_count))
+        self._update_bank_levels()
+
     # -------------------------------------------------
     # Utility helpers
     # -------------------------------------------------
