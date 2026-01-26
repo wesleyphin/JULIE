@@ -1939,32 +1939,32 @@ async def run_bot():
                                 if trade_side == 'LONG':
                                     tp_price = entry_price + tp_dist
                                     sl_price = entry_price - sl_dist
-                                if current_price >= tp_price:
-                                    exit_price = tp_price
-                                elif current_price <= sl_price:
-                                    exit_price = sl_price
+                                    if current_price >= tp_price:
+                                        exit_price = tp_price
+                                    elif current_price <= sl_price:
+                                        exit_price = sl_price
+                                else:
+                                    tp_price = entry_price - tp_dist
+                                    sl_price = entry_price + sl_dist
+                                    if current_price <= tp_price:
+                                        exit_price = tp_price
+                                    elif current_price >= sl_price:
+                                        exit_price = sl_price
+                            if trade_side == 'LONG':
+                                pnl_points = exit_price - entry_price
                             else:
-                                tp_price = entry_price - tp_dist
-                                sl_price = entry_price + sl_dist
-                                if current_price <= tp_price:
-                                    exit_price = tp_price
-                                elif current_price >= sl_price:
-                                    exit_price = sl_price
-                        if trade_side == 'LONG':
-                            pnl_points = exit_price - entry_price
-                        else:
-                            pnl_points = entry_price - exit_price
-                        # Convert points to dollars: MES = $5 per point per contract
-                        pnl_dollars = pnl_points * 5.0 * trade_size
-                        update_mom_rescue_score(active_trade, pnl_points, current_time)
-                        update_hostile_day_on_close(active_trade.get('strategy'), pnl_points, current_time)
-                        directional_loss_blocker.record_trade_result(trade_side, pnl_points, current_time)
-                        circuit_breaker.update_trade_result(pnl_dollars)
-                        logging.info(f"Trade closed: {trade_side} | Entry: {entry_price:.2f} | Exit: {exit_price:.2f} | PnL: {pnl_points:.2f} pts (${pnl_dollars:.2f})")
-                        active_trade = None
-                        opposite_signal_count = 0
-                        client._local_position = {'side': None, 'size': 0, 'avg_price': 0.0}
-                        flat_position_streak = 0
+                                pnl_points = entry_price - exit_price
+                            # Convert points to dollars: MES = $5 per point per contract
+                            pnl_dollars = pnl_points * 5.0 * trade_size
+                            update_mom_rescue_score(active_trade, pnl_points, current_time)
+                            update_hostile_day_on_close(active_trade.get('strategy'), pnl_points, current_time)
+                            directional_loss_blocker.record_trade_result(trade_side, pnl_points, current_time)
+                            circuit_breaker.update_trade_result(pnl_dollars)
+                            logging.info(f"Trade closed: {trade_side} | Entry: {entry_price:.2f} | Exit: {exit_price:.2f} | PnL: {pnl_points:.2f} pts (${pnl_dollars:.2f})")
+                            active_trade = None
+                            opposite_signal_count = 0
+                            client._local_position = {'side': None, 'size': 0, 'avg_price': 0.0}
+                            flat_position_streak = 0
                 else:
                     flat_position_streak = 0
 
