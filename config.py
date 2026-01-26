@@ -9,8 +9,8 @@ from zoneinfo import ZoneInfo
 # bringing in the full bot runtime.
 CONFIG = {
     # --- CREDENTIALS ---
-    "USERNAME": "timothyc092004@gmail.com",
-    "API_KEY": "paxBAtlTLGZllt+wmVEW4+9ukshCCjAVHp1kmg97Gz4=",
+    "USERNAME": "",
+    "API_KEY": "",
 
     # --- ACCOUNT/CONTRACT (will be fetched dynamically) ---
     "ACCOUNT_ID": os.environ.get("JULIE_ACCOUNT_ID"),  # Can be set via env var or fetched via /Account/search
@@ -362,7 +362,7 @@ CONFIG = {
     # --- GEMINI 3.0 PRO OPTIMIZATION ---
     "GEMINI": {
         "enabled": True,
-        "api_key": "AIzaSyBvjd1FYtF9t4oaLqOn5l1INZ31cN367yA",
+        "api_key": "",
         "model": "gemini-3-pro-preview",
     },
 
@@ -477,3 +477,4 @@ def refresh_target_symbol():
 
 # Initialize TARGET_SYMBOL at import time
 refresh_target_symbol()
+
