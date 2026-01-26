@@ -1177,6 +1177,8 @@ class JulieUI:
             '🎯 TARGET CALCULATION',  # Target calculation logs
             'Layer 1 - BASE', 'Layer 2 - GEMINI AI', 'Layer 3 - HOLIDAY',  # Target layers
             '📊 COMPOSITE EFFECT', '✅ FINAL TARGETS',  # Composite and final targets
+            'TrendDay', 'TrendDayTier',  # Trend day activation/deactivation + tier/direction
+            'TrendFilter Cooldown', 'impulse wick rejection',  # Wick-rejection cooldown logs
         ])
 
         # Determine if this is a Continuation Strategy log

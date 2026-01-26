@@ -1,7 +1,9 @@
 import builtins
+import glob
 import datetime as dt
 import json
 import logging
+import math
 from collections import Counter, defaultdict, deque
 from pathlib import Path
 from typing import Callable, Optional
@@ -37,8 +39,8 @@ from ml_physics_strategy import MLPhysicsStrategy
 from dynamic_engine_strategy import DynamicEngineStrategy
 from volatility_filter import volatility_filter, check_volatility
 from regime_strategy import RegimeAdaptiveStrategy
+from dynamic_sltp_params import dynamic_sltp_engine
 from vixmeanreversion import VIXReversionStrategy
-from circuit_breaker import CircuitBreaker
 from directional_loss_blocker import DirectionalLossBlocker
 from impulse_filter import ImpulseFilter
 from legacy_filters import LegacyFilterSystem
@@ -69,7 +71,6 @@ HOSTILE_DAY_MAX_TRADES = 3
 HOSTILE_DAY_MIN_TRADES = 2
 HOSTILE_DAY_LOSS_THRESHOLD = 2
 TREND_DAY_ENABLED = True
-ENABLE_CIRCUIT_BREAKER = False
 ATR_BASELINE_WINDOW = 390
 ATR_EXP_T1 = 1.4
 ATR_EXP_T2 = 1.6
@@ -151,6 +152,462 @@ def format_rows(title: str, rows: list[tuple], headers: list[str], max_rows: int
     for row in rows[:max_rows]:
         lines.append("  " + " | ".join(str(item) for item in row))
     return "\n".join(lines)
+
+
+def parse_continuation_key(strategy_name: Optional[str]) -> Optional[str]:
+    if not strategy_name:
+        return None
+    name = str(strategy_name)
+    if name.startswith("Continuation_"):
+        return name.split("Continuation_", 1)[1]
+    return None
+
+
+def build_continuation_allowlist(cfg: Optional[dict], base_dir: Path) -> tuple[Optional[set], dict]:
+    if not cfg or not cfg.get("enabled", True):
+        return None, {}
+    pattern = cfg.get("reports_glob", "backtest_reports/backtest_*.json")
+    report_paths = [Path(p) for p in glob.glob(str(base_dir / pattern))]
+
+    min_total_trades = int(cfg.get("min_total_trades", 0) or 0)
+    min_fold_trades = int(cfg.get("min_fold_trades", 1) or 1)
+    min_avg_pnl_points = float(cfg.get("min_avg_pnl_points", 0.0) or 0.0)
+    min_fold_expectancy_points = float(cfg.get("min_fold_expectancy_points", 0.0) or 0.0)
+    min_folds = int(cfg.get("min_folds", 1) or 1)
+    min_positive_fold_ratio = float(cfg.get("min_positive_fold_ratio", 0.0) or 0.0)
+
+    aggregate = defaultdict(
+        lambda: {
+            "total_trades": 0,
+            "total_pnl_points": 0.0,
+            "folds": 0,
+            "positive_folds": 0,
+            "fold_expectancies": [],
+        }
+    )
+    reports_used = 0
+
+    for report_path in report_paths:
+        try:
+            payload = json.loads(report_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        summary = payload.get("summary", {}) or {}
+        if summary.get("cancelled"):
+            continue
+        trade_log = payload.get("trade_log", []) or []
+        if not trade_log:
+            continue
+
+        assumptions = payload.get("assumptions", {}) or {}
+        point_value = float(assumptions.get("point_value", POINT_VALUE) or POINT_VALUE)
+        contracts = float(assumptions.get("contracts", CONTRACTS) or CONTRACTS)
+        denom = point_value * contracts if point_value and contracts else POINT_VALUE * CONTRACTS
+
+        fold_stats = defaultdict(lambda: {"trades": 0, "pnl_points": 0.0})
+        for trade in trade_log:
+            key = parse_continuation_key(trade.get("strategy"))
+            if not key:
+                continue
+            pnl_points = trade.get("pnl_points")
+            if pnl_points is None:
+                pnl_net = float(trade.get("pnl_net", 0.0) or 0.0)
+                pnl_points = pnl_net / denom if denom else 0.0
+            else:
+                pnl_points = float(pnl_points)
+            fold_stats[key]["trades"] += 1
+            fold_stats[key]["pnl_points"] += pnl_points
+
+        if not fold_stats:
+            continue
+
+        reports_used += 1
+        for key, stats in fold_stats.items():
+            trades = stats["trades"]
+            pnl_points = stats["pnl_points"]
+            agg = aggregate[key]
+            agg["total_trades"] += trades
+            agg["total_pnl_points"] += pnl_points
+            if trades >= min_fold_trades:
+                agg["folds"] += 1
+                expectancy = pnl_points / trades if trades else 0.0
+                agg["fold_expectancies"].append(expectancy)
+                if expectancy >= min_fold_expectancy_points:
+                    agg["positive_folds"] += 1
+
+    allowlist = set()
+    stats_out = {}
+    for key, agg in aggregate.items():
+        total_trades = agg["total_trades"]
+        total_pnl_points = agg["total_pnl_points"]
+        avg_pnl = total_pnl_points / total_trades if total_trades else 0.0
+        folds = agg["folds"]
+        positive_ratio = (agg["positive_folds"] / folds) if folds else 0.0
+        allowed = (
+            total_trades >= min_total_trades
+            and avg_pnl >= min_avg_pnl_points
+            and folds >= min_folds
+            and positive_ratio >= min_positive_fold_ratio
+        )
+        stats_out[key] = {
+            "total_trades": total_trades,
+            "avg_pnl_points": avg_pnl,
+            "folds": folds,
+            "positive_ratio": positive_ratio,
+            "allowed": allowed,
+        }
+        if allowed and key in STRATEGY_CONFIGS:
+            allowlist.add(key)
+
+    payload = {
+        "generated_at": dt.datetime.now(NY_TZ).isoformat(),
+        "summary": {
+            "reports_seen": len(report_paths),
+            "reports_used": reports_used,
+            "keys_seen": len(stats_out),
+            "keys_allowed": len(allowlist),
+        },
+        "criteria": {
+            "min_total_trades": min_total_trades,
+            "min_fold_trades": min_fold_trades,
+            "min_avg_pnl_points": min_avg_pnl_points,
+            "min_fold_expectancy_points": min_fold_expectancy_points,
+            "min_folds": min_folds,
+            "min_positive_fold_ratio": min_positive_fold_ratio,
+        },
+        "allowlist": sorted(allowlist),
+        "stats": stats_out,
+    }
+    cache_file = cfg.get("cache_file")
+    if cache_file:
+        cache_path = Path(cache_file)
+        if not cache_path.is_absolute():
+            cache_path = base_dir / cache_path
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True), encoding="utf-8")
+
+    return allowlist, payload
+
+
+def simulate_trade_points(
+    df: pd.DataFrame,
+    entry_pos: int,
+    side: str,
+    entry_price: float,
+    sl_dist: float,
+    tp_dist: float,
+    max_horizon: int,
+    assume_sl_first: bool,
+    exit_at_horizon: str,
+) -> float:
+    last_pos = min(len(df) - 1, entry_pos + max_horizon)
+    for pos in range(entry_pos, last_pos + 1):
+        high = float(df.iloc[pos]["high"])
+        low = float(df.iloc[pos]["low"])
+        if side == "LONG":
+            hit_tp = high >= entry_price + tp_dist
+            hit_sl = low <= entry_price - sl_dist
+            if hit_tp and hit_sl:
+                return -sl_dist if assume_sl_first else tp_dist
+            if hit_tp:
+                return tp_dist
+            if hit_sl:
+                return -sl_dist
+        else:
+            hit_tp = low <= entry_price - tp_dist
+            hit_sl = high >= entry_price + sl_dist
+            if hit_tp and hit_sl:
+                return -sl_dist if assume_sl_first else tp_dist
+            if hit_tp:
+                return tp_dist
+            if hit_sl:
+                return -sl_dist
+
+    if exit_at_horizon == "close":
+        exit_price = float(df.iloc[last_pos]["close"])
+        return compute_pnl_points(side, entry_price, exit_price)
+    return 0.0
+
+
+def build_continuation_allowlist_from_df(
+    df: pd.DataFrame,
+    trend_context: dict,
+    cfg: Optional[dict],
+    allowed_regimes: set,
+    confirm_cfg: Optional[dict],
+) -> tuple[Optional[set], dict]:
+    if not cfg or not cfg.get("enabled", True):
+        return None, {}
+    fast_cfg = cfg.get("fast", {}) or {}
+    folds = int(fast_cfg.get("folds", 4) or 1)
+    max_horizon = int(fast_cfg.get("max_horizon_bars", 120) or 120)
+    exit_at_horizon = str(fast_cfg.get("exit_at_horizon", "close") or "close").lower()
+    assume_sl_first = bool(fast_cfg.get("assume_sl_first", True))
+    use_dynamic_sltp = bool(fast_cfg.get("use_dynamic_sltp", True))
+    default_tp = float(fast_cfg.get("default_tp", MIN_TP) or MIN_TP)
+    default_sl = float(fast_cfg.get("default_sl", MIN_SL) or MIN_SL)
+    min_win_rate = float(fast_cfg.get("min_win_rate", 0.0) or 0.0)
+
+    min_total_trades = int(cfg.get("min_total_trades", 0) or 0)
+    min_fold_trades = int(cfg.get("min_fold_trades", 1) or 1)
+    min_avg_pnl_points = float(cfg.get("min_avg_pnl_points", 0.0) or 0.0)
+    min_fold_expectancy_points = float(cfg.get("min_fold_expectancy_points", 0.0) or 0.0)
+    min_folds = int(cfg.get("min_folds", 1) or 1)
+    min_positive_fold_ratio = float(cfg.get("min_positive_fold_ratio", 0.0) or 0.0)
+
+    if df.empty:
+        return set(), {}
+
+    def normalize_filter_values(value) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, (list, tuple, set)):
+            return [str(item) for item in value if item is not None]
+        return [str(value)]
+
+    symbol_prefixes = normalize_filter_values(
+        fast_cfg.get("symbol_prefixes") or fast_cfg.get("symbol_prefix")
+    )
+    symbol_contains = normalize_filter_values(
+        fast_cfg.get("symbol_contains") or fast_cfg.get("symbol_filter_contains")
+    )
+
+    def symbol_allowed(symbol: str) -> bool:
+        if symbol_prefixes and not any(symbol.startswith(prefix) for prefix in symbol_prefixes):
+            return False
+        if symbol_contains and not any(token in symbol for token in symbol_contains):
+            return False
+        return True
+
+    multi_symbol = "symbol" in df.columns and df["symbol"].nunique(dropna=True) > 1
+
+    def iter_symbol_frames(frame: pd.DataFrame):
+        if "symbol" not in frame.columns:
+            yield None, frame
+            return
+        for symbol, symbol_df in frame.groupby("symbol"):
+            symbol_name = str(symbol)
+            if symbol_prefixes or symbol_contains:
+                if not symbol_allowed(symbol_name):
+                    continue
+            yield symbol_name, symbol_df
+
+    aggregate = defaultdict(
+        lambda: {
+            "total_trades": 0,
+            "total_pnl_points": 0.0,
+            "wins": 0,
+            "folds": 0,
+            "positive_folds": 0,
+            "fold_expectancies": [],
+        }
+    )
+
+    for symbol, symbol_df in iter_symbol_frames(df):
+        if symbol_df.empty:
+            continue
+        symbol_df = normalize_index(symbol_df, NY_TZ)
+        idx = symbol_df.index
+
+        if allowed_regimes:
+            try:
+                volatility_filter.calibrate(symbol_df)
+            except Exception:
+                pass
+
+        if trend_context is None or multi_symbol:
+            trend_source = symbol_df
+            if TREND_DAY_TIMEFRAME_MINUTES > 1:
+                trend_source = resample_dataframe(symbol_df, TREND_DAY_TIMEFRAME_MINUTES)
+            trend_series_raw = compute_trend_day_series(trend_source)
+            local_trend_context = align_trend_day_series(trend_series_raw, symbol_df.index)
+        else:
+            local_trend_context = trend_context
+
+        day_index = pd.Series(idx.date, index=idx)
+        day_last = pd.Series(idx, index=idx).groupby(day_index).transform("max")
+        # Use ndarray comparison to avoid tz-aware mismatch that yields all-False
+        last_mask = idx.to_numpy() == day_last.to_numpy()
+
+        hours = idx.hour
+        session = np.where(
+            (hours >= 18) | (hours < 3),
+            "Asia",
+            np.where(hours < 8, "London", np.where(hours < 17, "NY", "Other")),
+        )
+
+        quarters = idx.quarter
+        weeks = idx.isocalendar().week.to_numpy()
+        days = idx.weekday + 1
+
+        base_ts = idx[0].value
+        span_ts = max(1, idx[-1].value - base_ts)
+
+        for pos in np.where(last_mask)[0]:
+            if session[pos] == "Other":
+                continue
+            key = f"Q{quarters[pos]}_W{weeks[pos]}_D{days[pos]}_{session[pos]}"
+            if key not in STRATEGY_CONFIGS:
+                continue
+            current_time = idx[pos]
+            bar_close = float(symbol_df.iloc[pos]["close"])
+
+            if not confirm_cfg or not confirm_cfg.get("enabled", True):
+                vwap_sigma = local_trend_context.get("vwap_sigma_dist")
+                if isinstance(vwap_sigma, pd.Series):
+                    try:
+                        vwap_sigma = vwap_sigma.get(current_time, 0.0)
+                    except Exception:
+                        vwap_sigma = 0.0
+                try:
+                    vwap_sigma = float(vwap_sigma)
+                except Exception:
+                    vwap_sigma = 0.0
+                if vwap_sigma > 0:
+                    side = "LONG"
+                elif vwap_sigma < 0:
+                    side = "SHORT"
+                else:
+                    continue
+            else:
+                long_ok = continuation_market_confirmed(
+                    "LONG", current_time, bar_close, local_trend_context, confirm_cfg
+                )
+                short_ok = continuation_market_confirmed(
+                    "SHORT", current_time, bar_close, local_trend_context, confirm_cfg
+                )
+                if long_ok and not short_ok:
+                    side = "LONG"
+                elif short_ok and not long_ok:
+                    side = "SHORT"
+                else:
+                    continue
+
+            if allowed_regimes:
+                try:
+                    history_df = symbol_df.loc[:current_time]
+                    regime, _, _ = volatility_filter.get_regime(history_df)
+                except Exception:
+                    regime = None
+                if not regime or str(regime).lower() not in allowed_regimes:
+                    continue
+
+            entry_pos = pos + 1
+            if entry_pos >= len(symbol_df):
+                continue
+            entry_price = float(symbol_df.iloc[entry_pos]["open"])
+
+            tp_dist = default_tp
+            sl_dist = default_sl
+            if use_dynamic_sltp:
+                try:
+                    sltp = dynamic_sltp_engine.calculate_sltp(
+                        "Continuation", symbol_df, ts=current_time
+                    )
+                    tp_dist = float(sltp.get("tp_dist", tp_dist))
+                    sl_dist = float(sltp.get("sl_dist", sl_dist))
+                except Exception:
+                    pass
+            tp_dist = max(tp_dist, MIN_TP)
+            sl_dist = max(sl_dist, MIN_SL)
+
+            pnl_points = simulate_trade_points(
+                symbol_df,
+                entry_pos,
+                side,
+                entry_price,
+                sl_dist,
+                tp_dist,
+                max_horizon,
+                assume_sl_first,
+                exit_at_horizon,
+            )
+
+            fold_idx = int(((current_time.value - base_ts) / span_ts) * max(1, folds - 1))
+            agg = aggregate[key]
+            agg["total_trades"] += 1
+            agg["total_pnl_points"] += pnl_points
+            if pnl_points > 0:
+                agg["wins"] += 1
+            agg.setdefault("fold_stats", defaultdict(lambda: {"trades": 0, "pnl_points": 0.0}))
+            agg["fold_stats"][fold_idx]["trades"] += 1
+            agg["fold_stats"][fold_idx]["pnl_points"] += pnl_points
+
+    allowlist = set()
+    stats_out = {}
+    for key, agg in aggregate.items():
+        total_trades = agg["total_trades"]
+        total_pnl_points = agg["total_pnl_points"]
+        wins = agg["wins"]
+        avg_pnl = total_pnl_points / total_trades if total_trades else 0.0
+        win_rate = wins / total_trades if total_trades else 0.0
+
+        fold_stats = agg.get("fold_stats", {})
+        folds_used = 0
+        positive_folds = 0
+        for _, stats in fold_stats.items():
+            trades = stats["trades"]
+            pnl_points = stats["pnl_points"]
+            if trades >= min_fold_trades:
+                folds_used += 1
+                expectancy = pnl_points / trades if trades else 0.0
+                agg["fold_expectancies"].append(expectancy)
+                if expectancy >= min_fold_expectancy_points:
+                    positive_folds += 1
+        positive_ratio = (positive_folds / folds_used) if folds_used else 0.0
+
+        allowed = (
+            total_trades >= min_total_trades
+            and avg_pnl >= min_avg_pnl_points
+            and win_rate >= min_win_rate
+            and folds_used >= min_folds
+            and positive_ratio >= min_positive_fold_ratio
+        )
+
+        stats_out[key] = {
+            "total_trades": total_trades,
+            "avg_pnl_points": avg_pnl,
+            "win_rate": win_rate,
+            "folds": folds_used,
+            "positive_ratio": positive_ratio,
+            "allowed": allowed,
+        }
+        if allowed:
+            allowlist.add(key)
+
+    payload = {
+        "generated_at": dt.datetime.now(NY_TZ).isoformat(),
+        "mode": "csv_fast",
+        "summary": {
+            "keys_seen": len(stats_out),
+            "keys_allowed": len(allowlist),
+        },
+        "criteria": {
+            "min_total_trades": min_total_trades,
+            "min_fold_trades": min_fold_trades,
+            "min_avg_pnl_points": min_avg_pnl_points,
+            "min_fold_expectancy_points": min_fold_expectancy_points,
+            "min_folds": min_folds,
+            "min_positive_fold_ratio": min_positive_fold_ratio,
+            "min_win_rate": min_win_rate,
+            "folds": folds,
+            "max_horizon_bars": max_horizon,
+            "exit_at_horizon": exit_at_horizon,
+            "assume_sl_first": assume_sl_first,
+            "use_dynamic_sltp": use_dynamic_sltp,
+        },
+        "allowlist": sorted(allowlist),
+        "stats": stats_out,
+    }
+    cache_file = cfg.get("cache_file")
+    if cache_file:
+        cache_path = Path(cache_file)
+        if not cache_path.is_absolute():
+            cache_path = Path(__file__).resolve().parent / cache_path
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True), encoding="utf-8")
+
+    return allowlist, payload
 
 
 class AttributionTracker:
@@ -461,6 +918,26 @@ def load_csv(path: Path) -> pd.DataFrame:
     return df
 
 
+def normalize_index(df: pd.DataFrame, tz: ZoneInfo) -> pd.DataFrame:
+    if df.empty:
+        return df
+    df = df.copy()
+    if df.index.tz is None:
+        df.index = df.index.tz_localize(tz)
+    else:
+        df.index = df.index.tz_convert(tz)
+    return df.sort_index()
+
+
+def slice_df_upto(df: pd.DataFrame, current_time: pd.Timestamp) -> pd.DataFrame:
+    if df.empty:
+        return df
+    pos = df.index.searchsorted(current_time, side="right")
+    if pos <= 0:
+        return df.iloc[:0]
+    return df.iloc[:pos]
+
+
 def choose_symbol(df: pd.DataFrame, preferred: Optional[str]) -> str:
     if preferred:
         symbols = set(df["symbol"].dropna().unique())
@@ -559,9 +1036,98 @@ class ContinuationRescueManager:
         self.strategy_instances = {}
         self.ny_tz = ZoneInfo("America/New_York")
 
-    def get_active_continuation_signal(self, df: pd.DataFrame, current_time, required_side: str):
+    def _structure_break_signal(
+        self,
+        df: pd.DataFrame,
+        current_time,
+        required_side: str,
+        current_price: Optional[float],
+        trend_day_series: Optional[dict],
+    ) -> Optional[dict]:
+        if df.empty or trend_day_series is None:
+            return None
+
+        if current_price is None:
+            try:
+                current_price = float(df.iloc[-1]["close"])
+            except Exception:
+                return None
+
+        prev_close = None
+        if len(df) > 1:
+            try:
+                prev_close = float(df.iloc[-2]["close"])
+            except Exception:
+                prev_close = None
+
+        def series_value(key: str, default):
+            series = trend_day_series.get(key)
+            if isinstance(series, pd.Series):
+                try:
+                    return series.iloc[-1]
+                except Exception:
+                    return default
+            return series if series is not None else default
+
+        prior_high = series_value("prior_session_high", None)
+        prior_low = series_value("prior_session_low", None)
+
+        structure_up = False
+        structure_down = False
+        if prior_high is not None and not pd.isna(prior_high):
+            structure_up = current_price > float(prior_high)
+            if prev_close is not None:
+                structure_up = structure_up and prev_close <= float(prior_high)
+        if prior_low is not None and not pd.isna(prior_low):
+            structure_down = current_price < float(prior_low)
+            if prev_close is not None:
+                structure_down = structure_down and prev_close >= float(prior_low)
+
+        if required_side == "LONG" and not structure_up:
+            return None
+        if required_side == "SHORT" and not structure_down:
+            return None
+
+        if current_time.tzinfo is None:
+            current_time = current_time.replace(tzinfo=dt.timezone.utc)
+        ny_time = current_time.astimezone(self.ny_tz)
+
+        tp_dist = 6.0
+        sl_dist = 4.0
+        try:
+            sltp = dynamic_sltp_engine.calculate_sltp("Continuation", df, ts=ny_time)
+            tp_dist = float(sltp.get("tp_dist", tp_dist))
+            sl_dist = float(sltp.get("sl_dist", sl_dist))
+        except Exception:
+            pass
+        return {
+            "strategy": "Continuation_Structure",
+            "side": required_side,
+            "tp_dist": tp_dist,
+            "sl_dist": sl_dist,
+            "size": CONTRACTS,
+            "rescued": True,
+        }
+
+    def get_active_continuation_signal(
+        self,
+        df: pd.DataFrame,
+        current_time,
+        required_side: str,
+        current_price: Optional[float] = None,
+        trend_day_series: Optional[dict] = None,
+        signal_mode: Optional[str] = None,
+    ):
         if df.empty:
             return None
+
+        mode = str(
+            signal_mode or CONFIG.get("BACKTEST_CONTINUATION_SIGNAL_MODE", "calendar") or "calendar"
+        ).lower()
+        if mode == "structure":
+            return self._structure_break_signal(
+                df, current_time, required_side, current_price, trend_day_series
+            )
 
         if current_time.tzinfo is None:
             current_time = current_time.replace(tzinfo=dt.timezone.utc)
@@ -605,11 +1171,19 @@ class ContinuationRescueManager:
 
             check_time = current_time.astimezone(dt.timezone.utc)
             if last_sig_time == check_time:
+                tp_dist = strat.target if hasattr(strat, "target") else 6.0
+                sl_dist = strat.stop if hasattr(strat, "stop") else 4.0
+                try:
+                    sltp = dynamic_sltp_engine.calculate_sltp("Continuation", df, ts=ny_time)
+                    tp_dist = float(sltp.get("tp_dist", tp_dist))
+                    sl_dist = float(sltp.get("sl_dist", sl_dist))
+                except Exception:
+                    pass
                 return {
                     "strategy": f"Continuation_{candidate_key}",
                     "side": required_side,
-                    "tp_dist": strat.target if hasattr(strat, "target") else 6.0,
-                    "sl_dist": strat.stop if hasattr(strat, "stop") else 4.0,
+                    "tp_dist": tp_dist,
+                    "sl_dist": sl_dist,
                     "size": CONTRACTS,
                     "rescued": True,
                 }
@@ -636,13 +1210,108 @@ def trend_state_from_reason(reason: Optional[str]) -> str:
     return "NEUTRAL"
 
 
+def continuation_market_confirmed(
+    side: str,
+    current_time: pd.Timestamp,
+    bar_close: float,
+    trend_context: dict,
+    cfg: Optional[dict],
+) -> bool:
+    if not cfg or not cfg.get("enabled", True):
+        return True
+
+    def series_value(key: str, default):
+        series = trend_context.get(key)
+        if isinstance(series, pd.Series):
+            try:
+                return series.get(current_time, default)
+            except Exception:
+                return default
+        return series if series is not None else default
+
+    use_adx = cfg.get("use_adx", True)
+    use_trend_alt = cfg.get("use_trend_alt", True)
+    use_vwap = cfg.get("use_vwap", True)
+    use_structure = cfg.get("use_structure_break", True)
+    vwap_sigma_min = float(cfg.get("vwap_sigma_min", 0.0) or 0.0)
+    require_any = cfg.get("require_any", True)
+
+    adx_up = bool(series_value("adx_strong_up", False))
+    adx_down = bool(series_value("adx_strong_down", False))
+    trend_up = bool(series_value("trend_up_alt", False))
+    trend_down = bool(series_value("trend_down_alt", False))
+    vwap_sigma = series_value("vwap_sigma_dist", 0.0)
+    try:
+        vwap_sigma = float(vwap_sigma)
+    except Exception:
+        vwap_sigma = 0.0
+
+    prior_high = series_value("prior_session_high", None)
+    prior_low = series_value("prior_session_low", None)
+    structure_up = False
+    structure_down = False
+    if prior_high is not None and not pd.isna(prior_high):
+        structure_up = bar_close > float(prior_high)
+    if prior_low is not None and not pd.isna(prior_low):
+        structure_down = bar_close < float(prior_low)
+
+    if side == "LONG":
+        checks = []
+        if use_adx:
+            checks.append(adx_up)
+        if use_trend_alt:
+            checks.append(trend_up)
+        if use_vwap:
+            checks.append(vwap_sigma >= vwap_sigma_min)
+        if use_structure:
+            checks.append(structure_up)
+    else:
+        checks = []
+        if use_adx:
+            checks.append(adx_down)
+        if use_trend_alt:
+            checks.append(trend_down)
+        if use_vwap:
+            checks.append(vwap_sigma <= -vwap_sigma_min)
+        if use_structure:
+            checks.append(structure_down)
+
+    if not checks:
+        return True
+    return any(checks) if require_any else all(checks)
+
+
 def compute_pnl_points(side: str, entry_price: float, exit_price: float) -> float:
     return exit_price - entry_price if side == "LONG" else entry_price - exit_price
 
 
 def round_points_to_tick(points: float) -> float:
-    ticks = max(1, int(round(abs(points) / TICK_SIZE)))
+    ticks = max(1, int(math.ceil(abs(points) / TICK_SIZE)))
     return ticks * TICK_SIZE
+
+
+def consensus_ml_ok(signal: Optional[dict]) -> bool:
+    """Backtest-only: require stronger ML confidence to support consensus."""
+    if not signal:
+        return False
+    strat = str(signal.get("strategy", ""))
+    if not strat.startswith("MLPhysics"):
+        return True
+    conf = signal.get("ml_confidence")
+    threshold = signal.get("ml_threshold")
+    if conf is None or threshold is None:
+        return False
+    try:
+        conf_val = float(conf)
+        thr_val = float(threshold)
+    except Exception:
+        return False
+    min_conf = CONFIG.get("BACKTEST_CONSENSUS_ML_MIN_CONF")
+    extra = CONFIG.get("BACKTEST_CONSENSUS_ML_EXTRA_MARGIN", 0.0)
+    required = thr_val + float(extra or 0.0)
+    if min_conf is not None:
+        required = max(required, float(min_conf))
+    return conf_val >= required
 
 
 def add_bypass_filters_from_trigger(bypass_list: list[str], trigger: Optional[str]) -> None:
@@ -943,6 +1612,15 @@ def run_backtest(
     CONFIG["DYNAMIC_SL_MULTIPLIER"] = 1.0
     CONFIG["DYNAMIC_TP_MULTIPLIER"] = 1.0
 
+    # Backtest-only: enable ML vol-split sessions without changing live defaults
+    backtest_split_sessions = CONFIG.get("ML_PHYSICS_VOL_SPLIT_BACKTEST_SESSIONS", [])
+    if backtest_split_sessions:
+        vol_split = CONFIG.setdefault("ML_PHYSICS_VOL_SPLIT", {})
+        sessions = set(vol_split.get("sessions", []))
+        sessions.update(backtest_split_sessions)
+        vol_split["sessions"] = sorted(sessions)
+        vol_split["enabled"] = True
+
     param_scaler.apply_scaling()
     refresh_target_symbol()
 
@@ -976,7 +1654,6 @@ def run_backtest(
     regime_blocker = RegimeStructureBlocker(lookback=20)
     penalty_blocker = PenaltyBoxBlocker(lookback=50, tolerance=5.0, penalty_bars=3)
     memory_sr = MemorySRFilter(lookback_bars=300, zone_width=2.0, touch_threshold=2)
-    circuit_breaker = CircuitBreaker(max_daily_loss=600, max_consecutive_losses=7)
     directional_loss_blocker = DirectionalLossBlocker(consecutive_loss_limit=3, block_minutes=15)
     impulse_filter = ImpulseFilter(lookback=20, impulse_multiplier=2.5)
     legacy_filters = LegacyFilterSystem()
@@ -985,11 +1662,41 @@ def run_backtest(
     news_filter = BacktestNewsFilter()
 
     continuation_manager = ContinuationRescueManager()
+    continuation_allow_cfg = CONFIG.get("BACKTEST_CONTINUATION_ALLOWLIST", {})
+    allowlist_mode = str(continuation_allow_cfg.get("mode", "reports") or "reports").lower()
+    continuation_allowlist = None
+    continuation_allow_stats: dict = {}
+    if allowlist_mode != "csv_fast":
+        continuation_allowlist, continuation_allow_stats = build_continuation_allowlist(
+            continuation_allow_cfg, Path(__file__).resolve().parent
+        )
+    continuation_allowed_regimes = {
+        str(item).lower()
+        for item in (CONFIG.get("BACKTEST_CONTINUATION_ALLOWED_REGIMES") or [])
+        if item is not None
+    }
+    continuation_confirm_cfg = CONFIG.get("BACKTEST_CONTINUATION_CONFIRM", {})
+    continuation_no_bypass = bool(CONFIG.get("BACKTEST_CONTINUATION_NO_BYPASS", False))
+    continuation_signal_mode = str(
+        CONFIG.get("BACKTEST_CONTINUATION_SIGNAL_MODE", "calendar") or "calendar"
+    ).lower()
 
     if mnq_df is None:
         mnq_df = pd.DataFrame()
     if vix_df is None:
         vix_df = pd.DataFrame()
+
+    df = normalize_index(df, NY_TZ)
+    mnq_df = normalize_index(mnq_df, NY_TZ)
+    vix_df = normalize_index(vix_df, NY_TZ)
+    if start_time.tzinfo is None:
+        start_time = start_time.replace(tzinfo=NY_TZ)
+    else:
+        start_time = start_time.astimezone(NY_TZ)
+    if end_time.tzinfo is None:
+        end_time = end_time.replace(tzinfo=NY_TZ)
+    else:
+        end_time = end_time.astimezone(NY_TZ)
 
     warmup_df = df[df.index < start_time].tail(WARMUP_BARS)
     test_df = df[(df.index >= start_time) & (df.index <= end_time)]
@@ -1029,6 +1736,24 @@ def run_backtest(
     td_adx_strong_up = trend_day_series["adx_strong_up"]
     td_adx_strong_down = trend_day_series["adx_strong_down"]
     td_day_index = trend_day_series["day_index"]
+
+    if allowlist_mode == "csv_fast":
+        continuation_allowlist, continuation_allow_stats = build_continuation_allowlist_from_df(
+            full_df,
+            trend_day_series,
+            continuation_allow_cfg,
+            continuation_allowed_regimes,
+            continuation_confirm_cfg,
+        )
+
+    if continuation_allow_cfg.get("enabled", True):
+        summary = (continuation_allow_stats or {}).get("summary", {})
+        logging.info(
+            "Continuation allowlist (%s): %s keys (reports used: %s)",
+            allowlist_mode,
+            len(continuation_allowlist or []),
+            summary.get("reports_used", 0),
+        )
 
     resample_cache_60 = ResampleCache(full_df, 60)
     resample_cache_240 = ResampleCache(full_df, 240)
@@ -1230,7 +1955,6 @@ def run_backtest(
         update_mom_rescue_score(trade_record, pnl_net, exit_time)
         update_hostile_day_on_close(trade_record.get("strategy"), pnl_points, exit_time)
         directional_loss_blocker.record_trade_result(side, pnl_points, exit_time)
-        circuit_breaker.update_trade_result(pnl_dollars)
         active_trade = None
         opposite_signal_count = 0
 
@@ -1292,6 +2016,44 @@ def run_backtest(
                 price = "N/A"
             color = "\033[92m" if trend_day_dir == "up" else "\033[91m"
             print(f"{color}[TrendDay] {name} blocked counter-trend signal @ {ts} price={price}\033[0m")
+
+    def continuation_core_trigger(trigger: Optional[str]) -> bool:
+        if not trigger:
+            return False
+        if trigger.startswith("FilterStack"):
+            return True
+        return trigger in {"RegimeBlocker", "TrendFilter", "ChopFilter", "ExtensionFilter"}
+
+    def continuation_rescue_allowed(
+        signal: Optional[dict],
+        side: str,
+        current_time: dt.datetime,
+        bar_close: float,
+        history_df: pd.DataFrame,
+    ) -> bool:
+        if not signal:
+            return False
+        if continuation_signal_mode != "structure":
+            key = parse_continuation_key(signal.get("strategy"))
+            if continuation_allowlist is not None:
+                if not key or key not in continuation_allowlist:
+                    record_filter("ContinuationAllowlist")
+                    return False
+        if continuation_allowed_regimes:
+            regime, _, _ = volatility_filter.get_regime(history_df)
+            if not regime or str(regime).lower() not in continuation_allowed_regimes:
+                record_filter("ContinuationRegime")
+                return False
+        if not continuation_market_confirmed(
+            side=side,
+            current_time=current_time,
+            bar_close=bar_close,
+            trend_context=trend_day_series,
+            cfg=continuation_confirm_cfg,
+        ):
+            record_filter("ContinuationConfirm")
+            return False
+        return True
 
     def open_trade(signal: dict, entry_price: float, entry_time: dt.datetime) -> None:
         nonlocal active_trade
@@ -1402,6 +2164,8 @@ def run_backtest(
             break
         history_df = full_df.iloc[: i + 1]
         current_time = history_df.index[-1]
+        mnq_slice = slice_df_upto(mnq_df, current_time)
+        vix_slice = slice_df_upto(vix_df, current_time)
         current_session = get_session_name(current_time)
         trend_session = "NY" if current_session in ("NY_AM", "NY_PM") else current_session
         currbar = history_df.iloc[-1]
@@ -1784,11 +2548,6 @@ def run_backtest(
             pending_exit = True
             pending_exit_reason = "early_exit"
 
-        if ENABLE_CIRCUIT_BREAKER:
-            cb_blocked, _ = circuit_breaker.should_block_trade()
-            if cb_blocked:
-                record_filter("CircuitBreaker")
-                continue
 
         news_blocked, _ = news_filter.should_block_trade(current_time)
         if news_blocked:
@@ -1818,8 +2577,10 @@ def run_backtest(
                 ml_signal = ml_strategy.on_bar(history_df, current_time)
             except Exception:
                 ml_signal = None
-        if ml_signal and get_session_name(current_time) == "ASIA":
-            ml_signal = None
+        if ml_signal:
+            disabled_sessions = set(CONFIG.get("ML_PHYSICS_BACKTEST_DISABLED_SESSIONS", []))
+            if get_session_name(current_time) in disabled_sessions:
+                ml_signal = None
 
         candidate_signals = []
 
@@ -1827,7 +2588,7 @@ def run_backtest(
             strat_name = strat.__class__.__name__
             try:
                 if strat_name == "VIXReversionStrategy":
-                    signal = strat.on_bar(history_df, vix_df)
+                    signal = strat.on_bar(history_df, vix_slice)
                 else:
                     signal = strat.on_bar(history_df)
             except Exception:
@@ -1846,7 +2607,7 @@ def run_backtest(
                 if strat_name == "MLPhysicsStrategy":
                     signal = ml_signal
                 elif strat_name == "SMTStrategy":
-                    signal = strat.on_bar(history_df, mnq_df)
+                    signal = strat.on_bar(history_df, mnq_slice)
                 else:
                     signal = strat.on_bar(history_df)
             except Exception:
@@ -1871,6 +2632,8 @@ def run_backtest(
         for _, _, sig, s_name in candidate_signals:
             side = sig.get("side")
             if side in direction_counts:
+                if str(sig.get("strategy", "")).startswith("MLPhysics") and not consensus_ml_ok(sig):
+                    continue
                 weight = 2 if s_name == "SMTStrategy" else 1
                 direction_counts[side] += weight
             if s_name == "SMTStrategy":
@@ -1895,6 +2658,7 @@ def run_backtest(
                 (sig, s_name)
                 for _, _, sig, s_name in candidate_signals
                 if sig.get("side") == consensus_side
+                and (not str(sig.get("strategy", "")).startswith("MLPhysics") or consensus_ml_ok(sig))
             ]
             if consensus_candidates:
                 consensus_tp_signal, consensus_tp_source = min(
@@ -1929,6 +2693,8 @@ def run_backtest(
             allow_rescue = not str(signal.get("strategy", "")).startswith("MLPhysics")
             is_rescued = False
             consensus_rescued = False
+            consensus_bypass_allowed = True
+            rescue_bypass_allowed = True
             bypassed_filters: list[str] = []
             primary_label = format_strategy_label(signal, strat_name)
             consensus_secondary = [
@@ -1939,8 +2705,10 @@ def run_backtest(
                 rescue_side = "SHORT" if signal["side"] == "LONG" else "LONG"
 
                 def try_consensus_rescue(trigger: str) -> bool:
-                    nonlocal signal, is_rescued, consensus_rescued
+                    nonlocal signal, is_rescued, consensus_rescued, consensus_bypass_allowed
                     if not allow_rescue:
+                        return False
+                    if is_rescued:
                         return False
                     if trend_day_tier > 0 and trend_day_dir:
                         if (trend_day_dir == "down" and rescue_side == "LONG") or (
@@ -1957,9 +2725,20 @@ def run_backtest(
                     if hostile_day_active:
                         return False
                     potential_rescue = continuation_manager.get_active_continuation_signal(
-                        history_df, current_time, rescue_side
+                        history_df,
+                        current_time,
+                        rescue_side,
+                        current_price=bar_close,
+                        trend_day_series=trend_day_series,
+                        signal_mode=continuation_signal_mode,
                     )
+                    if not continuation_rescue_allowed(
+                        potential_rescue, rescue_side, current_time, bar_close, history_df
+                    ):
+                        potential_rescue = None
                     if not potential_rescue:
+                        return False
+                    if continuation_no_bypass and continuation_core_trigger(trigger):
                         return False
                     rescue_blocked, _ = trend_filter.should_block_trade(history_df, potential_rescue["side"])
                     if rescue_blocked:
@@ -1973,11 +2752,13 @@ def run_backtest(
                     signal["entry_mode"] = "rescued"
                     if consensus_secondary:
                         signal["consensus_contributors"] = consensus_secondary
-                    add_bypass_filters_from_trigger(bypassed_filters, trigger)
-                    if bypassed_filters:
-                        signal["bypassed_filters"] = list(bypassed_filters)
+                    consensus_bypass_allowed = not continuation_no_bypass
+                    if consensus_bypass_allowed:
+                        add_bypass_filters_from_trigger(bypassed_filters, trigger)
+                        if bypassed_filters:
+                            signal["bypassed_filters"] = list(bypassed_filters)
                     is_rescued = True
-                    consensus_rescued = True
+                    consensus_rescued = consensus_bypass_allowed
                     return True
 
                 if trend_day_counter:
@@ -2028,7 +2809,7 @@ def run_backtest(
                             continue
                 if not consensus_rescued:
                     vol_regime, _, _ = volatility_filter.get_regime(history_df)
-                    chop_blocked, _ = chop_filter.should_block_trade(
+                    chop_blocked, chop_reason = chop_filter.should_block_trade(
                         signal["side"],
                         rejection_filter.prev_day_pm_bias,
                         bar_close,
@@ -2036,6 +2817,11 @@ def run_backtest(
                         vol_regime,
                     )
                     if chop_blocked:
+                        if chop_reason:
+                            reason_lc = str(chop_reason).lower()
+                            if "wait for breakout" in reason_lc or "range too tight" in reason_lc:
+                                record_filter("ChopFilter")
+                                continue
                         if try_consensus_rescue("ChopFilter"):
                             record_filter("ChopFilter", kind="rescue")
                         else:
@@ -2114,7 +2900,8 @@ def run_backtest(
                             consensus_bypassed.append("FilterArbitrator")
                     if consensus_bypassed:
                         signal["bypassed_filters"] = consensus_bypassed
-                    signal["entry_mode"] = "consensus"
+                    if not is_rescued:
+                        signal["entry_mode"] = "consensus"
                     handle_signal(signal)
                     signal_executed = True
                     break
@@ -2129,13 +2916,24 @@ def run_backtest(
                 potential_rescue = None
             else:
                 potential_rescue = continuation_manager.get_active_continuation_signal(
-                    history_df, current_time, rescue_side
+                    history_df,
+                    current_time,
+                    rescue_side,
+                    current_price=bar_close,
+                    trend_day_series=trend_day_series,
+                    signal_mode=continuation_signal_mode,
                 )
+            if not continuation_rescue_allowed(
+                potential_rescue, rescue_side, current_time, bar_close, history_df
+            ):
+                potential_rescue = None
 
             def try_rescue(trigger: str) -> bool:
-                nonlocal signal, is_rescued, potential_rescue
+                nonlocal signal, is_rescued, potential_rescue, rescue_bypass_allowed
                 if mom_rescue_banned(current_time, origin_strategy, origin_sub_strategy):
                     record_filter("MomRescueBan")
+                    return False
+                if continuation_no_bypass and continuation_core_trigger(trigger):
                     return False
                 if potential_rescue and not is_rescued:
                     rescue_blocked, _ = trend_filter.should_block_trade(history_df, potential_rescue["side"])
@@ -2148,9 +2946,11 @@ def run_backtest(
                         signal["rescue_from_sub_strategy"] = origin_sub_strategy
                     signal["rescue_trigger"] = trigger
                     is_rescued = True
-                    add_bypass_filters_from_trigger(bypassed_filters, trigger)
-                    if bypassed_filters:
-                        signal["bypassed_filters"] = list(bypassed_filters)
+                    rescue_bypass_allowed = not continuation_no_bypass
+                    if rescue_bypass_allowed:
+                        add_bypass_filters_from_trigger(bypassed_filters, trigger)
+                        if bypassed_filters:
+                            signal["bypassed_filters"] = list(bypassed_filters)
                     potential_rescue = None
                     return True
                 return False
@@ -2255,9 +3055,14 @@ def run_backtest(
 
             if final_blocked:
                 if is_rescued:
-                    for name in blocked_filters:
-                        record_filter(name, kind="bypass")
-                        bypassed_filters.append(name)
+                    if rescue_bypass_allowed:
+                        for name in blocked_filters:
+                            record_filter(name, kind="bypass")
+                            bypassed_filters.append(name)
+                    else:
+                        for name in blocked_filters:
+                            record_filter(name)
+                        continue
                 else:
                     rescue_reason = "FilterStack"
                     if blocked_filters:
@@ -2270,7 +3075,7 @@ def run_backtest(
                         record_filter(name, kind="rescue")
 
             vol_regime, _, _ = volatility_filter.get_regime(history_df)
-            chop_blocked, _ = chop_filter.should_block_trade(
+            chop_blocked, chop_reason = chop_filter.should_block_trade(
                 signal["side"],
                 rejection_filter.prev_day_pm_bias,
                 bar_close,
@@ -2278,9 +3083,18 @@ def run_backtest(
                 vol_regime,
             )
             if chop_blocked:
+                if chop_reason:
+                    reason_lc = str(chop_reason).lower()
+                    if "wait for breakout" in reason_lc or "range too tight" in reason_lc:
+                        record_filter("ChopFilter")
+                        continue
                 if is_rescued:
-                    record_filter("ChopFilter", kind="bypass")
-                    bypassed_filters.append("ChopFilter")
+                    if rescue_bypass_allowed:
+                        record_filter("ChopFilter", kind="bypass")
+                        bypassed_filters.append("ChopFilter")
+                    else:
+                        record_filter("ChopFilter")
+                        continue
                 else:
                     if not try_rescue("ChopFilter"):
                         record_filter("ChopFilter")
@@ -2290,8 +3104,12 @@ def run_backtest(
             ext_blocked, _ = extension_filter.should_block_trade(signal["side"])
             if ext_blocked:
                 if is_rescued:
-                    record_filter("ExtensionFilter", kind="bypass")
-                    bypassed_filters.append("ExtensionFilter")
+                    if rescue_bypass_allowed:
+                        record_filter("ExtensionFilter", kind="bypass")
+                        bypassed_filters.append("ExtensionFilter")
+                    else:
+                        record_filter("ExtensionFilter")
+                        continue
                 else:
                     if not try_rescue("ExtensionFilter"):
                         record_filter("ExtensionFilter")

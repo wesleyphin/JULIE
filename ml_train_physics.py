@@ -2,7 +2,7 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 import joblib
 import numpy as np
@@ -85,6 +85,45 @@ def _resample_ohlcv(df: pd.DataFrame, minutes: int) -> pd.DataFrame:
         "close": "last",
         "volume": "sum",
     }).dropna()
+
+
+def _drop_gap_days(df: pd.DataFrame, max_gap_minutes: float) -> Tuple[pd.DataFrame, List[pd.Timestamp]]:
+    if df.empty or max_gap_minutes <= 0:
+        return df, []
+
+    idx = df.index
+    day_index = pd.Series(idx.normalize(), index=idx)
+    idx_series = pd.Series(idx, index=idx)
+    gaps = idx_series.diff()
+    gaps[day_index != day_index.shift()] = pd.Timedelta(0)
+    gap_minutes = gaps.dt.total_seconds().fillna(0) / 60.0
+    max_gap_by_day = gap_minutes.groupby(day_index).max()
+    drop_days = max_gap_by_day[max_gap_by_day > max_gap_minutes].index
+    if drop_days.empty:
+        return df, []
+    filtered = df[~day_index.isin(drop_days)]
+    return filtered, list(drop_days)
+
+
+def _resolve_session_settings(args, session_name: str) -> Dict:
+    """Build per-session training settings with CONFIG presets overriding CLI defaults."""
+    settings = {
+        "timeframe_minutes": args.timeframe_minutes,
+        "horizon_bars": args.horizon_bars,
+        "label_mode": args.label_mode,
+        "drop_neutral": args.drop_neutral,
+        "sltp_strategy": args.sltp_strategy,
+        "thr_min": args.thr_min,
+        "thr_max": args.thr_max,
+        "thr_step": args.thr_step,
+        "drop_gap_minutes": args.drop_gap_minutes,
+        "max_rows": args.max_rows,
+    }
+    presets = CONFIG.get("ML_PHYSICS_TRAINING_PRESETS", {}) or {}
+    preset = presets.get(session_name, {}) or {}
+    for key, value in preset.items():
+        settings[key] = value
+    return settings
 
 
 def _session_from_hours(hours: np.ndarray) -> np.ndarray:
@@ -288,6 +327,66 @@ def _split_index(index: pd.DatetimeIndex, horizon: int, val_frac: float, test_fr
     return train_idx, val_idx, test_idx
 
 
+def _walk_forward_splits(index: pd.DatetimeIndex, horizon: int,
+                         train_frac: float, val_frac: float, test_frac: float, step_frac: float) -> List[Tuple[pd.DatetimeIndex, pd.DatetimeIndex, pd.DatetimeIndex]]:
+    """Generate walk-forward splits with horizon-aware boundaries."""
+    n = len(index)
+    train_size = int(n * train_frac)
+    val_size = int(n * val_frac)
+    test_size = int(n * test_frac)
+    if train_size <= 0 or val_size <= 0 or test_size <= 0:
+        return []
+
+    step_size = max(1, int(n * step_frac))
+    splits = []
+    start = 0
+    while start + train_size + val_size + test_size <= n:
+        train_start = start
+        val_start = train_start + train_size
+        test_start = val_start + val_size
+
+        train_end = max(train_start, val_start - horizon)
+        val_end = max(val_start, test_start - horizon)
+
+        train_idx = index[train_start:train_end]
+        val_idx = index[val_start:val_end]
+        test_idx = index[test_start:test_start + test_size]
+
+        if len(train_idx) == 0 or len(val_idx) == 0 or len(test_idx) == 0:
+            break
+
+        splits.append((train_idx, val_idx, test_idx))
+        start += step_size
+
+    return splits
+
+
+def _aggregate_wf_metrics(metrics_list: List[Dict]) -> Dict:
+    if not metrics_list:
+        return {}
+
+    total_trades = sum(m.get("trade_count", 0) for m in metrics_list)
+    total_pnl = sum(m.get("total_pnl", 0.0) for m in metrics_list)
+
+    def weighted_avg(key: str) -> float:
+        if total_trades <= 0:
+            return float(np.mean([m.get(key, 0.0) for m in metrics_list]))
+        return float(np.sum([m.get(key, 0.0) * m.get("trade_count", 0) for m in metrics_list]) / total_trades)
+
+    return {
+        "folds": len(metrics_list),
+        "trade_count": int(total_trades),
+        "avg_pnl": weighted_avg("avg_pnl"),
+        "total_pnl": float(total_pnl),
+        "win_rate": weighted_avg("win_rate"),
+        "accuracy": float(np.mean([m.get("accuracy", 0.0) for m in metrics_list])),
+        "precision": float(np.mean([m.get("precision", 0.0) for m in metrics_list])),
+        "recall": float(np.mean([m.get("recall", 0.0) for m in metrics_list])),
+        "f1": float(np.mean([m.get("f1", 0.0) for m in metrics_list])),
+        "auc": float(np.mean([m.get("auc", 0.0) for m in metrics_list])),
+    }
+
+
 def _build_model(model_name: str, seed: int):
     if model_name == "hgb" and HistGradientBoostingClassifier is not None:
         return HistGradientBoostingClassifier(
@@ -393,75 +492,33 @@ def _evaluate(model, X: pd.DataFrame, y: pd.Series, sl_dist: np.ndarray, tp_dist
     }
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Train MLPhysics session models (optimized).")
-    parser.add_argument("--csv", default="ml_mes_et.csv")
-    parser.add_argument("--timeframe-minutes", type=int, default=CONFIG.get("ML_PHYSICS_TIMEFRAME_MINUTES", 1))
-    parser.add_argument("--horizon-bars", type=int, default=10)
-    parser.add_argument("--label-mode", choices=["barrier", "return", "atr"], default="barrier")
-    parser.add_argument("--drop-neutral", action="store_true")
-    parser.add_argument("--sltp-strategy", default="Generic")
-    parser.add_argument("--model", choices=["hgb", "rf"], default="hgb")
-    parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--val-frac", type=float, default=0.15)
-    parser.add_argument("--test-frac", type=float, default=0.15)
-    parser.add_argument("--thr-min", type=float, default=0.52)
-    parser.add_argument("--thr-max", type=float, default=0.75)
-    parser.add_argument("--thr-step", type=float, default=0.01)
-    parser.add_argument("--max-rows", type=int, default=0)
-    parser.add_argument("--out-dir", default=".")
-    args = parser.parse_args()
+def _walk_forward_evaluate(
+    data: pd.DataFrame,
+    session_sl: np.ndarray,
+    session_tp: np.ndarray,
+    settings: Dict,
+    args,
+    fees_pts: float,
+) -> Dict:
+    """Run optional walk-forward evaluation and aggregate metrics."""
+    splits = _walk_forward_splits(
+        data.index,
+        settings["horizon_bars"],
+        args.wf_train_frac,
+        args.wf_val_frac,
+        args.wf_test_frac,
+        args.wf_step_frac,
+    )
+    if not splits:
+        return {}
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-
-    df = _load_csv(Path(args.csv))
-    if args.max_rows and args.max_rows > 0:
-        df = df.iloc[-args.max_rows:]
-
-    df = _resample_ohlcv(df, args.timeframe_minutes)
-    features = _build_features(df)
-
-    sl_dist, tp_dist = _build_sltp_arrays(df, args.sltp_strategy)
-    labels = _build_labels(df, args.horizon_bars, args.label_mode, args.drop_neutral, sl_dist, tp_dist)
-
-    labels = labels.reindex(features.index)
-    sl_dist = pd.Series(sl_dist, index=df.index).reindex(features.index).to_numpy()
-    tp_dist = pd.Series(tp_dist, index=df.index).reindex(features.index).to_numpy()
-
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    risk_cfg = CONFIG.get("RISK", {})
-    point_value = float(risk_cfg.get("POINT_VALUE", 5.0))
-    fees_per_side = float(risk_cfg.get("FEES_PER_SIDE", 2.5))
-    fees_pts = (fees_per_side * 2.0) / point_value
-
-    thresholds_report = {}
-    metrics_report = {}
-
-    for session_name, settings in CONFIG["SESSIONS"].items():
-        hours = settings["HOURS"]
-        session_mask = features.index.hour.isin(hours)
-        session_features = features.loc[session_mask]
-        session_labels = labels.loc[session_features.index]
-        session_sl = pd.Series(sl_dist, index=features.index).loc[session_features.index].to_numpy()
-        session_tp = pd.Series(tp_dist, index=features.index).loc[session_features.index].to_numpy()
-
-        data = session_features.join(session_labels.rename("label"), how="inner")
-        data = data.dropna(subset=["label"])
-        if data.empty:
-            logging.warning(f"{session_name}: no labeled samples after session filter")
-            continue
-
-        idx = data.index
-        train_idx, val_idx, test_idx = _split_index(idx, args.horizon_bars, args.val_frac, args.test_frac)
-
+    metrics_list = []
+    for fold, (train_idx, val_idx, test_idx) in enumerate(splits, start=1):
         train = data.loc[train_idx]
         val = data.loc[val_idx]
         test = data.loc[test_idx]
 
         if train.empty or val.empty or test.empty:
-            logging.warning(f"{session_name}: not enough samples for train/val/test split")
             continue
 
         X_train = train[ML_FEATURE_COLUMNS]
@@ -478,28 +535,288 @@ def main():
         calibrated = CalibratedClassifierCV(model, method="sigmoid", cv="prefit")
         calibrated.fit(X_val, y_val)
 
-        val_sl = pd.Series(session_sl, index=session_features.index).loc[val_idx].to_numpy()
-        val_tp = pd.Series(session_tp, index=session_features.index).loc[val_idx].to_numpy()
+        val_sl = pd.Series(session_sl, index=data.index).loc[val_idx].to_numpy()
+        val_tp = pd.Series(session_tp, index=data.index).loc[val_idx].to_numpy()
         val_result = _optimize_threshold(
             calibrated.predict_proba(X_val)[:, 1],
             y_val.to_numpy(),
             val_sl,
             val_tp,
             fees_pts,
-            args.thr_min,
-            args.thr_max,
-            args.thr_step,
+            settings["thr_min"],
+            settings["thr_max"],
+            settings["thr_step"],
         )
 
-        test_sl = pd.Series(session_sl, index=session_features.index).loc[test_idx].to_numpy()
-        test_tp = pd.Series(session_tp, index=session_features.index).loc[test_idx].to_numpy()
+        test_sl = pd.Series(session_sl, index=data.index).loc[test_idx].to_numpy()
+        test_tp = pd.Series(session_tp, index=data.index).loc[test_idx].to_numpy()
         test_metrics = _evaluate(calibrated, X_test, y_test, test_sl, test_tp, val_result["threshold"], fees_pts)
+        test_metrics["threshold"] = val_result["threshold"]
+        test_metrics["fold"] = fold
+        metrics_list.append(test_metrics)
+
+    return _aggregate_wf_metrics(metrics_list)
+
+
+def _train_single_model(
+    session_name: str,
+    data: pd.DataFrame,
+    session_sl: pd.Series,
+    session_tp: pd.Series,
+    train_settings: Dict,
+    args,
+    fees_pts: float,
+    model_path: Path,
+    tag: Optional[str] = None,
+) -> Tuple[Optional[Dict], Optional[Dict]]:
+    idx = data.index
+    train_idx, val_idx, test_idx = _split_index(
+        idx,
+        train_settings["horizon_bars"],
+        args.val_frac,
+        args.test_frac,
+    )
+
+    train = data.loc[train_idx]
+    val = data.loc[val_idx]
+    test = data.loc[test_idx]
+
+    if train.empty or val.empty or test.empty:
+        logging.warning(f"{session_name}{f' {tag}' if tag else ''}: not enough samples for train/val/test split")
+        return None, None
+
+    X_train = train[ML_FEATURE_COLUMNS]
+    y_train = train["label"].astype(int)
+    X_val = val[ML_FEATURE_COLUMNS]
+    y_val = val["label"].astype(int)
+    X_test = test[ML_FEATURE_COLUMNS]
+    y_test = test["label"].astype(int)
+
+    model = _build_model(args.model, args.seed)
+    sample_weight = _sample_weights(y_train)
+    model.fit(X_train, y_train, sample_weight=sample_weight)
+
+    calibrated = CalibratedClassifierCV(model, method="sigmoid", cv="prefit")
+    calibrated.fit(X_val, y_val)
+
+    val_sl = session_sl.loc[val_idx].to_numpy()
+    val_tp = session_tp.loc[val_idx].to_numpy()
+    val_result = _optimize_threshold(
+        calibrated.predict_proba(X_val)[:, 1],
+        y_val.to_numpy(),
+        val_sl,
+        val_tp,
+        fees_pts,
+        train_settings["thr_min"],
+        train_settings["thr_max"],
+        train_settings["thr_step"],
+    )
+
+    test_sl = session_sl.loc[test_idx].to_numpy()
+    test_tp = session_tp.loc[test_idx].to_numpy()
+    test_metrics = _evaluate(calibrated, X_test, y_test, test_sl, test_tp, val_result["threshold"], fees_pts)
+
+    joblib.dump(calibrated, model_path)
+    logging.info(f"{session_name}{f' {tag}' if tag else ''}: saved {model_path}")
+
+    if args.walk_forward:
+        wf_metrics = _walk_forward_evaluate(
+            data,
+            session_sl,
+            session_tp,
+            train_settings,
+            args,
+            fees_pts,
+        )
+        if wf_metrics:
+            test_metrics["walk_forward"] = wf_metrics
+
+    return val_result, test_metrics
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Train MLPhysics session models (optimized).")
+    parser.add_argument("--csv", default="ml_mes_et.csv")
+    parser.add_argument("--timeframe-minutes", type=int, default=CONFIG.get("ML_PHYSICS_TIMEFRAME_MINUTES", 1))
+    parser.add_argument("--horizon-bars", type=int, default=10)
+    parser.add_argument("--label-mode", choices=["barrier", "return", "atr"], default="barrier")
+    parser.add_argument("--drop-neutral", action="store_true")
+    parser.add_argument("--sltp-strategy", default="Generic")
+    parser.add_argument("--model", choices=["hgb", "rf"], default="hgb")
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--val-frac", type=float, default=0.15)
+    parser.add_argument("--test-frac", type=float, default=0.15)
+    parser.add_argument("--thr-min", type=float, default=0.52)
+    parser.add_argument("--thr-max", type=float, default=0.75)
+    parser.add_argument("--thr-step", type=float, default=0.01)
+    parser.add_argument("--max-rows", type=int, default=0)
+    parser.add_argument("--drop-gap-minutes", type=float, default=30.0)
+    parser.add_argument("--walk-forward", action="store_true")
+    parser.add_argument("--wf-train-frac", type=float, default=0.60)
+    parser.add_argument("--wf-val-frac", type=float, default=0.10)
+    parser.add_argument("--wf-test-frac", type=float, default=0.20)
+    parser.add_argument("--wf-step-frac", type=float, default=0.10)
+    parser.add_argument("--out-dir", default=".")
+    args = parser.parse_args()
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+
+    base_df = _load_csv(Path(args.csv))
+    base_df = base_df.sort_index()
+    if args.max_rows and args.max_rows > 0:
+        base_df = base_df.iloc[-args.max_rows:]
+
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    risk_cfg = CONFIG.get("RISK", {})
+    point_value = float(risk_cfg.get("POINT_VALUE", 5.0))
+    fees_per_side = float(risk_cfg.get("FEES_PER_SIDE", 2.5))
+    fees_pts = (fees_per_side * 2.0) / point_value
+
+    thresholds_report = {}
+    metrics_report = {}
+
+    for session_name, settings in CONFIG["SESSIONS"].items():
+        train_settings = _resolve_session_settings(args, session_name)
+
+        df = base_df
+        if train_settings["max_rows"] and train_settings["max_rows"] > 0:
+            df = df.iloc[-train_settings["max_rows"]:]
+
+        df = _resample_ohlcv(df, train_settings["timeframe_minutes"])
+        df, dropped_days = _drop_gap_days(df, train_settings["drop_gap_minutes"])
+        if dropped_days:
+            sample = ", ".join([d.strftime("%Y-%m-%d") for d in dropped_days[:10]])
+            more = "" if len(dropped_days) <= 10 else f" (+{len(dropped_days) - 10} more)"
+            logging.info(
+                "%s: Dropping %d day(s) with gaps > %.1f minutes: %s%s",
+                session_name,
+                len(dropped_days),
+                train_settings["drop_gap_minutes"],
+                sample,
+                more,
+            )
+
+        features = _build_features(df)
+        if features.empty:
+            logging.warning(f"{session_name}: no features after preprocessing")
+            continue
+
+        sl_dist, tp_dist = _build_sltp_arrays(df, train_settings["sltp_strategy"])
+        labels = _build_labels(
+            df,
+            train_settings["horizon_bars"],
+            train_settings["label_mode"],
+            train_settings["drop_neutral"],
+            sl_dist,
+            tp_dist,
+        )
+
+        labels = labels.reindex(features.index)
+        sl_dist = pd.Series(sl_dist, index=df.index).reindex(features.index).to_numpy()
+        tp_dist = pd.Series(tp_dist, index=df.index).reindex(features.index).to_numpy()
+
+        hours = settings["HOURS"]
+        session_mask = features.index.hour.isin(hours)
+        session_features = features.loc[session_mask]
+        session_labels = labels.loc[session_features.index]
+        session_sl = pd.Series(sl_dist, index=features.index).loc[session_features.index].to_numpy()
+        session_tp = pd.Series(tp_dist, index=features.index).loc[session_features.index].to_numpy()
+
+        data = session_features.join(session_labels.rename("label"), how="inner")
+        data = data.dropna(subset=["label"])
+        if data.empty:
+            logging.warning(f"{session_name}: no labeled samples after session filter")
+            continue
+
+        session_sl_series = pd.Series(session_sl, index=session_features.index)
+        session_tp_series = pd.Series(session_tp, index=session_features.index)
+
+        vol_split = CONFIG.get("ML_PHYSICS_VOL_SPLIT", {}) or {}
+        split_enabled = bool(vol_split.get("enabled")) and session_name in set(vol_split.get("sessions", []))
+        if split_enabled:
+            feature_name = vol_split.get("feature", "High_Volatility")
+            if feature_name not in data.columns:
+                logging.warning(f"{session_name}: split enabled but missing feature '{feature_name}'. Falling back to single model.")
+                split_enabled = False
+
+        if split_enabled:
+            low_mask = data[feature_name] < 0.5
+            high_mask = ~low_mask
+            low_data = data.loc[low_mask]
+            high_data = data.loc[high_mask]
+
+            low_model_path = out_dir / settings.get("MODEL_FILE_LOW", settings["MODEL_FILE"])
+            high_model_path = out_dir / settings.get("MODEL_FILE_HIGH", settings["MODEL_FILE"])
+
+            low_val, low_metrics = _train_single_model(
+                session_name,
+                low_data,
+                session_sl_series.loc[low_data.index],
+                session_tp_series.loc[low_data.index],
+                train_settings,
+                args,
+                fees_pts,
+                low_model_path,
+                tag="LOW_VOL",
+            )
+            high_val, high_metrics = _train_single_model(
+                session_name,
+                high_data,
+                session_sl_series.loc[high_data.index],
+                session_tp_series.loc[high_data.index],
+                train_settings,
+                args,
+                fees_pts,
+                high_model_path,
+                tag="HIGH_VOL",
+            )
+
+            if low_val or high_val:
+                thresholds_report[session_name] = {
+                    "low": {**(low_val or {}), "settings": train_settings},
+                    "high": {**(high_val or {}), "settings": train_settings},
+                    "split": True,
+                }
+                metrics_report[session_name] = {
+                    "low": low_metrics or {},
+                    "high": high_metrics or {},
+                }
+                if low_val and low_metrics:
+                    logging.info(
+                        f"{session_name} LOW: threshold={low_val['threshold']:.2f} "
+                        f"trades={low_metrics['trade_count']} win_rate={low_metrics['win_rate']:.2%} "
+                        f"avg_pnl={low_metrics['avg_pnl']:.2f} total_pnl={low_metrics['total_pnl']:.2f}"
+                    )
+                if high_val and high_metrics:
+                    logging.info(
+                        f"{session_name} HIGH: threshold={high_val['threshold']:.2f} "
+                        f"trades={high_metrics['trade_count']} win_rate={high_metrics['win_rate']:.2%} "
+                        f"avg_pnl={high_metrics['avg_pnl']:.2f} total_pnl={high_metrics['total_pnl']:.2f}"
+                    )
+            else:
+                logging.warning(f"{session_name}: split training failed; no models saved.")
+            continue
 
         out_path = out_dir / settings["MODEL_FILE"]
-        joblib.dump(calibrated, out_path)
-        logging.info(f"{session_name}: saved {out_path}")
+        val_result, test_metrics = _train_single_model(
+            session_name,
+            data,
+            session_sl_series,
+            session_tp_series,
+            train_settings,
+            args,
+            fees_pts,
+            out_path,
+        )
+        if not val_result or not test_metrics:
+            continue
 
-        thresholds_report[session_name] = val_result
+        thresholds_report[session_name] = {
+            **val_result,
+            "settings": train_settings,
+        }
         metrics_report[session_name] = test_metrics
         logging.info(
             f"{session_name}: threshold={val_result['threshold']:.2f} "

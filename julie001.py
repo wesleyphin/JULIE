@@ -2,6 +2,7 @@ import requests
 import pandas as pd
 import numpy as np
 import datetime
+import json
 from datetime import date
 import time
 import logging
@@ -79,6 +80,191 @@ def resample_dataframe(df: pd.DataFrame, timeframe_minutes: int) -> pd.DataFrame
     resampled_df = df.resample(tf_code).agg(agg_dict).dropna()
 
     return resampled_df
+
+
+def parse_continuation_key(strategy_name: Optional[str]) -> Optional[str]:
+    if not strategy_name:
+        return None
+    name = str(strategy_name)
+    if name.startswith("Continuation_"):
+        return name.split("Continuation_", 1)[1]
+    return None
+
+
+def load_continuation_allowlist(path_value: Optional[str]) -> Optional[set]:
+    if not path_value:
+        return None
+    try:
+        path = Path(path_value)
+        if not path.is_absolute():
+            path = Path(__file__).resolve().parent / path
+        if not path.exists():
+            logging.warning(f"⚠️ Continuation allowlist file missing: {path}")
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        allowlist = payload.get("allowlist")
+        if not isinstance(allowlist, list):
+            return None
+        return set(allowlist)
+    except Exception as e:
+        logging.warning(f"⚠️ Continuation allowlist load failed: {e}")
+        return None
+
+
+def continuation_market_confirmed(
+    side: str,
+    bar_close: float,
+    trend_day_series: Optional[dict],
+    cfg: Optional[dict],
+) -> bool:
+    if not cfg or not cfg.get("enabled", True):
+        return True
+    if trend_day_series is None:
+        logging.warning("⚠️ Continuation confirm missing trend_day_series")
+        return False
+
+    def last_val(key: str, default=None):
+        series = trend_day_series.get(key) if isinstance(trend_day_series, dict) else None
+        if isinstance(series, pd.Series):
+            try:
+                return series.iloc[-1]
+            except Exception:
+                return default
+        return default
+
+    use_adx = cfg.get("use_adx", True)
+    use_trend_alt = cfg.get("use_trend_alt", True)
+    use_vwap = cfg.get("use_vwap", True)
+    use_structure = cfg.get("use_structure_break", True)
+    vwap_sigma_min = float(cfg.get("vwap_sigma_min", 0.0) or 0.0)
+    require_any = cfg.get("require_any", True)
+
+    adx_up = bool(last_val("adx_strong_up", False))
+    adx_down = bool(last_val("adx_strong_down", False))
+    trend_up = bool(last_val("trend_up_alt", False))
+    trend_down = bool(last_val("trend_down_alt", False))
+    vwap_sigma = last_val("vwap_sigma_dist", 0.0)
+    try:
+        vwap_sigma = float(vwap_sigma)
+    except Exception:
+        vwap_sigma = 0.0
+
+    prior_high = last_val("prior_session_high", None)
+    prior_low = last_val("prior_session_low", None)
+    structure_up = False
+    structure_down = False
+    if prior_high is not None and not pd.isna(prior_high):
+        structure_up = bar_close > float(prior_high)
+    if prior_low is not None and not pd.isna(prior_low):
+        structure_down = bar_close < float(prior_low)
+
+    if side == "LONG":
+        checks = []
+        if use_adx:
+            checks.append(adx_up)
+        if use_trend_alt:
+            checks.append(trend_up)
+        if use_vwap:
+            checks.append(vwap_sigma >= vwap_sigma_min)
+        if use_structure:
+            checks.append(structure_up)
+    else:
+        checks = []
+        if use_adx:
+            checks.append(adx_down)
+        if use_trend_alt:
+            checks.append(trend_down)
+        if use_vwap:
+            checks.append(vwap_sigma <= -vwap_sigma_min)
+        if use_structure:
+            checks.append(structure_down)
+
+    if not checks:
+        return True
+    return any(checks) if require_any else all(checks)
+
+
+def continuation_core_trigger(filter_name: str) -> bool:
+    if not filter_name:
+        return False
+    if filter_name.startswith("FilterStack"):
+        return True
+    return filter_name in {"RegimeBlocker", "TrendFilter", "ChopFilter", "ExtensionFilter"}
+
+
+def continuation_rescue_allowed(
+    signal: Optional[dict],
+    side: str,
+    bar_close: float,
+    df: pd.DataFrame,
+    trend_day_series: Optional[dict],
+    allowlist: Optional[set],
+    allowed_regimes: set,
+    confirm_cfg: Optional[dict],
+    guard_enabled: bool,
+    signal_mode: Optional[str] = None,
+) -> bool:
+    if not guard_enabled:
+        return True
+    if not signal:
+        return False
+    mode = str(signal_mode or "calendar").lower()
+    if mode != "structure":
+        key = parse_continuation_key(signal.get("strategy"))
+        if allowlist is not None:
+            if not key or key not in allowlist:
+                logging.info(f"⛔ Continuation guard: key blocked ({key})")
+                return False
+    if allowed_regimes:
+        try:
+            regime, _, _ = volatility_filter.get_regime(df)
+        except Exception:
+            regime = None
+        if not regime or str(regime).lower() not in allowed_regimes:
+            logging.info(f"⛔ Continuation guard: regime blocked ({regime})")
+            return False
+    if not continuation_market_confirmed(side, bar_close, trend_day_series, confirm_cfg):
+        logging.info("⛔ Continuation guard: confirmation failed")
+        return False
+    return True
+
+
+def consensus_ml_ok(signal: Optional[dict], fallback_name: Optional[str] = None) -> bool:
+    """Require stronger ML confidence before MLPhysics can support consensus."""
+    if not signal:
+        return False
+    strat = str(signal.get("strategy") or fallback_name or "")
+    if not strat.startswith("MLPhysics"):
+        return True
+    conf = signal.get("ml_confidence")
+    threshold = signal.get("ml_threshold")
+    if conf is None or threshold is None:
+        return False
+    try:
+        conf_val = float(conf)
+        thr_val = float(threshold)
+    except Exception:
+        return False
+    min_conf = CONFIG.get("BACKTEST_CONSENSUS_ML_MIN_CONF")
+    extra = CONFIG.get("BACKTEST_CONSENSUS_ML_EXTRA_MARGIN", 0.0)
+    required = thr_val + float(extra or 0.0)
+    if min_conf is not None:
+        try:
+            required = max(required, float(min_conf))
+        except Exception:
+            pass
+    return conf_val >= required
+
+
+def trim_incomplete_resample(df: pd.DataFrame, last_bar_time: datetime.datetime, timeframe_minutes: int) -> pd.DataFrame:
+    """
+    Drop the last resampled bar if the current 1m bar does not complete the window.
+    """
+    if df.empty:
+        return df
+    if last_bar_time.second != 0 or (last_bar_time.minute % timeframe_minutes) != (timeframe_minutes - 1):
+        return df.iloc[:-1]
+    return df
 
 
 class CsvBarAppender:
@@ -186,8 +372,19 @@ class CsvBarAppender:
         if df is None or df.empty:
             return 0
         df = df.sort_index()
-        if self.last_ts is not None:
-            df = df[df.index > self.last_ts]
+        if df.index.tz is None:
+            df = df.copy()
+            df.index = df.index.tz_localize(self.tz)
+        last_ts = self.last_ts
+        if last_ts is not None:
+            if last_ts.tzinfo is None:
+                if df.index.tz is not None:
+                    last_ts = last_ts.replace(tzinfo=df.index.tz)
+                else:
+                    last_ts = last_ts.replace(tzinfo=self.tz)
+            elif df.index.tz is not None:
+                last_ts = last_ts.astimezone(df.index.tz)
+            df = df[df.index > last_ts]
         if df.empty:
             return 0
 
@@ -239,7 +436,7 @@ ADX_FLIP_THRESHOLD = 25.0
 ADX_FLIP_BARS = 50
 TREND_DAY_T1_REQUIRE_CONFIRMATION = False
 ALT_PRE_TIER1_VWAP_SIGMA = 2.0
-TREND_DAY_SMA9_REVERSAL_BARS = 3
+TREND_DAY_SMA9_REVERSAL_BARS = 4
 TREND_DAY_SMA9_MIN_SLOPE = 0.2
 TREND_DAY_ATR_CONTRACTION = 1.1
 
@@ -265,13 +462,19 @@ def compute_trend_day_series(df: pd.DataFrame) -> dict:
     )
     tr = tr_components.max(axis=1)
     atr20 = tr.ewm(alpha=1 / 20, adjust=False).mean()
-    atr_baseline = atr20.rolling(ATR_BASELINE_WINDOW, min_periods=ATR_BASELINE_WINDOW).median()
-    atr_expansion = atr20 / atr_baseline.replace(0, np.nan)
-
+    # Use prior session (NY day) ATR median as baseline to avoid shock contamination
     idx = df.index
     if idx.tz is not None:
         idx = idx.tz_convert(NY_TZ)
     day_index = idx.date
+    daily_atr_median = atr20.groupby(day_index).median()
+    prior_day_median = daily_atr_median.shift(1)
+    atr_baseline = pd.Series(day_index, index=atr20.index).map(prior_day_median)
+    # Fallback to rolling median if prior session missing (e.g., first day)
+    atr_baseline = atr_baseline.combine_first(
+        atr20.rolling(ATR_BASELINE_WINDOW, min_periods=ATR_BASELINE_WINDOW).median()
+    )
+    atr_expansion = atr20 / atr_baseline.replace(0, np.nan)
 
     typical_price = (df["high"] + df["low"] + df["close"]) / 3
     volume = df["volume"].fillna(0)
@@ -424,13 +627,105 @@ class ContinuationRescueManager:
         # 1. TIMEZONE FIX: Strategies operate on NY Time
         self.ny_tz = ZoneInfo('America/New_York')
 
-    def get_active_continuation_signal(self, df: pd.DataFrame, current_time, required_side: str):
+    def _structure_break_signal(
+        self,
+        df: pd.DataFrame,
+        current_time,
+        required_side: str,
+        current_price: Optional[float],
+        trend_day_series: Optional[dict],
+    ) -> Optional[dict]:
+        if df.empty or trend_day_series is None:
+            return None
+
+        if current_price is None:
+            try:
+                current_price = float(df.iloc[-1]["close"])
+            except Exception:
+                return None
+
+        prev_close = None
+        if len(df) > 1:
+            try:
+                prev_close = float(df.iloc[-2]["close"])
+            except Exception:
+                prev_close = None
+
+        def last_val(key: str, default=None):
+            series = trend_day_series.get(key) if isinstance(trend_day_series, dict) else None
+            if isinstance(series, pd.Series):
+                try:
+                    return series.iloc[-1]
+                except Exception:
+                    return default
+            return default
+
+        prior_high = last_val("prior_session_high", None)
+        prior_low = last_val("prior_session_low", None)
+
+        structure_up = False
+        structure_down = False
+        if prior_high is not None and not pd.isna(prior_high):
+            structure_up = current_price > float(prior_high)
+            if prev_close is not None:
+                structure_up = structure_up and prev_close <= float(prior_high)
+        if prior_low is not None and not pd.isna(prior_low):
+            structure_down = current_price < float(prior_low)
+            if prev_close is not None:
+                structure_down = structure_down and prev_close >= float(prior_low)
+
+        if required_side == "LONG" and not structure_up:
+            return None
+        if required_side == "SHORT" and not structure_down:
+            return None
+
+        if current_time.tzinfo is None:
+            current_time = current_time.replace(tzinfo=dt_timezone.utc)
+        ny_time = current_time.astimezone(self.ny_tz)
+
+        tp_dist = 6.0
+        sl_dist = 4.0
+        try:
+            sltp = dynamic_sltp_engine.calculate_sltp("Continuation", df, ts=ny_time)
+            tp_dist = float(sltp.get("tp_dist", tp_dist))
+            sl_dist = float(sltp.get("sl_dist", sl_dist))
+        except Exception as e:
+            logging.warning(f"Continuation SL/TP ATR calc failed: {e}")
+
+        return {
+            "strategy": "Continuation_Structure",
+            "side": required_side,
+            "tp_dist": tp_dist,
+            "sl_dist": sl_dist,
+            "size": 5,
+            "rescued": True,
+        }
+
+    def get_active_continuation_signal(
+        self,
+        df: pd.DataFrame,
+        current_time,
+        required_side: str,
+        current_price: Optional[float] = None,
+        trend_day_series: Optional[dict] = None,
+        signal_mode: Optional[str] = None,
+    ):
         """
         Checks if the current time matches a known Continuation Strategy window.
         Returns a rescue signal if valid for the REQUIRED_SIDE.
         """
         if df.empty:
             return None
+
+        mode = str(
+            signal_mode
+            or (CONFIG.get("CONTINUATION_GUARD", {}) or {}).get("signal_mode", "calendar")
+            or "calendar"
+        ).lower()
+        if mode == "structure":
+            return self._structure_break_signal(
+                df, current_time, required_side, current_price, trend_day_series
+            )
 
         # 2. Convert Bot Time (UTC) to Strategy Time (NY)
         if current_time.tzinfo is None:
@@ -650,6 +945,21 @@ async def run_bot():
 
     # Initialize Rescue Manager
     continuation_manager = ContinuationRescueManager()
+    continuation_guard = CONFIG.get("CONTINUATION_GUARD", {}) or {}
+    continuation_guard_enabled = bool(continuation_guard.get("enabled", False))
+    continuation_signal_mode = str(continuation_guard.get("signal_mode", "calendar") or "calendar").lower()
+    continuation_allowlist = None
+    if continuation_guard_enabled:
+        continuation_allowlist = load_continuation_allowlist(
+            continuation_guard.get("allowlist_file")
+        )
+    continuation_allowed_regimes = {
+        str(item).lower()
+        for item in (continuation_guard.get("allowed_regimes") or [])
+        if item is not None
+    }
+    continuation_confirm_cfg = continuation_guard.get("confirm", {}) or {}
+    continuation_no_bypass = bool(continuation_guard.get("no_bypass", False))
 
     last_processed_session = None
     last_processed_quarter = None  # Track quarter for quarterly optimization
@@ -685,11 +995,12 @@ async def run_bot():
     pending_loose_signals = {}
     last_processed_bar = None
     opposite_signal_count = 0
-    pending_impulse_rescue = None
+    pending_impulse_rescues = []
 
     # Early Exit Tracking
     active_trade = None
     bar_count = 0
+    flat_position_streak = 0
 
     # Token refresh now handled by independent heartbeat task
 
@@ -744,7 +1055,21 @@ async def run_bot():
         if saved_start is None:
             return False
         current_start = trading_day_start(current_time.astimezone(NY_TZ))
-        return saved_start == current_start
+        if saved_start != current_start:
+            return False
+        saved_last_bar = parse_dt(persisted_state.get("last_bar_ts"))
+        if saved_last_bar is None:
+            return False
+        try:
+            saved_last_bar = saved_last_bar.astimezone(NY_TZ)
+        except Exception:
+            pass
+        current_bar = current_time.astimezone(NY_TZ)
+        if saved_last_bar > current_bar:
+            return False
+        if (current_bar - saved_last_bar) > datetime.timedelta(minutes=5):
+            return False
+        return True
 
     def restore_persisted_state(current_time: datetime.datetime) -> None:
         nonlocal state_restored
@@ -821,6 +1146,7 @@ async def run_bot():
             "version": STATE_VERSION,
             "timestamp": current_time.isoformat(),
             "trading_day_start": trading_day_start(current_time).isoformat(),
+            "last_bar_ts": current_time.isoformat(),
             "extension_filter": extension_filter.get_state(),
             "chop_filter": chop_filter.get_state(),
             "directional_loss_blocker": directional_loss_blocker.get_state(),
@@ -888,6 +1214,17 @@ async def run_bot():
         if mom_rescue_date != day:
             reset_mom_rescues(day)
         return mom_rescue_scores.get(key, 0) <= -1
+
+    def is_chop_hard_stop(reason: Optional[str]) -> bool:
+        if not reason:
+            return False
+        text = str(reason).lower()
+        hard_phrases = (
+            "wait for breakout",
+            "range too tight",
+            "too tight to fade",
+        )
+        return any(phrase in text for phrase in hard_phrases)
 
     def update_mom_rescue_score(trade: dict, pnl_points: float, exit_time: datetime.datetime) -> None:
         if trade.get("entry_mode") != "rescued":
@@ -959,12 +1296,12 @@ async def run_bot():
     event_logger.log_system_event("STARTUP", "⏳ Startup: Fetching 20,000 bar history (MES)...", {"status": "IN_PROGRESS"})
     logging.info("⏳ Startup: Fetching full 20,000 bar history (MES)...")
     # Fetch the maximum allowed history ONCE before the loop starts
-    master_df = client.get_market_data(lookback_minutes=20000, force_fetch=True)
+    master_df = await client.async_get_market_data(lookback_minutes=20000, force_fetch=True)
     event_logger.log_system_event("STARTUP", f"✅ History Received: {len(master_df)} bars loaded (MES).", {"status": "COMPLETE"})
 
     event_logger.log_system_event("STARTUP", "⏳ Startup: Fetching 20,000 bar history (MNQ)...", {"status": "IN_PROGRESS"})
     logging.info("⏳ Startup: Fetching full 20,000 bar history (MNQ)...")
-    master_mnq_df = mnq_client.get_market_data(lookback_minutes=20000, force_fetch=True)
+    master_mnq_df = await mnq_client.async_get_market_data(lookback_minutes=20000, force_fetch=True)
     event_logger.log_system_event("STARTUP", f"✅ History Received: {len(master_mnq_df)} bars loaded (MNQ).", {"status": "COMPLETE"})
 
     if master_df.empty:
@@ -1020,6 +1357,22 @@ async def run_bot():
                 chop_analyzer.calibrate() # Removed session_name argument
                 last_chop_calibration = time.time()
 
+            # === MARKET TIME (Use last CLOSED bar timestamp, not system clock) ===
+            market_time_utc = datetime.datetime.now(dt_timezone.utc)
+            if not master_df.empty:
+                bar_time = master_df.index[-1]
+                if bar_time.tzinfo is None:
+                    bar_time = bar_time.replace(tzinfo=NY_TZ)
+                now_utc = datetime.datetime.now(dt_timezone.utc)
+                bar_time_utc = bar_time.astimezone(dt_timezone.utc)
+                if bar_time_utc > now_utc and len(master_df) > 1:
+                    bar_time = master_df.index[-2]
+                    if bar_time.tzinfo is None:
+                        bar_time = bar_time.replace(tzinfo=NY_TZ)
+                    bar_time_utc = bar_time.astimezone(dt_timezone.utc)
+                market_time_utc = bar_time_utc
+            market_time_et = market_time_utc.astimezone(NY_TZ)
+
             # === GLOBAL RISK & NEWS FILTERS ===
             cb_blocked, cb_reason = circuit_breaker.should_block_trade()
             if cb_blocked:
@@ -1027,7 +1380,7 @@ async def run_bot():
                 await asyncio.sleep(60)
                 continue
 
-            current_time = datetime.datetime.now(dt_timezone.utc)
+            current_time = market_time_utc
             news_blocked, news_reason = news_filter.should_block_trade(current_time)
             if news_blocked:
                 logging.info(f"🚫 NEWS WAIT: {news_reason}")
@@ -1045,6 +1398,9 @@ async def run_bot():
                         news_info["Wait"] = f"{match.group(1)}m"
                 event_logger.log_filter_check("NewsFilter", "ALL", False, news_reason,
                                              additional_info=news_info, strategy="Global")
+                if pending_impulse_rescues:
+                    pending_impulse_rescues.clear()
+                    logging.info("NEWS BLACKOUT: cleared pending impulse rescues")
                 if trend_day_tier > 0 or trend_day_dir:
                     logging.warning("🛑 TrendDay reset due to news blackout")
                     trend_day_tier = 0
@@ -1069,7 +1425,7 @@ async def run_bot():
             # ==========================================
             # 🕒 UPDATED SESSION DETECTION (INTRADAY + MICRO-ZONES)
             # ==========================================
-            current_time_et = datetime.datetime.now(NY_TZ)
+            current_time_et = market_time_et
             hour = current_time_et.hour
             minute = current_time_et.minute
 
@@ -1281,13 +1637,13 @@ async def run_bot():
 
             # === STEP 2: INCREMENTAL UPDATE (SEQUENTIAL FETCH) ===
             # Fetch MES first, then MNQ, then VIX immediately after to keep timestamps close
-            recent_data = client.get_market_data(lookback_minutes=15, force_fetch=True)
-            recent_mnq_data = mnq_client.get_market_data(lookback_minutes=15, force_fetch=True)
+            recent_data = await client.async_get_market_data(lookback_minutes=15, force_fetch=True)
+            recent_mnq_data = await mnq_client.async_get_market_data(lookback_minutes=15, force_fetch=True)
             # --- NEW: Fetch VIX Data ---
             fetch_vix = vix_fetch_toggle
             vix_fetch_toggle = not vix_fetch_toggle
             if fetch_vix:
-                recent_vix_data = vix_client.get_market_data(lookback_minutes=15, force_fetch=True)
+                recent_vix_data = await vix_client.async_get_market_data(lookback_minutes=15, force_fetch=True)
             else:
                 recent_vix_data = pd.DataFrame()
 
@@ -1319,7 +1675,7 @@ async def run_bot():
                     master_vix_df = master_vix_df.iloc[-50000:]
 
             # Make sure we have data before proceeding
-            if master_df.empty or master_mnq_df.empty or master_vix_df.empty:
+            if master_df.empty or master_mnq_df.empty:
                 # Early heartbeat - shows bot is alive even when no data available
                 if not hasattr(client, '_empty_data_counter'):
                     client._empty_data_counter = 0
@@ -1333,12 +1689,27 @@ async def run_bot():
             # Use master_df for all calculations now
             # This variable now holds 20k+ bars of history
             new_df = master_df
+            last_bar_time = new_df.index[-1]
+            last_bar_utc = last_bar_time
+            if last_bar_utc.tzinfo is None:
+                last_bar_utc = last_bar_utc.replace(tzinfo=dt_timezone.utc)
+            else:
+                last_bar_utc = last_bar_utc.astimezone(dt_timezone.utc)
+            now_utc = datetime.datetime.now(dt_timezone.utc)
+            if last_bar_utc > now_utc and len(new_df) > 1:
+                new_df = new_df.iloc[:-1]
+                last_bar_time = new_df.index[-1]
 
             # === LOCAL RESAMPLING ENGINE ===
             # Resample from our locally maintained deep history
             df_5m = resample_dataframe(new_df, 5)
             df_15m = resample_dataframe(new_df, 15)
             df_60m = resample_dataframe(new_df, 60)
+            if not new_df.empty:
+                last_bar_time = new_df.index[-1]
+                df_5m = trim_incomplete_resample(df_5m, last_bar_time, 5)
+                df_15m = trim_incomplete_resample(df_15m, last_bar_time, 15)
+                df_60m = trim_incomplete_resample(df_60m, last_bar_time, 60)
 
             # === ONE-TIME BACKFILL ===
             if not data_backfilled:
@@ -1374,6 +1745,14 @@ async def run_bot():
             current_price = new_df.iloc[-1]['close']
             current_time = new_df.index[-1]
             currbar = new_df.iloc[-1]
+            is_new_bar = (last_processed_bar is None or current_time > last_processed_bar)
+            if is_new_bar and last_processed_bar is not None:
+                bar_gap = current_time - last_processed_bar
+                if bar_gap > datetime.timedelta(minutes=2):
+                    logging.warning(f"BAR JUMP: {bar_gap}. Skipping signal processing for catch-up bar.")
+                    last_processed_bar = current_time
+                    continue
+
             rejection_filter.update(current_time, currbar['high'], currbar['low'], currbar['close'])
             bank_filter.update(current_time, currbar['high'], currbar['low'], currbar['close'])
             chop_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
@@ -1439,29 +1818,35 @@ async def run_bot():
             # This task runs independently and cannot be blocked by strategy logic
 
             # Only process signals on NEW bars
-            is_new_bar = (last_processed_bar is None or current_time > last_processed_bar)
-            
+            # is_new_bar already computed above
             if is_new_bar:
+
                 # Sync local active trade with broker state to avoid getting stuck
                 if active_trade is not None:
                     broker_pos = client.get_position()
+                    if broker_pos.get("stale"):
+                        logging.warning("Position stale during broker sync; skipping flat check.")
+                    else:
+                        is_flat = broker_pos.get('side') is None or broker_pos.get('size', 0) == 0
+                        if is_flat:
+                            flat_position_streak += 1
+                        else:
+                            flat_position_streak = 0
 
-                    # SAFETY CHECK: Only clear if broker EXPLICITLY says Flat (side is None)
-                    # and we are confident (size is 0).
-                    # If broker_pos returns the cached state (from rate limit fix), this logic holds.
-                    if broker_pos.get('side') is None or broker_pos.get('size', 0) == 0:
-                        logging.info("ℹ️ Broker reports flat while tracking active_trade; clearing local state.")
-                        # Calculate PnL for directional loss tracking
-                        trade_side = active_trade['side']
-                        entry_price = active_trade['entry_price']
-                        trade_size = active_trade.get('size', 5)
-                        exit_price = current_price
-                        tp_dist = active_trade.get('tp_dist')
-                        sl_dist = active_trade.get('sl_dist')
-                        if tp_dist is not None and sl_dist is not None:
-                            if trade_side == 'LONG':
-                                tp_price = entry_price + tp_dist
-                                sl_price = entry_price - sl_dist
+                        # SAFETY CHECK: Only clear after two consecutive flat reads
+                        if is_flat and flat_position_streak >= 2:
+                            logging.info("Broker reports flat while tracking active_trade; clearing local state (confirmed).")
+                            # Calculate PnL for directional loss tracking
+                            trade_side = active_trade['side']
+                            entry_price = active_trade['entry_price']
+                            trade_size = active_trade.get('size', 5)
+                            exit_price = current_price
+                            tp_dist = active_trade.get('tp_dist')
+                            sl_dist = active_trade.get('sl_dist')
+                            if tp_dist is not None and sl_dist is not None:
+                                if trade_side == 'LONG':
+                                    tp_price = entry_price + tp_dist
+                                    sl_price = entry_price - sl_dist
                                 if current_price >= tp_price:
                                     exit_price = tp_price
                                 elif current_price <= sl_price:
@@ -1483,19 +1868,24 @@ async def run_bot():
                         update_hostile_day_on_close(active_trade.get('strategy'), pnl_points, current_time)
                         directional_loss_blocker.record_trade_result(trade_side, pnl_points, current_time)
                         circuit_breaker.update_trade_result(pnl_dollars)
-                        logging.info(f"📊 Trade closed: {trade_side} | Entry: {entry_price:.2f} | Exit: {exit_price:.2f} | PnL: {pnl_points:.2f} pts (${pnl_dollars:.2f})")
+                        logging.info(f"Trade closed: {trade_side} | Entry: {entry_price:.2f} | Exit: {exit_price:.2f} | PnL: {pnl_points:.2f} pts (${pnl_dollars:.2f})")
                         active_trade = None
                         opposite_signal_count = 0
                         client._local_position = {'side': None, 'size': 0, 'avg_price': 0.0}
+                        flat_position_streak = 0
+                else:
+                    flat_position_streak = 0
+
 
                 bar_count += 1
                 logging.info(f"Bar: {current_time.strftime('%Y-%m-%d %H:%M:%S')} ET | Price: {current_price:.2f}")
                 last_processed_bar = current_time
 
+                trend_day_series = None
                 # === TREND DAY DETECTOR (Tier 1/2 + sticky direction) ===
                 if TREND_DAY_ENABLED:
                     try:
-                        if trend_day_lockout_until and current_time < trend_day_lockout_until:
+                        if trend_day_lockout_until and current_time <= trend_day_lockout_until:
                             trend_day_tier = 0
                             trend_day_dir = None
                             last_trend_day_tier = 0
@@ -1506,7 +1896,7 @@ async def run_bot():
                             sticky_trend_dir = None
                             sticky_opposite_count = 0
                             sticky_reclaim_count = 0
-                            raise ValueError("TrendDay lockout active (post-news)")
+                            raise StopIteration
                         trend_day_series = compute_trend_day_series(new_df)
                         trend_session = "NY" if base_session in ("NY_AM", "NY_PM") else base_session
                         if last_trend_session != trend_session:
@@ -1783,6 +2173,22 @@ async def run_bot():
                                     "[TrendDay] Deactivating tier/alt after "
                                     f"{loss_count} consecutive {trend_day_dir.upper()} losses"
                                 )
+                                dlb_blocked_until = (
+                                    directional_loss_blocker.long_blocked_until
+                                    if trend_day_dir == "up"
+                                    else directional_loss_blocker.short_blocked_until
+                                )
+                                dlb_blocked = bool(dlb_blocked_until and current_time < dlb_blocked_until)
+                                dlb_losses = (
+                                    directional_loss_blocker.long_consecutive_losses
+                                    if trend_day_dir == "up"
+                                    else directional_loss_blocker.short_consecutive_losses
+                                )
+                                dlb_until_str = dlb_blocked_until.strftime("%H:%M:%S") if dlb_blocked_until else "n/a"
+                                logging.warning(
+                                    "[TrendDay] DLB status after deactivation: "
+                                    f"blocked={dlb_blocked} losses={dlb_losses} until={dlb_until_str}"
+                                )
                                 trend_day_tier = 0
                                 trend_day_dir = None
                                 last_trend_day_tier = 0
@@ -1839,6 +2245,7 @@ async def run_bot():
                                 sticky_reclaim_count = 0
                         if trend_day_tier > 0 and trend_day_dir:
                             sma9_slope_series = trend_day_series.get("sma9_slope")
+                            sma9_series = trend_day_series.get("sma9")
                             atr_contract_ok = pd.notna(atr_expansion) and atr_expansion <= TREND_DAY_ATR_CONTRACTION
                             reversal_ok = False
                             if (
@@ -1846,11 +2253,25 @@ async def run_bot():
                                 and len(sma9_slope_series) >= TREND_DAY_SMA9_REVERSAL_BARS
                             ):
                                 recent_slopes = sma9_slope_series.iloc[-TREND_DAY_SMA9_REVERSAL_BARS:]
+                                recent_closes = new_df["close"].iloc[-TREND_DAY_SMA9_REVERSAL_BARS:]
+                                recent_sma9 = None
+                                if sma9_series is not None and len(sma9_series) >= TREND_DAY_SMA9_REVERSAL_BARS:
+                                    recent_sma9 = sma9_series.iloc[-TREND_DAY_SMA9_REVERSAL_BARS:]
                                 if not recent_slopes.isna().any():
                                     if trend_day_dir == "up":
-                                        reversal_ok = (recent_slopes <= -TREND_DAY_SMA9_MIN_SLOPE).all()
+                                        slope_ok = (recent_slopes <= -TREND_DAY_SMA9_MIN_SLOPE).all()
+                                        price_ok = (
+                                            recent_sma9 is not None
+                                            and (recent_closes < recent_sma9).all()
+                                        )
+                                        reversal_ok = slope_ok and price_ok
                                     elif trend_day_dir == "down":
-                                        reversal_ok = (recent_slopes >= TREND_DAY_SMA9_MIN_SLOPE).all()
+                                        slope_ok = (recent_slopes >= TREND_DAY_SMA9_MIN_SLOPE).all()
+                                        price_ok = (
+                                            recent_sma9 is not None
+                                            and (recent_closes > recent_sma9).all()
+                                        )
+                                        reversal_ok = slope_ok and price_ok
                             if reversal_ok and atr_contract_ok:
                                 avg_slope = float(recent_slopes.mean())
                                 logging.warning(
@@ -1877,6 +2298,8 @@ async def run_bot():
                             )
                         last_trend_day_tier = trend_day_tier
                         last_trend_day_dir = trend_day_dir
+                    except StopIteration:
+                        pass
                     except Exception as e:
                         logging.error(f"TrendDay calculation failed: {e}")
                         trend_day_tier = 0
@@ -1969,7 +2392,9 @@ async def run_bot():
                             )
 
                             position = client.get_position()
-                            if position['side'] is not None:
+                            if position.get("stale"):
+                                logging.warning("Position stale on early-exit close; skipping close.")
+                            elif position['side'] is not None:
                                 client.close_position(position)
                             active_trade = None
 
@@ -1981,84 +2406,90 @@ async def run_bot():
                 strategy_results = {'checked': [], 'rejected': [], 'executed': None}
 
                 # === PENDING IMPULSE-RESCUE CONFIRMATION ===
-                if pending_impulse_rescue and current_time > pending_impulse_rescue["signal_time"]:
-                    pending_signal = pending_impulse_rescue["signal"]
-                    signal_price = pending_impulse_rescue["signal_price"]
-                    signal_close = pending_impulse_rescue["signal_close"]
-                    pending_impulse_rescue = None
+                if pending_impulse_rescues:
+                    executed_rescue = False
+                    while pending_impulse_rescues and current_time > pending_impulse_rescues[0]["signal_time"]:
+                        pending_impulse_rescue = pending_impulse_rescues.pop(0)
+                        pending_signal = pending_impulse_rescue["signal"]
+                        signal_price = pending_impulse_rescue["signal_price"]
+                        signal_close = pending_impulse_rescue["signal_close"]
 
-                    if pending_signal.get("side") == "SHORT":
-                        retest_ok = currbar["high"] >= signal_price
-                        close_ok = currbar["close"] <= signal_close
-                    else:
-                        retest_ok = currbar["low"] <= signal_price
-                        close_ok = currbar["close"] >= signal_close
+                        if pending_signal.get("side") == "SHORT":
+                            retest_ok = currbar["high"] >= signal_price
+                            close_ok = currbar["close"] <= signal_close
+                        else:
+                            retest_ok = currbar["low"] <= signal_price
+                            close_ok = currbar["close"] >= signal_close
 
-                    if retest_ok or close_ok:
-                        pending_signal.setdefault("entry_mode", "rescued")
-                        logging.info(
-                            "✅ RESCUE CONFIRMED: impulse-rescue passed retest or close confirmation"
-                        )
-
-                        if active_trade is not None:
-                            old_side = active_trade['side']
-                            old_entry = active_trade['entry_price']
-                            old_size = active_trade.get('size', 5)
-                            if old_side == 'LONG':
-                                old_pnl_points = current_price - old_entry
-                            else:
-                                old_pnl_points = old_entry - current_price
-                            old_pnl_dollars = old_pnl_points * 5.0 * old_size
-                            update_mom_rescue_score(active_trade, old_pnl_points, current_time)
-                            update_hostile_day_on_close(active_trade.get('strategy'), old_pnl_points, current_time)
-                            directional_loss_blocker.record_trade_result(old_side, old_pnl_points, current_time)
-                            circuit_breaker.update_trade_result(old_pnl_dollars)
+                        if retest_ok or close_ok:
+                            pending_signal.setdefault("entry_mode", "rescued")
                             logging.info(
-                                f"📊 Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | "
-                                f"Exit: {current_price:.2f} | PnL: {old_pnl_points:.2f} pts (${old_pnl_dollars:.2f})"
+                                "RESCUE CONFIRMED: impulse-rescue passed retest or close confirmation"
                             )
 
-                        success, opposite_signal_count = client.close_and_reverse(
-                            pending_signal, current_price, opposite_signal_count
-                        )
-                        if success:
-                            order_details = getattr(client, "_last_order_details", None) or {}
-                            entry_price = order_details.get("entry_price", current_price)
-                            tp_dist = order_details.get("tp_points", pending_signal.get('tp_dist', 6.0))
-                            sl_dist = order_details.get("sl_points", pending_signal.get('sl_dist', 4.0))
-                            size = order_details.get("size", pending_signal.get('size', 5))
-                            pending_signal['tp_dist'] = tp_dist
-                            pending_signal['sl_dist'] = sl_dist
-                            pending_signal['size'] = size
-                            pending_signal['entry_price'] = entry_price
-                            active_trade = {
-                                'strategy': pending_signal['strategy'],
-                                'sub_strategy': pending_signal.get('sub_strategy'),
-                                'side': pending_signal['side'],
-                                'entry_price': entry_price,
-                                'entry_bar': bar_count,
-                                'bars_held': 0,
-                                'tp_dist': tp_dist,
-                                'sl_dist': sl_dist,
-                                'size': size,
-                                'stop_order_id': client._active_stop_order_id,
-                                'entry_mode': pending_signal.get('entry_mode', "rescued"),
-                                'profit_crosses': 0,
-                                'was_green': None,
-                                'rescue_from_strategy': pending_signal.get('rescue_from_strategy'),
-                                'rescue_from_sub_strategy': pending_signal.get('rescue_from_sub_strategy'),
-                                'trend_day_tier': pending_signal.get('trend_day_tier'),
-                                'trend_day_dir': pending_signal.get('trend_day_dir'),
-                            }
+                            if active_trade is not None:
+                                old_side = active_trade['side']
+                                old_entry = active_trade['entry_price']
+                                old_size = active_trade.get('size', 5)
+                                if old_side == 'LONG':
+                                    old_pnl_points = current_price - old_entry
+                                else:
+                                    old_pnl_points = old_entry - current_price
+                                old_pnl_dollars = old_pnl_points * 5.0 * old_size
+                                update_mom_rescue_score(active_trade, old_pnl_points, current_time)
+                                update_hostile_day_on_close(active_trade.get('strategy'), old_pnl_points, current_time)
+                                directional_loss_blocker.record_trade_result(old_side, old_pnl_points, current_time)
+                                circuit_breaker.update_trade_result(old_pnl_dollars)
+                                logging.info(
+                                    f"Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | "
+                                    f"Exit: {current_price:.2f} | PnL: {old_pnl_points:.2f} pts (${old_pnl_dollars:.2f})"
+                                )
+
+                            success, opposite_signal_count = await client.async_close_and_reverse(
+                                pending_signal, current_price, opposite_signal_count
+                            )
+                            if success:
+                                order_details = getattr(client, "_last_order_details", None) or {}
+                                entry_price = order_details.get("entry_price", current_price)
+                                tp_dist = order_details.get("tp_points", pending_signal.get('tp_dist', 6.0))
+                                sl_dist = order_details.get("sl_points", pending_signal.get('sl_dist', 4.0))
+                                size = order_details.get("size", pending_signal.get('size', 5))
+                                pending_signal['tp_dist'] = tp_dist
+                                pending_signal['sl_dist'] = sl_dist
+                                pending_signal['size'] = size
+                                pending_signal['entry_price'] = entry_price
+                                active_trade = {
+                                    'strategy': pending_signal['strategy'],
+                                    'sub_strategy': pending_signal.get('sub_strategy'),
+                                    'side': pending_signal['side'],
+                                    'entry_price': entry_price,
+                                    'entry_bar': bar_count,
+                                    'bars_held': 0,
+                                    'tp_dist': tp_dist,
+                                    'sl_dist': sl_dist,
+                                    'size': size,
+                                    'stop_order_id': client._active_stop_order_id,
+                                    'entry_mode': pending_signal.get('entry_mode', "rescued"),
+                                    'profit_crosses': 0,
+                                    'was_green': None,
+                                    'rescue_from_strategy': pending_signal.get('rescue_from_strategy'),
+                                    'rescue_from_sub_strategy': pending_signal.get('rescue_from_sub_strategy'),
+                                    'trend_day_tier': pending_signal.get('trend_day_tier'),
+                                    'trend_day_dir': pending_signal.get('trend_day_dir'),
+                                }
+                            executed_rescue = True
+                            pending_impulse_rescues.clear()
+                            break
+                        else:
+                            logging.info(
+                                "RESCUE FAILED: impulse-rescue confirmation not met "
+                                f"(retest={retest_ok}, close_confirm={close_ok})"
+                            )
+                    if executed_rescue:
                         signal_executed = True
                         continue
-                    else:
-                        logging.info(
-                            "⛔ RESCUE FAILED: impulse-rescue confirmation not met "
-                            f"(retest={retest_ok}, close_confirm={close_ok})"
-                        )
 
-                # Run ML Analysis
+# Run ML Analysis
                 ml_signal = None
                 if ml_strategy.model_loaded:
                     try:
@@ -2066,8 +2497,11 @@ async def run_bot():
                         if ml_signal: strategy_results['checked'].append('MLPhysics')
                     except Exception as e:
                         logging.error(f"ML Strategy Error: {e}")
-                if ml_signal and base_session == "ASIA":
-                    ml_signal = None
+                if ml_signal:
+                    disabled_sessions = set(CONFIG.get("ML_PHYSICS_LIVE_DISABLED_SESSIONS", []))
+                    if base_session in disabled_sessions:
+                        logging.info(f"⚠️ MLPhysics disabled in live for session {base_session}")
+                        ml_signal = None
 
                 # =================================================================
                 # 🎯 HARVEST ALL SIGNALS (Solves "Ghost Signal" Problem)
@@ -2087,7 +2521,29 @@ async def run_bot():
                     try:
                         # Handle specific arguments for VIX vs others
                         if strat_name == "VIXReversionStrategy":
-                            signal = strat.on_bar(new_df, master_vix_df)
+                            if master_vix_df.empty or new_df.empty:
+                                continue
+                            vix_df = master_vix_df
+                            vix_ts = vix_df.index[-1]
+                            mes_ts = new_df.index[-1]
+                            if vix_ts.tzinfo is None:
+                                vix_ts = vix_ts.replace(tzinfo=dt_timezone.utc)
+                            else:
+                                vix_ts = vix_ts.astimezone(dt_timezone.utc)
+                            if mes_ts.tzinfo is None:
+                                mes_ts = mes_ts.replace(tzinfo=NY_TZ)
+                            mes_ts = mes_ts.astimezone(dt_timezone.utc)
+                            if vix_ts > mes_ts and len(vix_df) > 1:
+                                vix_df = vix_df.iloc[:-1]
+                                vix_ts = vix_df.index[-1]
+                                if vix_ts.tzinfo is None:
+                                    vix_ts = vix_ts.replace(tzinfo=dt_timezone.utc)
+                                else:
+                                    vix_ts = vix_ts.astimezone(dt_timezone.utc)
+                            if abs((vix_ts - mes_ts).total_seconds()) > 120:
+                                logging.info("VIX stale vs MES; skipping VIXReversionStrategy")
+                                continue
+                            signal = strat.on_bar(new_df, vix_df)
                         else:
                             signal = strat.on_bar(new_df)
 
@@ -2161,7 +2617,17 @@ async def run_bot():
                         signal = ml_signal
                     elif strat_name == "SMTStrategy":
                         try:
-                            signal = strat.on_bar(new_df, master_mnq_df)
+                            mnq_df = master_mnq_df
+                            if not mnq_df.empty and not new_df.empty:
+                                mnq_last = mnq_df.index[-1]
+                                if mnq_last.tzinfo is None:
+                                    mnq_last = mnq_last.replace(tzinfo=NY_TZ)
+                                mes_last = new_df.index[-1]
+                                if mes_last.tzinfo is None:
+                                    mes_last = mes_last.replace(tzinfo=NY_TZ)
+                                if mnq_last > mes_last and len(mnq_df) > 1:
+                                    mnq_df = mnq_df.iloc[:-1]
+                            signal = strat.on_bar(new_df, mnq_df)
                         except Exception as e:
                             logging.error(f"Error in {strat_name}: {e}")
                     else:
@@ -2234,6 +2700,9 @@ async def run_bot():
                         continue
                     side = sig.get("side")
                     if side in direction_counts:
+                        strat_label = sig.get("strategy", s_name)
+                        if str(strat_label).startswith("MLPhysics") and not consensus_ml_ok(sig, s_name):
+                            continue
                         weight = 2 if s_name == "SMTStrategy" else 1
                         direction_counts[side] += weight
                     if s_name == "SMTStrategy":
@@ -2256,6 +2725,10 @@ async def run_bot():
                     consensus_candidates = [
                         (sig, s_name) for _, _, sig, s_name in candidate_signals
                         if sig.get("side") == consensus_side
+                        and (
+                            not str(sig.get("strategy", s_name)).startswith("MLPhysics")
+                            or consensus_ml_ok(sig, s_name)
+                        )
                     ]
                     if consensus_candidates:
                         consensus_tp_signal, consensus_tp_source = min(
@@ -2287,6 +2760,8 @@ async def run_bot():
                     allow_rescue = not str(origin_strategy).startswith("MLPhysics")
                     is_rescued = False
                     consensus_rescued = False
+                    consensus_bypass_allowed = True
+                    rescue_bypass_allowed = True
                     rescue_context = None
                     rescue_logged = False
 
@@ -2357,18 +2832,15 @@ async def run_bot():
                         rescue_side = 'SHORT' if signal['side'] == 'LONG' else 'LONG'
 
                         def try_consensus_rescue(filter_name: str, reason: str) -> bool:
-                            nonlocal signal, is_rescued, consensus_rescued, rescue_context
+                            nonlocal signal, is_rescued, consensus_rescued, rescue_context, consensus_bypass_allowed
                             log_filter_block(filter_name, reason)
+                            if filter_name == "ChopFilter" and is_chop_hard_stop(reason):
+                                logging.info(f"CONSENSUS RESCUE BLOCKED: Chop hard-stop ({reason})")
+                                return False
                             if is_wick_rejection_block(reason):
                                 logging.info("⛔ CONSENSUS RESCUE BLOCKED: TrendFilter wick rejection cooldown")
                                 return False
                             if not allow_rescue:
-                                return False
-                            if filter_name == "ChopFilter" and reason:
-                                reason_lc = str(reason).lower()
-                                if "wait for breakout" in reason_lc or "range too tight" in reason_lc:
-                                    logging.info("⛔ CONSENSUS RESCUE BLOCKED: ChopFilter hard block")
-                                    return False
                                 return False
                             if trend_day_tier > 0 and trend_day_dir:
                                 if (trend_day_dir == "down" and rescue_side == "LONG") or (
@@ -2386,9 +2858,29 @@ async def run_bot():
                             if hostile_day_active:
                                 return False
                             potential_rescue = continuation_manager.get_active_continuation_signal(
-                                new_df, current_time, rescue_side
+                                new_df,
+                                current_time,
+                                rescue_side,
+                                current_price=current_price,
+                                trend_day_series=trend_day_series,
+                                signal_mode=continuation_signal_mode,
                             )
+                            if not continuation_rescue_allowed(
+                                potential_rescue,
+                                rescue_side,
+                                current_price,
+                                new_df,
+                                trend_day_series,
+                                continuation_allowlist,
+                                continuation_allowed_regimes,
+                                continuation_confirm_cfg,
+                                continuation_guard_enabled,
+                                continuation_signal_mode,
+                            ):
+                                potential_rescue = None
                             if not potential_rescue:
+                                return False
+                            if continuation_no_bypass and continuation_core_trigger(filter_name):
                                 return False
                             rescue_blocked, rescue_reason = trend_filter.should_block_trade(new_df, potential_rescue['side'])
                             if rescue_blocked:
@@ -2413,7 +2905,8 @@ async def run_bot():
                                 signal["_impulse_rescue_signal_price"] = current_price
                                 signal["_impulse_rescue_signal_close"] = float(currbar["close"])
                             is_rescued = True
-                            consensus_rescued = True
+                            consensus_bypass_allowed = not continuation_no_bypass
+                            consensus_rescued = consensus_bypass_allowed
                             return True
                         if trend_day_counter:
                             if not try_consensus_rescue(
@@ -2477,237 +2970,35 @@ async def run_bot():
                                 vol_regime,
                             )
                             if chop_blocked:
-                                if try_consensus_rescue("ChopFilter", chop_reason):
-                                    do_execute = True
-                                else:
-                                    logging.info(f"⛔ CONSENSUS BLOCKED by ChopFilter: {chop_reason}")
-                                    continue
-                        if not consensus_rescued:
-                            should_trade, vol_adj = check_volatility(
-                                new_df,
-                                signal.get('sl_dist', 4.0),
-                                signal.get('tp_dist', 6.0),
-                                base_size=5,
-                            )
-                            if not should_trade:
-                                skip_reason = vol_adj.get("skip_reason", "Volatility check failed")
-                                if try_consensus_rescue("VolatilityGuardrail", skip_reason):
-                                    do_execute = True
-                                else:
-                                    logging.info(f"⛔ CONSENSUS BLOCKED by Volatility Guardrail: {skip_reason}")
-                                    continue
-                            signal['sl_dist'] = vol_adj.get('sl_dist', signal.get('sl_dist', 4.0))
-                            signal['tp_dist'] = vol_adj.get('tp_dist', signal.get('tp_dist', 6.0))
-                            if vol_adj.get('adjustment_applied', False):
-                                signal['size'] = vol_adj['size']
-
-                        if not consensus_rescued:
-                            logging.info(f"🛡️ CONSENSUS BYPASS: {', '.join(bypassed_filters)}")
-                            signal['entry_mode'] = "consensus"
-                            do_execute = True
-                        elif not do_execute:
-                            do_execute = True
-                    else:
-                        # === 1. PREPARE THE RESCUE TICKET (OPPOSITE SIDE) ===
-                        # Determine the OPPOSITE direction
-                        original_side = signal['side']
-                        rescue_side = 'SHORT' if original_side == 'LONG' else 'LONG'
-
-                        # Fetch potential rescue signal for the OPPOSITE side
-                        if hostile_day_active:
-                            potential_rescue = None
-                        else:
-                            potential_rescue = continuation_manager.get_active_continuation_signal(
-                                new_df, current_time, rescue_side
-                            )
-
-                        logging.info(f"🔍 EVALUATING {priority_label}: {strat_name} {original_side} | Rescue Available ({rescue_side}): {potential_rescue is not None}")
-
-                        # === 2. TARGET FEASIBILITY (Physics Check - No Rescue) ===
-                        # ==========================================
-                        # LAYER 2: FILTER GAUNTLET (Safe Rescue Logic)
-                        # ==========================================
-
-                        # --- Helper Logic to Trigger Rescue ---
-                        def try_rescue_trigger(block_reason, filter_name):
-                            nonlocal signal, is_rescued, potential_rescue, rescue_context
-                            log_filter_block(filter_name, block_reason)
-                            if is_wick_rejection_block(block_reason):
-                                logging.info("⛔ RESCUE BLOCKED: TrendFilter wick rejection cooldown")
-                                return False
-                            if not allow_rescue:
-                                return False
-                            if filter_name == "ChopFilter" and block_reason:
-                                reason_lc = str(block_reason).lower()
-                                if "wait for breakout" in reason_lc or "range too tight" in reason_lc:
-                                    logging.info("⛔ RESCUE BLOCKED: ChopFilter hard block")
-                                    return False
-                            if trend_day_tier > 0 and trend_day_dir:
-                                if (trend_day_dir == "down" and rescue_side == "LONG") or (
-                                    trend_day_dir == "up" and rescue_side == "SHORT"
-                                ):
-                                    log_filter_block(
-                                        f"TrendDayTier{trend_day_tier}",
-                                        "Rescue side counter-trend",
-                                        side_override=rescue_side,
-                                    )
-                                    return False
-                            if mom_rescue_banned(current_time, origin_strategy, origin_sub_strategy):
-                                logging.info("⛔ RESCUE BLOCKED: MomRescueBan")
-                                return False
-                            # RESCUE LOGIC: Only flip if we have a ticket AND the block isn't a "Hard Stop"
-                            if potential_rescue and not is_rescued:
-                                # Enforce TrendFilter on the rescue side before flipping
-                                rescue_blocked, rescue_reason = trend_filter.should_block_trade(new_df, potential_rescue['side'])
-                                if rescue_blocked:
-                                    logging.info(f"⛔ RESCUE DENIED by TrendFilter ({potential_rescue['side']}): {rescue_reason}")
-                                    log_filter_block("TrendFilter", rescue_reason, side_override=potential_rescue['side'])
-                                    return False
-                                logging.info(f"♻️ RESCUE FLIP: Blocked by {filter_name} ({block_reason}). Flipping to {potential_rescue['strategy']} ({potential_rescue['side']})")
-                                signal = potential_rescue  # FLIP TO OPPOSITE SIGNAL
-                                signal['entry_mode'] = "rescued"
-                                signal['rescue_from_strategy'] = origin_strategy
-                                if origin_sub_strategy:
-                                    signal['rescue_from_sub_strategy'] = origin_sub_strategy
-                                if trend_day_tier > 0 and trend_day_dir:
-                                    signal["trend_day_tier"] = trend_day_tier
-                                    signal["trend_day_dir"] = trend_day_dir
-                                rescue_context = {
-                                    "original_strategy": origin_strategy,
-                                    "rescue_strategy": potential_rescue['strategy'],
-                                    "bias": potential_rescue['side'],
-                                }
-                                if should_defer_impulse_rescue(filter_name, block_reason):
-                                    signal["_defer_impulse_rescue"] = True
-                                    signal["_impulse_rescue_signal_time"] = current_time
-                                    signal["_impulse_rescue_signal_price"] = current_price
-                                    signal["_impulse_rescue_signal_close"] = float(currbar["close"])
-                                is_rescued = True
-                                potential_rescue = None  # Ticket used
-                                return True
-                            else:
-                                logging.info(f"⛔ BLOCKED by {filter_name}: {block_reason}")
-                                if is_rescued:
-                                    log_rescue_failed(f"{filter_name}: {block_reason}")
-                                return False
-                        # ---------------------------------------
-
-                        if trend_day_counter:
-                            if not try_rescue_trigger("Counter-trend", f"TrendDayTier{trend_day_tier}"):
-                                continue
-
-                        # === 2. TARGET FEASIBILITY (Physics Check - No Rescue) ===
-                        is_feasible, feasibility_reason = chop_analyzer.check_target_feasibility(
-                            entry_price=current_price, side=signal['side'], tp_distance=signal.get('tp_dist', 6.0), df_1m=new_df
-                        )
-                        if not is_feasible:
-                            log_filter_block("TargetFeasibility", feasibility_reason)
-                            logging.info(f"⛔ Signal ignored ({priority_label}): {feasibility_reason}")
-                            if is_rescued:
-                                log_rescue_failed(f"TargetFeasibility: {feasibility_reason}")
-                            continue
-
-                        # 1. Rejection / Bias (SAFE TO RESCUE: Aligning with Bias)
-                        rej_blocked, rej_reason = rejection_filter.should_block_trade(signal['side'])
-                        range_bias_blocked = (allowed_chop_side is not None and signal['side'] != allowed_chop_side)
-
-                        if rej_blocked or range_bias_blocked:
-                            reason = rej_reason if rej_blocked else f"Opposite HTF Range Bias ({allowed_chop_side})"
-                            if not try_rescue_trigger(reason, "Rejection/Bias"): continue
-
-                        # 2. Directional Loss Blocker (SAFE TO RESCUE: Aligning with Performance)
-                        dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
-                        if dir_blocked:
-                            if not try_rescue_trigger(dir_reason, "DirectionalLoss"): continue
-
-                        # 3. Impulse Filter (SAFE TO RESCUE: Aligning with Momentum)
-                        impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])
-                        if impulse_blocked:
-                            if not try_rescue_trigger(impulse_reason, "ImpulseFilter"): continue
-
-                        # 4. Regime Structure Blocker (EQH/EQL)
-                        # 🛑 HARD STOP: DO NOT RESCUE 🛑
-                        # If we are at EQH/EQL, a flip is dangerous because it could be a breakout.
-                        regime_blocked, regime_reason = regime_blocker.should_block_trade(signal['side'], current_price)
-                        if regime_blocked:
-                            # Log and Die. No Rescue.
-                            log_filter_block("RegimeBlocker", regime_reason)
-                            if is_rescued:
-                                log_rescue_failed(f"RegimeBlocker: {regime_reason}")
-                            logging.info(f"⛔ HARD STOP by RegimeBlocker (EQH/EQL): {regime_reason} - No Rescue Allowed (Breakout Risk)")
-                            continue
-
-                        # 5. Independent System Checks (Trend/Macro)
-                        # Note: If we just flipped to Rescue, we are now checking the NEW signal against these filters.
-
-                        upgraded_blocked = False
-                        upgraded_reasons = []
-
-                        # HTF FVG (Memory Based) - CONTEXT AWARE
-                        tp_dist = signal.get('tp_dist', 15.0)
-                        effective_tp_dist = tp_dist
-                        if allowed_chop_side is not None and signal['side'] == allowed_chop_side:
-                            effective_tp_dist = tp_dist * 0.5  # Require 50% less room
-                            logging.info(f"🔓 RELAXING FVG CHECK (Main): Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
-
-                        fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
-                            signal['side'], current_price, None, None, tp_dist=effective_tp_dist
-                        )
-                        if fvg_blocked:
-                            upgraded_reasons.append(f"HTF_FVG: {fvg_reason}")
-
-                        # Macro Structure Trend (SAFE TO RESCUE: Aligning with Macro Trend)
-                        struct_blocked, struct_reason = structure_blocker.should_block_trade(signal['side'], current_price)
-                        if struct_blocked: upgraded_reasons.append(f"Structure: {struct_reason}")
-
-                        bank_blocked, bank_reason = bank_filter.should_block_trade(signal['side'])
-                        if bank_blocked: upgraded_reasons.append(f"Bank: {bank_reason}")
-
-                        # Trend Check
-                        upg_trend_blocked, upg_trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
-                        if upg_trend_blocked: upgraded_reasons.append(f"Trend: {upg_trend_reason}")
-
-                        if upgraded_reasons: upgraded_blocked = True
-
-                        # Legacy Check
-                        legacy_blocked, legacy_reason = legacy_filters.check_trend(new_df, signal['side'])
-
-                        # Arbitration
-                        final_blocked = False
-                        final_reason = ""
-                        if legacy_blocked and upgraded_blocked:
-                            final_blocked = True; final_reason = f"Unanimous: {legacy_reason} & {upgraded_reasons}"
-                        elif not legacy_blocked and upgraded_blocked:
-                            arb = filter_arbitrator.arbitrate(new_df, signal['side'], False, "", True, "|".join(upgraded_reasons), current_price, signal.get('tp_dist'), signal.get('sl_dist'))
-                            if not arb.allow_trade: final_blocked = True; final_reason = arb.reason
-
-                        if final_blocked:
-                            # If we are ALREADY rescued, we have 'Diplomatic Immunity'
-                            if is_rescued:
-                                logging.info(f"🛡️ BYPASS Filters ({final_reason}): Rescued by {signal['strategy']}")
-                            else:
-                                # Attempt Rescue Trigger (Trend/Macro blocks are safe to flip)
-                                if not try_rescue_trigger(final_reason, "FilterStack"): continue
-
-                        # 6. Chop & Extension (Post-Arb)
-                        vol_regime, _, _ = volatility_filter.get_regime(new_df)
-                        chop_blocked, chop_reason = chop_filter.should_block_trade(signal['side'], rejection_filter.prev_day_pm_bias, current_price, "NEUTRAL", vol_regime)
-                        if chop_blocked:
-                            if chop_reason:
-                                reason_lc = str(chop_reason).lower()
-                                if "wait for breakout" in reason_lc or "range too tight" in reason_lc:
+                                if is_chop_hard_stop(chop_reason):
                                     log_filter_block("ChopFilter", chop_reason)
-                                    logging.info("⛔ BLOCKED: ChopFilter hard block (no rescue)")
+                                    logging.info("CHOP HARD-STOP: ChopFilter blocked (no rescue)")
                                     if is_rescued:
                                         log_rescue_failed(f"ChopFilter: {chop_reason}")
                                     continue
-                            if is_rescued: logging.info(f"🛡️ BYPASS Chop: Rescued by {signal['strategy']}")
-                            elif not try_rescue_trigger(chop_reason, "ChopFilter"): continue
+                                if is_rescued:
+                                    if consensus_bypass_allowed:
+                                        logging.info(f"BYPASS Chop: Rescued by {signal['strategy']}")
+                                    else:
+                                        log_filter_block("ChopFilter", chop_reason)
+                                        logging.info("CHOP BLOCKED: Rescue bypass disabled")
+                                        log_rescue_failed(f"ChopFilter: {chop_reason}")
+                                        continue
+                                elif not try_consensus_rescue("ChopFilter", chop_reason):
+                                    continue
 
                         ext_blocked, ext_reason = extension_filter.should_block_trade(signal['side'])
                         if ext_blocked:
-                            if is_rescued: logging.info(f"🛡️ BYPASS Extension: Rescued by {signal['strategy']}")
-                            elif not try_rescue_trigger(ext_reason, "ExtensionFilter"): continue
+                            if is_rescued:
+                                if consensus_bypass_allowed:
+                                    logging.info(f"🛡️ BYPASS Extension: Rescued by {signal['strategy']}")
+                                else:
+                                    log_filter_block("ExtensionFilter", ext_reason)
+                                    logging.info("EXTENSION BLOCKED: Rescue bypass disabled")
+                                    log_rescue_failed(f"ExtensionFilter: {ext_reason}")
+                                    continue
+                            elif not try_consensus_rescue("ExtensionFilter", ext_reason):
+                                continue
 
                         # 7. Volatility Guardrail (Physics - Apply to Rescued too)
                         should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0), base_size=5)
@@ -2727,18 +3018,259 @@ async def run_bot():
 
                         if not do_execute:
                             continue
+                    else:
+                        original_side = signal['side']
+                        rescue_side = 'SHORT' if original_side == 'LONG' else 'LONG'
+                        if hostile_day_active:
+                            potential_rescue = None
+                        else:
+                            potential_rescue = continuation_manager.get_active_continuation_signal(
+                                new_df,
+                                current_time,
+                                rescue_side,
+                                current_price=current_price,
+                                trend_day_series=trend_day_series,
+                                signal_mode=continuation_signal_mode,
+                            )
+                        if not continuation_rescue_allowed(
+                            potential_rescue,
+                            rescue_side,
+                            current_price,
+                            new_df,
+                            trend_day_series,
+                            continuation_allowlist,
+                            continuation_allowed_regimes,
+                            continuation_confirm_cfg,
+                            continuation_guard_enabled,
+                            continuation_signal_mode,
+                        ):
+                            potential_rescue = None
+                        logging.info(
+                            f"EVALUATING {priority_label}: {strat_name} {original_side} | "
+                            f"Rescue Available ({rescue_side}): {potential_rescue is not None}"
+                        )
+
+                        def try_rescue_trigger(block_reason, filter_name):
+                            nonlocal signal, is_rescued, potential_rescue, rescue_context, rescue_bypass_allowed
+                            log_filter_block(filter_name, block_reason)
+                            if filter_name == 'ChopFilter' and is_chop_hard_stop(block_reason):
+                                logging.info(f"CHOP HARD-STOP: {block_reason}")
+                                return False
+                            if is_wick_rejection_block(block_reason):
+                                logging.info('RESCUE BLOCKED: TrendFilter wick rejection cooldown')
+                                return False
+                            if not allow_rescue:
+                                return False
+                            if trend_day_tier > 0 and trend_day_dir:
+                                if (trend_day_dir == 'down' and rescue_side == 'LONG') or (trend_day_dir == 'up' and rescue_side == 'SHORT'):
+                                    log_filter_block(
+                                        f"TrendDayTier{trend_day_tier}",
+                                        'Rescue side counter-trend',
+                                        side_override=rescue_side,
+                                    )
+                                    return False
+                            if mom_rescue_banned(current_time, origin_strategy, origin_sub_strategy):
+                                logging.info('RESCUE BLOCKED: MomRescueBan')
+                                return False
+                            if continuation_no_bypass and continuation_core_trigger(filter_name):
+                                return False
+                            if potential_rescue and not is_rescued:
+                                rescue_blocked, rescue_reason = trend_filter.should_block_trade(new_df, potential_rescue['side'])
+                                if rescue_blocked:
+                                    log_filter_block('TrendFilter', rescue_reason, side_override=potential_rescue['side'])
+                                    return False
+                                logging.info(f"RESCUE FLIP: Blocked by {filter_name} ({block_reason}). "
+                                             f"Flipping to {potential_rescue['strategy']} ({potential_rescue['side']})")
+                                signal = potential_rescue
+                                signal['entry_mode'] = 'rescued'
+                                signal['rescue_from_strategy'] = origin_strategy
+                                if origin_sub_strategy:
+                                    signal['rescue_from_sub_strategy'] = origin_sub_strategy
+                                if trend_day_tier > 0 and trend_day_dir:
+                                    signal['trend_day_tier'] = trend_day_tier
+                                    signal['trend_day_dir'] = trend_day_dir
+                                rescue_context = {
+                                    'original_strategy': origin_strategy,
+                                    'rescue_strategy': potential_rescue['strategy'],
+                                    'bias': potential_rescue['side'],
+                                }
+                                if should_defer_impulse_rescue(filter_name, block_reason):
+                                    signal['_defer_impulse_rescue'] = True
+                                    signal['_impulse_rescue_signal_time'] = current_time
+                                    signal['_impulse_rescue_signal_price'] = current_price
+                                    signal['_impulse_rescue_signal_close'] = float(currbar['close'])
+                                is_rescued = True
+                                rescue_bypass_allowed = not continuation_no_bypass
+                                potential_rescue = None
+                                return True
+                            else:
+                                logging.info(f"BLOCKED by {filter_name}: {block_reason}")
+                                return False
+
+                        # TrendDay counter-trend hard block/rescue attempt
+                        if trend_day_counter:
+                            if not try_rescue_trigger('Counter-trend', f"TrendDayTier{trend_day_tier}"):
+                                logging.info(f"BLOCKED by TrendDayTier{trend_day_tier}")
+                                continue
+
+                        # 1. Target Feasibility
+                        is_feasible, feasibility_reason = chop_analyzer.check_target_feasibility(
+                            entry_price=current_price, side=signal['side'], tp_distance=signal.get('tp_dist', 6.0), df_1m=new_df
+                        )
+                        if not is_feasible:
+                            log_filter_block('TargetFeasibility', feasibility_reason)
+                            logging.info(f"Signal ignored ({priority_label}): {feasibility_reason}")
+                            continue
+
+                        # 2. Rejection/Bias
+                        rej_blocked, rej_reason = rejection_filter.should_block_trade(signal['side'])
+                        range_bias_blocked = (allowed_chop_side is not None and signal['side'] != allowed_chop_side)
+                        if rej_blocked or range_bias_blocked:
+                            reason = rej_reason if rej_blocked else f"Opposite HTF Range Bias ({allowed_chop_side})"
+                            if not try_rescue_trigger(reason, 'Rejection/Bias'):
+                                continue
+
+                        # 3. Directional Loss Blocker
+                        dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
+                        if dir_blocked:
+                            if not try_rescue_trigger(dir_reason, 'DirectionalLoss'):
+                                continue
+
+                        # 4. Impulse Filter
+                        impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])
+                        if impulse_blocked:
+                            if not try_rescue_trigger(impulse_reason, 'ImpulseFilter'):
+                                continue
+
+                        # 5. Regime Structure Blocker (hard stop)
+                        regime_blocked, regime_reason = regime_blocker.should_block_trade(signal['side'], current_price)
+                        if regime_blocked:
+                            log_filter_block('RegimeBlocker', regime_reason)
+                            logging.info(f"HARD STOP by RegimeBlocker (EQH/EQL): {regime_reason}")
+                            continue
+
+                        # 6. Independent System Checks (HTF/Structure/Bank/Trend)
+                        upgraded_blocked = False
+                        upgraded_reasons = []
+                        tp_dist = signal.get('tp_dist', 15.0)
+                        effective_tp_dist = tp_dist
+                        if allowed_chop_side is not None and signal['side'] == allowed_chop_side:
+                            effective_tp_dist = tp_dist * 0.5
+                            logging.info(f"RELAXING FVG CHECK (Main): Fading Range {signal['side']} (Req Room: {effective_tp_dist*0.4:.2f} pts)")
+                        fvg_blocked, fvg_reason = htf_fvg_filter.check_signal_blocked(
+                            signal['side'], current_price, None, None, tp_dist=effective_tp_dist
+                        )
+                        if fvg_blocked:
+                            upgraded_reasons.append(f"HTF_FVG: {fvg_reason}")
+                        struct_blocked, struct_reason = structure_blocker.should_block_trade(signal['side'], current_price)
+                        if struct_blocked:
+                            upgraded_reasons.append(f"Structure: {struct_reason}")
+                        bank_blocked, bank_reason = bank_filter.should_block_trade(signal['side'])
+                        if bank_blocked:
+                            upgraded_reasons.append(f"Bank: {bank_reason}")
+                        upg_trend_blocked, upg_trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
+                        if upg_trend_blocked:
+                            upgraded_reasons.append(f"Trend: {upg_trend_reason}")
+                        if upgraded_reasons:
+                            upgraded_blocked = True
+                        legacy_blocked, legacy_reason = legacy_filters.check_trend(new_df, signal['side'])
+                        final_blocked = False
+                        final_reason = ''
+                        if legacy_blocked and upgraded_blocked:
+                            final_blocked = True
+                            final_reason = f"Unanimous: {legacy_reason} & {upgraded_reasons}"
+                        elif not legacy_blocked and upgraded_blocked:
+                            arb = filter_arbitrator.arbitrate(
+                                new_df, signal['side'], False, '', True, '|'.join(upgraded_reasons), current_price, signal.get('tp_dist'), signal.get('sl_dist')
+                            )
+                            if not arb.allow_trade:
+                                final_blocked = True
+                                final_reason = arb.reason
+                        if final_blocked:
+                            if is_rescued:
+                                if rescue_bypass_allowed:
+                                    logging.info(f"BYPASS Filters ({final_reason}): Rescued by {signal['strategy']}")
+                                else:
+                                    log_filter_block("FilterStack", final_reason)
+                                    logging.info("FILTER STACK BLOCKED: Rescue bypass disabled")
+                                    log_rescue_failed(f"FilterStack: {final_reason}")
+                                    continue
+                            else:
+                                if not try_rescue_trigger(final_reason, 'FilterStack'):
+                                    continue
+
+                        # 7. Chop & Extension
+                        vol_regime, _, _ = volatility_filter.get_regime(new_df)
+                        chop_blocked, chop_reason = chop_filter.should_block_trade(
+                            signal['side'], rejection_filter.prev_day_pm_bias, current_price, 'NEUTRAL', vol_regime
+                        )
+                        if chop_blocked:
+                            if is_chop_hard_stop(chop_reason):
+                                log_filter_block('ChopFilter', chop_reason)
+                                logging.info('CHOP HARD-STOP: ChopFilter blocked (no rescue)')
+                                if is_rescued:
+                                    log_rescue_failed(f"ChopFilter: {chop_reason}")
+                                continue
+                            if is_rescued:
+                                if rescue_bypass_allowed:
+                                    logging.info(f"BYPASS Chop: Rescued by {signal['strategy']}")
+                                else:
+                                    log_filter_block('ChopFilter', chop_reason)
+                                    logging.info('CHOP BLOCKED: Rescue bypass disabled')
+                                    log_rescue_failed(f"ChopFilter: {chop_reason}")
+                                    continue
+                            elif not try_rescue_trigger(chop_reason, 'ChopFilter'):
+                                continue
+                        ext_blocked, ext_reason = extension_filter.should_block_trade(signal['side'])
+                        if ext_blocked:
+                            if is_rescued:
+                                if rescue_bypass_allowed:
+                                    logging.info(f"BYPASS Extension: Rescued by {signal['strategy']}")
+                                else:
+                                    log_filter_block('ExtensionFilter', ext_reason)
+                                    logging.info('EXTENSION BLOCKED: Rescue bypass disabled')
+                                    log_rescue_failed(f"ExtensionFilter: {ext_reason}")
+                                    continue
+                            elif not try_rescue_trigger(ext_reason, 'ExtensionFilter'):
+                                continue
+
+                        # 8. Volatility Guardrail
+                        should_trade, vol_adj = check_volatility(new_df, signal.get('sl_dist', 4.0), signal.get('tp_dist', 6.0), base_size=5)
+                        if not should_trade:
+                            log_filter_block('VolatilityGuardrail', 'Volatility check failed')
+                            logging.info('BLOCKED by Volatility Guardrail')
+                            if is_rescued:
+                                log_rescue_failed('VolatilityGuardrail: Volatility check failed')
+                            continue
+                        signal['sl_dist'] = vol_adj['sl_dist']
+                        signal['tp_dist'] = vol_adj['tp_dist']
+                        if vol_adj.get('adjustment_applied', False):
+                            signal['size'] = vol_adj['size']
+                        do_execute = True
+                    if not do_execute:
+                        continue
 
                     # === EXECUTION ===
                     signal.setdefault('entry_mode', "standard")
                     if signal.get("_defer_impulse_rescue"):
-                        pending_impulse_rescue = {
+                        pending_entry = {
                             "signal": signal,
                             "signal_time": signal.pop("_impulse_rescue_signal_time", current_time),
                             "signal_price": signal.pop("_impulse_rescue_signal_price", current_price),
                             "signal_close": signal.pop("_impulse_rescue_signal_close", current_price),
                         }
                         signal.pop("_defer_impulse_rescue", None)
-                        logging.info("⏳ RESCUE DEFERRED: waiting for next bar confirmation")
+                        new_side = pending_entry["signal"].get("side")
+                        if pending_impulse_rescues:
+                            existing_side = pending_impulse_rescues[0]["signal"].get("side")
+                            if existing_side != new_side:
+                                pending_impulse_rescues.clear()
+                                logging.info(
+                                    "⏳ RESCUE DEFERRED: cleared pending opposite-direction rescue"
+                                )
+                        if not pending_impulse_rescues or pending_impulse_rescues[0]["signal"].get("side") == new_side:
+                            pending_impulse_rescues.append(pending_entry)
+                            logging.info("⏳ RESCUE DEFERRED: waiting for next bar confirmation")
                         signal_executed = True
                         break
                     allow_dyn_mom_solo = False
@@ -2796,7 +3328,7 @@ async def run_bot():
                         circuit_breaker.update_trade_result(old_pnl_dollars)
                         logging.info(f"📊 Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | Exit: {current_price:.2f} | PnL: {old_pnl_points:.2f} pts (${old_pnl_dollars:.2f})")
 
-                    success, opposite_signal_count = client.close_and_reverse(signal, current_price, opposite_signal_count)
+                    success, opposite_signal_count = await client.async_close_and_reverse(signal, current_price, opposite_signal_count)
 
                     if success:
                         order_details = getattr(client, "_last_order_details", None) or {}
@@ -3100,7 +3632,7 @@ async def run_bot():
                                     circuit_breaker.update_trade_result(old_pnl_dollars)
                                     logging.info(f"📊 Trade closed (reverse): {old_side} | Entry: {old_entry:.2f} | Exit: {current_price:.2f} | PnL: {old_pnl_points:.2f} pts (${old_pnl_dollars:.2f})")
 
-                                success, opposite_signal_count = client.close_and_reverse(sig, current_price, opposite_signal_count)
+                                success, opposite_signal_count = await client.async_close_and_reverse(sig, current_price, opposite_signal_count)
                                 if success:
                                     order_details = getattr(client, "_last_order_details", None) or {}
                                     entry_price = order_details.get("entry_price", current_price)

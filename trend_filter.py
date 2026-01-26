@@ -139,7 +139,9 @@ class TrendFilter:
         bodies = np.abs(closes - opens)
         avg_body_size = bodies.mean()
 
-        last_bar = df.iloc[-1]
+        if len(df) < 2:
+            return False, None
+        last_bar = df.iloc[-2]
         current_price = last_bar['close']
         last_candle_body = abs(last_bar['close'] - last_bar['open'])
 

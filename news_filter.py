@@ -76,6 +76,7 @@ class NewsFilter:
                         event_dt = datetime.datetime.fromisoformat(event_dt_str)
                         # Convert to ET to match bot's internal clock
                         event_dt_et = event_dt.astimezone(self.et)
+                        event_dt_utc = event_dt_et.astimezone(dt_timezone.utc)
 
                         title = event.get('title', '')
 
@@ -97,6 +98,7 @@ class NewsFilter:
                         event_obj = {
                             'title': title,
                             'time': event_dt_et,
+                            'time_utc': event_dt_utc,
                             'date_str': event_dt_et.strftime('%Y-%m-%d %H:%M'),
                             'impact': 'High',
                             'tier': tier
@@ -112,6 +114,7 @@ class NewsFilter:
                         if event_dt_et.date() >= current_time.date():
                             self.calendar_blackouts.append({
                                 'time': event_dt_et,
+                                'time_utc': event_dt_utc,
                                 'title': title,
                                 'duration': duration,      # DYNAMIC DURATION
                                 'pre_buffer': pre_buffer,  # DYNAMIC BUFFER
@@ -301,11 +304,11 @@ class NewsFilter:
         return "NORMAL_SEASONAL"
 
     def should_block_trade(self, current_time: datetime.datetime) -> tuple[bool, str]:
-        # Ensure time is ET
+        # Normalize time to ET for session logic and UTC for news comparisons
         if current_time.tzinfo is None:
-            current_time = current_time.replace(tzinfo=dt_timezone.utc).astimezone(self.et)
-        else:
-            current_time = current_time.astimezone(self.et)
+            current_time = current_time.replace(tzinfo=dt_timezone.utc)
+        current_time_utc = current_time.astimezone(dt_timezone.utc)
+        current_time = current_time_utc.astimezone(self.et)
 
         # === 1. DEAD ZONE HARD BLOCKS (The Kill Switches) ===
         month = current_time.month
@@ -356,10 +359,11 @@ class NewsFilter:
         # === 3. DYNAMIC NEWS CALENDAR EVENTS ===
         for event in self.calendar_blackouts:
             event_time = event['time']
-            block_start = event_time - datetime.timedelta(minutes=event['pre_buffer'])
-            block_end = event_time + datetime.timedelta(minutes=event['duration'])
+            event_time_utc = event.get('time_utc') or event_time.astimezone(dt_timezone.utc)
+            block_start = event_time_utc - datetime.timedelta(minutes=event['pre_buffer'])
+            block_end = event_time_utc + datetime.timedelta(minutes=event['duration'])
 
-            if block_start <= current_time <= block_end:
+            if block_start <= current_time_utc <= block_end:
                 return True, f"NEWS: {event['title']} ({event_time.strftime('%H:%M')})"
 
         return False, ""

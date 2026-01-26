@@ -374,6 +374,10 @@ class MLPhysicsStrategy(Strategy):
             logging.info("💤 Market Closed (No active session strategy)")
             return None
 
+        if setup.get("disabled"):
+            logging.info(f"⚠️ MLPhysics {setup['name']} disabled by guardrails")
+            return None
+
         if setup['model'] is None:
             logging.info(f"⚠️ Session {setup['name']} active, but brain file is missing!")
             return None
@@ -381,7 +385,7 @@ class MLPhysicsStrategy(Strategy):
         # 2. Convert df to the format expected by prepare_features
         # Need columns: datetime, Open, High, Low, Close, Volume
         hist_df = df.copy()
-        tf_minutes = CONFIG.get("ML_PHYSICS_TIMEFRAME_MINUTES", 1)
+        tf_minutes = setup.get("timeframe_minutes") or CONFIG.get("ML_PHYSICS_TIMEFRAME_MINUTES", 1)
         if isinstance(tf_minutes, (int, float)) and tf_minutes > 1:
             hist_df = self._resample_ohlcv(hist_df, int(tf_minutes))
             if not self._logged_resample:
@@ -413,17 +417,52 @@ class MLPhysicsStrategy(Strategy):
         X = self.prepare_features(hist_df)
 
         if X is not None:
+            model = setup.get("model")
+            threshold = setup.get("threshold")
+
+            # Volatility split: choose model/threshold by regime
+            if setup.get("split") and isinstance(model, dict):
+                feature_name = (CONFIG.get("ML_PHYSICS_VOL_SPLIT", {}) or {}).get("feature", "High_Volatility")
+                try:
+                    high_vol = float(X.iloc[0].get(feature_name, 0.0)) >= 0.5
+                except Exception:
+                    high_vol = False
+                regime = "high" if high_vol else "low"
+                if regime in (setup.get("disabled_regimes") or set()):
+                    logging.info(f"⚠️ MLPhysics {setup['name']} {regime} disabled by guardrails")
+                    return None
+                model = model.get(regime)
+                if isinstance(threshold, dict):
+                    threshold = threshold.get(regime, threshold.get("low", setup.get("threshold")))
+                if model is None:
+                    logging.info(f"⚠️ MLPhysics {setup['name']} missing {regime} model")
+                    return None
+            else:
+                # Optional volatility guard (skip ML trades during high-vol regimes)
+                vol_guard = CONFIG.get("ML_PHYSICS_VOL_GUARD", {}) or {}
+                if vol_guard.get("enabled"):
+                    guard_sessions = set(vol_guard.get("sessions", []))
+                    feature_name = vol_guard.get("feature", "High_Volatility")
+                if setup.get("name") in guard_sessions and feature_name in X.columns:
+                        try:
+                            high_vol = float(X.iloc[0][feature_name]) >= 0.5
+                        except Exception:
+                            high_vol = False
+                        if high_vol:
+                            logging.info(f"⚠️ MLPhysics {setup['name']} blocked (high volatility)")
+                            return None
+
             # Align columns to what the specific brain expects
-            if hasattr(setup['model'], "feature_names_in_"):
-                X = X.reindex(columns=setup['model'].feature_names_in_, fill_value=0)
+            if hasattr(model, "feature_names_in_"):
+                X = X.reindex(columns=model.feature_names_in_, fill_value=0)
 
             try:
                 # Ask the Specialist Brain
-                prob_up = setup['model'].predict_proba(X)[0][1]
+                prob_up = model.predict_proba(X)[0][1]
                 prob_down = 1.0 - prob_up
 
                 status = "💚" if prob_up > 0.5 else "🔴"
-                req = setup['threshold']
+                req = threshold if isinstance(threshold, (int, float)) else setup['threshold']
                 short_req = 1.0 - req
 
                 logging.info(
@@ -445,7 +484,9 @@ class MLPhysicsStrategy(Strategy):
                         "strategy": f"MLPhysics_{setup['name']}",
                         "side": "LONG",
                         "tp_dist": sltp['tp_dist'],
-                        "sl_dist": sltp['sl_dist']
+                        "sl_dist": sltp['sl_dist'],
+                        "ml_confidence": float(prob_up),
+                        "ml_threshold": float(req),
                     }
 
                 # SHORT signal: high probability of down move (low prob_up)
@@ -460,7 +501,9 @@ class MLPhysicsStrategy(Strategy):
                         "strategy": f"MLPhysics_{setup['name']}",
                         "side": "SHORT",
                         "tp_dist": sltp['tp_dist'],
-                        "sl_dist": sltp['sl_dist']
+                        "sl_dist": sltp['sl_dist'],
+                        "ml_confidence": float(prob_down),
+                        "ml_threshold": float(req),
                     }
 
             except Exception as e:

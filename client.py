@@ -4,11 +4,13 @@ ProjectX Gateway API Client
 Client for interacting with the ProjectX Gateway API for live futures trading.
 Handles authentication, market data retrieval, order placement, and position management.
 """
+import asyncio
 import requests
 import pandas as pd
 import datetime
 import time
 import logging
+import math
 from zoneinfo import ZoneInfo
 import uuid
 from typing import Dict, Optional, List, Tuple
@@ -133,6 +135,12 @@ class ProjectXClient:
     def _track_general_request(self):
         """Track a general API request for rate limiting"""
         self.general_request_timestamps.append(time.time())
+
+    def _stale_position(self) -> Dict:
+        """Return last known position marked as stale."""
+        pos = self._local_position.copy()
+        pos["stale"] = True
+        return pos
 
     def login(self):
         """
@@ -414,7 +422,11 @@ class ProjectXClient:
                     't': 'ts', 'o': 'open', 'h': 'high', 'l': 'low', 'c': 'close', 'v': 'volume'
                 })
                 # FASTEST - Direct fast-path access
-                df['ts'] = pd.to_datetime(df['ts'], format='ISO8601')
+                df['ts'] = pd.to_datetime(df['ts'], utc=True, errors="coerce")
+                df = df.dropna(subset=['ts'])
+                if df.empty:
+                    logging.warning("API returned bars but timestamps could not be parsed.")
+                    return self.cached_df if not self.cached_df.empty else pd.DataFrame()
                 df['ts'] = df['ts'].dt.tz_convert(self.et)
                 df = df.set_index('ts')
 
@@ -484,7 +496,11 @@ class ProjectXClient:
                     if 'bars' in data and data['bars']:
                         df = pd.DataFrame(data['bars'])
                         df = df.rename(columns={'t': 'ts', 'o': 'open', 'h': 'high', 'l': 'low', 'c': 'close', 'v': 'volume'})
-                        df['ts'] = pd.to_datetime(df['ts'])
+                        df['ts'] = pd.to_datetime(df['ts'], utc=True, errors="coerce")
+                        df = df.dropna(subset=['ts'])
+                        if df.empty:
+                            return pd.DataFrame()
+                        df['ts'] = df['ts'].dt.tz_convert(self.et)
                         df = df.set_index('ts').sort_index()
                         return df
                 return pd.DataFrame()
@@ -542,25 +558,12 @@ class ProjectXClient:
             logging.warning(f"⚠️ Strategy {signal.get('strategy', 'Unknown')} missing tp_dist, using default 6.0")
 
         # === TICK CONVERSION ===
-        # === HYBRID TICK CONVERSION ===
-        # Wide SL/TP: Use raw points as ticks (legacy behavior)
-        # Tight SL/TP: Expand using half-size to avoid too-tight brackets
-        WIDE_SL_THRESHOLD = 6.0
-        WIDE_TP_THRESHOLD = 10.0
-
-        if sl_points >= WIDE_SL_THRESHOLD:
-            abs_sl_ticks = max(1, int(abs(sl_points)))
-            logging.debug(f"📏 Wide SL ({sl_points}pts): Using raw conversion → {abs_sl_ticks} ticks")
-        else:
-            abs_sl_ticks = max(1, int(abs(sl_points / 0.5)))
-            logging.debug(f"📏 Tight SL ({sl_points}pts): Using half-size → {abs_sl_ticks} ticks")
-
-        if tp_points >= WIDE_TP_THRESHOLD:
-            abs_tp_ticks = max(1, int(abs(tp_points)))
-            logging.debug(f"🎯 Wide TP ({tp_points}pts): Using raw conversion → {abs_tp_ticks} ticks")
-        else:
-            abs_tp_ticks = max(1, int(abs(tp_points / 0.5)))
-            logging.debug(f"🎯 Tight TP ({tp_points}pts): Using half-size → {abs_tp_ticks} ticks")
+        # sl_dist/tp_dist are in POINTS; convert to ticks and round up so we don't undershoot
+        tick_size = 0.25
+        abs_sl_ticks = max(1, int(math.ceil(abs(sl_points) / tick_size)))
+        abs_tp_ticks = max(1, int(math.ceil(abs(tp_points) / tick_size)))
+        logging.debug(f"📏 SL ({sl_points}pts): {abs_sl_ticks} ticks @ {tick_size}")
+        logging.debug(f"🎯 TP ({tp_points}pts): {abs_tp_ticks} ticks @ {tick_size}")
 
 
         # 3. Apply Directional Signs based on Side
@@ -573,7 +576,6 @@ class ProjectXClient:
             final_tp_ticks = -abs_tp_ticks
             final_sl_ticks = abs_sl_ticks
 
-        tick_size = 0.25
         actual_tp_points = abs(final_tp_ticks) * tick_size
         actual_sl_points = abs(final_sl_ticks) * tick_size
 
@@ -769,11 +771,11 @@ class ProjectXClient:
             # Handle Actual Errors
             else:
                 logging.warning(f"Position check failed: {resp.status_code} - {resp.text}")
-                return {'side': None, 'size': 0, 'avg_price': 0.0}
+                return self._stale_position()
 
         except Exception as e:
             logging.error(f"Position check error: {e}")
-            return {'side': None, 'size': 0, 'avg_price': 0.0}
+            return self._stale_position()
 
     def close_position(self, position: Dict) -> bool:
         """
@@ -864,16 +866,19 @@ class ProjectXClient:
         # Always sync shadow position with broker before deciding
         position = self.get_position()
         self._local_position = position.copy()
+        if position.get("stale"):
+            logging.warning("Position state stale; skipping order placement.")
+            return False, opposite_signal_count
 
         # If no position, just place the order and reset count
         if position['side'] is None:
-            self.place_order(new_signal, current_price)
-            return True, 0
+            resp = self.place_order(new_signal, current_price)
+            return (resp is not None), 0
 
         # If signal is SAME direction as position, place order and reset count
         if position['side'] == new_signal['side']:
-            self.place_order(new_signal, current_price)
-            return True, 0
+            resp = self.place_order(new_signal, current_price)
+            return (resp is not None), 0
 
         # Signal is OPPOSITE direction - increment counter
         opposite_signal_count += 1
@@ -901,8 +906,8 @@ class ProjectXClient:
             time.sleep(0.5)
 
             # Place the new order
-            self.place_order(new_signal, current_price)
-            return True, 0  # Reset counter after closing
+            resp = self.place_order(new_signal, current_price)
+            return (resp is not None), 0  # Reset counter after closing
 
         # Not yet 3 signals - don't place order, just return updated count
         logging.info(f"Waiting for {3 - opposite_signal_count} more opposite signals before closing position")
@@ -1278,6 +1283,28 @@ class ProjectXClient:
     # ASYNC METHODS FOR ASYNCIO UPGRADE
     # ==========================================
 
+    async def async_get_market_data(self, lookback_minutes: int = 20000, force_fetch: bool = False) -> pd.DataFrame:
+        """Async wrapper for get_market_data() to avoid blocking the event loop."""
+        return await asyncio.to_thread(
+            self.get_market_data,
+            lookback_minutes=lookback_minutes,
+            force_fetch=force_fetch,
+        )
+
+    async def async_close_and_reverse(
+        self,
+        new_signal: Dict,
+        current_price: float,
+        opposite_signal_count: int,
+    ) -> Tuple[bool, int]:
+        """Async wrapper for close_and_reverse() to avoid blocking the event loop."""
+        return await asyncio.to_thread(
+            self.close_and_reverse,
+            new_signal,
+            current_price,
+            opposite_signal_count,
+        )
+
     async def async_get_position(self) -> Dict:
         """
         Async version of get_position() for use in independent async tasks.
@@ -1332,11 +1359,11 @@ class ProjectXClient:
                         return {'side': None, 'size': 0, 'avg_price': 0.0}
                     else:
                         logging.warning(f"Async position check failed: {resp.status}")
-                        return {'side': None, 'size': 0, 'avg_price': 0.0}
+                        return self._stale_position()
 
         except Exception as e:
             logging.error(f"Async position check error: {e}")
-            return {'side': None, 'size': 0, 'avg_price': 0.0}
+            return self._stale_position()
 
     async def async_validate_session(self) -> bool:
         """

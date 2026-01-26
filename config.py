@@ -9,8 +9,8 @@ from zoneinfo import ZoneInfo
 # bringing in the full bot runtime.
 CONFIG = {
     # --- CREDENTIALS ---
-    "USERNAME": "",
-    "API_KEY": "",
+    "USERNAME": "timothyc092004@gmail.com",
+    "API_KEY": "dTjOP69e3FfX12wKIx+MkwAl7x6PucD/i44HOHU50ks=",
 
     # --- ACCOUNT/CONTRACT (will be fetched dynamically) ---
     "ACCOUNT_ID": os.environ.get("JULIE_ACCOUNT_ID"),  # Can be set via env var or fetched via /Account/search
@@ -39,6 +39,142 @@ CONFIG = {
     # --- ML SESSION-BASED STRATEGY SETTINGS ---
     "WINDOW_SIZE": 15,
     "ML_PHYSICS_TIMEFRAME_MINUTES": 1,
+    # Optional: use ML training output files to override session thresholds
+    "ML_PHYSICS_THRESHOLDS_FILE": "ml_physics_thresholds.json",
+    "ML_PHYSICS_METRICS_FILE": "ml_physics_metrics.json",
+    # Guardrails to auto-disable weak sessions based on training metrics
+    "ML_PHYSICS_GUARD": {
+        "enabled": True,
+        "min_trades": 500,     # Require enough samples for stability
+        "min_win_rate": 0.55,  # Basic edge over 50/50
+        "min_avg_pnl": 0.2,    # Points per trade after fees (training eval)
+    },
+    # Optional per-session/regime overrides for ML physics guard thresholds
+    "ML_PHYSICS_GUARD_OVERRIDES": {
+        "ASIA": {
+            "low": {"min_trades": 200, "min_win_rate": 0.55, "min_avg_pnl": 0.2},
+            "high": {"min_trades": 50, "min_win_rate": 0.60, "min_avg_pnl": 0.3},
+        },
+    },
+    # Disable MLPhysics sessions in live bot (backtest still evaluates them)
+    "ML_PHYSICS_LIVE_DISABLED_SESSIONS": [],
+    # Disable MLPhysics sessions in backtest (default empty to allow evaluation)
+    "ML_PHYSICS_BACKTEST_DISABLED_SESSIONS": [],
+    # Backtest-only: learned continuation allowlist from walk-forward reports
+    "BACKTEST_CONTINUATION_ALLOWLIST": {
+        "enabled": True,
+        # modes: "reports" (walk-forward backtest files) or "csv_fast" (single CSV pass)
+        "mode": "csv_fast",
+        "reports_glob": "backtest_reports/backtest_*.json",
+        "min_total_trades": 8,
+        "min_fold_trades": 2,
+        "min_avg_pnl_points": 0.1,
+        "min_fold_expectancy_points": 0.0,
+        "min_folds": 2,
+        "min_positive_fold_ratio": 0.60,
+        "cache_file": "backtest_reports/continuation_allowlist.json",
+        "fast": {
+            "folds": 4,
+            "max_horizon_bars": 120,
+            "exit_at_horizon": "close",
+            "assume_sl_first": True,
+            "use_dynamic_sltp": True,
+            "default_tp": 6.0,
+            "default_sl": 4.0,
+            "min_win_rate": 0.45,
+            "symbol_contains": ["MES"],
+        },
+    },
+    # Backtest-only: require market confirmation for continuation
+    "BACKTEST_CONTINUATION_CONFIRM": {
+        "enabled": True,
+        "use_adx": True,
+        "use_trend_alt": True,
+        "use_vwap": True,
+        "use_structure_break": True,
+        "vwap_sigma_min": 1.0,
+        "require_any": True,
+    },
+    # Backtest-only: continuation signal generation mode ("calendar" or "structure")
+    "BACKTEST_CONTINUATION_SIGNAL_MODE": "structure",
+    # Backtest-only: allow continuation only in proven regimes
+    "BACKTEST_CONTINUATION_ALLOWED_REGIMES": ["high"],
+    # Backtest-only: continuation rescues do not bypass core filters
+    "BACKTEST_CONTINUATION_NO_BYPASS": True,
+    # Live continuation guardrails (allowlist + confirmation + regime gating)
+    "CONTINUATION_GUARD": {
+        "enabled": True,
+        # Signal generation mode for live continuation ("calendar" or "structure")
+        "signal_mode": "structure",
+        "allowlist_file": "backtest_reports/continuation_allowlist.json",
+        "allowed_regimes": ["high"],
+        "confirm": {
+            "enabled": True,
+            "use_adx": True,
+            "use_trend_alt": True,
+            "use_vwap": True,
+            "use_structure_break": True,
+            "vwap_sigma_min": 1.0,
+            "require_any": True,
+        },
+        "no_bypass": True,
+    },
+    # Backtest-only: require stronger MLPhysics confidence before it can support consensus
+    "BACKTEST_CONSENSUS_ML_MIN_CONF": 0.65,
+    "BACKTEST_CONSENSUS_ML_EXTRA_MARGIN": 0.05,
+    # Backtest-only: extend vol-split ML sessions without affecting live defaults
+    "ML_PHYSICS_VOL_SPLIT_BACKTEST_SESSIONS": [],
+    # Volatility guard: skip MLPhysics in selected sessions during high vol
+    "ML_PHYSICS_VOL_GUARD": {
+        "enabled": True,
+        "sessions": ["NY_AM"],
+        "feature": "High_Volatility",
+    },
+    # Robust NY_AM fix: split ML models by volatility regime
+    "ML_PHYSICS_VOL_SPLIT": {
+        "enabled": True,
+        "sessions": ["ASIA", "LONDON", "NY_AM", "NY_PM"],
+        "feature": "High_Volatility",
+    },
+    # Session-specific training presets (used by ml_train_physics.py)
+    "ML_PHYSICS_TRAINING_PRESETS": {
+        "ASIA": {
+            "timeframe_minutes": 3,
+            "horizon_bars": 12,
+            "label_mode": "atr",
+            "drop_neutral": True,
+            "thr_min": 0.62,
+            "thr_max": 0.85,
+            "thr_step": 0.01,
+            "drop_gap_minutes": 30.0,
+        },
+        "LONDON": {
+            "label_mode": "barrier",
+            "drop_neutral": True,
+            "thr_min": 0.60,
+            "thr_max": 0.80,
+            "thr_step": 0.01,
+            "drop_gap_minutes": 20.0,
+        },
+        "NY_AM": {
+            "timeframe_minutes": 1,
+            "horizon_bars": 8,
+            "label_mode": "barrier",
+            "drop_neutral": True,
+            "thr_min": 0.60,
+            "thr_max": 0.80,
+            "thr_step": 0.01,
+            "drop_gap_minutes": 20.0,
+        },
+        "NY_PM": {
+            "label_mode": "barrier",
+            "drop_neutral": True,
+            "thr_min": 0.60,
+            "thr_max": 0.80,
+            "thr_step": 0.01,
+            "drop_gap_minutes": 20.0,
+        },
+    },
 
     # --- EARLY EXIT OPTIMIZATION (from 2023-2025 backtest analysis) ---
     # Combined early exit rules:
@@ -106,7 +242,7 @@ CONFIG = {
     # --- GEMINI 3.0 PRO OPTIMIZATION ---
     "GEMINI": {
         "enabled": True,
-        "api_key": "",
+        "api_key": "AIzaSyA0WFRHcSA6QK6-E67F0hOXLBFmU1rGP4Q",
         "model": "gemini-3-pro-preview",
     },
 
@@ -120,6 +256,9 @@ CONFIG = {
             # 6:00 PM - 3:00 AM ET
             "HOURS": [18, 19, 20, 21, 22, 23, 0, 1, 2],
             "MODEL_FILE": "model_asia.joblib",
+            "MODEL_FILE_LOW": "model_asia_low.joblib",
+            "MODEL_FILE_HIGH": "model_asia_high.joblib",
+            "TIMEFRAME_MINUTES": 3,
             "THRESHOLD": 0.65,  # Strict Entry
             "SL": 4.0,          # Tight Stop
             "TP": 6.0           # Moderate Target
@@ -128,6 +267,8 @@ CONFIG = {
             # 3:00 AM - 8:00 AM ET
             "HOURS": [3, 4, 5, 6, 7],
             "MODEL_FILE": "model_london.joblib",
+            "MODEL_FILE_LOW": "model_london_low.joblib",
+            "MODEL_FILE_HIGH": "model_london_high.joblib",
             "THRESHOLD": 0.55,  # Standard Entry
             "SL": 4.0,          # Scalper Stop
             "TP": 4.0           # Scalper Target
@@ -136,6 +277,8 @@ CONFIG = {
             # 8:00 AM - 12:00 PM ET
             "HOURS": [8, 9, 10, 11],
             "MODEL_FILE": "model_ny_am.joblib",
+            "MODEL_FILE_LOW": "model_ny_am_low.joblib",
+            "MODEL_FILE_HIGH": "model_ny_am_high.joblib",
             "THRESHOLD": 0.55,
             "SL": 10.0,         # Wide Stop (Breathing Room)
             "TP": 4.0           # High Probability Target (80% WR)
@@ -144,6 +287,8 @@ CONFIG = {
             # 12:00 PM - 5:00 PM ET
             "HOURS": [12, 13, 14, 15, 16],
             "MODEL_FILE": "model_ny_pm.joblib",
+            "MODEL_FILE_LOW": "model_ny_pm_low.joblib",
+            "MODEL_FILE_HIGH": "model_ny_pm_high.joblib",
             "THRESHOLD": 0.55,
             "SL": 10.0,         # Wide Stop
             "TP": 8.0           # Trend Target (Highest PnL)

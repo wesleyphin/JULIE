@@ -1,3 +1,4 @@
+import asyncio
 import yfinance as yf
 import pandas as pd
 import logging
@@ -84,3 +85,11 @@ class YahooVIXClient:
         except Exception as e:
             logging.error(f"YahooVIXClient Fetch Error: {e}")
             return pd.DataFrame()
+
+    async def async_get_market_data(self, lookback_minutes=300, force_fetch=False):
+        """Async wrapper for get_market_data() to avoid blocking the event loop."""
+        return await asyncio.to_thread(
+            self.get_market_data,
+            lookback_minutes=lookback_minutes,
+            force_fetch=force_fetch,
+        )
