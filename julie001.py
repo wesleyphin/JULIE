@@ -256,6 +256,98 @@ def consensus_ml_ok(signal: Optional[dict], fallback_name: Optional[str] = None)
     return conf_val >= required
 
 
+def ml_vol_regime_ok(
+    signal: Optional[dict],
+    session_name: Optional[str],
+    vol_regime: Optional[str],
+) -> bool:
+    """Require stronger ML confidence by volatility regime."""
+    cfg = CONFIG.get("ML_PHYSICS_VOL_REGIME_GUARD", {}) or {}
+    if not cfg.get("enabled", True):
+        return True
+    if not signal:
+        return False
+    strat = str(signal.get("strategy") or "")
+    if not strat.startswith("MLPhysics"):
+        return True
+    conf = signal.get("ml_confidence")
+    threshold = signal.get("ml_threshold")
+    if conf is None or threshold is None:
+        return False
+    try:
+        conf_val = float(conf)
+        thr_val = float(threshold)
+    except Exception:
+        return False
+
+    regime_key = str(vol_regime or signal.get("vol_regime") or "normal").lower()
+    if regime_key in ("unknown", "none", "nan"):
+        regime_key = "normal"
+
+    base_cfg = cfg.get("default", {}) or {}
+    session_cfg = {}
+    if session_name:
+        sess_map = cfg.get("sessions", {}) or {}
+        session_key = str(session_name).upper()
+        if session_key in sess_map:
+            session_cfg = sess_map.get(session_key) or {}
+        else:
+            session_cfg = sess_map.get(session_name) or {}
+
+    reg_cfg: dict = {}
+
+    def merge(src):
+        if isinstance(src, dict):
+            reg_cfg.update(src)
+
+    merge(base_cfg.get("all"))
+    merge(base_cfg.get(regime_key))
+    merge(session_cfg.get("all"))
+    merge(session_cfg.get(regime_key))
+
+    if reg_cfg.get("block"):
+        return False
+    side = str(signal.get("side", "")).upper()
+    block_sides = reg_cfg.get("block_sides") or reg_cfg.get("block_side")
+    if block_sides:
+        try:
+            block_set = {str(item).upper() for item in block_sides}
+        except Exception:
+            block_set = set()
+        if side in block_set:
+            return False
+
+    delta = reg_cfg.get("min_conf_delta", 0.0)
+    if isinstance(delta, dict):
+        delta = delta.get(side, delta.get("default", 0.0))
+    try:
+        delta_val = float(delta or 0.0)
+    except Exception:
+        delta_val = 0.0
+    required = thr_val + delta_val
+
+    side_extra = reg_cfg.get("side_extra_delta")
+    if isinstance(side_extra, dict) and side in side_extra:
+        try:
+            required += float(side_extra[side])
+        except Exception:
+            pass
+
+    min_conf = reg_cfg.get("min_conf")
+    if min_conf is not None:
+        try:
+            required = max(required, float(min_conf))
+        except Exception:
+            pass
+    max_conf = reg_cfg.get("max_conf")
+    if max_conf is not None:
+        try:
+            required = min(required, float(max_conf))
+        except Exception:
+            pass
+    return conf_val >= required
+
+
 def trim_incomplete_resample(df: pd.DataFrame, last_bar_time: datetime.datetime, timeframe_minutes: int) -> pd.DataFrame:
     """
     Drop the last resampled bar if the current 1m bar does not complete the window.
@@ -2692,6 +2784,12 @@ async def run_bot():
                 # -----------------------------------------------------------------
                 candidate_signals.sort(key=lambda x: x[0])
 
+                vol_regime_current = None
+                try:
+                    vol_regime_current, _, _ = volatility_filter.get_regime(new_df)
+                except Exception:
+                    vol_regime_current = None
+
                 # Multi-strategy consensus override (vote-based)
                 direction_counts = {"LONG": 0, "SHORT": 0}
                 smt_side = None
@@ -2701,8 +2799,11 @@ async def run_bot():
                     side = sig.get("side")
                     if side in direction_counts:
                         strat_label = sig.get("strategy", s_name)
-                        if str(strat_label).startswith("MLPhysics") and not consensus_ml_ok(sig, s_name):
-                            continue
+                        if str(strat_label).startswith("MLPhysics"):
+                            if not consensus_ml_ok(sig, s_name):
+                                continue
+                            if not ml_vol_regime_ok(sig, base_session, vol_regime_current):
+                                continue
                         weight = 2 if s_name == "SMTStrategy" else 1
                         direction_counts[side] += weight
                     if s_name == "SMTStrategy":
@@ -2727,7 +2828,10 @@ async def run_bot():
                         if sig.get("side") == consensus_side
                         and (
                             not str(sig.get("strategy", s_name)).startswith("MLPhysics")
-                            or consensus_ml_ok(sig, s_name)
+                            or (
+                                consensus_ml_ok(sig, s_name)
+                                and ml_vol_regime_ok(sig, base_session, vol_regime_current)
+                            )
                         )
                     ]
                     if consensus_candidates:
@@ -3013,6 +3117,12 @@ async def run_bot():
                         signal['sl_dist'] = vol_adj['sl_dist']
                         signal['tp_dist'] = vol_adj['tp_dist']
                         if vol_adj.get('adjustment_applied', False): signal['size'] = vol_adj['size']
+                        signal['vol_regime'] = vol_adj.get('regime', 'UNKNOWN')
+                        if not ml_vol_regime_ok(signal, base_session, signal['vol_regime']):
+                            log_filter_block("MLVolRegimeGuard", f"regime={signal['vol_regime']}")
+                            if is_rescued:
+                                log_rescue_failed("MLVolRegimeGuard")
+                            continue
 
                         do_execute = True
 
@@ -3246,6 +3356,12 @@ async def run_bot():
                         signal['tp_dist'] = vol_adj['tp_dist']
                         if vol_adj.get('adjustment_applied', False):
                             signal['size'] = vol_adj['size']
+                        signal['vol_regime'] = vol_adj.get('regime', 'UNKNOWN')
+                        if not ml_vol_regime_ok(signal, base_session, signal['vol_regime']):
+                            log_filter_block("MLVolRegimeGuard", f"regime={signal['vol_regime']}")
+                            if is_rescued:
+                                log_rescue_failed("MLVolRegimeGuard")
+                            continue
                         do_execute = True
                     if not do_execute:
                         continue
@@ -3601,6 +3717,16 @@ async def run_bot():
                                 # regardless of whether a 'regime' change happened.
                                 sig['sl_dist'] = vol_adj['sl_dist']
                                 sig['tp_dist'] = vol_adj['tp_dist']
+                                sig['vol_regime'] = vol_adj.get('regime', 'UNKNOWN')
+                                if not ml_vol_regime_ok(sig, base_session, sig['vol_regime']):
+                                    event_logger.log_filter_check(
+                                        "MLVolRegimeGuard",
+                                        sig['side'],
+                                        False,
+                                        f"regime={sig['vol_regime']}",
+                                        strategy=sig.get('strategy', s_name)
+                                    )
+                                    del pending_loose_signals[s_name]; continue
 
                                 # Only apply SIZE adjustment if the regime explicitly demands it (Low Vol)
                                 if vol_adj.get('adjustment_applied', False):
@@ -3871,6 +3997,16 @@ async def run_bot():
                                         # regardless of whether a 'regime' change happened.
                                         signal['sl_dist'] = vol_adj['sl_dist']
                                         signal['tp_dist'] = vol_adj['tp_dist']
+                                        signal['vol_regime'] = vol_adj.get('regime', 'UNKNOWN')
+                                        if not ml_vol_regime_ok(signal, base_session, signal['vol_regime']):
+                                            event_logger.log_filter_check(
+                                                "MLVolRegimeGuard",
+                                                signal['side'],
+                                                False,
+                                                f"regime={signal['vol_regime']}",
+                                                strategy=signal.get('strategy', s_name)
+                                            )
+                                            continue
 
                                         # Only apply SIZE adjustment if the regime explicitly demands it (Low Vol)
                                         if vol_adj.get('adjustment_applied', False):

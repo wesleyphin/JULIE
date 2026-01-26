@@ -13,8 +13,10 @@ Thresholds derived from 2023-2025 MES futures data (958,390 active bars).
 import pandas as pd
 import numpy as np
 import logging
-from typing import Dict, Tuple
+from collections import defaultdict
+from typing import Dict, Tuple, Optional
 from zoneinfo import ZoneInfo
+from config import CONFIG
 
 # ============================================================
 # HIERARCHICAL VOLATILITY THRESHOLDS (320 combinations)
@@ -342,6 +344,38 @@ VOLATILITY_HIERARCHY = {
     "Q4_W4_FRI_NY_PM": {"p10": 9.48e-05, "p25": 0.0001427, "median": 0.0002145, "p75": 0.0003247},
 }
 
+
+def _build_coarse_map(include_quarter: bool) -> Dict[str, Dict[str, float]]:
+    buckets = defaultdict(lambda: {"p10": [], "p25": [], "median": [], "p75": []})
+    for key, values in VOLATILITY_HIERARCHY.items():
+        parts = key.split("_")
+        if len(parts) < 4:
+            continue
+        quarter, _, dow, session = parts[0], parts[1], parts[2], parts[3]
+        if include_quarter:
+            coarse_key = f"{quarter}_{dow}_{session}"
+        else:
+            coarse_key = f"{dow}_{session}"
+        bucket = buckets[coarse_key]
+        for metric in ("p10", "p25", "median", "p75"):
+            bucket[metric].append(float(values.get(metric, 0.0)))
+
+    coarse = {}
+    for key, metrics in buckets.items():
+        if not metrics["p10"]:
+            continue
+        coarse[key] = {
+            "p10": float(np.median(metrics["p10"])),
+            "p25": float(np.median(metrics["p25"])),
+            "median": float(np.median(metrics["median"])),
+            "p75": float(np.median(metrics["p75"])),
+        }
+    return coarse
+
+
+COARSE_VOLATILITY_HIERARCHY = _build_coarse_map(include_quarter=True)
+COARSE_VOLATILITY_HIERARCHY_NO_Q = _build_coarse_map(include_quarter=False)
+
 # Session-level fallbacks
 SESSION_FALLBACKS = {
     "ASIA": {"p10": 0.0000506, "p25": 0.0000640, "median": 0.0000867, "p75": 0.0001263},
@@ -383,6 +417,8 @@ class HierarchicalVolatilityFilter:
         self._last_std = None
         self._last_regime = None
         self._last_key = None
+        self._calibrated_thresholds = {}
+        self._calibrated_sessions = set()
     
     @staticmethod
     def get_yearly_quarter(month: int) -> str:
@@ -406,22 +442,85 @@ class HierarchicalVolatilityFilter:
         elif 8 <= hour < 12: return 'NY_AM'
         elif 12 <= hour < 17: return 'NY_PM'
         return 'CLOSED'
+
+    @staticmethod
+    def _hierarchy_mode() -> Tuple[str, bool]:
+        cfg = CONFIG.get("VOLATILITY_HIERARCHY_MODE", {}) or {}
+        mode = str(cfg.get("mode", "full") or "full").lower()
+        include_quarter = bool(cfg.get("include_quarter", True))
+        return mode, include_quarter
+
+    def _std_window_for_session(self, session: str) -> int:
+        cfg = CONFIG.get("VOLATILITY_STD_WINDOWS", {}) or {}
+        default = int(cfg.get("default", self.std_window) or self.std_window)
+        sessions = cfg.get("sessions", {}) or {}
+        try:
+            window = int(sessions.get(session, default))
+        except Exception:
+            window = default
+        return window if window > 0 else default
+
+    def _std_scale(self, df: pd.DataFrame, session: str) -> float:
+        cfg = CONFIG.get("VOLATILITY_STD_WINDOW_SCALING", {}) or {}
+        if not cfg.get("enabled", True):
+            return 1.0
+        default_window = int(CONFIG.get("VOLATILITY_STD_WINDOWS", {}).get("default", self.std_window) or self.std_window)
+        session_window = self._std_window_for_session(session)
+        if session_window == default_window:
+            return 1.0
+        lookback = int(cfg.get("lookback", 200) or 200)
+        try:
+            min_scale = float(cfg.get("min", 0.5))
+            max_scale = float(cfg.get("max", 2.0))
+        except Exception:
+            min_scale, max_scale = 0.5, 2.0
+        if len(df) < max(default_window, session_window) + 2:
+            return 1.0
+        returns = df["close"].pct_change()
+        std_default = returns.rolling(default_window).std()
+        std_session = returns.rolling(session_window).std()
+        ratio = (std_session / std_default).replace([np.inf, -np.inf], np.nan).dropna()
+        if ratio.empty:
+            return 1.0
+        recent = ratio.iloc[-lookback:] if len(ratio) > lookback else ratio
+        try:
+            scale = float(np.median(recent.to_numpy()))
+        except Exception:
+            scale = 1.0
+        if not np.isfinite(scale) or scale <= 0:
+            scale = 1.0
+        scale = max(min_scale, min(max_scale, scale))
+        return scale
     
     def get_hierarchy_key(self, ts) -> str:
         yq = self.get_yearly_quarter(ts.month)
         mq = self.get_monthly_quarter(ts.day)
         dow = self.get_dow_name(ts.weekday())
         sess = self.get_session(ts.hour)
+        mode, include_quarter = self._hierarchy_mode()
+        if mode == "coarse":
+            if include_quarter:
+                return f"{yq}_{dow}_{sess}"
+            return f"{dow}_{sess}"
         return f"{yq}_{mq}_{dow}_{sess}"
     
     def get_thresholds(self, ts) -> Tuple[Dict, str]:
         """Get volatility thresholds for current time hierarchy."""
         key = self.get_hierarchy_key(ts)
         session = self.get_session(ts.hour)
-        
+        mode, include_quarter = self._hierarchy_mode()
+
+        if key in self._calibrated_thresholds:
+            return self._calibrated_thresholds[key], f"CAL_{key}"
+
         # Try hierarchy first
-        if key in VOLATILITY_HIERARCHY:
-            return VOLATILITY_HIERARCHY[key], key
+        if mode == "coarse":
+            hierarchy = COARSE_VOLATILITY_HIERARCHY if include_quarter else COARSE_VOLATILITY_HIERARCHY_NO_Q
+            if key in hierarchy:
+                return hierarchy[key], key
+        else:
+            if key in VOLATILITY_HIERARCHY:
+                return VOLATILITY_HIERARCHY[key], key
         
         # Fallback to session
         if session in SESSION_FALLBACKS:
@@ -430,12 +529,17 @@ class HierarchicalVolatilityFilter:
         # Ultimate fallback
         return {"p10": 0.00008, "p25": 0.00012, "median": 0.00018, "p75": 0.00028}, "FALLBACK"
     
-    def calculate_volatility(self, df: pd.DataFrame) -> float:
+    def calculate_volatility(self, df: pd.DataFrame, ts=None, session: Optional[str] = None) -> float:
         """Calculate current 20-period standard deviation of returns."""
-        if len(df) < self.std_window + 1:
+        if session is None:
+            if ts is None:
+                ts = df.index[-1]
+            session = self.get_session(ts.hour)
+        window = self._std_window_for_session(session)
+        if len(df) < window + 1:
             return 0.0
         returns = df['close'].pct_change()
-        std = returns.rolling(self.std_window).std().iloc[-1]
+        std = returns.rolling(window).std().iloc[-1]
         return std if not np.isnan(std) else 0.0
     
     def get_regime(self, df: pd.DataFrame, ts=None) -> Tuple[str, float, str]:
@@ -446,9 +550,19 @@ class HierarchicalVolatilityFilter:
         """
         if ts is None:
             ts = df.index[-1]
-        
+        session = self.get_session(ts.hour)
         thresholds, key = self.get_thresholds(ts)
-        current_std = self.calculate_volatility(df)
+        scale = 1.0
+        if not str(key).startswith("CAL_"):
+            scale = self._std_scale(df, session)
+        if scale != 1.0:
+            thresholds = {
+                "p10": thresholds["p10"] * scale,
+                "p25": thresholds["p25"] * scale,
+                "median": thresholds["median"] * scale,
+                "p75": thresholds["p75"] * scale,
+            }
+        current_std = self.calculate_volatility(df, ts=ts, session=session)
         
         # Cache
         self._last_std = current_std
@@ -541,6 +655,24 @@ class HierarchicalVolatilityFilter:
                 adj_tp = base_tp * tp_mult
                 adj_size = max(1, int(base_size * self.low_vol_size_mult))
                 adjustment_applied = True
+        elif regime == VolRegime.NORMAL:
+            normal_cfg = CONFIG.get("VOLATILITY_NORMAL_ADJUSTMENTS", {}) or {}
+            if normal_cfg.get("enabled"):
+                session = self.get_session(ts.hour) if ts is not None else self.get_session(df.index[-1].hour)
+                default_cfg = normal_cfg.get("default", {}) or {}
+                session_cfg = (normal_cfg.get("sessions", {}) or {}).get(session, {}) or {}
+                try:
+                    sl_mult = float(session_cfg.get("sl_mult", default_cfg.get("sl_mult", 1.0)))
+                except Exception:
+                    sl_mult = 1.0
+                try:
+                    tp_mult = float(session_cfg.get("tp_mult", default_cfg.get("tp_mult", 1.0)))
+                except Exception:
+                    tp_mult = 1.0
+                if sl_mult != 1.0 or tp_mult != 1.0:
+                    adj_sl = base_sl * sl_mult
+                    adj_tp = base_tp * tp_mult
+                    adjustment_applied = True
 
         elif regime == VolRegime.HIGH:
             # High Vol: Tighten everything
@@ -610,16 +742,27 @@ class HierarchicalVolatilityFilter:
 
         logging.info(f"⚙️ STARTUP CALIBRATION: Analyzing {len(df)} bars to adjust volatility map...")
 
-        # 1. Prepare Data
-        # We perform the same math as the filter uses live
+        # 1. Prepare Data with session-specific std windows
         df_cal = df.copy()
         df_cal['returns'] = df_cal['close'].pct_change()
-        df_cal['std'] = df_cal['returns'].rolling(self.std_window).std()
-        df_cal = df_cal.dropna(subset=['std'])  # Drop the first 20 NaN bars
+        sessions = []
+        for ts in df_cal.index:
+            sessions.append(self.get_session(ts.hour))
+        df_cal['session'] = sessions
+
+        windows = {self._std_window_for_session(sess) for sess in set(sessions)}
+        std_map = {}
+        for window in windows:
+            std_map[window] = df_cal['returns'].rolling(window).std()
+
+        std_series = []
+        for sess, ts in zip(sessions, df_cal.index):
+            window = self._std_window_for_session(sess)
+            std_series.append(std_map[window].loc[ts])
+        df_cal['std'] = pd.Series(std_series, index=df_cal.index)
+        df_cal = df_cal.dropna(subset=['std'])
 
         # 2. Tag Data with Hierarchy Keys
-        # We apply the exact same key generation logic (Year_Week_Day_Session)
-        # Optimization: We iterate once to build keys
         hierarchy_keys = []
         for ts in df_cal.index:
             hierarchy_keys.append(self.get_hierarchy_key(ts))
@@ -632,6 +775,7 @@ class HierarchicalVolatilityFilter:
         updates = 0
         skipped = 0
 
+        calibrated = {}
         for key, group in grouped:
             # Only update if we have statistically significant recent data for this specific slot
             if len(group) < min_samples:
@@ -644,25 +788,25 @@ class HierarchicalVolatilityFilter:
             new_med = float(group.median())
             new_p75 = float(group.quantile(0.75))
 
-            # 4. Overwrite the Memory Map
-            # Check if this key exists in our static map, or if it's new
-            # If it exists, we overwrite it. If not, we create it.
+            # Log significant drifts vs static map (if present)
             if key in VOLATILITY_HIERARCHY:
-                # Log significant drifts (>20% change) for debugging
                 old_p75 = VOLATILITY_HIERARCHY[key]['p75']
-                drift = abs(new_p75 - old_p75) / old_p75
-                if drift > 0.20:
-                    logging.info(f"   🌊 DRIFT DETECTED [{key}]: p75 shifted {old_p75:.6f} -> {new_p75:.6f} ({drift:.1%})")
+                if old_p75:
+                    drift = abs(new_p75 - old_p75) / old_p75
+                    if drift > 0.20:
+                        logging.info(
+                            f"   🌊 DRIFT DETECTED [{key}]: p75 shifted {old_p75:.6f} -> {new_p75:.6f} ({drift:.1%})"
+                        )
 
-            # ATOMIC UPDATE
-            VOLATILITY_HIERARCHY[key] = {
+            calibrated[key] = {
                 "p10": new_p10,
                 "p25": new_p25,
                 "median": new_med,
                 "p75": new_p75
             }
             updates += 1
-
+        self._calibrated_thresholds = calibrated
+        self._calibrated_sessions = set(df_cal['session'].unique())
         logging.info(f"✅ CALIBRATION COMPLETE: Updated {updates} regime buckets based on recent market conditions.")
 
 

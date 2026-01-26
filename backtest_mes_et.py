@@ -1314,6 +1314,98 @@ def consensus_ml_ok(signal: Optional[dict]) -> bool:
     return conf_val >= required
 
 
+def ml_vol_regime_ok(
+    signal: Optional[dict],
+    session_name: Optional[str],
+    vol_regime: Optional[str],
+) -> bool:
+    """Require stronger ML confidence by volatility regime."""
+    cfg = CONFIG.get("ML_PHYSICS_VOL_REGIME_GUARD", {}) or {}
+    if not cfg.get("enabled", True):
+        return True
+    if not signal:
+        return False
+    strat = str(signal.get("strategy", ""))
+    if not strat.startswith("MLPhysics"):
+        return True
+    conf = signal.get("ml_confidence")
+    threshold = signal.get("ml_threshold")
+    if conf is None or threshold is None:
+        return False
+    try:
+        conf_val = float(conf)
+        thr_val = float(threshold)
+    except Exception:
+        return False
+
+    regime_key = str(vol_regime or signal.get("vol_regime") or "normal").lower()
+    if regime_key in ("unknown", "none", "nan"):
+        regime_key = "normal"
+
+    base_cfg = cfg.get("default", {}) or {}
+    session_cfg = {}
+    if session_name:
+        sess_map = cfg.get("sessions", {}) or {}
+        session_key = str(session_name).upper()
+        if session_key in sess_map:
+            session_cfg = sess_map.get(session_key) or {}
+        else:
+            session_cfg = sess_map.get(session_name) or {}
+
+    reg_cfg: dict = {}
+
+    def merge(src):
+        if isinstance(src, dict):
+            reg_cfg.update(src)
+
+    merge(base_cfg.get("all"))
+    merge(base_cfg.get(regime_key))
+    merge(session_cfg.get("all"))
+    merge(session_cfg.get(regime_key))
+
+    if reg_cfg.get("block"):
+        return False
+    side = str(signal.get("side", "")).upper()
+    block_sides = reg_cfg.get("block_sides") or reg_cfg.get("block_side")
+    if block_sides:
+        try:
+            block_set = {str(item).upper() for item in block_sides}
+        except Exception:
+            block_set = set()
+        if side in block_set:
+            return False
+
+    delta = reg_cfg.get("min_conf_delta", 0.0)
+    if isinstance(delta, dict):
+        delta = delta.get(side, delta.get("default", 0.0))
+    try:
+        delta_val = float(delta or 0.0)
+    except Exception:
+        delta_val = 0.0
+    required = thr_val + delta_val
+
+    side_extra = reg_cfg.get("side_extra_delta")
+    if isinstance(side_extra, dict) and side in side_extra:
+        try:
+            required += float(side_extra[side])
+        except Exception:
+            pass
+
+    min_conf = reg_cfg.get("min_conf")
+    if min_conf is not None:
+        try:
+            required = max(required, float(min_conf))
+        except Exception:
+            pass
+    max_conf = reg_cfg.get("max_conf")
+    if max_conf is not None:
+        try:
+            required = min(required, float(max_conf))
+        except Exception:
+            pass
+    return conf_val >= required
+
+
 def add_bypass_filters_from_trigger(bypass_list: list[str], trigger: Optional[str]) -> None:
     if not trigger:
         return
@@ -1589,6 +1681,7 @@ def save_backtest_report(
             "fees_per_20_contracts": FEES_PER_20_CONTRACTS,
             "bar_signal": "close",
             "entry": "next_open",
+            "fast_mode": stats.get("fast_mode"),
         },
         "report": stats.get("report", ""),
         "trade_log": stats.get("trade_log", []),
@@ -1612,6 +1705,13 @@ def run_backtest(
     CONFIG["DYNAMIC_SL_MULTIPLIER"] = 1.0
     CONFIG["DYNAMIC_TP_MULTIPLIER"] = 1.0
 
+    fast_cfg = CONFIG.get("BACKTEST_FAST_MODE", {}) or {}
+    fast_enabled = bool(fast_cfg.get("enabled"))
+    bar_stride = int(fast_cfg.get("bar_stride", 1) or 1)
+    if bar_stride < 1:
+        bar_stride = 1
+    skip_mfe_mae = bool(fast_cfg.get("skip_mfe_mae", False))
+
     # Backtest-only: enable ML vol-split sessions without changing live defaults
     backtest_split_sessions = CONFIG.get("ML_PHYSICS_VOL_SPLIT_BACKTEST_SESSIONS", [])
     if backtest_split_sessions:
@@ -1620,6 +1720,16 @@ def run_backtest(
         sessions.update(backtest_split_sessions)
         vol_split["sessions"] = sorted(sessions)
         vol_split["enabled"] = True
+
+    # Backtest-only: disable ML vol-split for specific sessions
+    backtest_unsplit_sessions = set(CONFIG.get("ML_PHYSICS_VOL_UNSPLIT_BACKTEST_SESSIONS", []))
+    if backtest_unsplit_sessions:
+        vol_split = CONFIG.setdefault("ML_PHYSICS_VOL_SPLIT", {})
+        sessions = set(vol_split.get("sessions", []))
+        sessions.difference_update(backtest_unsplit_sessions)
+        vol_split["sessions"] = sorted(sessions)
+        if not sessions:
+            vol_split["enabled"] = False
 
     param_scaler.apply_scaling()
     refresh_target_symbol()
@@ -1702,6 +1812,9 @@ def run_backtest(
     test_df = df[(df.index >= start_time) & (df.index <= end_time)]
     if test_df.empty:
         raise ValueError("No bars in range to backtest.")
+    if fast_enabled and bar_stride > 1:
+        warmup_df = warmup_df.iloc[::bar_stride]
+        test_df = test_df.iloc[::bar_stride]
     total_bars = len(test_df)
 
     full_df = pd.concat([warmup_df, test_df])
@@ -2507,14 +2620,15 @@ def run_backtest(
 
         if active_trade is not None:
             entry_price = active_trade["entry_price"]
-            if active_trade["side"] == "LONG":
-                mfe_points = bar_high - entry_price
-                mae_points = entry_price - bar_low
-            else:
-                mfe_points = entry_price - bar_low
-                mae_points = bar_high - entry_price
-            active_trade["mfe_points"] = max(active_trade.get("mfe_points", 0.0), mfe_points)
-            active_trade["mae_points"] = max(active_trade.get("mae_points", 0.0), mae_points)
+            if not skip_mfe_mae:
+                if active_trade["side"] == "LONG":
+                    mfe_points = bar_high - entry_price
+                    mae_points = entry_price - bar_low
+                else:
+                    mfe_points = entry_price - bar_low
+                    mae_points = bar_high - entry_price
+                active_trade["mfe_points"] = max(active_trade.get("mfe_points", 0.0), mfe_points)
+                active_trade["mae_points"] = max(active_trade.get("mae_points", 0.0), mae_points)
 
             exit_hit = check_stop_take(bar_high, bar_low)
             if exit_hit is not None:
@@ -2627,13 +2741,23 @@ def run_backtest(
                 if sig.get("strategy") not in ("DynamicEngine", "MLPhysics")
             ]
 
+        session_name = get_session_name(current_time)
+        vol_regime_current = None
+        try:
+            vol_regime_current, _, _ = volatility_filter.get_regime(history_df)
+        except Exception:
+            vol_regime_current = None
+
         direction_counts = {"LONG": 0, "SHORT": 0}
         smt_side = None
         for _, _, sig, s_name in candidate_signals:
             side = sig.get("side")
             if side in direction_counts:
-                if str(sig.get("strategy", "")).startswith("MLPhysics") and not consensus_ml_ok(sig):
-                    continue
+                if str(sig.get("strategy", "")).startswith("MLPhysics"):
+                    if not consensus_ml_ok(sig):
+                        continue
+                    if not ml_vol_regime_ok(sig, session_name, vol_regime_current):
+                        continue
                 weight = 2 if s_name == "SMTStrategy" else 1
                 direction_counts[side] += weight
             if s_name == "SMTStrategy":
@@ -2658,7 +2782,13 @@ def run_backtest(
                 (sig, s_name)
                 for _, _, sig, s_name in candidate_signals
                 if sig.get("side") == consensus_side
-                and (not str(sig.get("strategy", "")).startswith("MLPhysics") or consensus_ml_ok(sig))
+                and (
+                    not str(sig.get("strategy", "")).startswith("MLPhysics")
+                    or (
+                        consensus_ml_ok(sig)
+                        and ml_vol_regime_ok(sig, session_name, vol_regime_current)
+                    )
+                )
             ]
             if consensus_candidates:
                 consensus_tp_signal, consensus_tp_source = min(
@@ -2846,6 +2976,9 @@ def run_backtest(
                     if vol_adj.get("adjustment_applied", False):
                         signal["size"] = vol_adj["size"]
                     signal["vol_regime"] = vol_adj.get("regime", "UNKNOWN")
+                    if not ml_vol_regime_ok(signal, session_name, signal["vol_regime"]):
+                        record_filter("MLVolRegimeGuard")
+                        continue
                 if not consensus_rescued:
                     if consensus_secondary:
                         signal["consensus_contributors"] = consensus_secondary
@@ -3130,6 +3263,9 @@ def run_backtest(
             signal["sl_dist"] = vol_adj["sl_dist"]
             signal["tp_dist"] = vol_adj["tp_dist"]
             signal["vol_regime"] = vol_adj.get("regime", "UNKNOWN")
+            if not ml_vol_regime_ok(signal, session_name, signal["vol_regime"]):
+                record_filter("MLVolRegimeGuard")
+                continue
             signal["entry_mode"] = "rescued" if is_rescued else "standard"
 
             if hostile_day_active and (
@@ -3312,6 +3448,10 @@ def run_backtest(
                 sig["sl_dist"] = vol_adj["sl_dist"]
                 sig["tp_dist"] = vol_adj["tp_dist"]
                 sig["vol_regime"] = vol_adj.get("regime", "UNKNOWN")
+                if not ml_vol_regime_ok(sig, session_name, sig["vol_regime"]):
+                    record_filter("MLVolRegimeGuard")
+                    del pending_loose_signals[s_name]
+                    continue
                 sig["entry_mode"] = "loose"
 
                 handle_signal(sig)
@@ -3368,6 +3508,7 @@ def run_backtest(
         "cancelled": cancelled,
         "report": report_text,
         "trade_log": [serialize_trade(trade) for trade in tracker.trades],
+        "fast_mode": {"enabled": fast_enabled, "bar_stride": bar_stride, "skip_mfe_mae": skip_mfe_mae},
     }
 
 

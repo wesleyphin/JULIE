@@ -9,6 +9,7 @@ from config import CONFIG
 from dynamic_sltp_params import dynamic_sltp_engine
 from session_manager import SessionManager
 from strategy_base import Strategy
+from volatility_filter import volatility_filter, VolRegime
 
 # ==========================================
 # ML FEATURE PIPELINE (Synced with ml_train_v11.py)
@@ -361,6 +362,38 @@ class MLPhysicsStrategy(Strategy):
         X = pd.DataFrame([feature_vals], columns=ML_FEATURE_COLUMNS)
         return X
 
+    @staticmethod
+    def _efficiency_ratio(close: pd.Series, window: int) -> Optional[float]:
+        if close is None or len(close) < window + 1:
+            return None
+        recent = close.iloc[-(window + 1):]
+        net = float(abs(recent.iloc[-1] - recent.iloc[0]))
+        denom = float(recent.diff().abs().sum())
+        if denom <= 0:
+            return 0.0
+        return net / denom
+
+    @staticmethod
+    def _vwap_crosses(df: pd.DataFrame, window: int) -> Optional[int]:
+        if df is None or len(df) < window:
+            return None
+        if "close" not in df.columns or "volume" not in df.columns:
+            return None
+        price = df["close"]
+        volume = df["volume"]
+        pv = (price * volume).rolling(window).sum()
+        vv = volume.rolling(window).sum()
+        vwap = pv / vv.replace(0, np.nan)
+        delta = (price - vwap).iloc[-window:]
+        sign = np.sign(delta.to_numpy())
+        for i in range(1, len(sign)):
+            if sign[i] == 0:
+                sign[i] = sign[i - 1]
+        if len(sign) < 2:
+            return 0
+        crosses = np.sum(sign[1:] * sign[:-1] < 0)
+        return int(crosses)
+
     def on_bar(self, df: pd.DataFrame, current_time=None) -> Optional[Dict]:
         """
         Adapted from juliemlsession.py on_bar method.
@@ -419,38 +452,146 @@ class MLPhysicsStrategy(Strategy):
         if X is not None:
             model = setup.get("model")
             threshold = setup.get("threshold")
+            vol_split_cfg = CONFIG.get("ML_PHYSICS_VOL_SPLIT", {}) or {}
+            vol_split_3way = CONFIG.get("ML_PHYSICS_VOL_SPLIT_3WAY", {}) or {}
+            vol_guard = CONFIG.get("ML_PHYSICS_VOL_GUARD", {}) or {}
+            gate_cfg = CONFIG.get("ML_PHYSICS_HIGH_VOL_DIRECTIONAL_GATE", {}) or {}
+            bump_cfg = CONFIG.get("ML_PHYSICS_HIGH_VOL_THRESHOLD_BUMP", {}) or {}
+
+            split_regimes = set(setup.get("split_regimes") or [])
+            split_3way = bool(vol_split_3way.get("enabled")) and setup.get("name") in set(vol_split_3way.get("sessions", []))
+            if "normal" in split_regimes:
+                split_3way = True
+
+            regime_key = None
+            high_vol = False
+            if split_3way:
+                try:
+                    vol_regime, _, _ = volatility_filter.get_regime(hist_df)
+                except Exception:
+                    vol_regime = VolRegime.LOW
+                if vol_regime == VolRegime.ULTRA_LOW:
+                    vol_regime = VolRegime.LOW
+                if vol_regime == VolRegime.HIGH:
+                    regime_key = "high"
+                elif vol_regime == VolRegime.NORMAL:
+                    regime_key = "normal"
+                else:
+                    regime_key = "low"
+                high_vol = regime_key == "high"
+            else:
+                feature_name = (
+                    gate_cfg.get("feature")
+                    or vol_guard.get("feature")
+                    or vol_split_cfg.get("feature")
+                    or "High_Volatility"
+                )
+                if feature_name in X.columns:
+                    try:
+                        high_vol = float(X.iloc[0].get(feature_name, 0.0)) >= 0.5
+                    except Exception:
+                        high_vol = False
+                regime_key = "high" if high_vol else "low"
 
             # Volatility split: choose model/threshold by regime
             if setup.get("split") and isinstance(model, dict):
-                feature_name = (CONFIG.get("ML_PHYSICS_VOL_SPLIT", {}) or {}).get("feature", "High_Volatility")
-                try:
-                    high_vol = float(X.iloc[0].get(feature_name, 0.0)) >= 0.5
-                except Exception:
-                    high_vol = False
-                regime = "high" if high_vol else "low"
+                regime = regime_key or ("high" if high_vol else "low")
                 if regime in (setup.get("disabled_regimes") or set()):
                     logging.info(f"⚠️ MLPhysics {setup['name']} {regime} disabled by guardrails")
                     return None
-                model = model.get(regime)
-                if isinstance(threshold, dict):
-                    threshold = threshold.get(regime, threshold.get("low", setup.get("threshold")))
+                model_candidate = model.get(regime)
+                if model_candidate is None and regime == "normal":
+                    model_candidate = model.get("low") or model.get("high")
+                    if model_candidate is not None:
+                        logging.info(
+                            f"⚠️ MLPhysics {setup['name']} normal model missing; "
+                            "falling back to low/high"
+                        )
+                model = model_candidate
                 if model is None:
                     logging.info(f"⚠️ MLPhysics {setup['name']} missing {regime} model")
                     return None
             else:
                 # Optional volatility guard (skip ML trades during high-vol regimes)
-                vol_guard = CONFIG.get("ML_PHYSICS_VOL_GUARD", {}) or {}
                 if vol_guard.get("enabled"):
                     guard_sessions = set(vol_guard.get("sessions", []))
-                    feature_name = vol_guard.get("feature", "High_Volatility")
-                if setup.get("name") in guard_sessions and feature_name in X.columns:
+                    if setup.get("name") in guard_sessions and high_vol:
+                        logging.info(f"⚠️ MLPhysics {setup['name']} blocked (high volatility)")
+                        return None
+
+            if isinstance(threshold, dict):
+                key = regime_key or ("high" if high_vol else "low")
+                threshold = threshold.get(key, threshold.get("low", threshold.get("high", setup.get("threshold"))))
+
+            ny_normal_cfg = CONFIG.get("ML_PHYSICS_NY_NORMAL_FILTER", {}) or {}
+            normal_margin = None
+            if ny_normal_cfg.get("enabled") and setup.get("name") in ("NY_AM", "NY_PM") and regime_key == "normal":
+                er_window = int(ny_normal_cfg.get("er_window", 30) or 30)
+                vwap_window = int(ny_normal_cfg.get("vwap_cross_window", 60) or 60)
+                er_min = float(ny_normal_cfg.get("er_min", 0.25) or 0.25)
+                vwap_cross_max = int(ny_normal_cfg.get("vwap_cross_max", 3) or 3)
+                er_value = self._efficiency_ratio(hist_df["close"], er_window)
+                vwap_crosses = self._vwap_crosses(hist_df, vwap_window)
+                if er_value is None or vwap_crosses is None:
+                    logging.info(f"⚠️ MLPhysics {setup['name']} normal: insufficient data for ER/VWAP filter")
+                    return None
+                is_trend = (er_value >= er_min) and (vwap_crosses <= vwap_cross_max)
+                if not is_trend and ny_normal_cfg.get("block_chop", True):
+                    logging.info(
+                        f"⚠️ MLPhysics {setup['name']} normal chop blocked "
+                        f"(ER={er_value:.2f} VWAPx={vwap_crosses})"
+                    )
+                    return None
+                try:
+                    normal_margin = float(ny_normal_cfg.get("margin", 0.0) or 0.0)
+                except Exception:
+                    normal_margin = None
+
+            # High-vol threshold bump
+            if high_vol and bump_cfg.get("enabled"):
+                bump_sessions = set(bump_cfg.get("sessions", []))
+                if setup.get("name") in bump_sessions:
+                    try:
+                        bump = float(bump_cfg.get("bump", 0.0) or 0.0)
+                    except Exception:
+                        bump = 0.0
+                    if bump > 0:
                         try:
-                            high_vol = float(X.iloc[0][feature_name]) >= 0.5
+                            max_thr = float(bump_cfg.get("max_threshold", 0.95))
                         except Exception:
-                            high_vol = False
-                        if high_vol:
-                            logging.info(f"⚠️ MLPhysics {setup['name']} blocked (high volatility)")
-                            return None
+                            max_thr = 0.95
+                        new_threshold = min(max_thr, float(threshold) + bump)
+                        if new_threshold != threshold:
+                            logging.info(
+                                f"⚠️ MLPhysics {setup['name']} high-vol threshold bump: "
+                                f"{threshold:.2f} -> {new_threshold:.2f}"
+                            )
+                        threshold = new_threshold
+
+            # High-vol directional gate config
+            gate_block_sides = set()
+            gate_min_conf = None
+            if high_vol and gate_cfg.get("enabled"):
+                overrides = gate_cfg.get("overrides", {}) or {}
+                sess_cfg = overrides.get(setup.get("name"), {}) if isinstance(overrides, dict) else {}
+                gate_block_sides = {str(s).upper() for s in sess_cfg.get("block", [])}
+                if gate_block_sides:
+                    delta = sess_cfg.get("min_conf_delta", gate_cfg.get("min_conf_delta", 0.0))
+                    min_conf = sess_cfg.get("min_conf", gate_cfg.get("min_conf"))
+                    if min_conf is None:
+                        min_conf = float(threshold) + float(delta or 0.0)
+                    else:
+                        try:
+                            min_conf = float(min_conf)
+                        except Exception:
+                            min_conf = float(threshold)
+                        if delta:
+                            min_conf = max(min_conf, float(threshold) + float(delta))
+                    try:
+                        max_conf = float(sess_cfg.get("max_conf", gate_cfg.get("max_conf", 0.95)))
+                    except Exception:
+                        max_conf = 0.95
+                    gate_min_conf = min(max_conf, min_conf)
 
             # Align columns to what the specific brain expects
             if hasattr(model, "feature_names_in_"):
@@ -465,6 +606,15 @@ class MLPhysicsStrategy(Strategy):
                 req = threshold if isinstance(threshold, (int, float)) else setup['threshold']
                 short_req = 1.0 - req
 
+                if regime_key == "normal" and normal_margin is not None and normal_margin > 0:
+                    margin_val = abs(prob_up - 0.5)
+                    if margin_val < normal_margin:
+                        logging.info(
+                            f"⚠️ MLPhysics {setup['name']} normal margin block "
+                            f"(margin {margin_val:.3f} < {normal_margin:.3f})"
+                        )
+                        return None
+
                 logging.info(
                     f"{setup['name']} Analysis {status} | "
                     f"ConfUp: {prob_up:.1%} (Req>= {req:.1%}) | "
@@ -473,6 +623,13 @@ class MLPhysicsStrategy(Strategy):
 
                 # LONG signal: high probability of up move
                 if prob_up >= req:
+                    if high_vol and "LONG" in gate_block_sides and gate_min_conf is not None:
+                        if prob_up < gate_min_conf:
+                            logging.info(
+                                f"⚠️ MLPhysics {setup['name']} LONG blocked in high vol "
+                                f"(conf {prob_up:.1%} < gate {gate_min_conf:.1%})"
+                            )
+                            return None
                     # Get dynamic SL/TP from engine
                     sltp = dynamic_sltp_engine.calculate_dynamic_sltp(hist_df)
                     logging.info(
@@ -491,6 +648,13 @@ class MLPhysicsStrategy(Strategy):
 
                 # SHORT signal: high probability of down move (low prob_up)
                 elif prob_up <= (1.0 - req):
+                    if high_vol and "SHORT" in gate_block_sides and gate_min_conf is not None:
+                        if prob_down < gate_min_conf:
+                            logging.info(
+                                f"⚠️ MLPhysics {setup['name']} SHORT blocked in high vol "
+                                f"(conf {prob_down:.1%} < gate {gate_min_conf:.1%})"
+                            )
+                            return None
                     sltp = dynamic_sltp_engine.calculate_dynamic_sltp(hist_df)
                     logging.info(
                         f"🎯 {setup['name']} SHORT SIGNAL CONFIRMED "

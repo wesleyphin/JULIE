@@ -1,6 +1,7 @@
 import argparse
 import json
 import logging
+import warnings
 from pathlib import Path
 from typing import Dict, List, Tuple, Optional
 
@@ -29,6 +30,14 @@ from ml_physics_strategy import (
     ZSCORE_WINDOW,
     RVOL_LOOKBACK_DAYS,
 )
+from volatility_filter import (
+    VOLATILITY_HIERARCHY,
+    COARSE_VOLATILITY_HIERARCHY,
+    COARSE_VOLATILITY_HIERARCHY_NO_Q,
+    SESSION_FALLBACKS,
+    VolRegime,
+    volatility_filter,
+)
 
 try:
     from sklearn.ensemble import HistGradientBoostingClassifier
@@ -36,6 +45,13 @@ except Exception:
     HistGradientBoostingClassifier = None
 
 FALLBACK_PARAMS = {"sl_mult": 2.0, "tp_mult": 2.5, "atr_med": 1.5}
+
+# Silence sklearn calibration FutureWarning about cv='prefit'
+warnings.filterwarnings(
+    "ignore",
+    message=r".*cv='prefit'.*deprecated.*",
+    category=FutureWarning,
+)
 
 
 def _load_csv(csv_path: Path) -> pd.DataFrame:
@@ -96,7 +112,52 @@ def _drop_gap_days(df: pd.DataFrame, max_gap_minutes: float) -> Tuple[pd.DataFra
     idx_series = pd.Series(idx, index=idx)
     gaps = idx_series.diff()
     gaps[day_index != day_index.shift()] = pd.Timedelta(0)
-    gap_minutes = gaps.dt.total_seconds().fillna(0) / 60.0
+
+    maint_cfg = CONFIG.get("TRAINING_MAINTENANCE_WINDOW", {}) or {}
+    start_str = str(maint_cfg.get("start", "17:00"))
+    end_str = str(maint_cfg.get("end", "18:00"))
+    try:
+        tol_minutes = float(maint_cfg.get("tolerance_minutes", 0.0) or 0.0)
+    except Exception:
+        tol_minutes = 0.0
+
+    def _parse_time(value: str) -> pd.Timedelta:
+        try:
+            parts = value.split(":")
+            hour = int(parts[0])
+            minute = int(parts[1]) if len(parts) > 1 else 0
+        except Exception:
+            hour, minute = 17, 0
+        return pd.Timedelta(hours=hour, minutes=minute)
+
+    mw_start = _parse_time(start_str) - pd.Timedelta(minutes=tol_minutes)
+    mw_end = _parse_time(end_str) + pd.Timedelta(minutes=tol_minutes)
+
+    prev_ts = idx_series.shift(1)
+    curr_ts = idx_series
+    same_day = day_index == day_index.shift()
+    adjusted_gap = gaps.copy()
+    if mw_start < mw_end:
+        overlaps = []
+        for start, end, same in zip(prev_ts, curr_ts, same_day):
+            if not same or pd.isna(start) or pd.isna(end):
+                overlaps.append(pd.Timedelta(0))
+                continue
+            day = end.normalize()
+            window_start = day + mw_start
+            window_end = day + mw_end
+            if end <= window_start or start >= window_end:
+                overlaps.append(pd.Timedelta(0))
+                continue
+            overlap = min(end, window_end) - max(start, window_start)
+            if overlap < pd.Timedelta(0):
+                overlap = pd.Timedelta(0)
+            overlaps.append(overlap)
+        overlap_series = pd.Series(overlaps, index=idx_series.index)
+        adjusted_gap = gaps - overlap_series
+        adjusted_gap = adjusted_gap.clip(lower=pd.Timedelta(0))
+
+    gap_minutes = adjusted_gap.dt.total_seconds().fillna(0) / 60.0
     max_gap_by_day = gap_minutes.groupby(day_index).max()
     drop_days = max_gap_by_day[max_gap_by_day > max_gap_minutes].index
     if drop_days.empty:
@@ -166,6 +227,80 @@ def _build_hierarchy_keys(index: pd.DatetimeIndex, sessions: np.ndarray) -> np.n
     keys = np.char.add(np.char.add(np.char.add(np.char.add(yq, "_"), mq), "_"), dow)
     keys = np.char.add(np.char.add(keys, "_"), sessions)
     return keys
+
+
+def _build_coarse_keys(index: pd.DatetimeIndex, sessions: np.ndarray, include_quarter: bool) -> np.ndarray:
+    months = index.month.to_numpy()
+    dows = index.weekday.to_numpy()
+    dow = _dow_name(dows)
+    if include_quarter:
+        yq = _yearly_quarter(months)
+        keys = np.char.add(np.char.add(yq, "_"), dow)
+        keys = np.char.add(np.char.add(keys, "_"), sessions)
+        return keys
+    keys = np.char.add(np.char.add(dow, "_"), sessions)
+    return keys
+
+
+def _compute_vol_regimes(df: pd.DataFrame) -> pd.Series:
+    if df.empty:
+        return pd.Series(dtype=object)
+    index = df.index
+    sessions = _session_from_hours(index.hour.to_numpy())
+    mode_cfg = CONFIG.get("VOLATILITY_HIERARCHY_MODE", {}) or {}
+    mode = str(mode_cfg.get("mode", "full") or "full").lower()
+    include_quarter = bool(mode_cfg.get("include_quarter", True))
+    if mode == "coarse":
+        keys = _build_coarse_keys(index, sessions, include_quarter)
+        thresholds_map = COARSE_VOLATILITY_HIERARCHY if include_quarter else COARSE_VOLATILITY_HIERARCHY_NO_Q
+    else:
+        keys = _build_hierarchy_keys(index, sessions)
+        thresholds_map = VOLATILITY_HIERARCHY
+
+    std_cfg = CONFIG.get("VOLATILITY_STD_WINDOWS", {}) or {}
+    default_window = int(std_cfg.get("default", getattr(volatility_filter, "std_window", 20)) or 20)
+    session_windows = std_cfg.get("sessions", {}) or {}
+    ny_window = session_windows.get("NY_AM", session_windows.get("NY_PM", default_window))
+    try:
+        ny_window = int(ny_window)
+    except Exception:
+        ny_window = default_window
+
+    returns = df["close"].pct_change()
+    std_default = returns.rolling(default_window).std()
+    std_ny = std_default if ny_window == default_window else returns.rolling(ny_window).std()
+    std_default = std_default.fillna(0.0).to_numpy()
+    std_ny = std_ny.fillna(0.0).to_numpy()
+    default_thresholds = {"p10": 0.00008, "p25": 0.00012, "p75": 0.00028}
+    ny_thresholds_map = {}
+    ny_mask = np.isin(sessions, ["NY_AM", "NY_PM"])
+    if ny_mask.any():
+        ny_df = pd.DataFrame({"key": keys[ny_mask], "std": std_ny[ny_mask]})
+        ny_df = ny_df[ny_df["std"] > 0]
+        for key, group in ny_df.groupby("key")["std"]:
+            if len(group) < 50:
+                continue
+            ny_thresholds_map[key] = {
+                "p10": float(group.quantile(0.10)),
+                "p25": float(group.quantile(0.25)),
+                "p75": float(group.quantile(0.75)),
+            }
+    regimes = np.empty(len(df), dtype=object)
+    for i, (key, sess) in enumerate(zip(keys, sessions)):
+        current_std = std_ny[i] if sess in ("NY_AM", "NY_PM") else std_default[i]
+        if sess in ("NY_AM", "NY_PM"):
+            thresholds = ny_thresholds_map.get(key) or thresholds_map.get(key) or SESSION_FALLBACKS.get(sess) or default_thresholds
+        else:
+            thresholds = thresholds_map.get(key) or SESSION_FALLBACKS.get(sess) or default_thresholds
+        if current_std < thresholds["p10"]:
+            regimes[i] = VolRegime.ULTRA_LOW
+        elif current_std < thresholds["p25"]:
+            regimes[i] = VolRegime.LOW
+        elif current_std > thresholds["p75"]:
+            regimes[i] = VolRegime.HIGH
+        else:
+            regimes[i] = VolRegime.NORMAL
+    return pd.Series(regimes, index=index)
 
 
 def _build_sltp_arrays(df: pd.DataFrame, strategy_name: str) -> Tuple[np.ndarray, np.ndarray]:
@@ -365,6 +500,23 @@ def _aggregate_wf_metrics(metrics_list: List[Dict]) -> Dict:
     if not metrics_list:
         return {}
 
+    folds = len(metrics_list)
+    positive_folds = 0
+    for m in metrics_list:
+        avg_pnl = m.get("avg_pnl", 0.0)
+        trade_count = m.get("trade_count", 0)
+        try:
+            avg_pnl = float(avg_pnl)
+        except Exception:
+            avg_pnl = 0.0
+        try:
+            trade_count = int(trade_count)
+        except Exception:
+            trade_count = 0
+        if trade_count > 0 and avg_pnl > 0:
+            positive_folds += 1
+    positive_ratio = float(positive_folds) / float(folds) if folds else 0.0
+
     total_trades = sum(m.get("trade_count", 0) for m in metrics_list)
     total_pnl = sum(m.get("total_pnl", 0.0) for m in metrics_list)
 
@@ -374,7 +526,7 @@ def _aggregate_wf_metrics(metrics_list: List[Dict]) -> Dict:
         return float(np.sum([m.get(key, 0.0) * m.get("trade_count", 0) for m in metrics_list]) / total_trades)
 
     return {
-        "folds": len(metrics_list),
+        "folds": folds,
         "trade_count": int(total_trades),
         "avg_pnl": weighted_avg("avg_pnl"),
         "total_pnl": float(total_pnl),
@@ -384,6 +536,8 @@ def _aggregate_wf_metrics(metrics_list: List[Dict]) -> Dict:
         "recall": float(np.mean([m.get("recall", 0.0) for m in metrics_list])),
         "f1": float(np.mean([m.get("f1", 0.0) for m in metrics_list])),
         "auc": float(np.mean([m.get("auc", 0.0) for m in metrics_list])),
+        "positive_folds": int(positive_folds),
+        "positive_ratio": float(positive_ratio),
     }
 
 
@@ -555,7 +709,11 @@ def _walk_forward_evaluate(
         test_metrics["fold"] = fold
         metrics_list.append(test_metrics)
 
-    return _aggregate_wf_metrics(metrics_list)
+    aggregate = _aggregate_wf_metrics(metrics_list)
+    if not aggregate:
+        return {}
+    aggregate["folds_detail"] = metrics_list
+    return aggregate
 
 
 def _train_single_model(
@@ -650,7 +808,7 @@ def main():
     parser.add_argument("--thr-max", type=float, default=0.75)
     parser.add_argument("--thr-step", type=float, default=0.01)
     parser.add_argument("--max-rows", type=int, default=0)
-    parser.add_argument("--drop-gap-minutes", type=float, default=30.0)
+    parser.add_argument("--drop-gap-minutes", type=float, default=75.0)
     parser.add_argument("--walk-forward", action="store_true")
     parser.add_argument("--wf-train-frac", type=float, default=0.60)
     parser.add_argument("--wf-val-frac", type=float, default=0.10)
@@ -734,14 +892,113 @@ def main():
         session_tp_series = pd.Series(session_tp, index=session_features.index)
 
         vol_split = CONFIG.get("ML_PHYSICS_VOL_SPLIT", {}) or {}
+        vol_split_3way = CONFIG.get("ML_PHYSICS_VOL_SPLIT_3WAY", {}) or {}
         split_enabled = bool(vol_split.get("enabled")) and session_name in set(vol_split.get("sessions", []))
-        if split_enabled:
+        split_3way = bool(vol_split_3way.get("enabled")) and session_name in set(vol_split_3way.get("sessions", []))
+        if split_3way:
+            split_enabled = True
+        if split_enabled and not split_3way:
             feature_name = vol_split.get("feature", "High_Volatility")
             if feature_name not in data.columns:
                 logging.warning(f"{session_name}: split enabled but missing feature '{feature_name}'. Falling back to single model.")
                 split_enabled = False
 
         if split_enabled:
+            if split_3way:
+                regimes = _compute_vol_regimes(df)
+                regime_series = regimes.reindex(session_features.index).reindex(data.index)
+                low_mask = regime_series.isin([VolRegime.ULTRA_LOW, VolRegime.LOW])
+                normal_mask = regime_series == VolRegime.NORMAL
+                high_mask = regime_series == VolRegime.HIGH
+
+                base_model_path = out_dir / settings["MODEL_FILE"]
+                low_model_path = out_dir / settings.get("MODEL_FILE_LOW", settings["MODEL_FILE"])
+                high_model_path = out_dir / settings.get("MODEL_FILE_HIGH", settings["MODEL_FILE"])
+                normal_setting = settings.get("MODEL_FILE_NORMAL")
+                if normal_setting:
+                    normal_model_path = out_dir / normal_setting
+                else:
+                    if base_model_path.suffix:
+                        normal_model_path = base_model_path.with_name(
+                            f"{base_model_path.stem}_normal{base_model_path.suffix}"
+                        )
+                    else:
+                        normal_model_path = Path(f"{base_model_path}_normal")
+
+                low_data = data.loc[low_mask]
+                normal_data = data.loc[normal_mask]
+                high_data = data.loc[high_mask]
+
+                low_val, low_metrics = _train_single_model(
+                    session_name,
+                    low_data,
+                    session_sl_series.loc[low_data.index],
+                    session_tp_series.loc[low_data.index],
+                    train_settings,
+                    args,
+                    fees_pts,
+                    low_model_path,
+                    tag="LOW_VOL",
+                )
+                normal_val, normal_metrics = _train_single_model(
+                    session_name,
+                    normal_data,
+                    session_sl_series.loc[normal_data.index],
+                    session_tp_series.loc[normal_data.index],
+                    train_settings,
+                    args,
+                    fees_pts,
+                    normal_model_path,
+                    tag="NORMAL_VOL",
+                )
+                high_val, high_metrics = _train_single_model(
+                    session_name,
+                    high_data,
+                    session_sl_series.loc[high_data.index],
+                    session_tp_series.loc[high_data.index],
+                    train_settings,
+                    args,
+                    fees_pts,
+                    high_model_path,
+                    tag="HIGH_VOL",
+                )
+
+                if low_val or normal_val or high_val:
+                    thresholds_report[session_name] = {
+                        "low": {**(low_val or {}), "settings": train_settings},
+                        "normal": {**(normal_val or {}), "settings": train_settings},
+                        "high": {**(high_val or {}), "settings": train_settings},
+                        "split": True,
+                        "split_mode": "3way",
+                    }
+                    metrics_report[session_name] = {
+                        "low": low_metrics or {},
+                        "normal": normal_metrics or {},
+                        "high": high_metrics or {},
+                        "split_mode": "3way",
+                    }
+                    if low_val and low_metrics:
+                        logging.info(
+                            f"{session_name} LOW: threshold={low_val['threshold']:.2f} "
+                            f"trades={low_metrics['trade_count']} win_rate={low_metrics['win_rate']:.2%} "
+                            f"avg_pnl={low_metrics['avg_pnl']:.2f} total_pnl={low_metrics['total_pnl']:.2f}"
+                        )
+                    if normal_val and normal_metrics:
+                        logging.info(
+                            f"{session_name} NORMAL: threshold={normal_val['threshold']:.2f} "
+                            f"trades={normal_metrics['trade_count']} win_rate={normal_metrics['win_rate']:.2%} "
+                            f"avg_pnl={normal_metrics['avg_pnl']:.2f} total_pnl={normal_metrics['total_pnl']:.2f}"
+                        )
+                    if high_val and high_metrics:
+                        logging.info(
+                            f"{session_name} HIGH: threshold={high_val['threshold']:.2f} "
+                            f"trades={high_metrics['trade_count']} win_rate={high_metrics['win_rate']:.2%} "
+                            f"avg_pnl={high_metrics['avg_pnl']:.2f} total_pnl={high_metrics['total_pnl']:.2f}"
+                        )
+                else:
+                    logging.warning(f"{session_name}: split training failed; no models saved.")
+                continue
+
             low_mask = data[feature_name] < 0.5
             high_mask = ~low_mask
             low_data = data.loc[low_mask]

@@ -9,8 +9,8 @@ from zoneinfo import ZoneInfo
 # bringing in the full bot runtime.
 CONFIG = {
     # --- CREDENTIALS ---
-    "USERNAME": "",
-    "API_KEY": "",
+    "USERNAME": "timothyc092004@gmail.com",
+    "API_KEY": "paxBAtlTLGZllt+wmVEW4+9ukshCCjAVHp1kmg97Gz4=",
 
     # --- ACCOUNT/CONTRACT (will be fetched dynamically) ---
     "ACCOUNT_ID": os.environ.get("JULIE_ACCOUNT_ID"),  # Can be set via env var or fetched via /Account/search
@@ -49,6 +49,20 @@ CONFIG = {
         "min_win_rate": 0.55,  # Basic edge over 50/50
         "min_avg_pnl": 0.2,    # Points per trade after fees (training eval)
     },
+    # Walk-forward stability guard (requires multi-fold positive expectancy)
+    "ML_PHYSICS_WALK_FORWARD_GUARD": {
+        "enabled": True,
+        "require": True,            # Disable if walk-forward data missing
+        "min_folds": 2,
+        "min_positive_folds": 2,
+        "min_positive_ratio": 0.60,
+        "min_fold_avg_pnl": 0.0,    # Avg PnL per fold must be >= this
+        "min_fold_trades": 25,      # Require fold to have enough trades
+        "sessions": {
+            # Optional per-session overrides
+            # "NY_PM": {"min_positive_ratio": 0.70},
+        },
+    },
     # Optional per-session/regime overrides for ML physics guard thresholds
     "ML_PHYSICS_GUARD_OVERRIDES": {
         "ASIA": {
@@ -60,6 +74,8 @@ CONFIG = {
     "ML_PHYSICS_LIVE_DISABLED_SESSIONS": [],
     # Disable MLPhysics sessions in backtest (default empty to allow evaluation)
     "ML_PHYSICS_BACKTEST_DISABLED_SESSIONS": [],
+    # Disable specific MLPhysics regimes per session (applies to live + backtest)
+    "ML_PHYSICS_DISABLED_REGIMES": {},
     # Backtest-only: learned continuation allowlist from walk-forward reports
     "BACKTEST_CONTINUATION_ALLOWLIST": {
         "enabled": True,
@@ -122,13 +138,96 @@ CONFIG = {
     # Backtest-only: require stronger MLPhysics confidence before it can support consensus
     "BACKTEST_CONSENSUS_ML_MIN_CONF": 0.65,
     "BACKTEST_CONSENSUS_ML_EXTRA_MARGIN": 0.05,
+    # Backtest-only: fast/approximate mode controls
+    "BACKTEST_FAST_MODE": {
+        "enabled": False,
+        "bar_stride": 1,
+        "skip_mfe_mae": False,
+    },
     # Backtest-only: extend vol-split ML sessions without affecting live defaults
     "ML_PHYSICS_VOL_SPLIT_BACKTEST_SESSIONS": [],
+    # Backtest-only: disable ML vol-split for specific sessions
+    "ML_PHYSICS_VOL_UNSPLIT_BACKTEST_SESSIONS": [],
     # Volatility guard: skip MLPhysics in selected sessions during high vol
     "ML_PHYSICS_VOL_GUARD": {
         "enabled": True,
         "sessions": ["NY_AM"],
         "feature": "High_Volatility",
+    },
+    # Volatility regime labeling configuration
+    "VOLATILITY_HIERARCHY_MODE": {
+        "mode": "coarse",          # "full" or "coarse"
+        "include_quarter": True,   # include yearly quarter in coarse key
+    },
+    "VOLATILITY_STD_WINDOWS": {
+        "default": 20,
+        "sessions": {
+            "NY_AM": 60,
+            "NY_PM": 60,
+        },
+    },
+    # Scale threshold bands when session std window differs from default
+    "VOLATILITY_STD_WINDOW_SCALING": {
+        "enabled": True,
+        "min": 0.5,
+        "max": 2.0,
+        "lookback": 200,
+    },
+    # NY normal-vol structure filter (Phase 2)
+    "ML_PHYSICS_NY_NORMAL_FILTER": {
+        "enabled": True,
+        "er_window": 30,
+        "er_min": 0.25,
+        "vwap_cross_window": 60,
+        "vwap_cross_max": 3,
+        "margin": 0.08,
+        "block_chop": True,
+    },
+    # Normal-vol SL/TP adjustments (applied in volatility_filter)
+    "VOLATILITY_NORMAL_ADJUSTMENTS": {
+        "enabled": True,
+        "default": {"sl_mult": 0.95, "tp_mult": 0.90},
+        "sessions": {
+            "NY_AM": {"sl_mult": 0.95, "tp_mult": 0.88},
+            "NY_PM": {"sl_mult": 0.95, "tp_mult": 0.88},
+        },
+    },
+    # MLPhysics: confidence gating by volatility regime (low/normal/high)
+    "ML_PHYSICS_VOL_REGIME_GUARD": {
+        "enabled": True,
+        "default": {
+            "ultra_low": {"block": True},
+            "low": {"min_conf_delta": 0.02},
+            "normal": {"min_conf_delta": 0.00},
+            "high": {"min_conf_delta": 0.04},
+        },
+        "sessions": {
+            "ASIA": {
+                "low": {"min_conf_delta": 0.03},
+                "high": {"min_conf_delta": 0.05},
+            },
+            "NY_AM": {
+                "low": {"min_conf_delta": 0.03},
+                "high": {"min_conf_delta": 0.06},
+            },
+        },
+    },
+    # High-vol regime tightening for MLPhysics (all runtimes; tweak per session)
+    "ML_PHYSICS_HIGH_VOL_THRESHOLD_BUMP": {
+        "enabled": True,
+        "bump": 0.05,
+        "max_threshold": 0.90,
+        "sessions": ["NY_AM", "ASIA"],
+    },
+    "ML_PHYSICS_HIGH_VOL_DIRECTIONAL_GATE": {
+        "enabled": True,
+        "feature": "High_Volatility",
+        "min_conf_delta": 0.07,
+        "max_conf": 0.95,
+        "overrides": {
+            "NY_AM": {"block": ["LONG"]},
+            "ASIA": {"block": ["SHORT"]},
+        },
     },
     # Robust NY_AM fix: split ML models by volatility regime
     "ML_PHYSICS_VOL_SPLIT": {
@@ -136,17 +235,29 @@ CONFIG = {
         "sessions": ["ASIA", "LONDON", "NY_AM", "NY_PM"],
         "feature": "High_Volatility",
     },
+    # 3-way vol split (low/normal/high) using volatility_filter regimes
+    "ML_PHYSICS_VOL_SPLIT_3WAY": {
+        "enabled": True,
+        "sessions": ["NY_AM", "NY_PM"],
+    },
+    # DynamicEngine: tighten confidence in NY sessions (09-18 ET buckets)
+    "DYNAMIC_ENGINE_NY_CONF": {
+        "enabled": True,
+        "sessions": ["09-12", "12-15", "15-18"],
+        "min_opt_wr": 0.25,
+        "min_final_score": None,
+    },
     # Session-specific training presets (used by ml_train_physics.py)
     "ML_PHYSICS_TRAINING_PRESETS": {
         "ASIA": {
             "timeframe_minutes": 3,
-            "horizon_bars": 12,
+            "horizon_bars": 14,
             "label_mode": "atr",
             "drop_neutral": True,
-            "thr_min": 0.62,
-            "thr_max": 0.85,
+            "thr_min": 0.64,
+            "thr_max": 0.86,
             "thr_step": 0.01,
-            "drop_gap_minutes": 30.0,
+            "drop_gap_minutes": 75.0,
         },
         "LONDON": {
             "label_mode": "barrier",
@@ -154,26 +265,35 @@ CONFIG = {
             "thr_min": 0.60,
             "thr_max": 0.80,
             "thr_step": 0.01,
-            "drop_gap_minutes": 20.0,
+            "drop_gap_minutes": 75.0,
         },
         "NY_AM": {
             "timeframe_minutes": 1,
-            "horizon_bars": 8,
+            "horizon_bars": 10,
             "label_mode": "barrier",
             "drop_neutral": True,
-            "thr_min": 0.60,
-            "thr_max": 0.80,
+            "thr_min": 0.62,
+            "thr_max": 0.85,
             "thr_step": 0.01,
-            "drop_gap_minutes": 20.0,
+            "drop_gap_minutes": 75.0,
         },
         "NY_PM": {
             "label_mode": "barrier",
             "drop_neutral": True,
-            "thr_min": 0.60,
-            "thr_max": 0.80,
+            "timeframe_minutes": 1,
+            "horizon_bars": 10,
+            "thr_min": 0.62,
+            "thr_max": 0.85,
             "thr_step": 0.01,
-            "drop_gap_minutes": 20.0,
+            "drop_gap_minutes": 75.0,
         },
+    },
+
+    # Training-time maintenance window to ignore for gap filtering (ET)
+    "TRAINING_MAINTENANCE_WINDOW": {
+        "start": "17:00",
+        "end": "18:00",
+        "tolerance_minutes": 5,
     },
 
     # --- EARLY EXIT OPTIMIZATION (from 2023-2025 backtest analysis) ---
@@ -242,7 +362,7 @@ CONFIG = {
     # --- GEMINI 3.0 PRO OPTIMIZATION ---
     "GEMINI": {
         "enabled": True,
-        "api_key": "",
+        "api_key": "AIzaSyBvjd1FYtF9t4oaLqOn5l1INZ31cN367yA",
         "model": "gemini-3-pro-preview",
     },
 
@@ -278,6 +398,7 @@ CONFIG = {
             "HOURS": [8, 9, 10, 11],
             "MODEL_FILE": "model_ny_am.joblib",
             "MODEL_FILE_LOW": "model_ny_am_low.joblib",
+            "MODEL_FILE_NORMAL": "model_ny_am_normal.joblib",
             "MODEL_FILE_HIGH": "model_ny_am_high.joblib",
             "THRESHOLD": 0.55,
             "SL": 10.0,         # Wide Stop (Breathing Room)
@@ -288,6 +409,7 @@ CONFIG = {
             "HOURS": [12, 13, 14, 15, 16],
             "MODEL_FILE": "model_ny_pm.joblib",
             "MODEL_FILE_LOW": "model_ny_pm_low.joblib",
+            "MODEL_FILE_NORMAL": "model_ny_pm_normal.joblib",
             "MODEL_FILE_HIGH": "model_ny_pm_high.joblib",
             "THRESHOLD": 0.55,
             "SL": 10.0,         # Wide Stop

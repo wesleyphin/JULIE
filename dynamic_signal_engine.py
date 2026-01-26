@@ -340,7 +340,7 @@ class DynamicSignalEngine:
         """
         # Convert current time to ET if needed
         if current_time.tzinfo is None:
-            current_time = self.et_tz.localize(current_time)
+            current_time = current_time.replace(tzinfo=self.et_tz)
         else:
             current_time = current_time.astimezone(self.et_tz)
 
@@ -430,10 +430,28 @@ class DynamicSignalEngine:
         long_count = sum(1 for s in triggered_signals if s['signal'] == 'LONG')
         short_count = sum(1 for s in triggered_signals if s['signal'] == 'SHORT')
 
+        # Bucketed, quality-weighted count (reduces correlation bias)
+        bucket_scores = {"LONG": {}, "SHORT": {}}
         for sig in triggered_signals:
-            # Priority 1: Signal Count (Magnitude 10.0)
-            # If 5 Longs vs 1 Short -> Long gets 50 pts, Short gets 10 pts.
-            count_score = long_count if sig['signal'] == 'LONG' else short_count
+            side = sig['signal']
+            bucket_key = (sig['timeframe'], sig['strategy_type'])
+            current_best = bucket_scores[side].get(bucket_key, 0.0)
+            if sig['opt_wr'] > current_best:
+                bucket_scores[side][bucket_key] = sig['opt_wr']
+
+        bucket_score_raw = {
+            side: sum(bucket_scores[side].values()) for side in bucket_scores
+        }
+        bucket_score_cap = 1.0
+        bucket_score_norm = {
+            side: min(bucket_score_raw[side], bucket_score_cap) / bucket_score_cap
+            for side in bucket_scores
+        }
+
+        for sig in triggered_signals:
+            # Priority 1: Bucketed Count Score (Magnitude 10.0, capped/normalized)
+            # One bucket per (TF, Type), weighted by best Opt_WR in that bucket.
+            count_score = bucket_score_norm['LONG'] if sig['signal'] == 'LONG' else bucket_score_norm['SHORT']
 
             # Priority 2: Price Location (Magnitude 2.0)
             # Longs want Low price (1 - loc). Shorts want High price (loc).
@@ -449,14 +467,22 @@ class DynamicSignalEngine:
 
             # Final Formula
             sig['final_score'] = (count_score * 10.0) + (loc_score * 2.0) + wr_score
-            sig['debug_info'] = f"Count:{count_score} Loc:{loc_score:.2f} WR:{wr_score:.3f}"
+            sig['debug_info'] = f"BucketScore:{count_score:.2f} Loc:{loc_score:.2f} WR:{wr_score:.3f}"
 
         # Sort by Final Score Descending
         triggered_signals.sort(key=lambda x: x['final_score'], reverse=True)
 
         best_signal = triggered_signals[0]
 
-        logging.info(f"🎯 TIE-BREAK: {len(triggered_signals)} signals. Counts: LONG={long_count}, SHORT={short_count}")
+        logging.info(
+            f"🎯 TIE-BREAK: {len(triggered_signals)} signals. "
+            f"Counts: LONG={long_count}, SHORT={short_count} | "
+            f"Buckets: LONG={len(bucket_scores['LONG'])}, SHORT={len(bucket_scores['SHORT'])}"
+        )
+        logging.info(
+            f"   BucketScore raw: LONG={bucket_score_raw['LONG']:.3f} "
+            f"SHORT={bucket_score_raw['SHORT']:.3f} (cap {bucket_score_cap:.2f})"
+        )
         logging.info(f"   Price Location: {price_location:.2f} (0=Low, 1=High)")
         logging.info(f"   Winner: {best_signal['strategy_id']} (Score: {best_signal['final_score']:.3f} | {best_signal['debug_info']})")
         if len(triggered_signals) > 1:
