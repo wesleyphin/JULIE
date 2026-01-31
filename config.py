@@ -33,7 +33,146 @@ CONFIG = {
         "POINT_VALUE": 5.0,      # $ value per point per contract (MES=$5, ES=$50)
         "FEES_PER_SIDE": 2.50,   # Commission + Exchange fee per side (estimated)
         "MIN_NET_PROFIT": 10.0,  # Minimum expected profit (after round-trip fees) to take a trade
+        "ENFORCE_MIN_NET_PROFIT": False,  # If False, don't block candidates based on fees
         "CONTRACTS": 1           # Number of contracts traded
+    },
+    # --- SL/TP MINIMUMS (points) ---
+    "SLTP_MIN": {
+        "sl": 1.25,  # Avoid micro-noise stops on MES 1m
+        "tp": 1.50,
+    },
+    # --- PENALTY BOX BLOCKER ---
+    "PENALTY_BOX": {
+        "enabled": True,
+        "lookback": 50,
+        "tolerance": 1.0,
+        "penalty_bars": 3,
+    },
+    # --- FIXED SL/TP FRAMEWORK (regime-based brackets) ---
+    "FIXED_SLTP_FRAMEWORK": {
+        "enabled": True,
+        "tick_size": 0.25,
+        "default_bracket": "NORMAL_TREND",
+        "session_overrides": {
+            "ASIA": "ASIA_SMOOTH",
+        },
+        "vol_regime_brackets": {
+            "high": "IMPULSE",
+        },
+        "brackets": {
+            "ASIA_SMOOTH": {"SL": 1.75, "TP": 2.00},
+            "NORMAL_TREND": {"SL": 2.25, "TP": 2.75},
+            "IMPULSE": {"SL": 3.00, "TP": 4.50},
+        },
+        "viability": {
+            "enabled": True,
+            "atr_window": 20,
+            "atr_floor": 0.70,
+            "lookback_bars": 60,
+            "room_to_target_factor": 0.8,
+            "room_to_target_min_points": 1.5,
+            "room_to_target_k": 1.2,
+            "room_to_target_atr_window": 20,
+            "session_overrides": {
+                "ASIA": {
+                    "room_to_target_min_points": 0.75,
+                    "room_to_target_k": 0.8,
+                    "room_to_target_atr_window": 20,
+                },
+            },
+            "vol_regime_overrides": {},
+            "runtime_overrides": {},
+        },
+    },
+    # --- ASIA VIABILITY GATE (must pass to trade in ASIA) ---
+    "ASIA_VIABILITY_GATE": {
+        "enabled": True,
+        "min_bars": 120,
+        # Option A: ATR expansion
+        "atr_ratio_fast": 5,
+        "atr_ratio_slow": 60,
+        "atr_ratio_min": 1.25,
+        # Option B: Compression -> Release
+        "compression_atr_window": 30,
+        "compression_percentile": 20,
+        "compression_lookback": 200,
+        "compression_release_atr_window": 20,
+        "compression_range_mult": 1.2,
+        # Option C: Structural interaction
+        "interaction_tol_points": 0.25,
+        "ny_close_hour": 16,
+        "ny_close_minute": 0,
+        "vp_lookback_bars": 390,
+        "vp_value_area_pct": 0.70,
+        "tick_size": 0.25,
+        "max_history_bars": 3000,
+        "asia_session_start_hour": 18,
+        "asia_session_end_hour": 3,
+        "use_ny_close": True,
+        "use_value_area": True,
+        "use_asia_sweep": True,
+    },
+    # --- ASIA EXTENSION FILTER SOFT PENALTY ---
+    "ASIA_SOFT_EXTENSION_FILTER": {
+        "enabled": True,
+        "base_score": 1.0,
+        "penalty": 0.35,
+        "score_threshold": 0.65,
+    },
+    # --- NEW STRATEGIES (Impulse/Auction/LIQ Sweep/Value Area) ---
+    "IMPULSE_BREAKOUT": {
+        "enabled": True,
+        "lookback": 20,
+        "range_mult": 1.5,
+        "volume_mult": 1.2,
+        "breakout_buffer_atr": 0.10,
+        "atr_window": 20,
+        "min_range": 0.75,
+        "sessions": ["NY_AM", "NY_PM", "LONDON"],
+    },
+    "AUCTION_REVERSION": {
+        "enabled": True,
+        "lookback": 120,
+        "value_area_pct": 0.70,
+        "touch_buffer": 0.25,
+        "er_window": 30,
+        "er_max": 0.20,
+        "min_range": 4.0,
+        "sessions": ["NY_AM", "NY_PM", "LONDON"],
+        "skip_high_vol": True,
+        "tick_size": 0.25,
+    },
+    "LIQUIDITY_SWEEP": {
+        "enabled": True,
+        "lookback": 20,
+        "atr_window": 20,
+        "sweep_buffer_atr": 0.10,
+        "reclaim_buffer_atr": 0.05,
+        "min_wick_atr": 0.20,
+        "volume_mult": 1.10,
+        "sessions": ["NY_AM", "NY_PM", "LONDON", "ASIA"],
+        "use_pivots": True,
+        "pivot_window": 2,
+        "pivot_max_age": 80,
+        "pivot_fallback_to_lookback": False,
+        "confirm_followthrough": True,
+        "confirm_bars": 1,
+        "min_sweep_points": 0.50,
+        "min_reclaim_points": 0.0,
+        "min_wick_points": 0.25,
+        "max_bar_range_atr": 1.50,
+        "cooldown_bars": 5,
+        "require_new_pivot": True,
+        "allowed_regimes": ["low", "normal"],
+    },
+    "VALUE_AREA_BREAKOUT": {
+        "enabled": True,
+        "lookback": 120,
+        "value_area_pct": 0.70,
+        "accept_bars": 2,
+        "buffer": 0.10,
+        "sessions": ["NY_AM", "NY_PM", "LONDON"],
+        "tick_size": 0.25,
     },
 
     # --- ML SESSION-BASED STRATEGY SETTINGS ---
@@ -44,7 +183,7 @@ CONFIG = {
     "ML_PHYSICS_METRICS_FILE": "ml_physics_metrics.json",
     # Guardrails to auto-disable weak sessions based on training metrics
     "ML_PHYSICS_GUARD": {
-        "enabled": True,
+        "enabled": False,
         "min_trades": 500,     # Require enough samples for stability
         "min_win_rate": 0.55,  # Basic edge over 50/50
         "min_avg_pnl": 0.2,    # Points per trade after fees (training eval)
@@ -76,6 +215,20 @@ CONFIG = {
     "ML_PHYSICS_BACKTEST_DISABLED_SESSIONS": [],
     # Disable specific MLPhysics regimes per session (applies to live + backtest)
     "ML_PHYSICS_DISABLED_REGIMES": {},
+    # MLPhysics confidence-based priority boost (elevate to FAST)
+    "ML_PHYSICS_PRIORITY_BOOST": {
+        "enabled": True,
+        "min_confidence": 0.90,
+        "boost_priority": 1,  # 1 = FAST, 2 = STANDARD
+        "sessions": [],       # empty = all sessions
+    },
+    # MLPhysics soft gating: suppress opposite signals when confidence is high
+    "ML_PHYSICS_SOFT_GATING": {
+        "enabled": True,
+        "min_confidence": 0.90,
+        "block_standard": True,
+        "block_fast": False,  # keep FAST strategies unless explicitly allowed
+    },
     # Backtest-only: learned continuation allowlist from walk-forward reports
     "BACKTEST_CONTINUATION_ALLOWLIST": {
         "enabled": True,
@@ -144,6 +297,122 @@ CONFIG = {
         "bar_stride": 1,
         "skip_mfe_mae": False,
     },
+    # Backtest-only: relax DynamicChop sensitivity (lower = fewer chop blocks)
+    "BACKTEST_DYNAMIC_CHOP_MULTIPLIER": 1.0,
+    "BACKTEST_SYMBOL_MODE": "auto_by_day",  # single | auto_by_day
+    "BACKTEST_SYMBOL_AUTO_METHOD": "volume",  # volume | rows
+    # Backtest-only: ASIA calibrations to better handle smooth trends
+    "BACKTEST_ASIA_CALIBRATIONS": {
+        "enabled": True,
+        "trend_bias": {
+            "ema_fast": 20,
+            "ema_slow": 50,
+            "ema_slope_bars": 20,
+            "min_ema_separation": 0.1,
+        },
+        "penalty_box": {
+            "enabled": True,
+            "lookback": 50,
+            "tolerance": 1.5,
+            "penalty_bars": 3,
+        },
+        "target_feasibility": {
+            "enabled": True,
+            "lookback": 20,
+            "min_box_range": 1.0,
+            "max_tp_box_mult": 1.8,
+            "allow_trend_override": False,
+        },
+        "chop_filter": {
+            "enabled": True,
+            "allow_trend_override": True,
+        },
+    },
+    # Live: ASIA calibrations to better handle smooth trends
+    "ASIA_CALIBRATIONS": {
+        "enabled": True,
+        "trend_bias": {
+            "ema_fast": 20,
+            "ema_slow": 50,
+            "ema_slope_bars": 20,
+            "min_ema_separation": 0.1,
+        },
+        "penalty_box": {
+            "enabled": True,
+            "lookback": 50,
+            "tolerance": 1.5,
+            "penalty_bars": 3,
+        },
+        "target_feasibility": {
+            "enabled": True,
+            "lookback": 20,
+            "min_box_range": 1.0,
+            "max_tp_box_mult": 1.8,
+            "allow_trend_override": False,
+        },
+        "chop_filter": {
+            "enabled": True,
+            "allow_trend_override": True,
+        },
+    },
+    # Smooth Trend Asia strategy (Trigger A)
+    "SMOOTH_TREND_ASIA": {
+        "enabled": True,
+        "ema_fast": 20,
+        "ema_slow": 50,
+        "ema_slope_bars": 20,
+        "min_ema_separation": 0.1,
+        "er_window": 60,
+        "er_min": 0.55,
+        "persistence_window": 60,
+        "persistence_min": 0.65,
+        "closes_side_window": 60,
+        "closes_side_min": 0.80,
+        "atr_window": 20,
+        "atr_long_window": 120,
+        "atr_ratio_max": 1.15,
+        "max_tr_mult": 2.2,
+        "regime_min_passes": 3,
+        "pullback_lookback": 20,
+        "pullback_touch_atr_mult": 0.2,
+        "pullback_max_drawdown_mult": 0.8,
+        "pullback_ema50_buffer_mult": 0.2,
+        "stop_ema50_buffer_mult": 0.3,
+        "max_stop_points": 2.5,
+        "tp_mult": 1.5,
+        "min_tp_points": 1.0,
+        "tick_size": 0.25,
+        "cooldown_bars": 12,
+    },
+    # Backtest-only: Smooth Trend Asia strategy (Trigger A)
+    "BACKTEST_SMOOTH_TREND_ASIA": {
+        "enabled": True,
+        "ema_fast": 20,
+        "ema_slow": 50,
+        "ema_slope_bars": 20,
+        "min_ema_separation": 0.1,
+        "er_window": 60,
+        "er_min": 0.55,
+        "persistence_window": 60,
+        "persistence_min": 0.65,
+        "closes_side_window": 60,
+        "closes_side_min": 0.80,
+        "atr_window": 20,
+        "atr_long_window": 120,
+        "atr_ratio_max": 1.15,
+        "max_tr_mult": 2.2,
+        "regime_min_passes": 3,
+        "pullback_lookback": 20,
+        "pullback_touch_atr_mult": 0.2,
+        "pullback_max_drawdown_mult": 0.8,
+        "pullback_ema50_buffer_mult": 0.2,
+        "stop_ema50_buffer_mult": 0.3,
+        "max_stop_points": 2.5,
+        "tp_mult": 1.5,
+        "min_tp_points": 1.0,
+        "tick_size": 0.25,
+        "cooldown_bars": 12,
+    },
     # Backtest-only: extend vol-split ML sessions without affecting live defaults
     "ML_PHYSICS_VOL_SPLIT_BACKTEST_SESSIONS": [],
     # Backtest-only: disable ML vol-split for specific sessions
@@ -159,6 +428,9 @@ CONFIG = {
         "mode": "coarse",          # "full" or "coarse"
         "include_quarter": True,   # include yearly quarter in coarse key
     },
+    # Optional file-based volatility thresholds (for train/backtest/live alignment)
+    "VOLATILITY_THRESHOLDS_FILE": "volatility_thresholds.json",
+    "VOLATILITY_THRESHOLDS_MIN_SAMPLES": 50,
     "VOLATILITY_STD_WINDOWS": {
         "default": 20,
         "sessions": {
@@ -217,17 +489,14 @@ CONFIG = {
         "enabled": True,
         "bump": 0.05,
         "max_threshold": 0.90,
-        "sessions": ["NY_AM", "ASIA"],
+        "sessions": ["NY_AM", "NY_PM", "ASIA"],
     },
     "ML_PHYSICS_HIGH_VOL_DIRECTIONAL_GATE": {
         "enabled": True,
         "feature": "High_Volatility",
         "min_conf_delta": 0.07,
         "max_conf": 0.95,
-        "overrides": {
-            "NY_AM": {"block": ["LONG"]},
-            "ASIA": {"block": ["SHORT"]},
-        },
+        "overrides": {},
     },
     # Robust NY_AM fix: split ML models by volatility regime
     "ML_PHYSICS_VOL_SPLIT": {
@@ -364,6 +633,7 @@ CONFIG = {
         "enabled": True,
         "api_key": "",
         "model": "gemini-3-pro-preview",
+        "min_interval_minutes": 45,
     },
 
     # Dynamic Multipliers (Updated by Bot at runtime)
@@ -477,4 +747,3 @@ def refresh_target_symbol():
 
 # Initialize TARGET_SYMBOL at import time
 refresh_target_symbol()
-
