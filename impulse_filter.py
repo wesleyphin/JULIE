@@ -23,12 +23,25 @@ class ImpulseFilter:
     2. If the last closed candle was unusually large (Impulse), BLOCK reversal trades.
     3. Force the bot to wait for a 'stabilization' candle (smaller range) before entering.
     """
-    def __init__(self, lookback: int = 20, impulse_multiplier: float = 2.5,
-                 wick_ratio_threshold: float = 0.5):
+    def __init__(
+        self,
+        lookback: int = 20,
+        impulse_multiplier: float = 2.5,
+        wick_ratio_threshold: float = 0.5,
+        atr_window: int = 14,
+        atr_multiplier: float = 0.8,
+        min_body_points: float = 0.75,
+        body_ratio_threshold: float = 0.6,
+    ):
         self.lookback = lookback
         self.impulse_multiplier = impulse_multiplier  # How much bigger than avg to be considered "Impulse"
         self.wick_ratio_threshold = wick_ratio_threshold  # Wick must be this fraction of body to override
+        self.atr_window = atr_window
+        self.atr_multiplier = atr_multiplier
+        self.min_body_points = min_body_points
+        self.body_ratio_threshold = body_ratio_threshold  # Body must be this fraction of total range
         self.avg_body_size = 0.0
+        self.atr = 0.0
         self.last_candle_body = 0.0
         self.last_candle_dir: Optional[str] = None  # 'GREEN' or 'RED'
         # NEW: Store OHLC for wick calculation
@@ -36,10 +49,11 @@ class ImpulseFilter:
         self.last_candle_low = 0.0
         self.last_candle_open = 0.0
         self.last_candle_close = 0.0
+        self.last_candle_range = 0.0
 
     def update(self, df: pd.DataFrame):
         """Update filter state with new candle data."""
-        if len(df) < self.lookback:
+        if len(df) < max(self.lookback, self.atr_window + 1):
             return
 
         # Calculate Candle Body Sizes (Abs(Close - Open))
@@ -49,6 +63,17 @@ class ImpulseFilter:
 
         # Current average body size (volatility baseline)
         self.avg_body_size = bodies.mean()
+
+        # ATR-style volatility baseline (True Range)
+        if self.atr_window > 0:
+            highs = df['high']
+            lows = df['low']
+            prev_close = df['close'].shift(1)
+            tr = np.maximum(
+                highs - lows,
+                np.maximum((highs - prev_close).abs(), (lows - prev_close).abs())
+            )
+            self.atr = tr.iloc[-self.atr_window:].mean()
 
         # Analyze the MOST RECENT closed bar
         last_bar = df.iloc[-1]
@@ -60,6 +85,33 @@ class ImpulseFilter:
         self.last_candle_low = last_bar['low']
         self.last_candle_open = last_bar['open']
         self.last_candle_close = last_bar['close']
+        self.last_candle_range = self.last_candle_high - self.last_candle_low
+
+    def get_impulse_stats(self) -> Tuple[bool, float, float]:
+        """
+        Returns:
+            (is_impulse, impulse_threshold, body_ratio)
+        """
+        if self.avg_body_size <= 0:
+            return False, 0.0, 0.0
+
+        thresholds = [self.avg_body_size * self.impulse_multiplier]
+        if self.atr > 0 and self.atr_multiplier > 0:
+            thresholds.append(self.atr * self.atr_multiplier)
+        if self.min_body_points > 0:
+            thresholds.append(self.min_body_points)
+
+        impulse_threshold = max(thresholds)
+
+        body_ratio = 0.0
+        if self.last_candle_range > 0:
+            body_ratio = self.last_candle_body / self.last_candle_range
+
+        is_impulse = self.last_candle_body > impulse_threshold
+        if self.body_ratio_threshold > 0 and self.last_candle_range > 0:
+            is_impulse = is_impulse and body_ratio >= self.body_ratio_threshold
+
+        return is_impulse, impulse_threshold, body_ratio
 
     def should_block_trade(self, signal_side: str) -> Tuple[bool, Optional[str]]:
         """
@@ -75,10 +127,11 @@ class ImpulseFilter:
         Returns:
             Tuple of (should_block: bool, reason: Optional[str])
         """
-        # Threshold: If last candle is 2.5x larger than average, it's an Impulse.
-        impulse_threshold = self.avg_body_size * self.impulse_multiplier
+        if not signal_side:
+            return False, None
+        signal_side = signal_side.upper()
 
-        is_impulse = self.last_candle_body > impulse_threshold
+        is_impulse, impulse_threshold, body_ratio = self.get_impulse_stats()
 
         if not is_impulse:
             return False, None
@@ -95,7 +148,10 @@ class ImpulseFilter:
             # NEW: Check for Hammer pattern (massive lower wick on red candle)
             # A hammer shows rejection of lower prices - good time to go long!
             if lower_wick > wick_threshold:
-                reason = f"Allowed: Red Impulse has Hammer wick (lower_wick: {lower_wick:.2f} > {wick_threshold:.2f})"
+                reason = (
+                    f"Allowed: Red Impulse has Hammer wick "
+                    f"(lower_wick: {lower_wick:.2f} > {wick_threshold:.2f})"
+                )
                 logging.info(f"✅ IMPULSE FILTER: {reason}")
                 event_logger.log_filter_check(
                     "ImpulseFilter",
@@ -105,7 +161,11 @@ class ImpulseFilter:
                 )
                 return False, reason
 
-            reason = f"Blocked: Catching Falling Knife (Red Impulse: {self.last_candle_body:.2f} > {impulse_threshold:.2f})"
+            reason = (
+                "Blocked: Catching Falling Knife "
+                f"(Red Impulse: {self.last_candle_body:.2f} > {impulse_threshold:.2f}, "
+                f"body_ratio={body_ratio:.2f})"
+            )
             logging.info(f"🚫 IMPULSE FILTER: {reason}")
 
             # Log to event logger
@@ -122,7 +182,10 @@ class ImpulseFilter:
             # NEW: Check for Shooting Star pattern (massive upper wick on green candle)
             # A shooting star shows rejection of higher prices - good time to go short!
             if upper_wick > wick_threshold:
-                reason = f"Allowed: Green Impulse has Shooting Star wick (upper_wick: {upper_wick:.2f} > {wick_threshold:.2f})"
+                reason = (
+                    f"Allowed: Green Impulse has Shooting Star wick "
+                    f"(upper_wick: {upper_wick:.2f} > {wick_threshold:.2f})"
+                )
                 logging.info(f"✅ IMPULSE FILTER: {reason}")
                 event_logger.log_filter_check(
                     "ImpulseFilter",
@@ -132,7 +195,11 @@ class ImpulseFilter:
                 )
                 return False, reason
 
-            reason = f"Blocked: Fading Rocket Ship (Green Impulse: {self.last_candle_body:.2f} > {impulse_threshold:.2f})"
+            reason = (
+                "Blocked: Fading Rocket Ship "
+                f"(Green Impulse: {self.last_candle_body:.2f} > {impulse_threshold:.2f}, "
+                f"body_ratio={body_ratio:.2f})"
+            )
             logging.info(f"🚫 IMPULSE FILTER: {reason}")
 
             # Log to event logger

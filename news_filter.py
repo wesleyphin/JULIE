@@ -354,7 +354,8 @@ class NewsFilter:
             start = current_time.replace(hour=hour_cfg, minute=minute_cfg, second=0, microsecond=0)
             end = start + datetime.timedelta(minutes=duration)
             if start <= current_time <= end:
-                return True, f"Daily Blackout: {start.strftime('%H:%M')} - {end.strftime('%H:%M')}"
+                # Market close/maintenance window: block trades, bypass news checks
+                return True, "MARKET_CLOSE: daily blackout window (news filter bypassed)"
 
         # === 3. DYNAMIC NEWS CALENDAR EVENTS ===
         for event in self.calendar_blackouts:

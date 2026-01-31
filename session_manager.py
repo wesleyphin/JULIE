@@ -1,4 +1,5 @@
 import datetime
+import math
 import json
 import logging
 from pathlib import Path
@@ -115,7 +116,11 @@ class SessionManager:
                             trade_count = float(regime_metrics.get("trade_count", 0))
                             win_rate = float(regime_metrics.get("win_rate", 0.0))
                             avg_pnl = float(regime_metrics.get("avg_pnl", 0.0))
-                            if trade_count < min_trades or win_rate < min_win_rate or avg_pnl < min_avg_pnl:
+                            if (
+                                trade_count < min_trades
+                                or not self._win_rate_meets(min_win_rate, win_rate)
+                                or avg_pnl < min_avg_pnl
+                            ):
                                 self.disabled_regimes.setdefault(name, set()).add(regime)
                                 logging.warning(
                                     f"⚠️ MLPhysics: {name} {regime} disabled by guard "
@@ -136,7 +141,11 @@ class SessionManager:
                         trade_count = float(metrics.get("trade_count", 0))
                         win_rate = float(metrics.get("win_rate", 0.0))
                         avg_pnl = float(metrics.get("avg_pnl", 0.0))
-                        if trade_count < min_trades or win_rate < min_win_rate or avg_pnl < min_avg_pnl:
+                        if (
+                            trade_count < min_trades
+                            or not self._win_rate_meets(min_win_rate, win_rate)
+                            or avg_pnl < min_avg_pnl
+                        ):
                             self.disabled_sessions.add(name)
                             logging.warning(
                                 f"⚠️ MLPhysics: {name} disabled by guard "
@@ -150,7 +159,11 @@ class SessionManager:
                     trade_count = float(metrics.get("trade_count", 0))
                     win_rate = float(metrics.get("win_rate", 0.0))
                     avg_pnl = float(metrics.get("avg_pnl", 0.0))
-                    if trade_count < min_trades or win_rate < min_win_rate or avg_pnl < min_avg_pnl:
+                    if (
+                        trade_count < min_trades
+                        or not self._win_rate_meets(min_win_rate, win_rate)
+                        or avg_pnl < min_avg_pnl
+                    ):
                         self.disabled_sessions.add(name)
                         logging.warning(
                             f"⚠️ MLPhysics: {name} disabled by guard "
@@ -240,6 +253,13 @@ class SessionManager:
             if isinstance(regime_override, dict):
                 thresholds = self._apply_guard_override(thresholds, regime_override)
         return thresholds
+
+    @staticmethod
+    def _win_rate_meets(min_win_rate: float, win_rate: float) -> bool:
+        # Compare win rate using ceiling on percentage points (e.g., 54.28 -> 55)
+        min_pct = min_win_rate * 100.0 if min_win_rate <= 1 else min_win_rate
+        win_pct = win_rate * 100.0 if win_rate <= 1 else win_rate
+        return math.ceil(win_pct) >= min_pct
 
     def _wf_guard_settings(self, session_name: str, regime: Optional[str] = None) -> dict:
         settings = {

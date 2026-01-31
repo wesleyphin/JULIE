@@ -724,7 +724,8 @@ class ChopFilter:
                 
         elif self.state in ['CONFIRMED_LONG', 'FAILED_LONG']:
             # Check if price fell back through level
-            if close < self.breakout_level - 1.0:  # 1pt buffer
+            buffer = 1.0
+            if close < self.breakout_level - buffer:
                 self.state = 'NORMAL'
                 self.breakout_level = None
             elif current_range > breakout_thresh:
@@ -732,7 +733,8 @@ class ChopFilter:
                 self.breakout_level = None
                 
         elif self.state in ['CONFIRMED_SHORT', 'FAILED_SHORT']:
-            if close > self.breakout_level + 1.0:
+            buffer = 1.0
+            if close > self.breakout_level + buffer:
                 self.state = 'NORMAL'
                 self.breakout_level = None
             elif current_range > breakout_thresh:
@@ -782,7 +784,8 @@ class ChopFilter:
             chop_range = self.chop_high - self.chop_low
 
             # If range is extremely tight (< 1 point), don't try to fade it (too risky)
-            if chop_range < 1.0:
+            min_chop_range = 1.0
+            if chop_range < min_chop_range:
                 return True, f"IN_CHOP: Range too tight to fade ({chop_range:.2f} pts)"
 
             # Calculate where we are in the range (0.0 = Low, 1.0 = High)

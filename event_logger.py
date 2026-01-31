@@ -58,11 +58,17 @@ class EventLogger:
             "tp_dist": f"{tp_dist:.2f}",
             "sl_dist": f"{sl_dist:.2f}"
         }
+        sub_strategy = None
         if additional_info:
             details.update(additional_info)
+            sub_strategy = additional_info.get("sub_strategy")
+
+        display_name = strategy_name
+        if sub_strategy:
+            display_name = f"{strategy_name} ({sub_strategy})"
 
         self._log_event("INFO", "STRATEGY_SIGNAL",
-                       f"📊 {strategy_name} generated {side} signal",
+                       f"📊 {display_name} generated {side} signal",
                        details)
 
     def log_strategy_no_signal(self, strategy_name: str, reason: Optional[str] = None):
@@ -75,11 +81,29 @@ class EventLogger:
                        f"Strategy {strategy_name} - No signal",
                        details)
 
-    def log_strategy_execution(self, strategy_name: str, execution_type: str):
+    def log_strategy_execution(
+        self,
+        strategy_name: str,
+        execution_type: str,
+        side: Optional[str] = None,
+        price: Optional[float] = None,
+        additional_info: Optional[Dict] = None,
+    ):
         """Log strategy execution type (FAST, STANDARD, QUEUED)"""
-        self._log_event("INFO", "STRATEGY_EXEC",
-                       f"⚡ {execution_type} execution for {strategy_name}",
-                       {"strategy": strategy_name, "exec_type": execution_type})
+        details = {"strategy": strategy_name, "exec_type": execution_type}
+        message = f"⚡ {execution_type} execution for {strategy_name}"
+        if side and price is not None:
+            try:
+                price_val = float(price)
+            except (TypeError, ValueError):
+                price_val = None
+            if price_val is not None:
+                message = f"{message} {side} @ {price_val:.2f}"
+                details["side"] = side
+                details["price"] = f"{price_val:.2f}"
+        if additional_info:
+            details.update(additional_info)
+        self._log_event("INFO", "STRATEGY_EXEC", message, details)
 
     # ==================== REJECTION/FILTER EVENTS ====================
 

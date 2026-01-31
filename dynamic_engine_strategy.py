@@ -4,6 +4,8 @@ from typing import Dict, Optional
 import pandas as pd
 
 from dynamic_signal_engine import get_signal_engine
+from fixed_sltp_framework import apply_fixed_sltp
+from volatility_filter import volatility_filter
 from strategy_base import Strategy
 from config import CONFIG
 
@@ -78,13 +80,15 @@ class DynamicEngineStrategy(Strategy):
         signal_data = self.engine.check_signal(current_time, df_5m, df_15m)
 
         if signal_data:
+            engine_session = None
+            try:
+                engine_session = self.engine.get_session_from_time(current_time)
+            except Exception:
+                engine_session = None
+
             ny_conf = CONFIG.get("DYNAMIC_ENGINE_NY_CONF", {}) or {}
             if ny_conf.get("enabled"):
-                try:
-                    session = self.engine.get_session_from_time(current_time)
-                except Exception:
-                    session = None
-                if session and session in set(ny_conf.get("sessions", [])):
+                if engine_session and engine_session in set(ny_conf.get("sessions", [])):
                     try:
                         min_opt_wr = float(ny_conf.get("min_opt_wr", 0.0))
                     except Exception:
@@ -102,7 +106,7 @@ class DynamicEngineStrategy(Strategy):
                     if opt_wr < min_opt_wr:
                         logging.warning(
                             f"🚫 DynamicEngine NY gate: {signal_data.get('strategy_id')} "
-                            f"opt_wr {opt_wr:.3f} < {min_opt_wr:.3f} (session {session})"
+                            f"opt_wr {opt_wr:.3f} < {min_opt_wr:.3f} (session {engine_session})"
                         )
                         return None
                     if min_final_score is not None:
@@ -113,17 +117,34 @@ class DynamicEngineStrategy(Strategy):
                         if min_final_score is not None and final_score < min_final_score:
                             logging.warning(
                                 f"🚫 DynamicEngine NY gate: {signal_data.get('strategy_id')} "
-                                f"score {final_score:.2f} < {min_final_score:.2f} (session {session})"
+                                f"score {final_score:.2f} < {min_final_score:.2f} (session {engine_session})"
                             )
                             return None
 
-            # --- FEE & PROFITABILITY CHECK ---
-            # Enforce minimum SL/TP for positive RR before fee checks
-            MIN_SL = 4.0  # 16 ticks minimum
-            MIN_TP = 6.0  # 24 ticks minimum (1.5:1 RR)
+            # --- FIXED SL/TP FRAMEWORK (if enabled) ---
+            sltp_session = volatility_filter.get_session(current_time.hour)
+            fixed_ok, fixed_details = apply_fixed_sltp(
+                {"side": signal_data["signal"], "strategy": "DynamicEngine"},
+                df,
+                float(df["close"].iloc[-1]),
+                ts=current_time,
+                session=sltp_session,
+            )
+            if not fixed_ok:
+                reason = fixed_details.get("reason", "FixedSLTP blocked")
+                logging.warning(f"🚫 DynamicEngine FixedSLTP: {reason}")
+                return None
 
-            final_sl = max(signal_data['sl'], MIN_SL)
-            final_tp = max(signal_data['tp'], MIN_TP)
+            if fixed_details:
+                final_sl = float(fixed_details["sl_dist"])
+                final_tp = float(fixed_details["tp_dist"])
+            else:
+                min_cfg = CONFIG.get("SLTP_MIN", {}) or {}
+                min_sl = float(min_cfg.get("sl", 1.25))
+                min_tp = float(min_cfg.get("tp", 1.5))
+                final_sl = max(float(signal_data["sl"]), min_sl)
+                final_tp = max(float(signal_data["tp"]), min_tp)
+
             tp_dist = final_tp
 
             # Load risk settings from config or use defaults
@@ -131,13 +152,14 @@ class DynamicEngineStrategy(Strategy):
             point_value = risk_cfg.get("POINT_VALUE", 5.0)
             fees_per_side = risk_cfg.get("FEES_PER_SIDE", 2.50)
             min_net_profit = risk_cfg.get("MIN_NET_PROFIT", 10.0)
+            enforce_min_net = bool(risk_cfg.get("ENFORCE_MIN_NET_PROFIT", True))
             num_contracts = risk_cfg.get("CONTRACTS", 1)
 
             gross_profit = tp_dist * point_value * num_contracts
             total_fees = fees_per_side * 2 * num_contracts  # Round trip
             net_profit = gross_profit - total_fees
 
-            if net_profit < min_net_profit:
+            if enforce_min_net and net_profit < min_net_profit:
                 logging.warning(
                     f"🚫 BLOCKED (Fees): {signal_data['strategy_id']} | "
                     f"Gross: ${gross_profit:.2f} - Fees: ${total_fees:.2f} = Net: ${net_profit:.2f} "

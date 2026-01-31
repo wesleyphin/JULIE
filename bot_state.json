@@ -1,0 +1,262 @@
+{
+  "bank_filter": {
+    "bank_above_orb_high": 6975.0,
+    "bank_above_prev_pm_high": 7012.5,
+    "bank_above_prev_session_high": 7000.0,
+    "bank_below_orb_low": 6962.5,
+    "bank_below_prev_pm_low": 6925.0,
+    "bank_below_prev_session_low": 6937.5,
+    "bank_rejection_bias": "LONG",
+    "curr_session_high": 6976.75,
+    "curr_session_low": 6918.75,
+    "current_date": "2026-01-30",
+    "current_pm_high": 6976.75,
+    "current_pm_low": 6918.75,
+    "current_quarter": 4,
+    "current_session": "NY_PM",
+    "last_session": "NY_PM",
+    "midnight_orb_high": 6970.25,
+    "midnight_orb_low": 6964.0,
+    "midnight_orb_set": true,
+    "pending_count": 0,
+    "pending_dir": null,
+    "pending_source": null,
+    "prev_day_pm_high": 7002.5,
+    "prev_day_pm_low": 6936.5,
+    "prev_session_high": 6990.75,
+    "prev_session_low": 6947.25,
+    "rejection_source": "Midnight ORB (bank 6962.50 below ORB low)"
+  },
+  "chop_filter": {
+    "bar_count": 826,
+    "bars_in_chop": 0,
+    "breakout_direction": null,
+    "breakout_level": null,
+    "chop_high": null,
+    "chop_low": null,
+    "closes": [
+      6964.0,
+      6963.0,
+      6962.5,
+      6962.5,
+      6962.75,
+      6961.0,
+      6961.5,
+      6960.0,
+      6958.75,
+      6959.25,
+      6961.25,
+      6963.25,
+      6963.0,
+      6964.25,
+      6963.5,
+      6963.75,
+      6963.75,
+      6962.5,
+      6962.25,
+      6963.5
+    ],
+    "current_threshold": {
+      "breakout": 12.5,
+      "chop": 5.75,
+      "current_atr": null,
+      "median": 8.25,
+      "scalar": 1.0
+    },
+    "highs": [
+      6973.5,
+      6965.25,
+      6964.5,
+      6964.0,
+      6964.75,
+      6963.0,
+      6961.5,
+      6963.75,
+      6961.5,
+      6959.25,
+      6962.0,
+      6963.5,
+      6963.5,
+      6964.25,
+      6964.75,
+      6964.25,
+      6964.0,
+      6963.75,
+      6963.5,
+      6963.5
+    ],
+    "last_dt": "2026-01-30T16:19:00-05:00",
+    "lows": [
+      6963.5,
+      6962.5,
+      6961.0,
+      6961.5,
+      6961.5,
+      6960.25,
+      6959.75,
+      6960.0,
+      6957.75,
+      6957.5,
+      6959.5,
+      6960.75,
+      6961.25,
+      6961.25,
+      6963.0,
+      6962.25,
+      6963.0,
+      6962.0,
+      6962.25,
+      6962.0
+    ],
+    "state": "NORMAL",
+    "swing_highs": [
+      [
+        6971.0,
+        747
+      ],
+      [
+        6954.75,
+        763
+      ],
+      [
+        6976.75,
+        802
+      ],
+      [
+        6973.5,
+        812
+      ],
+      [
+        6964.75,
+        826
+      ]
+    ],
+    "swing_lows": [
+      [
+        6952.25,
+        751
+      ],
+      [
+        6947.25,
+        760
+      ],
+      [
+        6940.75,
+        774
+      ],
+      [
+        6956.25,
+        807
+      ],
+      [
+        6957.5,
+        821
+      ]
+    ]
+  },
+  "circuit_breaker": {
+    "consecutive_losses": 1,
+    "daily_pnl": 668.75,
+    "is_tripped": false
+  },
+  "directional_loss_blocker": {
+    "long_blocked_until": null,
+    "long_consecutive_losses": 0,
+    "reversal_quarter": 0,
+    "reversal_session": null,
+    "reversed_bias": null,
+    "short_blocked_until": null,
+    "short_consecutive_losses": 1
+  },
+  "extension_filter": {
+    "current_date": "2026-01-29",
+    "current_session": "NY_PM",
+    "daily_high": 6995.0,
+    "daily_low": 6917.5,
+    "extension_direction": null,
+    "session_high": 6976.75,
+    "session_low": 6918.75,
+    "state": "NORMAL"
+  },
+  "hostile_day": {
+    "hostile_day_active": false,
+    "hostile_day_date": "2026-01-30",
+    "hostile_day_reason": "",
+    "hostile_engine_stats": {
+      "Continuation": {
+        "losses": 0,
+        "trades": 0
+      },
+      "DynamicEngine": {
+        "losses": 1,
+        "trades": 3
+      }
+    }
+  },
+  "last_bar_ts": "2026-01-30T16:19:00-05:00",
+  "mom_rescue": {
+    "mom_rescue_date": "2026-01-30",
+    "mom_rescue_scores": {
+      "Long_Mom": 0,
+      "Short_Mom": 0
+    }
+  },
+  "penalty_box_blocker": {
+    "ceiling": 6976.75,
+    "floor": 6947.25,
+    "long_block_counter": 0,
+    "short_block_counter": 0
+  },
+  "penalty_box_blocker_asia": {
+    "ceiling": 6976.75,
+    "floor": 6947.25,
+    "long_block_counter": 0,
+    "short_block_counter": 0
+  },
+  "rejection_filter": {
+    "curr_session_high": 6976.75,
+    "curr_session_low": 6918.75,
+    "current_date": "2026-01-30",
+    "current_pm_high": 6976.75,
+    "current_pm_low": 6918.75,
+    "current_quarter": 4,
+    "current_session_name": "NY_PM",
+    "last_rejection_level": "LOW",
+    "last_rejection_source": "PREV_SESSION",
+    "last_session": "NY_AM",
+    "midnight_orb_bias": null,
+    "midnight_orb_high": 6970.25,
+    "midnight_orb_low": 6964.0,
+    "midnight_orb_set": true,
+    "prev_day_pm_bias": "LONG",
+    "prev_day_pm_high": 7002.5,
+    "prev_day_pm_low": 6936.5,
+    "prev_session_bias": "LONG",
+    "prev_session_high": 6990.75,
+    "prev_session_low": 6947.25
+  },
+  "timestamp": "2026-01-30T16:19:00-05:00",
+  "trading_day_start": "2026-01-29T18:00:00-05:00",
+  "trend_day": {
+    "bars_since_impulse": 22,
+    "impulse_active": true,
+    "impulse_day": "2026-01-30",
+    "impulse_dir": "up",
+    "impulse_extreme": 6973.5,
+    "impulse_start_price": 6964.5,
+    "last_trend_day_dir": "down",
+    "last_trend_day_tier": 1,
+    "last_trend_session": "NY",
+    "max_retracement": 3.6666666666666665,
+    "pullback_extreme": 6957.5,
+    "sticky_opposite_count": 0,
+    "sticky_reclaim_count": 0,
+    "sticky_trend_dir": "down",
+    "tier1_down_until": "2026-01-30T16:10:00-05:00",
+    "tier1_seen": true,
+    "tier1_up_until": "2026-01-30T16:49:00-05:00",
+    "trend_day_dir": "down",
+    "trend_day_tier": 1
+  },
+  "version": 2
+}

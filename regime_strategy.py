@@ -117,9 +117,9 @@ def get_optimized_sltp(side: str, ts) -> Dict[str, float]:
 
     Returns dict with 'sl_dist' and 'tp_dist'
     """
-    # Minimum enforcement for positive RR
-    MIN_SL = 4.0  # 16 ticks minimum
-    MIN_TP = 6.0  # 24 ticks minimum (1.5:1 RR)
+    # Minimum enforcement for positive RR (points)
+    MIN_SL = 2.0  # 8 ticks minimum
+    MIN_TP = 3.0  # 12 ticks minimum (1.5:1 RR)
 
     ctx = get_time_context(ts)
 
@@ -278,7 +278,7 @@ class RegimeAdaptiveStrategy:
         elif self.dynamic_sltp_engine:
             sltp = self.dynamic_sltp_engine.calculate_dynamic_sltp(df)
         else:
-            sltp = {'sl_dist': 4.0, 'tp_dist': 6.0}
+            sltp = {'sl_dist': 2.0, 'tp_dist': 3.0}
         
         # Log params if engine available
         if self.dynamic_sltp_engine:

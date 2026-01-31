@@ -11,12 +11,14 @@ import pandas as pd
 from backtest_mes_et import (
     DEFAULT_CSV_NAME,
     NY_TZ,
+    apply_symbol_mode,
     choose_symbol,
     load_csv,
     parse_user_datetime,
     run_backtest,
     save_backtest_report,
 )
+from config import CONFIG
 
 
 def format_dt(value: dt.datetime) -> str:
@@ -264,9 +266,12 @@ class BacktestUI:
             range_df = df[(df.index >= start_time) & (df.index <= end_time)]
             if range_df.empty:
                 raise ValueError("No rows in the selected range.")
+            symbol_mode = str(CONFIG.get("BACKTEST_SYMBOL_MODE", "single") or "single").lower()
             symbols = sorted(range_df["symbol"].dropna().unique().tolist())
             if not symbols:
                 raise ValueError("No symbols found in range.")
+            if symbol_mode != "single" and len(symbols) > 1:
+                symbols = ["AUTO_BY_DAY"]
             self.queue.put(
                 {
                     "type": "preview",
@@ -285,15 +290,26 @@ class BacktestUI:
             range_df = df[(df.index >= start_time) & (df.index <= end_time)]
             if range_df.empty:
                 raise ValueError("No rows in the selected range.")
+            symbol_mode = str(CONFIG.get("BACKTEST_SYMBOL_MODE", "single") or "single").lower()
+            symbol_method = CONFIG.get("BACKTEST_SYMBOL_AUTO_METHOD", "volume")
             symbols = sorted(range_df["symbol"].dropna().unique().tolist())
             if not symbols:
                 raise ValueError("No symbols found in range.")
             selected = self.symbol_var.get().strip()
-            if selected not in symbols:
-                selected = choose_symbol(range_df, None)
-            symbol_df = range_df[range_df["symbol"] == selected]
-            if symbol_df.empty:
-                raise ValueError("No rows found for selected symbol.")
+            symbol_df = range_df
+            if symbol_mode != "single" and len(symbols) > 1:
+                symbol_df, selected, _ = apply_symbol_mode(
+                    range_df, symbol_mode, symbol_method
+                )
+                if symbol_df.empty:
+                    raise ValueError("No rows found after auto symbol selection.")
+                symbol_df = symbol_df.drop(columns=["symbol"], errors="ignore")
+            else:
+                if selected not in symbols:
+                    selected = choose_symbol(range_df, None)
+                symbol_df = range_df[range_df["symbol"] == selected]
+                if symbol_df.empty:
+                    raise ValueError("No rows found for selected symbol.")
 
             def progress_cb(payload: dict) -> None:
                 payload = payload.copy()
@@ -308,6 +324,7 @@ class BacktestUI:
                 progress_cb=progress_cb,
                 cancel_event=self.cancel_event,
             )
+            stats["symbol_mode"] = symbol_mode
             self.queue.put(
                 {
                     "type": "done",

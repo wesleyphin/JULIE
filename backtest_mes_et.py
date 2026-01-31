@@ -35,9 +35,16 @@ from intraday_dip_strategy import IntradayDipStrategy
 from confluence_strategy import ConfluenceStrategy
 from smt_strategy import SMTStrategy
 from ict_model_strategy import ICTModelStrategy
+from impulse_breakout_strategy import ImpulseBreakoutStrategy
+from auction_reversion_strategy import AuctionReversionStrategy
+from liquidity_sweep_strategy import LiquiditySweepStrategy
+from value_area_breakout_strategy import ValueAreaBreakoutStrategy
+from smooth_trend_asia_strategy import SmoothTrendAsiaStrategy
 from ml_physics_strategy import MLPhysicsStrategy
 from dynamic_engine_strategy import DynamicEngineStrategy
 from volatility_filter import volatility_filter, check_volatility
+from fixed_sltp_framework import apply_fixed_sltp, log_fixed_sltp, asia_viability_gate
+from volume_profile import build_volume_profile
 from regime_strategy import RegimeAdaptiveStrategy
 from dynamic_sltp_params import dynamic_sltp_engine
 from vixmeanreversion import VIXReversionStrategy
@@ -60,8 +67,8 @@ FEE_PER_TRADE = FEE_PER_CONTRACT_RT * CONTRACTS
 TICK_SIZE = 0.25
 WARMUP_BARS = 20000
 OPPOSITE_SIGNAL_THRESHOLD = 3
-MIN_SL = 4.0
-MIN_TP = 6.0
+MIN_SL = 0.0
+MIN_TP = 0.0
 ENABLE_CONSENSUS_BYPASS = True
 DISABLE_CONTINUATION_NY = False
 ENABLE_DYNAMIC_ENGINE_1 = True
@@ -80,6 +87,15 @@ VWAP_NO_RECLAIM_BARS_T2 = 20
 VWAP_RECLAIM_SIGMA = 0.5
 VWAP_RECLAIM_CONSECUTIVE_BARS = 15
 TREND_DAY_STICKY_RECLAIM_BARS = 30
+# Trend-day "fade/rotation" deactivation (visual match)
+TREND_DAY_DEACTIVATE_RECLAIM_WINDOW = 15
+TREND_DAY_DEACTIVATE_RECLAIM_COUNT = 12
+TREND_DAY_DEACTIVATE_SIGMA_THRESHOLD = 0.8
+TREND_DAY_DEACTIVATE_SIGMA_BARS = 10
+TREND_DAY_DEACTIVATE_SIGMA_DECAY_THRESHOLD = 0.9
+TREND_DAY_DEACTIVATE_SIGMA_DECAY_BARS = 20
+TREND_DAY_DEACTIVATE_SIGMA_GUARD_MAX = 2.0
+TREND_DAY_DEACTIVATE_SIGMA_GUARD_CURRENT = 1.1
 TREND_UP_EMA_SLOPE_BARS = 20
 TREND_UP_ATR_EXP = 1.4
 TREND_UP_ABOVE_EMA50_WINDOW = 10
@@ -99,6 +115,15 @@ IMPULSE_MAX_RETRACE = 0.25
 TREND_DAY_T1_REQUIRE_CONFIRMATION = False
 TREND_DAY_TIMEFRAME_MINUTES = 1
 ALT_PRE_TIER1_VWAP_SIGMA = 2.0
+TREND_DAY_ASIA_STRUCTURE_ONLY = True
+TREND_DAY_ASIA_DISABLE_TIER2 = True
+
+# Backtest-only: disable FixedSLTP room-to-target viability check
+_fixed_sltp = CONFIG.get("FIXED_SLTP_FRAMEWORK", {}) or {}
+_viab = _fixed_sltp.get("viability", {}) or {}
+_viab["disable_room_to_target"] = False
+_fixed_sltp["viability"] = _viab
+CONFIG["FIXED_SLTP_FRAMEWORK"] = _fixed_sltp
 
 SL_BUCKETS = [4.0, 6.0, 8.0, 10.0, 15.0]
 TP_BUCKETS = [6.0, 8.0, 10.0, 15.0, 20.0, 30.0]
@@ -126,6 +151,79 @@ def get_session_name(ts: dt.datetime) -> str:
     if 12 <= hour < 17:
         return "NY_PM"
     return "OFF"
+
+
+def asia_trend_bias(history_df: pd.DataFrame, cfg: dict) -> Optional[str]:
+    if history_df.empty:
+        return None
+    close = history_df["close"]
+    ema_fast = int(cfg.get("ema_fast", 20) or 20)
+    ema_slow = int(cfg.get("ema_slow", 50) or 50)
+    ema_slope_bars = int(cfg.get("ema_slope_bars", 20) or 20)
+    if len(close) < max(ema_slow, ema_slope_bars + 1) + 1:
+        return None
+    ema_fast_series = close.ewm(span=ema_fast, adjust=False).mean()
+    ema_slow_series = close.ewm(span=ema_slow, adjust=False).mean()
+    fast_val = float(ema_fast_series.iloc[-1])
+    slow_val = float(ema_slow_series.iloc[-1])
+    slope = fast_val - float(ema_fast_series.iloc[-ema_slope_bars])
+    min_sep = float(cfg.get("min_ema_separation", 0.1) or 0.0)
+    if fast_val > slow_val and slope > 0 and (fast_val - slow_val) >= min_sep:
+        return "LONG"
+    if fast_val < slow_val and slope < 0 and (slow_val - fast_val) >= min_sep:
+        return "SHORT"
+    return None
+
+
+def asia_target_feasibility_override(
+    history_df: pd.DataFrame,
+    side: str,
+    tp_distance: Optional[float],
+    trend_bias: Optional[str],
+    cfg: dict,
+    lookback: int,
+) -> bool:
+    if not cfg or not cfg.get("enabled", True):
+        return False
+    if not history_df.empty and trend_bias:
+        if str(side).upper() != str(trend_bias).upper():
+            return False
+    else:
+        return False
+    try:
+        tp_val = float(tp_distance)
+    except Exception:
+        return False
+    if tp_val <= 0:
+        return False
+    lookback = int(cfg.get("lookback", lookback) or lookback)
+    if len(history_df) < lookback:
+        return False
+    window = history_df.iloc[-lookback:]
+    box_range = float(window["high"].max() - window["low"].min())
+    min_box = float(cfg.get("min_box_range", 0.0) or 0.0)
+    if box_range <= 0 or box_range < min_box:
+        return False
+    max_mult = float(cfg.get("max_tp_box_mult", 1.5) or 1.5)
+    if tp_val <= box_range * max_mult:
+        return True
+    return bool(cfg.get("allow_trend_override", False))
+
+
+def asia_chop_override(
+    chop_reason: Optional[str],
+    side: str,
+    trend_bias: Optional[str],
+    cfg: dict,
+) -> bool:
+    if not cfg or not cfg.get("enabled", True):
+        return False
+    if not trend_bias or str(side).upper() != str(trend_bias).upper():
+        return False
+    reason_lc = str(chop_reason or "").lower()
+    if "wait for breakout" in reason_lc or "range too tight" in reason_lc:
+        return False
+    return bool(cfg.get("allow_trend_override", True))
 
 
 def bucket_label(value: float, edges: list[float]) -> str:
@@ -640,6 +738,7 @@ class AttributionTracker:
         self.loss_streak_pnl_total = 0.0
         self.loss_streak_max_len = 0
         self.loss_streak_max_pnl = 0.0
+        self.ml_diagnostics = []
 
     def record_filter(self, name: str, kind: str = "block") -> None:
         if kind == "rescue":
@@ -648,6 +747,11 @@ class AttributionTracker:
             self.filter_bypasses[name] += 1
         else:
             self.filter_blocks[name] += 1
+
+    def record_ml_eval(self, payload: dict, max_records: int = 0) -> None:
+        if max_records and len(self.ml_diagnostics) >= max_records:
+            return
+        self.ml_diagnostics.append(payload)
 
     def _update_group(self, group: dict, pnl: float) -> None:
         group["pnl"] += pnl
@@ -945,6 +1049,51 @@ def choose_symbol(df: pd.DataFrame, preferred: Optional[str]) -> str:
             return preferred
     counts = df["symbol"].value_counts()
     return counts.index[0]
+
+
+def _auto_select_symbol_by_day(
+    df: pd.DataFrame, method: str = "volume"
+) -> tuple[pd.DataFrame, dict]:
+    if df.empty or "symbol" not in df.columns:
+        return df, {}
+    work = df[["symbol", "volume"]].copy()
+    work["date"] = work.index.date
+    method_key = str(method or "volume").lower()
+    if method_key == "rows" or work["volume"].isna().all():
+        stats = work.groupby(["date", "symbol"]).size().rename("score").reset_index()
+    else:
+        stats = (
+            work.groupby(["date", "symbol"])["volume"]
+            .sum(min_count=1)
+            .fillna(0.0)
+            .rename("score")
+            .reset_index()
+        )
+    stats = stats.sort_values(["date", "score", "symbol"], ascending=[True, False, True])
+    best = stats.drop_duplicates("date")
+    day_to_symbol = dict(zip(best["date"], best["symbol"]))
+    date_series = pd.Series(df.index.date, index=df.index)
+    chosen = date_series.map(day_to_symbol)
+    mask = df["symbol"].astype(str) == chosen.astype(str)
+    return df.loc[mask], day_to_symbol
+
+
+def apply_symbol_mode(
+    df: pd.DataFrame,
+    mode: str,
+    method: str,
+) -> tuple[pd.DataFrame, str, dict]:
+    if df.empty or "symbol" not in df.columns:
+        return df, "AUTO", {}
+    unique_symbols = df["symbol"].nunique(dropna=True)
+    if unique_symbols <= 1:
+        symbol = str(df["symbol"].dropna().iloc[0]) if unique_symbols else "AUTO"
+        return df, symbol, {}
+    mode_key = str(mode or "single").lower()
+    if mode_key in ("auto", "auto_by_day", "roll"):
+        filtered, mapping = _auto_select_symbol_by_day(df, method=method)
+        return filtered, "AUTO_BY_DAY", mapping
+    return df, "AUTO", {}
 
 
 class BacktestClient:
@@ -1318,6 +1467,7 @@ def ml_vol_regime_ok(
     signal: Optional[dict],
     session_name: Optional[str],
     vol_regime: Optional[str],
+    asia_viable: Optional[bool] = None,
 ) -> bool:
     """Require stronger ML confidence by volatility regime."""
     cfg = CONFIG.get("ML_PHYSICS_VOL_REGIME_GUARD", {}) or {}
@@ -1375,17 +1525,23 @@ def ml_vol_regime_ok(
         if side in block_set:
             return False
 
+    relax_low_vol_penalty = (
+        bool(asia_viable)
+        and session_name
+        and str(session_name).upper() == "ASIA"
+        and regime_key == "low"
+    )
     delta = reg_cfg.get("min_conf_delta", 0.0)
     if isinstance(delta, dict):
         delta = delta.get(side, delta.get("default", 0.0))
     try:
-        delta_val = float(delta or 0.0)
+        delta_val = 0.0 if relax_low_vol_penalty else float(delta or 0.0)
     except Exception:
         delta_val = 0.0
     required = thr_val + delta_val
 
     side_extra = reg_cfg.get("side_extra_delta")
-    if isinstance(side_extra, dict) and side in side_extra:
+    if not relax_low_vol_penalty and isinstance(side_extra, dict) and side in side_extra:
         try:
             required += float(side_extra[side])
         except Exception:
@@ -1682,9 +1838,12 @@ def save_backtest_report(
             "bar_signal": "close",
             "entry": "next_open",
             "fast_mode": stats.get("fast_mode"),
+            "symbol_mode": stats.get("symbol_mode"),
+            "symbol_distribution": stats.get("symbol_distribution"),
         },
         "report": stats.get("report", ""),
         "trade_log": stats.get("trade_log", []),
+        "ml_diagnostics": stats.get("ml_diagnostics", []),
     }
     report_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True), encoding="utf-8")
     return report_path
@@ -1704,13 +1863,21 @@ def run_backtest(
     CONFIG.setdefault("GEMINI", {})["enabled"] = False
     CONFIG["DYNAMIC_SL_MULTIPLIER"] = 1.0
     CONFIG["DYNAMIC_TP_MULTIPLIER"] = 1.0
-
     fast_cfg = CONFIG.get("BACKTEST_FAST_MODE", {}) or {}
     fast_enabled = bool(fast_cfg.get("enabled"))
     bar_stride = int(fast_cfg.get("bar_stride", 1) or 1)
     if bar_stride < 1:
         bar_stride = 1
     skip_mfe_mae = bool(fast_cfg.get("skip_mfe_mae", False))
+    ml_diag_cfg = CONFIG.get("BACKTEST_ML_DIAGNOSTICS", {}) or {}
+    ml_diag_enabled = bool(ml_diag_cfg.get("enabled", True))
+    ml_diag_include_no_signal = bool(ml_diag_cfg.get("include_no_signal", False))
+    ml_diag_max_records = int(ml_diag_cfg.get("max_records", 0) or 0)
+
+    asia_calib_cfg = CONFIG.get("BACKTEST_ASIA_CALIBRATIONS", {}) or {}
+    asia_calib_enabled = bool(asia_calib_cfg.get("enabled", False))
+    smooth_trend_cfg = CONFIG.get("BACKTEST_SMOOTH_TREND_ASIA", {}) or {}
+    smooth_trend_enabled = bool(smooth_trend_cfg.get("enabled", False))
 
     # Backtest-only: enable ML vol-split sessions without changing live defaults
     backtest_split_sessions = CONFIG.get("ML_PHYSICS_VOL_SPLIT_BACKTEST_SESSIONS", [])
@@ -1737,6 +1904,7 @@ def run_backtest(
     fast_strategies = [
         RegimeAdaptiveStrategy(),
         VIXReversionStrategy(),
+        ImpulseBreakoutStrategy(),
     ]
     if ENABLE_DYNAMIC_ENGINE_1:
         dynamic_engine_strat = DynamicEngineStrategy()
@@ -1746,9 +1914,14 @@ def run_backtest(
     smt_strategy = SMTStrategy()
     standard_strategies = [
         IntradayDipStrategy(),
+        AuctionReversionStrategy(),
+        LiquiditySweepStrategy(),
+        ValueAreaBreakoutStrategy(),
         ConfluenceStrategy(),
         smt_strategy,
     ]
+    if smooth_trend_enabled:
+        standard_strategies.append(SmoothTrendAsiaStrategy())
     if ml_strategy.model_loaded:
         standard_strategies.append(ml_strategy)
 
@@ -1762,7 +1935,23 @@ def run_backtest(
     htf_fvg_filter = BacktestHTFFVGFilter()
     structure_blocker = DynamicStructureBlocker(lookback=50)
     regime_blocker = RegimeStructureBlocker(lookback=20)
-    penalty_blocker = PenaltyBoxBlocker(lookback=50, tolerance=5.0, penalty_bars=3)
+    penalty_cfg = CONFIG.get("PENALTY_BOX", {}) or {}
+    penalty_blocker = None
+    if penalty_cfg.get("enabled", True):
+        penalty_blocker = PenaltyBoxBlocker(
+            lookback=int(penalty_cfg.get("lookback", 50) or 50),
+            tolerance=float(penalty_cfg.get("tolerance", 5.0) or 5.0),
+            penalty_bars=int(penalty_cfg.get("penalty_bars", 3) or 3),
+        )
+    penalty_blocker_asia = None
+    if asia_calib_enabled:
+        penalty_cfg = asia_calib_cfg.get("penalty_box", {}) or {}
+        if penalty_cfg.get("enabled", penalty_blocker is not None):
+            penalty_blocker_asia = PenaltyBoxBlocker(
+                lookback=int(penalty_cfg.get("lookback", 50) or 50),
+                tolerance=float(penalty_cfg.get("tolerance", 5.0) or 5.0),
+                penalty_bars=int(penalty_cfg.get("penalty_bars", 3) or 3),
+            )
     memory_sr = MemorySRFilter(lookback_bars=300, zone_width=2.0, touch_threshold=2)
     directional_loss_blocker = DirectionalLossBlocker(consecutive_loss_limit=3, block_minutes=15)
     impulse_filter = ImpulseFilter(lookback=20, impulse_multiplier=2.5)
@@ -1873,8 +2062,10 @@ def run_backtest(
 
     chop_client = BacktestClient(full_df)
     chop_analyzer = DynamicChopAnalyzer(chop_client)
+    chop_analyzer.calibrate()
     try:
-        chop_analyzer.calibrate()
+        chop_mult = float(CONFIG.get("BACKTEST_DYNAMIC_CHOP_MULTIPLIER", 1.0))
+        chop_analyzer.update_gemini_params(chop_mult)
     except Exception:
         pass
 
@@ -1885,6 +2076,12 @@ def run_backtest(
     wins = 0
     losses = 0
     tracker = AttributionTracker()
+    ny_gate_candidates = 0
+    ny_gate_balance_blocked = 0
+    ny_gate_acceptance_blocked = 0
+    ny_gate_liquidity_blocked = 0
+    ny_gate_blocked_by_strategy = defaultdict(int)
+    ny_gate_blocked_by_session = defaultdict(int)
 
     active_trade = None
     pending_entry = None
@@ -1909,6 +2106,7 @@ def run_backtest(
 
     trend_day_tier = 0
     trend_day_dir = None
+    trend_day_max_sigma = 0.0
     impulse_day = None
     impulse_active = False
     impulse_dir = None
@@ -1926,6 +2124,30 @@ def run_backtest(
     sticky_reclaim_count = 0
     sticky_opposite_count = 0
     last_trend_session = None
+
+    def _deactivate_trend_day(reason: str, now: dt.datetime) -> None:
+        nonlocal trend_day_tier, trend_day_dir
+        nonlocal last_trend_day_tier, last_trend_day_dir
+        nonlocal tier1_down_until, tier1_up_until, tier1_seen
+        nonlocal sticky_trend_dir, sticky_opposite_count, sticky_reclaim_count
+        nonlocal trend_day_max_sigma
+
+        if trend_day_tier > 0 or trend_day_dir:
+            print(
+                f"\033[93m[TrendDay] Deactivated: {reason} @ "
+                f"{now.strftime('%Y-%m-%d %H:%M')}\033[0m"
+            )
+        trend_day_tier = 0
+        trend_day_dir = None
+        last_trend_day_tier = 0
+        last_trend_day_dir = None
+        tier1_down_until = None
+        tier1_up_until = None
+        tier1_seen = False
+        sticky_trend_dir = None
+        sticky_opposite_count = 0
+        sticky_reclaim_count = 0
+        trend_day_max_sigma = 0.0
 
     def reset_mom_rescues(day: dt.date) -> None:
         nonlocal mom_rescue_date, mom_rescue_scores
@@ -2064,6 +2286,9 @@ def run_backtest(
             "trend_day_tier": active_trade.get("trend_day_tier"),
             "trend_day_dir": active_trade.get("trend_day_dir"),
         }
+        for key, value in active_trade.items():
+            if str(key).startswith("ml_"):
+                trade_record[key] = value
         tracker.record_trade(trade_record)
         update_mom_rescue_score(trade_record, pnl_net, exit_time)
         update_hostile_day_on_close(trade_record.get("strategy"), pnl_points, exit_time)
@@ -2137,6 +2362,322 @@ def run_backtest(
             return True
         return trigger in {"RegimeBlocker", "TrendFilter", "ChopFilter", "ExtensionFilter"}
 
+    def _ny_gate_session_name(ts: dt.datetime) -> Optional[str]:
+        if ts is None:
+            return None
+        try:
+            ts = ts.astimezone(NY_TZ)
+        except Exception:
+            return None
+        hour = ts.hour
+        if 8 <= hour < 12:
+            return "NY_AM"
+        if 12 <= hour < 17:
+            return "NY_PM"
+        return None
+
+    def _calc_atr20(history_df: pd.DataFrame) -> Optional[float]:
+        if history_df.empty or len(history_df) < 21:
+            return None
+        high = history_df["high"]
+        low = history_df["low"]
+        close = history_df["close"]
+        prev_close = close.shift(1)
+        tr = pd.concat(
+            [(high - low).abs(), (high - prev_close).abs(), (low - prev_close).abs()],
+            axis=1,
+        ).max(axis=1)
+        atr20 = tr.rolling(20).mean().iloc[-1]
+        if pd.isna(atr20):
+            return None
+        return float(atr20)
+
+    def _close_position_in_bar(high: float, low: float, close: float) -> float:
+        rng = float(high) - float(low)
+        if rng <= 0:
+            return 0.5
+        return (float(close) - float(low)) / rng
+
+    def _get_opening_range_levels(
+        history_df: pd.DataFrame,
+        current_time: dt.datetime,
+        minutes: int = 15,
+    ):
+        if history_df.empty or current_time is None:
+            return None, None
+        try:
+            ny_time = current_time.astimezone(NY_TZ)
+        except Exception:
+            return None, None
+        session_start = ny_time.replace(hour=9, minute=30, second=0, microsecond=0)
+        session_end = session_start + dt.timedelta(minutes=minutes)
+        window = history_df.loc[(history_df.index >= session_start) & (history_df.index < session_end)]
+        if window.empty:
+            return None, None
+        return float(window["high"].max()), float(window["low"].min())
+
+    def _session_high_low(
+        history_df: pd.DataFrame,
+        current_time: dt.datetime,
+        session_name: str,
+    ):
+        if history_df.empty or current_time is None:
+            return None, None
+        try:
+            ny_time = current_time.astimezone(NY_TZ)
+        except Exception:
+            return None, None
+        if session_name == "NY_AM":
+            start = ny_time.replace(hour=8, minute=0, second=0, microsecond=0)
+            end = ny_time.replace(hour=12, minute=0, second=0, microsecond=0)
+        elif session_name == "NY_PM":
+            start = ny_time.replace(hour=12, minute=0, second=0, microsecond=0)
+            end = ny_time.replace(hour=17, minute=0, second=0, microsecond=0)
+        else:
+            return None, None
+        window = history_df.loc[(history_df.index >= start) & (history_df.index <= min(ny_time, end))]
+        if window.empty:
+            return None, None
+        return float(window["high"].max()), float(window["low"].min())
+
+    def _select_interaction_level(
+        levels: dict[str, float],
+        price: float,
+        history_df: pd.DataFrame,
+        band: float,
+    ):
+        if not levels or history_df.empty or len(history_df) < 2:
+            return None
+        prev_close = float(history_df["close"].iloc[-2])
+        candidates: list[tuple[str, float]] = []
+        for name, level in levels.items():
+            if level is None or not np.isfinite(level):
+                continue
+            if abs(price - level) <= band:
+                candidates.append((name, float(level)))
+                continue
+            crossed = (prev_close - level) * (price - level) < 0
+            if crossed:
+                candidates.append((name, float(level)))
+        if not candidates:
+            return None
+        return min(candidates, key=lambda item: abs(price - item[1]))
+
+    def _balance_metrics(history_df: pd.DataFrame, lookback: int = 10):
+        if history_df.empty or len(history_df) < lookback:
+            return None
+        window = history_df.iloc[-lookback:]
+        closes = window["close"].to_numpy(dtype=float)
+        highs = window["high"].to_numpy(dtype=float)
+        lows = window["low"].to_numpy(dtype=float)
+        deltas = np.diff(closes)
+        sum_abs = float(np.sum(np.abs(deltas)))
+        net_move = float(abs(closes[-1] - closes[0]))
+        er = net_move / max(sum_abs, 1e-9)
+
+        flips = 0
+        signs = np.sign(deltas)
+        for idx in range(1, len(signs)):
+            if signs[idx] != 0 and signs[idx - 1] != 0 and signs[idx] != signs[idx - 1]:
+                flips += 1
+
+        overlap_count = 0
+        for idx in range(1, lookback):
+            overlap = min(highs[idx], highs[idx - 1]) - max(lows[idx], lows[idx - 1])
+            if overlap > 0:
+                overlap_count += 1
+        overlap_ratio = overlap_count / max(lookback - 1, 1)
+        return er, overlap_ratio, flips
+
+    def _ny_continuation_gates(
+        signal: dict,
+        side: str,
+        current_time: dt.datetime,
+        bar_close: float,
+        history_df: pd.DataFrame,
+    ) -> bool:
+        nonlocal ny_gate_candidates
+        nonlocal ny_gate_balance_blocked, ny_gate_acceptance_blocked, ny_gate_liquidity_blocked
+        if not signal or history_df.empty:
+            return True
+        strat_name = str(signal.get("strategy") or "")
+        if not strat_name.lower().startswith("continuation"):
+            return True
+        session_name = _ny_gate_session_name(current_time)
+        if session_name not in ("NY_AM", "NY_PM"):
+            return True
+
+        ny_gate_candidates += 1
+
+        # Gate B: Local balance detector
+        metrics = _balance_metrics(history_df, lookback=10)
+        if metrics:
+            er, overlap_ratio, flips = metrics
+            if er < 0.25 or overlap_ratio > 0.70 or flips >= 6:
+                ny_gate_balance_blocked += 1
+                ny_gate_blocked_by_strategy[strat_name] += 1
+                ny_gate_blocked_by_session[session_name] += 1
+                record_filter("NYGateBalance")
+                logging.info(
+                    "⛔ NYGateBalance blocked | session=%s | strategy=%s | side=%s | ER=%.2f | overlap=%.2f | flips=%s",
+                    session_name,
+                    strat_name,
+                    side,
+                    er,
+                    overlap_ratio,
+                    flips,
+                )
+                return False
+
+        # Gate A: Acceptance vs rejection at key levels
+        atr20 = _calc_atr20(history_df)
+        band = max(0.2 * (atr20 or 0.0), 0.5)
+        levels_long: dict[str, float] = {}
+        levels_short: dict[str, float] = {}
+
+        def series_at(key: str):
+            series = trend_day_series.get(key) if trend_day_series else None
+            if isinstance(series, pd.Series):
+                try:
+                    return series.get(current_time, None)
+                except Exception:
+                    return None
+            return series
+
+        vwap = series_at("vwap")
+        if vwap is not None and not pd.isna(vwap):
+            levels_long["VWAP"] = float(vwap)
+            levels_short["VWAP"] = float(vwap)
+
+        pdh = series_at("prior_session_high")
+        pdl = series_at("prior_session_low")
+        if pdh is not None and not pd.isna(pdh):
+            levels_long["PDH"] = float(pdh)
+        if pdl is not None and not pd.isna(pdl):
+            levels_short["PDL"] = float(pdl)
+
+        orh, orl = _get_opening_range_levels(history_df, current_time)
+        if orh is not None:
+            levels_long["ORH"] = orh
+        if orl is not None:
+            levels_short["ORL"] = orl
+
+        vp = build_volume_profile(history_df, lookback=120, tick_size=TICK_SIZE)
+        if vp:
+            vah = vp.get("vah")
+            val = vp.get("val")
+            if vah is not None and np.isfinite(vah):
+                levels_long["VAH"] = float(vah)
+            if val is not None and np.isfinite(val):
+                levels_short["VAL"] = float(val)
+
+        recent = history_df.iloc[-2:]
+        if len(recent) >= 2:
+            closes = recent["close"].to_numpy(dtype=float)
+            highs = recent["high"].to_numpy(dtype=float)
+            lows = recent["low"].to_numpy(dtype=float)
+            close_pos = [
+                _close_position_in_bar(highs[i], lows[i], closes[i]) for i in range(2)
+            ]
+        else:
+            closes = None
+            close_pos = None
+
+        if side == "LONG":
+            chosen = _select_interaction_level(levels_long, bar_close, history_df, band)
+            if chosen is not None and closes is not None and close_pos is not None:
+                level_name, level_val = chosen
+                if not all(c >= level_val for c in closes) or not all(pos >= 0.60 for pos in close_pos):
+                    ny_gate_acceptance_blocked += 1
+                    ny_gate_blocked_by_strategy[strat_name] += 1
+                    ny_gate_blocked_by_session[session_name] += 1
+                    record_filter("NYGateAcceptance")
+                    logging.info(
+                        "⛔ NYGateAcceptance blocked | session=%s | strategy=%s | side=%s | "
+                        "level=%s %.2f | closes=%s | close_pos=%s",
+                        session_name,
+                        strat_name,
+                        side,
+                        level_name,
+                        level_val,
+                        [round(c, 2) for c in closes],
+                        [round(p, 2) for p in close_pos],
+                    )
+                    return False
+        else:
+            chosen = _select_interaction_level(levels_short, bar_close, history_df, band)
+            if chosen is not None and closes is not None and close_pos is not None:
+                level_name, level_val = chosen
+                if not all(c <= level_val for c in closes) or not all(pos <= 0.40 for pos in close_pos):
+                    ny_gate_acceptance_blocked += 1
+                    ny_gate_blocked_by_strategy[strat_name] += 1
+                    ny_gate_blocked_by_session[session_name] += 1
+                    record_filter("NYGateAcceptance")
+                    logging.info(
+                        "⛔ NYGateAcceptance blocked | session=%s | strategy=%s | side=%s | "
+                        "level=%s %.2f | closes=%s | close_pos=%s",
+                        session_name,
+                        strat_name,
+                        side,
+                        level_name,
+                        level_val,
+                        [round(c, 2) for c in closes],
+                        [round(p, 2) for p in close_pos],
+                    )
+                    return False
+
+        # Gate C: Opposing liquidity distance
+        try:
+            tp_dist_val = float(signal.get("tp_dist") or 0.0)
+        except Exception:
+            tp_dist_val = 0.0
+        if tp_dist_val > 0:
+            session_high, session_low = _session_high_low(history_df, current_time, session_name)
+            swing_high = float(history_df["high"].iloc[-30:].max()) if len(history_df) >= 30 else None
+            swing_low = float(history_df["low"].iloc[-30:].min()) if len(history_df) >= 30 else None
+            opp_levels: dict[str, float] = {}
+            if side == "LONG":
+                opp_levels["SwingHigh"] = swing_high
+                opp_levels["SessionHigh"] = session_high
+                opp_levels["PDH"] = levels_long.get("PDH")
+                opp_levels["ORH"] = levels_long.get("ORH")
+                opp_levels["VAH"] = levels_long.get("VAH")
+            else:
+                opp_levels["SwingLow"] = swing_low
+                opp_levels["SessionLow"] = session_low
+                opp_levels["PDL"] = levels_short.get("PDL")
+                opp_levels["ORL"] = levels_short.get("ORL")
+                opp_levels["VAL"] = levels_short.get("VAL")
+
+            distances: list[tuple[str, float]] = []
+            for name, level in opp_levels.items():
+                if level is None or not np.isfinite(level):
+                    continue
+                if side == "LONG" and level > bar_close:
+                    distances.append((name, float(level - bar_close)))
+                if side == "SHORT" and level < bar_close:
+                    distances.append((name, float(bar_close - level)))
+            if distances:
+                nearest_name, nearest_dist = min(distances, key=lambda item: item[1])
+                if nearest_dist < 0.60 * tp_dist_val:
+                    ny_gate_liquidity_blocked += 1
+                    ny_gate_blocked_by_strategy[strat_name] += 1
+                    ny_gate_blocked_by_session[session_name] += 1
+                    record_filter("NYGateLiquidity")
+                    logging.info(
+                        "⛔ NYGateLiquidity blocked | session=%s | strategy=%s | side=%s | "
+                        "level=%s | dist=%.2f | tp=%.2f",
+                        session_name,
+                        strat_name,
+                        side,
+                        nearest_name,
+                        nearest_dist,
+                        tp_dist_val,
+                    )
+                    return False
+
+        return True
+
     def continuation_rescue_allowed(
         signal: Optional[dict],
         side: str,
@@ -2166,17 +2707,24 @@ def run_backtest(
         ):
             record_filter("ContinuationConfirm")
             return False
+        if not _ny_continuation_gates(signal, side, current_time, bar_close, history_df):
+            return False
         return True
 
     def open_trade(signal: dict, entry_price: float, entry_time: dt.datetime) -> None:
         nonlocal active_trade
-        raw_sl = float(signal.get("sl_dist", MIN_SL))
-        raw_tp = float(signal.get("tp_dist", MIN_TP))
-        sl_dist = round_points_to_tick(max(raw_sl, MIN_SL))
-        tp_dist = round_points_to_tick(max(raw_tp, MIN_TP))
+        requested_sl = float(signal.get("sl_dist", MIN_SL))
+        requested_tp = float(signal.get("tp_dist", MIN_TP))
+        sl_dist = round_points_to_tick(max(requested_sl, MIN_SL))
+        tp_dist = round_points_to_tick(max(requested_tp, MIN_TP))
         side = signal["side"]
         size = int(signal.get("size", CONTRACTS))
         stop_price = entry_price - sl_dist if side == "LONG" else entry_price + sl_dist
+        td_tier = signal.get("trend_day_tier")
+        td_dir = signal.get("trend_day_dir")
+        if td_tier is None:
+            td_tier = trend_day_tier
+            td_dir = trend_day_dir
         active_trade = {
             "strategy": signal.get("strategy", "Unknown"),
             "sub_strategy": signal.get("sub_strategy"),
@@ -2187,8 +2735,8 @@ def run_backtest(
             "bars_held": 0,
             "tp_dist": tp_dist,
             "sl_dist": sl_dist,
-            "requested_tp_dist": raw_tp,
-            "requested_sl_dist": raw_sl,
+            "requested_tp_dist": requested_tp,
+            "requested_sl_dist": requested_sl,
             "size": size,
             "current_stop_price": stop_price,
             "profit_crosses": 0,
@@ -2202,9 +2750,12 @@ def run_backtest(
             "rescue_trigger": signal.get("rescue_trigger"),
             "consensus_contributors": signal.get("consensus_contributors"),
             "bypassed_filters": signal.get("bypassed_filters"),
-            "trend_day_tier": signal.get("trend_day_tier"),
-            "trend_day_dir": signal.get("trend_day_dir"),
+            "trend_day_tier": td_tier,
+            "trend_day_dir": td_dir,
         }
+        for key, value in signal.items():
+            if str(key).startswith("ml_"):
+                active_trade[key] = value
 
     def check_stop_take(bar_high: float, bar_low: float) -> Optional[tuple[float, str]]:
         if active_trade is None:
@@ -2309,6 +2860,7 @@ def run_backtest(
                 sticky_trend_dir = None
                 sticky_reclaim_count = 0
                 sticky_opposite_count = 0
+                trend_day_max_sigma = 0.0
             day_key = td_day_index.iloc[i]
             if impulse_day != day_key:
                 impulse_day = day_key
@@ -2325,6 +2877,7 @@ def run_backtest(
                 sticky_trend_dir = None
                 sticky_reclaim_count = 0
                 sticky_opposite_count = 0
+                trend_day_max_sigma = 0.0
 
             ema50_val = td_ema50.iloc[i]
             ema200_val = td_ema200.iloc[i]
@@ -2356,18 +2909,25 @@ def run_backtest(
             confirm_down = False
             confirm_up = False
 
-            if pd.notna(atr_expansion) and pd.notna(vwap_sigma):
-                atr_ok_t1 = atr_expansion >= ATR_EXP_T1
-                atr_ok_t2 = atr_expansion >= ATR_EXP_T2
+            asia_structure_only = TREND_DAY_ASIA_STRUCTURE_ONLY and current_session == "ASIA"
+
+            if pd.notna(vwap_sigma):
                 displaced_down = vwap_sigma <= -VWAP_SIGMA_T1
                 displaced_up = vwap_sigma >= VWAP_SIGMA_T1
                 no_reclaim_down_t1 = bool(td_no_reclaim_down_t1.iloc[i])
                 no_reclaim_up_t1 = bool(td_no_reclaim_up_t1.iloc[i])
                 no_reclaim_down_t2 = bool(td_no_reclaim_down_t2.iloc[i])
                 no_reclaim_up_t2 = bool(td_no_reclaim_up_t2.iloc[i])
-
                 reclaim_down = bool(td_reclaim_down.iloc[i])
                 reclaim_up = bool(td_reclaim_up.iloc[i])
+
+            if pd.notna(atr_expansion):
+                atr_ok_t1 = atr_expansion >= ATR_EXP_T1
+                atr_ok_t2 = atr_expansion >= ATR_EXP_T2
+
+            if asia_structure_only:
+                atr_ok_t1 = True
+                atr_ok_t2 = True
             if pd.notna(ema50_val):
                 ema_down = bar_close < ema50_val
                 ema_up = bar_close > ema50_val
@@ -2481,6 +3041,9 @@ def run_backtest(
                 and bars_since_impulse >= IMPULSE_MIN_BARS
                 and max_retracement <= IMPULSE_MAX_RETRACE
             )
+            if TREND_DAY_ASIA_DISABLE_TIER2 and current_session == "ASIA":
+                tier2_down = False
+                tier2_up = False
 
             computed_tier = 0
             computed_dir = None
@@ -2539,6 +3102,9 @@ def run_backtest(
                 trend_day_dir = computed_dir
                 trend_day_tier = computed_tier
 
+            if trend_day_tier > 0 and trend_day_dir and pd.notna(vwap_sigma):
+                trend_day_max_sigma = max(trend_day_max_sigma, abs(float(vwap_sigma)))
+
             if trend_day_tier > 0 and trend_day_dir:
                 loss_limit = directional_loss_blocker.consecutive_loss_limit
                 if trend_day_dir == "up":
@@ -2550,16 +3116,74 @@ def run_backtest(
                         "[TrendDay] Deactivating tier/alt after "
                         f"{loss_count} consecutive {trend_day_dir.upper()} losses"
                     )
-                    trend_day_tier = 0
-                    trend_day_dir = None
-                    last_trend_day_tier = 0
-                    last_trend_day_dir = None
-                    tier1_down_until = None
-                    tier1_up_until = None
-                    tier1_seen = False
-                    sticky_trend_dir = None
-                    sticky_opposite_count = 0
-                    sticky_reclaim_count = 0
+                    _deactivate_trend_day(
+                        f"DLB {loss_count} {trend_day_dir.upper()} losses",
+                        current_time,
+                    )
+
+            # === TrendDay "rotation/mean-reversion" deactivation ===
+            if trend_day_tier > 0 and trend_day_dir:
+                vwap_series = trend_day_series.get("vwap") if trend_day_series else None
+                sigma_series = trend_day_series.get("vwap_sigma_dist") if trend_day_series else None
+                close_series = history_df.get("close") if history_df is not None else None
+
+                # Gate A: VWAP reclaim + sigma decay hold
+                if (
+                    vwap_series is not None
+                    and sigma_series is not None
+                    and close_series is not None
+                    and len(close_series) >= TREND_DAY_DEACTIVATE_RECLAIM_WINDOW
+                    and len(vwap_series) >= TREND_DAY_DEACTIVATE_RECLAIM_WINDOW
+                    and len(sigma_series) >= TREND_DAY_DEACTIVATE_SIGMA_BARS
+                ):
+                    recent_close = close_series.iloc[-TREND_DAY_DEACTIVATE_RECLAIM_WINDOW:]
+                    recent_vwap = vwap_series.iloc[-TREND_DAY_DEACTIVATE_RECLAIM_WINDOW:]
+                    if trend_day_dir == "up":
+                        reclaim_count = int(
+                            (recent_close.to_numpy() < recent_vwap.to_numpy()).sum()
+                        )
+                    else:
+                        reclaim_count = int(
+                            (recent_close.to_numpy() > recent_vwap.to_numpy()).sum()
+                        )
+
+                    sigma_recent = sigma_series.iloc[-TREND_DAY_DEACTIVATE_SIGMA_BARS:]
+                    sigma_ok = bool(
+                        (sigma_recent.abs() < TREND_DAY_DEACTIVATE_SIGMA_THRESHOLD).all()
+                    )
+
+                    if reclaim_count >= TREND_DAY_DEACTIVATE_RECLAIM_COUNT and sigma_ok:
+                        _deactivate_trend_day(
+                            "VWAP reclaim + sigma decay "
+                            f"(reclaim={reclaim_count}/{TREND_DAY_DEACTIVATE_RECLAIM_WINDOW}, "
+                            f"sigma<{TREND_DAY_DEACTIVATE_SIGMA_THRESHOLD})",
+                            current_time,
+                        )
+
+                # Gate B: sigma decay kill switch
+                if trend_day_tier > 0 and trend_day_dir and sigma_series is not None:
+                    if len(sigma_series) >= TREND_DAY_DEACTIVATE_SIGMA_DECAY_BARS:
+                        sigma_decay_ok = bool(
+                            (
+                                sigma_series.iloc[-TREND_DAY_DEACTIVATE_SIGMA_DECAY_BARS:]
+                                .abs()
+                                < TREND_DAY_DEACTIVATE_SIGMA_DECAY_THRESHOLD
+                            ).all()
+                        )
+                        current_sigma = sigma_series.iloc[-1]
+                        guard_active = False
+                        if pd.notna(current_sigma):
+                            guard_active = (
+                                trend_day_max_sigma >= TREND_DAY_DEACTIVATE_SIGMA_GUARD_MAX
+                                and abs(float(current_sigma)) >= TREND_DAY_DEACTIVATE_SIGMA_GUARD_CURRENT
+                            )
+                        if sigma_decay_ok and not guard_active:
+                            _deactivate_trend_day(
+                                "VWAP sigma decay "
+                                f"(<{TREND_DAY_DEACTIVATE_SIGMA_DECAY_THRESHOLD} for "
+                                f"{TREND_DAY_DEACTIVATE_SIGMA_DECAY_BARS} bars)",
+                                current_time,
+                            )
             if trend_day_tier > 0 and (
                 trend_day_tier != last_trend_day_tier or trend_day_dir != last_trend_day_dir
             ):
@@ -2596,6 +3220,7 @@ def run_backtest(
             sticky_reclaim_count = 0
             sticky_opposite_count = 0
             tier1_seen = False
+            trend_day_max_sigma = 0.0
 
         in_test_range = current_time >= start_time
 
@@ -2643,7 +3268,10 @@ def run_backtest(
         extension_filter.update(bar_high, bar_low, bar_close, current_time)
         structure_blocker.update(history_df)
         regime_blocker.update(history_df)
-        penalty_blocker.update(history_df)
+        if penalty_blocker is not None:
+            penalty_blocker.update(history_df)
+        if penalty_blocker_asia is not None:
+            penalty_blocker_asia.update(history_df)
         memory_sr.update(history_df)
         directional_loss_blocker.update_quarter(current_time)
         impulse_filter.update(history_df)
@@ -2691,6 +3319,11 @@ def run_backtest(
                 ml_signal = ml_strategy.on_bar(history_df, current_time)
             except Exception:
                 ml_signal = None
+        ml_eval = getattr(ml_strategy, "last_eval", None)
+        if ml_diag_enabled and ml_eval:
+            decision = ml_eval.get("decision")
+            if decision != "no_signal" or ml_diag_include_no_signal:
+                tracker.record_ml_eval(serialize_trade(ml_eval), ml_diag_max_records)
         if ml_signal:
             disabled_sessions = set(CONFIG.get("ML_PHYSICS_BACKTEST_DISABLED_SESSIONS", []))
             if get_session_name(current_time) in disabled_sessions:
@@ -2717,9 +3350,28 @@ def run_backtest(
         for strat in standard_strategies:
             strat_name = strat.__class__.__name__
             signal = None
+            priority = 2
             try:
                 if strat_name == "MLPhysicsStrategy":
                     signal = ml_signal
+                    if signal:
+                        boost_cfg = CONFIG.get("ML_PHYSICS_PRIORITY_BOOST", {}) or {}
+                        if boost_cfg.get("enabled", False):
+                            try:
+                                min_conf = float(boost_cfg.get("min_confidence", 0.0))
+                            except Exception:
+                                min_conf = 0.0
+                            sessions = boost_cfg.get("sessions") or []
+                            if not sessions or get_session_name(current_time) in sessions:
+                                try:
+                                    ml_conf = float(signal.get("ml_confidence", 0.0))
+                                except Exception:
+                                    ml_conf = 0.0
+                                if ml_conf >= min_conf:
+                                    try:
+                                        priority = int(boost_cfg.get("boost_priority", 1))
+                                    except Exception:
+                                        priority = 1
                 elif strat_name == "SMTStrategy":
                     signal = strat.on_bar(history_df, mnq_slice)
                 else:
@@ -2731,9 +3383,8 @@ def run_backtest(
                 continue
             apply_multipliers(signal)
             signal.setdefault("strategy", strat_name)
-            candidate_signals.append((2, strat, signal, strat_name))
+            candidate_signals.append((priority, strat, signal, strat_name))
 
-        candidate_signals.sort(key=lambda x: x[0])
         if hostile_day_active:
             candidate_signals = [
                 (priority, strat, sig, s_name)
@@ -2741,12 +3392,102 @@ def run_backtest(
                 if sig.get("strategy") not in ("DynamicEngine", "MLPhysics")
             ]
 
+        def signal_confidence(sig):
+            for key in (
+                "ml_confidence",
+                "confidence",
+                "final_score",
+                "score",
+                "opt_wr",
+                "wr",
+                "win_rate",
+            ):
+                if key in sig and sig.get(key) is not None:
+                    try:
+                        return float(sig.get(key))
+                    except Exception:
+                        continue
+            return 0.0
+
+        ml_soft_cfg = CONFIG.get("ML_PHYSICS_SOFT_GATING", {}) or {}
+        if ml_soft_cfg.get("enabled", False) and candidate_signals:
+            ml_candidates = [
+                (priority, sig, s_name)
+                for priority, _, sig, s_name in candidate_signals
+                if str(sig.get("strategy", s_name)).startswith("MLPhysics")
+            ]
+            if ml_candidates:
+                ml_priority, ml_sig, ml_name = max(
+                    ml_candidates, key=lambda item: signal_confidence(item[1])
+                )
+                ml_conf = signal_confidence(ml_sig)
+                try:
+                    min_conf = float(ml_soft_cfg.get("min_confidence", 0.0))
+                except Exception:
+                    min_conf = 0.0
+                if ml_conf >= min_conf:
+                    block_standard = bool(ml_soft_cfg.get("block_standard", True))
+                    block_fast = bool(ml_soft_cfg.get("block_fast", False))
+                    blocked_priorities = set()
+                    if block_standard:
+                        blocked_priorities.add(2)
+                    if block_fast:
+                        blocked_priorities.add(1)
+                    ml_side = ml_sig.get("side")
+                    if ml_side in ("LONG", "SHORT") and blocked_priorities:
+                        new_candidates = []
+                        for priority, strat, sig, s_name in candidate_signals:
+                            if str(sig.get("strategy", s_name)).startswith("MLPhysics"):
+                                new_candidates.append((priority, strat, sig, s_name))
+                                continue
+                            if sig.get("side") != ml_side and priority in blocked_priorities:
+                                record_filter("MLSoftGate")
+                                continue
+                            new_candidates.append((priority, strat, sig, s_name))
+                        candidate_signals = new_candidates
+
+        candidate_signals.sort(key=lambda x: (x[0], -signal_confidence(x[2])))
+
         session_name = get_session_name(current_time)
+        asia_trend_bias_side = None
+        if asia_calib_enabled and session_name == "ASIA":
+            trend_cfg = asia_calib_cfg.get("trend_bias", {}) or {}
+            asia_trend_bias_side = asia_trend_bias(history_df, trend_cfg)
         vol_regime_current = None
         try:
             vol_regime_current, _, _ = volatility_filter.get_regime(history_df)
         except Exception:
             vol_regime_current = None
+
+        asia_viable = True
+        if session_name == "ASIA":
+            asia_viable, _ = asia_viability_gate(
+                history_df,
+                ts=current_time,
+                session=session_name,
+            )
+            if not asia_viable:
+                record_filter("AsiaViabilityGate")
+                continue
+
+        asia_soft_ext_cfg = CONFIG.get("ASIA_SOFT_EXTENSION_FILTER", {}) or {}
+        asia_soft_ext_enabled = bool(
+            asia_soft_ext_cfg.get("enabled", False)
+            and session_name == "ASIA"
+            and asia_viable
+        )
+        try:
+            asia_soft_ext_base = float(asia_soft_ext_cfg.get("base_score", 1.0))
+        except Exception:
+            asia_soft_ext_base = 1.0
+        try:
+            asia_soft_ext_penalty = float(asia_soft_ext_cfg.get("penalty", 0.35))
+        except Exception:
+            asia_soft_ext_penalty = 0.35
+        try:
+            asia_soft_ext_threshold = float(asia_soft_ext_cfg.get("score_threshold", 0.65))
+        except Exception:
+            asia_soft_ext_threshold = 0.65
 
         direction_counts = {"LONG": 0, "SHORT": 0}
         smt_side = None
@@ -2756,7 +3497,12 @@ def run_backtest(
                 if str(sig.get("strategy", "")).startswith("MLPhysics"):
                     if not consensus_ml_ok(sig):
                         continue
-                    if not ml_vol_regime_ok(sig, session_name, vol_regime_current):
+                    if not ml_vol_regime_ok(
+                        sig,
+                        session_name,
+                        vol_regime_current,
+                        asia_viable=asia_viable,
+                    ):
                         continue
                 weight = 2 if s_name == "SMTStrategy" else 1
                 direction_counts[side] += weight
@@ -2786,7 +3532,12 @@ def run_backtest(
                     not str(sig.get("strategy", "")).startswith("MLPhysics")
                     or (
                         consensus_ml_ok(sig)
-                        and ml_vol_regime_ok(sig, session_name, vol_regime_current)
+                        and ml_vol_regime_ok(
+                            sig,
+                            session_name,
+                            vol_regime_current,
+                            asia_viable=asia_viable,
+                        )
                     )
                 )
             ]
@@ -2901,6 +3652,22 @@ def run_backtest(
                 if consensus_tp_signal is not None:
                     signal["tp_dist"] = consensus_tp_signal.get("tp_dist", signal.get("tp_dist", MIN_TP))
                     signal["sl_dist"] = consensus_tp_signal.get("sl_dist", signal.get("sl_dist", MIN_SL))
+                fixed_ok, fixed_details = apply_fixed_sltp(
+                    signal,
+                    history_df,
+                    bar_close,
+                    ts=current_time,
+                    session=session_name,
+                )
+                if not fixed_ok:
+                    record_filter("FixedSLTP")
+                    continue
+                if fixed_details:
+                    signal["sl_dist"] = fixed_details["sl_dist"]
+                    signal["tp_dist"] = fixed_details["tp_dist"]
+                    signal["sltp_bracket"] = fixed_details.get("bracket")
+                    signal["vol_regime"] = fixed_details.get("vol_regime", signal.get("vol_regime"))
+                    log_fixed_sltp(fixed_details, signal.get("strategy"))
                 is_feasible, _ = chop_analyzer.check_target_feasibility(
                     entry_price=bar_close,
                     side=signal["side"],
@@ -2908,11 +3675,26 @@ def run_backtest(
                     df_1m=history_df,
                 )
                 if not is_feasible:
-                    if try_consensus_rescue("TargetFeasibility"):
-                        record_filter("TargetFeasibility", kind="rescue")
-                    else:
-                        record_filter("TargetFeasibility")
-                        continue
+                    if asia_calib_enabled and session_name == "ASIA":
+                        tf_cfg = asia_calib_cfg.get("target_feasibility", {}) or {}
+                        lookback = int(getattr(chop_analyzer, "LOOKBACK", 20) or 20)
+                        if asia_target_feasibility_override(
+                            history_df,
+                            signal["side"],
+                            signal.get("tp_dist", MIN_TP),
+                            asia_trend_bias_side,
+                            tf_cfg,
+                            lookback,
+                        ):
+                            record_filter("TargetFeasibility", kind="bypass")
+                            bypassed_filters.append("TargetFeasibility")
+                            is_feasible = True
+                    if not is_feasible:
+                        if try_consensus_rescue("TargetFeasibility"):
+                            record_filter("TargetFeasibility", kind="rescue")
+                        else:
+                            record_filter("TargetFeasibility")
+                            continue
                 if not consensus_rescued:
                     regime_blocked, _ = regime_blocker.should_block_trade(signal["side"], bar_close)
                     if regime_blocked:
@@ -2946,6 +3728,17 @@ def run_backtest(
                         "NEUTRAL",
                         vol_regime,
                     )
+                    if chop_blocked and asia_calib_enabled and session_name == "ASIA":
+                        chop_cfg = asia_calib_cfg.get("chop_filter", {}) or {}
+                        if asia_chop_override(
+                            chop_reason,
+                            signal["side"],
+                            asia_trend_bias_side,
+                            chop_cfg,
+                        ):
+                            record_filter("ChopFilter", kind="bypass")
+                            bypassed_filters.append("ChopFilter")
+                            chop_blocked = False
                     if chop_blocked:
                         if chop_reason:
                             reason_lc = str(chop_reason).lower()
@@ -2976,7 +3769,12 @@ def run_backtest(
                     if vol_adj.get("adjustment_applied", False):
                         signal["size"] = vol_adj["size"]
                     signal["vol_regime"] = vol_adj.get("regime", "UNKNOWN")
-                    if not ml_vol_regime_ok(signal, session_name, signal["vol_regime"]):
+                    if not ml_vol_regime_ok(
+                        signal,
+                        session_name,
+                        signal["vol_regime"],
+                        asia_viable=asia_viable,
+                    ):
                         record_filter("MLVolRegimeGuard")
                         continue
                 if not consensus_rescued:
@@ -2993,7 +3791,13 @@ def run_backtest(
                     if impulse_blocked:
                         consensus_bypassed.append("ImpulseFilter")
                     ext_blocked, _ = extension_filter.should_block_trade(signal["side"])
-                    if ext_blocked:
+                    ext_soft_passed = False
+                    if ext_blocked and asia_soft_ext_enabled:
+                        soft_score = asia_soft_ext_base - asia_soft_ext_penalty
+                        if soft_score >= asia_soft_ext_threshold:
+                            ext_blocked = False
+                            ext_soft_passed = True
+                    if ext_blocked or ext_soft_passed:
                         consensus_bypassed.append("ExtensionFilter")
                     bank_blocked, bank_reason = bank_filter.should_block_trade(signal["side"])
                     upg_trend_blocked, upg_trend_reason = trend_filter.should_block_trade(history_df, signal["side"])
@@ -3094,6 +3898,23 @@ def run_backtest(
                     continue
                 record_filter(f"TrendDayTier{trend_day_tier}", kind="rescue")
 
+            fixed_ok, fixed_details = apply_fixed_sltp(
+                signal,
+                history_df,
+                bar_close,
+                ts=current_time,
+                session=session_name,
+            )
+            if not fixed_ok:
+                record_filter("FixedSLTP")
+                continue
+            if fixed_details:
+                signal["sl_dist"] = fixed_details["sl_dist"]
+                signal["tp_dist"] = fixed_details["tp_dist"]
+                signal["sltp_bracket"] = fixed_details.get("bracket")
+                signal["vol_regime"] = fixed_details.get("vol_regime", signal.get("vol_regime"))
+                log_fixed_sltp(fixed_details, signal.get("strategy"))
+
             is_feasible, _ = chop_analyzer.check_target_feasibility(
                 entry_price=bar_close,
                 side=signal["side"],
@@ -3101,8 +3922,23 @@ def run_backtest(
                 df_1m=history_df,
             )
             if not is_feasible:
-                record_filter("TargetFeasibility")
-                continue
+                if asia_calib_enabled and session_name == "ASIA":
+                    tf_cfg = asia_calib_cfg.get("target_feasibility", {}) or {}
+                    lookback = int(getattr(chop_analyzer, "LOOKBACK", 20) or 20)
+                    if asia_target_feasibility_override(
+                        history_df,
+                        signal["side"],
+                        signal.get("tp_dist", MIN_TP),
+                        asia_trend_bias_side,
+                        tf_cfg,
+                        lookback,
+                    ):
+                        record_filter("TargetFeasibility", kind="bypass")
+                        bypassed_filters.append("TargetFeasibility")
+                        is_feasible = True
+                if not is_feasible:
+                    record_filter("TargetFeasibility")
+                    continue
 
             rej_blocked, _ = rejection_filter.should_block_trade(signal["side"])
             range_bias_blocked = allowed_chop_side is not None and signal["side"] != allowed_chop_side
@@ -3215,6 +4051,17 @@ def run_backtest(
                 "NEUTRAL",
                 vol_regime,
             )
+            if chop_blocked and asia_calib_enabled and session_name == "ASIA":
+                chop_cfg = asia_calib_cfg.get("chop_filter", {}) or {}
+                if asia_chop_override(
+                    chop_reason,
+                    signal["side"],
+                    asia_trend_bias_side,
+                    chop_cfg,
+                ):
+                    record_filter("ChopFilter", kind="bypass")
+                    bypassed_filters.append("ChopFilter")
+                    chop_blocked = False
             if chop_blocked:
                 if chop_reason:
                     reason_lc = str(chop_reason).lower()
@@ -3235,6 +4082,14 @@ def run_backtest(
                     record_filter("ChopFilter", kind="rescue")
 
             ext_blocked, _ = extension_filter.should_block_trade(signal["side"])
+            ext_soft_passed = False
+            if ext_blocked and asia_soft_ext_enabled:
+                soft_score = asia_soft_ext_base - asia_soft_ext_penalty
+                if soft_score >= asia_soft_ext_threshold:
+                    ext_blocked = False
+                    ext_soft_passed = True
+                    record_filter("ExtensionFilter", kind="bypass")
+                    bypassed_filters.append("ExtensionFilter")
             if ext_blocked:
                 if is_rescued:
                     if rescue_bypass_allowed:
@@ -3263,7 +4118,12 @@ def run_backtest(
             signal["sl_dist"] = vol_adj["sl_dist"]
             signal["tp_dist"] = vol_adj["tp_dist"]
             signal["vol_regime"] = vol_adj.get("regime", "UNKNOWN")
-            if not ml_vol_regime_ok(signal, session_name, signal["vol_regime"]):
+            if not ml_vol_regime_ok(
+                signal,
+                session_name,
+                signal["vol_regime"],
+                asia_viable=asia_viable,
+            ):
                 record_filter("MLVolRegimeGuard")
                 continue
             signal["entry_mode"] = "rescued" if is_rescued else "standard"
@@ -3296,6 +4156,23 @@ def run_backtest(
                 sig.setdefault("sl_dist", MIN_SL)
                 sig.setdefault("tp_dist", MIN_TP)
                 sig.setdefault("strategy", s_name)
+                fixed_ok, fixed_details = apply_fixed_sltp(
+                    sig,
+                    history_df,
+                    bar_close,
+                    ts=current_time,
+                    session=session_name,
+                )
+                if not fixed_ok:
+                    record_filter("FixedSLTP")
+                    del pending_loose_signals[s_name]
+                    continue
+                if fixed_details:
+                    sig["sl_dist"] = fixed_details["sl_dist"]
+                    sig["tp_dist"] = fixed_details["tp_dist"]
+                    sig["sltp_bracket"] = fixed_details.get("bracket")
+                    sig["vol_regime"] = fixed_details.get("vol_regime", sig.get("vol_regime"))
+                    log_fixed_sltp(fixed_details, sig.get("strategy", s_name))
                 if trend_day_tier > 0 and trend_day_dir:
                     if (trend_day_dir == "down" and sig["side"] == "LONG") or (
                         trend_day_dir == "up" and sig["side"] == "SHORT"
@@ -3318,9 +4195,23 @@ def run_backtest(
                     df_1m=history_df,
                 )
                 if not is_feasible:
-                    record_filter("TargetFeasibility")
-                    del pending_loose_signals[s_name]
-                    continue
+                    if asia_calib_enabled and session_name == "ASIA":
+                        tf_cfg = asia_calib_cfg.get("target_feasibility", {}) or {}
+                        lookback = int(getattr(chop_analyzer, "LOOKBACK", 20) or 20)
+                        if asia_target_feasibility_override(
+                            history_df,
+                            sig["side"],
+                            sig.get("tp_dist", MIN_TP),
+                            asia_trend_bias_side,
+                            tf_cfg,
+                            lookback,
+                        ):
+                            record_filter("TargetFeasibility", kind="bypass")
+                            is_feasible = True
+                    if not is_feasible:
+                        record_filter("TargetFeasibility")
+                        del pending_loose_signals[s_name]
+                        continue
 
                 rej_blocked, _ = rejection_filter.should_block_trade(sig["side"])
                 if rej_blocked:
@@ -3370,11 +4261,17 @@ def run_backtest(
                     del pending_loose_signals[s_name]
                     continue
 
-                penalty_blocked, _ = penalty_blocker.should_block_trade(sig["side"], bar_close)
-                if penalty_blocked:
-                    record_filter("PenaltyBoxBlocker")
-                    del pending_loose_signals[s_name]
-                    continue
+                penalty_source = None
+                if session_name == "ASIA" and penalty_blocker_asia is not None:
+                    penalty_source = penalty_blocker_asia
+                elif penalty_blocker is not None:
+                    penalty_source = penalty_blocker
+                if penalty_source is not None:
+                    penalty_blocked, _ = penalty_source.should_block_trade(sig["side"], bar_close)
+                    if penalty_blocked:
+                        record_filter("PenaltyBoxBlocker")
+                        del pending_loose_signals[s_name]
+                        continue
 
                 mem_blocked, _ = memory_sr.should_block_trade(sig["side"], bar_close)
                 if mem_blocked:
@@ -3410,19 +4307,34 @@ def run_backtest(
 
                 trend_state = trend_state_from_reason(trend_reason)
                 vol_regime, _, _ = volatility_filter.get_regime(history_df)
-                chop_blocked, _ = chop_filter.should_block_trade(
+                chop_blocked, chop_reason = chop_filter.should_block_trade(
                     sig["side"],
                     rejection_filter.prev_day_pm_bias,
                     bar_close,
                     trend_state=trend_state,
                     vol_regime=vol_regime,
                 )
+                if chop_blocked and asia_calib_enabled and session_name == "ASIA":
+                    chop_cfg = asia_calib_cfg.get("chop_filter", {}) or {}
+                    if asia_chop_override(
+                        chop_reason,
+                        sig["side"],
+                        asia_trend_bias_side,
+                        chop_cfg,
+                    ):
+                        record_filter("ChopFilter", kind="bypass")
+                        chop_blocked = False
                 if chop_blocked:
                     record_filter("ChopFilter")
                     del pending_loose_signals[s_name]
                     continue
 
                 ext_blocked, _ = extension_filter.should_block_trade(sig["side"])
+                if ext_blocked and asia_soft_ext_enabled:
+                    soft_score = asia_soft_ext_base - asia_soft_ext_penalty
+                    if soft_score >= asia_soft_ext_threshold:
+                        ext_blocked = False
+                        record_filter("ExtensionFilter", kind="bypass")
                 if ext_blocked:
                     record_filter("ExtensionFilter")
                     del pending_loose_signals[s_name]
@@ -3448,7 +4360,12 @@ def run_backtest(
                 sig["sl_dist"] = vol_adj["sl_dist"]
                 sig["tp_dist"] = vol_adj["tp_dist"]
                 sig["vol_regime"] = vol_adj.get("regime", "UNKNOWN")
-                if not ml_vol_regime_ok(sig, session_name, sig["vol_regime"]):
+                if not ml_vol_regime_ok(
+                    sig,
+                    session_name,
+                    sig["vol_regime"],
+                    asia_viable=asia_viable,
+                ):
                     record_filter("MLVolRegimeGuard")
                     del pending_loose_signals[s_name]
                     continue
@@ -3493,6 +4410,30 @@ def run_backtest(
             final_close = float(test_df.iloc[-1]["close"])
             close_trade(final_close, final_time, "end_of_range")
 
+    ny_gate_total_blocked = (
+        ny_gate_balance_blocked + ny_gate_acceptance_blocked + ny_gate_liquidity_blocked
+    )
+    ny_gate_block_rate = (
+        ny_gate_total_blocked / ny_gate_candidates if ny_gate_candidates else 0.0
+    )
+    ny_gate_summary = {
+        "candidates": ny_gate_candidates,
+        "blocked_total": ny_gate_total_blocked,
+        "balance_blocked": ny_gate_balance_blocked,
+        "acceptance_blocked": ny_gate_acceptance_blocked,
+        "liquidity_blocked": ny_gate_liquidity_blocked,
+        "blocked_by_session": dict(ny_gate_blocked_by_session),
+        "blocked_by_strategy": dict(ny_gate_blocked_by_strategy),
+        "block_rate": ny_gate_block_rate,
+    }
+    if ny_gate_candidates:
+        print(
+            "NY continuation gate summary: candidates="
+            f"{ny_gate_candidates} blocked={ny_gate_total_blocked} "
+            f"(balance={ny_gate_balance_blocked}, acceptance={ny_gate_acceptance_blocked}, "
+            f"liquidity={ny_gate_liquidity_blocked}) rate={ny_gate_block_rate:.2%}"
+        )
+
     winrate = (wins / trades * 100.0) if trades else 0.0
     tracker.finalize_streaks()
     if progress_cb is not None and last_time is not None and last_close is not None:
@@ -3508,7 +4449,9 @@ def run_backtest(
         "cancelled": cancelled,
         "report": report_text,
         "trade_log": [serialize_trade(trade) for trade in tracker.trades],
+        "ml_diagnostics": tracker.ml_diagnostics,
         "fast_mode": {"enabled": fast_enabled, "bar_stride": bar_stride, "skip_mfe_mae": skip_mfe_mae},
+        "ny_continuation_gate_summary": ny_gate_summary,
     }
 
 
@@ -3527,12 +4470,17 @@ def main() -> None:
     if df.empty:
         raise SystemExit("No rows found in the CSV.")
 
-    preferred_symbol = CONFIG.get("TARGET_SYMBOL")
-    default_symbol = choose_symbol(df, preferred_symbol)
-    symbol = input(f"Symbol [{default_symbol}]: ").strip() or default_symbol
-    df = df[df["symbol"] == symbol]
-    if df.empty:
-        raise SystemExit("No rows found for selected symbol.")
+    symbol_mode = str(CONFIG.get("BACKTEST_SYMBOL_MODE", "single") or "single").lower()
+    symbol_method = CONFIG.get("BACKTEST_SYMBOL_AUTO_METHOD", "volume")
+
+    symbol = None
+    if "symbol" in df.columns and df["symbol"].nunique(dropna=True) > 1 and symbol_mode == "single":
+        preferred_symbol = CONFIG.get("TARGET_SYMBOL")
+        default_symbol = choose_symbol(df, preferred_symbol)
+        symbol = input(f"Symbol [{default_symbol}]: ").strip() or default_symbol
+        df = df[df["symbol"] == symbol]
+        if df.empty:
+            raise SystemExit("No rows found for selected symbol.")
 
     print(f"Available range: {df.index.min()} to {df.index.max()} (NY)")
     start_raw = input("Start datetime (YYYY-MM-DD or YYYY-MM-DD HH:MM) [min]: ").strip()
@@ -3542,7 +4490,34 @@ def main() -> None:
     if start_time > end_time:
         raise SystemExit("Start must be before end.")
 
-    stats = run_backtest(df, start_time, end_time)
+    range_df = df.loc[start_time:end_time]
+    if range_df.empty:
+        raise SystemExit("No rows found for selected range.")
+
+    symbol_distribution = {}
+    if "symbol" in range_df.columns:
+        if symbol_mode != "single":
+            range_df, auto_label, _ = apply_symbol_mode(
+                range_df, symbol_mode, symbol_method
+            )
+            if range_df.empty:
+                raise SystemExit("No rows found after auto symbol selection.")
+            symbol_distribution = range_df["symbol"].value_counts().to_dict()
+            symbol = auto_label
+        else:
+            symbol_distribution = range_df["symbol"].value_counts().to_dict()
+            if symbol is None:
+                symbol = choose_symbol(range_df, CONFIG.get("TARGET_SYMBOL"))
+    if symbol is None:
+        symbol = "AUTO"
+
+    if "symbol" in range_df.columns and symbol_mode != "single":
+        range_df = range_df.drop(columns=["symbol"], errors="ignore")
+
+    stats = run_backtest(range_df, start_time, end_time)
+    stats["symbol_mode"] = symbol_mode
+    if symbol_distribution:
+        stats["symbol_distribution"] = symbol_distribution
 
     print("")
     print(f"Symbol: {symbol}")

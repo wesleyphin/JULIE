@@ -1,30 +1,206 @@
 {
   "ASIA": {
-    "threshold": 0.7500000000000002,
-    "avg_pnl": 3.919813522533666,
-    "total_pnl": 167952.25,
-    "trades": 42847,
-    "win_rate": 0.8837491539664387
+    "low": {
+      "threshold": 0.7800000000000001,
+      "avg_pnl": 1624.698373911498,
+      "total_pnl": 9142177.75,
+      "trades": 5627,
+      "win_rate": 0.9250044428647592,
+      "settings": {
+        "timeframe_minutes": 3,
+        "horizon_bars": 14,
+        "label_mode": "atr",
+        "drop_neutral": true,
+        "sltp_strategy": "Generic",
+        "thr_min": 0.64,
+        "thr_max": 0.86,
+        "thr_step": 0.01,
+        "drop_gap_minutes": 75.0,
+        "max_rows": 0
+      }
+    },
+    "high": {
+      "threshold": 0.8200000000000002,
+      "avg_pnl": 1909.7707816377172,
+      "total_pnl": 1539275.25,
+      "trades": 806,
+      "win_rate": 0.966501240694789,
+      "settings": {
+        "timeframe_minutes": 3,
+        "horizon_bars": 14,
+        "label_mode": "atr",
+        "drop_neutral": true,
+        "sltp_strategy": "Generic",
+        "thr_min": 0.64,
+        "thr_max": 0.86,
+        "thr_step": 0.01,
+        "drop_gap_minutes": 75.0,
+        "max_rows": 0
+      }
+    },
+    "split": true
   },
   "LONDON": {
-    "threshold": 0.7500000000000002,
-    "avg_pnl": 3.9312096029547554,
-    "total_pnl": 106437.5,
-    "trades": 27075,
-    "win_rate": 0.8767128347183749
+    "low": {
+      "threshold": 0.7500000000000001,
+      "avg_pnl": 3.5818818342913947,
+      "total_pnl": 82874.0,
+      "trades": 23137,
+      "win_rate": 0.8574577516531962,
+      "settings": {
+        "timeframe_minutes": 1,
+        "horizon_bars": 10,
+        "label_mode": "barrier",
+        "drop_neutral": true,
+        "sltp_strategy": "Generic",
+        "thr_min": 0.6,
+        "thr_max": 0.8,
+        "thr_step": 0.01,
+        "drop_gap_minutes": 75.0,
+        "max_rows": 0
+      }
+    },
+    "high": {
+      "threshold": 0.8000000000000002,
+      "avg_pnl": 3.9941268810219768,
+      "total_pnl": 36893.75,
+      "trades": 9237,
+      "win_rate": 0.8985601385731298,
+      "settings": {
+        "timeframe_minutes": 1,
+        "horizon_bars": 10,
+        "label_mode": "barrier",
+        "drop_neutral": true,
+        "sltp_strategy": "Generic",
+        "thr_min": 0.6,
+        "thr_max": 0.8,
+        "thr_step": 0.01,
+        "drop_gap_minutes": 75.0,
+        "max_rows": 0
+      }
+    },
+    "split": true
   },
   "NY_AM": {
-    "threshold": 0.7500000000000002,
-    "avg_pnl": 5.821643092423949,
-    "total_pnl": 150227.5,
-    "trades": 25805,
-    "win_rate": 0.89831428017826
+    "low": {
+      "threshold": 0.8500000000000002,
+      "avg_pnl": 3.9807241138799063,
+      "total_pnl": 62780.0,
+      "trades": 15771,
+      "win_rate": 0.8918267706549997,
+      "settings": {
+        "timeframe_minutes": 1,
+        "horizon_bars": 10,
+        "label_mode": "barrier",
+        "drop_neutral": true,
+        "sltp_strategy": "Generic",
+        "thr_min": 0.62,
+        "thr_max": 0.85,
+        "thr_step": 0.01,
+        "drop_gap_minutes": 75.0,
+        "max_rows": 0
+      }
+    },
+    "normal": {
+      "threshold": 0.8500000000000002,
+      "avg_pnl": 4.972353611001621,
+      "total_pnl": 113533.75,
+      "trades": 22833,
+      "win_rate": 0.9689046555424167,
+      "settings": {
+        "timeframe_minutes": 1,
+        "horizon_bars": 10,
+        "label_mode": "barrier",
+        "drop_neutral": true,
+        "sltp_strategy": "Generic",
+        "thr_min": 0.62,
+        "thr_max": 0.85,
+        "thr_step": 0.01,
+        "drop_gap_minutes": 75.0,
+        "max_rows": 0
+      }
+    },
+    "high": {
+      "threshold": 0.8500000000000002,
+      "avg_pnl": 4.712729590358653,
+      "total_pnl": 81337.0,
+      "trades": 17259,
+      "win_rate": 0.9512138594356567,
+      "settings": {
+        "timeframe_minutes": 1,
+        "horizon_bars": 10,
+        "label_mode": "barrier",
+        "drop_neutral": true,
+        "sltp_strategy": "Generic",
+        "thr_min": 0.62,
+        "thr_max": 0.85,
+        "thr_step": 0.01,
+        "drop_gap_minutes": 75.0,
+        "max_rows": 0
+      }
+    },
+    "split": true,
+    "split_mode": "3way"
   },
   "NY_PM": {
-    "threshold": 0.7500000000000002,
-    "avg_pnl": 4.499099768747935,
-    "total_pnl": 136187.75,
-    "trades": 30270,
-    "win_rate": 0.892798149983482
+    "low": {
+      "threshold": 0.8500000000000002,
+      "avg_pnl": 4.225390799464046,
+      "total_pnl": 47303.25,
+      "trades": 11195,
+      "win_rate": 0.921572130415364,
+      "settings": {
+        "timeframe_minutes": 1,
+        "horizon_bars": 10,
+        "label_mode": "barrier",
+        "drop_neutral": true,
+        "sltp_strategy": "Generic",
+        "thr_min": 0.62,
+        "thr_max": 0.85,
+        "thr_step": 0.01,
+        "drop_gap_minutes": 75.0,
+        "max_rows": 0
+      }
+    },
+    "normal": {
+      "threshold": 0.8500000000000002,
+      "avg_pnl": 4.744072872473172,
+      "total_pnl": 114057.0,
+      "trades": 24042,
+      "win_rate": 0.9719241327676565,
+      "settings": {
+        "timeframe_minutes": 1,
+        "horizon_bars": 10,
+        "label_mode": "barrier",
+        "drop_neutral": true,
+        "sltp_strategy": "Generic",
+        "thr_min": 0.62,
+        "thr_max": 0.85,
+        "thr_step": 0.01,
+        "drop_gap_minutes": 75.0,
+        "max_rows": 0
+      }
+    },
+    "high": {
+      "threshold": 0.8500000000000002,
+      "avg_pnl": 4.513196989204714,
+      "total_pnl": 91139.5,
+      "trades": 20194,
+      "win_rate": 0.9497870654649896,
+      "settings": {
+        "timeframe_minutes": 1,
+        "horizon_bars": 10,
+        "label_mode": "barrier",
+        "drop_neutral": true,
+        "sltp_strategy": "Generic",
+        "thr_min": 0.62,
+        "thr_max": 0.85,
+        "thr_step": 0.01,
+        "drop_gap_minutes": 75.0,
+        "max_rows": 0
+      }
+    },
+    "split": true,
+    "split_mode": "3way"
   }
 }

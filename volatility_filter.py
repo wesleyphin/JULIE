@@ -10,12 +10,15 @@ Dynamic volatility filtering with 320 time-hierarchy combinations:
 Thresholds derived from 2023-2025 MES futures data (958,390 active bars).
 """
 
-import pandas as pd
-import numpy as np
+import json
 import logging
 from collections import defaultdict
+from pathlib import Path
 from typing import Dict, Tuple, Optional
 from zoneinfo import ZoneInfo
+
+import numpy as np
+import pandas as pd
 from config import CONFIG
 
 # ============================================================
@@ -419,6 +422,11 @@ class HierarchicalVolatilityFilter:
         self._last_key = None
         self._calibrated_thresholds = {}
         self._calibrated_sessions = set()
+        self._calibrated_session_fallbacks = {}
+        self._mode_override = None
+        self._include_quarter_override = None
+        self._thresholds_source = "builtin"
+        self._load_thresholds_from_file()
     
     @staticmethod
     def get_yearly_quarter(month: int) -> str:
@@ -443,11 +451,14 @@ class HierarchicalVolatilityFilter:
         elif 12 <= hour < 17: return 'NY_PM'
         return 'CLOSED'
 
-    @staticmethod
-    def _hierarchy_mode() -> Tuple[str, bool]:
+    def _hierarchy_mode(self) -> Tuple[str, bool]:
         cfg = CONFIG.get("VOLATILITY_HIERARCHY_MODE", {}) or {}
-        mode = str(cfg.get("mode", "full") or "full").lower()
-        include_quarter = bool(cfg.get("include_quarter", True))
+        mode = self._mode_override
+        include_quarter = self._include_quarter_override
+        if mode is None:
+            mode = str(cfg.get("mode", "full") or "full").lower()
+        if include_quarter is None:
+            include_quarter = bool(cfg.get("include_quarter", True))
         return mode, include_quarter
 
     def _std_window_for_session(self, session: str) -> int:
@@ -491,7 +502,96 @@ class HierarchicalVolatilityFilter:
             scale = 1.0
         scale = max(min_scale, min(max_scale, scale))
         return scale
-    
+
+    def _load_thresholds_from_file(self) -> None:
+        cfg_path = CONFIG.get("VOLATILITY_THRESHOLDS_FILE")
+        if not cfg_path:
+            return
+        path = Path(str(cfg_path))
+        if not path.is_absolute():
+            cwd_candidate = Path.cwd() / path
+            module_candidate = Path(__file__).resolve().parent / path
+            if cwd_candidate.exists():
+                path = cwd_candidate
+            elif module_candidate.exists():
+                path = module_candidate
+        if not path.exists():
+            return
+        try:
+            payload = json.loads(path.read_text())
+        except Exception as exc:
+            logging.warning("Volatility thresholds load failed: %s (%s)", path, exc)
+            return
+
+        thresholds = payload
+        session_fallbacks = {}
+        meta = {}
+        if isinstance(payload, dict) and "thresholds" in payload:
+            thresholds = payload.get("thresholds") or {}
+            session_fallbacks = payload.get("session_fallbacks") or {}
+            meta = payload.get("meta") or {}
+
+        if not isinstance(thresholds, dict):
+            logging.warning("Volatility thresholds invalid format in %s", path)
+            return
+
+        def _coerce_entry(entry: Dict) -> Optional[Dict]:
+            if not isinstance(entry, dict):
+                return None
+            try:
+                p10 = float(entry.get("p10"))
+                p25 = float(entry.get("p25"))
+                median_val = entry.get("median", entry.get("p50"))
+                p75 = float(entry.get("p75"))
+                if median_val is None:
+                    return None
+                median = float(median_val)
+            except Exception:
+                return None
+            return {"p10": p10, "p25": p25, "median": median, "p75": p75}
+
+        parsed = {}
+        for key, entry in thresholds.items():
+            norm = _coerce_entry(entry)
+            if norm:
+                parsed[str(key)] = norm
+
+        fallback_parsed = {}
+        if isinstance(session_fallbacks, dict):
+            for session, entry in session_fallbacks.items():
+                norm = _coerce_entry(entry)
+                if norm:
+                    fallback_parsed[str(session)] = norm
+
+        if not parsed and not fallback_parsed:
+            return
+
+        mode_override = None
+        include_quarter_override = None
+        if isinstance(meta, dict):
+            if "mode" in meta and meta["mode"] is not None:
+                mode_override = str(meta["mode"]).lower()
+            if "include_quarter" in meta:
+                val = meta.get("include_quarter")
+                if isinstance(val, str):
+                    include_quarter_override = val.strip().lower() in ("1", "true", "yes", "y", "on")
+                else:
+                    include_quarter_override = bool(val)
+
+        self._calibrated_thresholds = parsed
+        self._calibrated_session_fallbacks = fallback_parsed
+        self._calibrated_sessions = set()
+        self._mode_override = mode_override
+        self._include_quarter_override = include_quarter_override
+        self._thresholds_source = str(path)
+
+        logging.info(
+            "✅ Loaded volatility thresholds from %s (keys=%d, session_fallbacks=%d)",
+            path,
+            len(parsed),
+            len(fallback_parsed),
+        )
+
     def get_hierarchy_key(self, ts) -> str:
         yq = self.get_yearly_quarter(ts.month)
         mq = self.get_monthly_quarter(ts.day)
@@ -512,6 +612,9 @@ class HierarchicalVolatilityFilter:
 
         if key in self._calibrated_thresholds:
             return self._calibrated_thresholds[key], f"CAL_{key}"
+
+        if session in self._calibrated_session_fallbacks:
+            return self._calibrated_session_fallbacks[session], f"CAL_FALLBACK_{session}"
 
         # Try hierarchy first
         if mode == "coarse":
@@ -604,6 +707,31 @@ class HierarchicalVolatilityFilter:
         regime, current_std, key = self.get_regime(df, ts)
         thresholds, _ = self.get_thresholds(ts)
 
+        fixed_cfg = CONFIG.get("FIXED_SLTP_FRAMEWORK", {}) or {}
+        if fixed_cfg.get("enabled", False):
+            min_cfg = CONFIG.get("SLTP_MIN", {}) or {}
+            min_sl = float(min_cfg.get("sl", 1.25))
+            min_tp = float(min_cfg.get("tp", 1.5))
+            tick_size = float(fixed_cfg.get("tick_size", 0.25))
+            adj_sl = max(float(base_sl), min_sl)
+            adj_tp = max(float(base_tp), min_tp)
+            adj_sl = round(adj_sl / tick_size) * tick_size if tick_size > 0 else adj_sl
+            adj_tp = round(adj_tp / tick_size) * tick_size if tick_size > 0 else adj_tp
+            return {
+                "sl_dist": adj_sl,
+                "tp_dist": adj_tp,
+                "size": base_size,
+                "regime": regime,
+                "current_std": current_std,
+                "hierarchy_key": key,
+                "thresholds": thresholds,
+                "adjustment_applied": False,
+                "base_sl": base_sl,
+                "base_tp": base_tp,
+                "base_size": base_size,
+                "dynamic_mult": 1.0,
+            }
+
         # Calculate Base Risk:Reward
         base_rr = base_tp / base_sl if base_sl > 0 else 0.0
 
@@ -685,7 +813,7 @@ class HierarchicalVolatilityFilter:
         adj_sl = round(adj_sl * 4) / 4
         adj_tp = round(adj_tp * 4) / 4
 
-        # Minimum constraints (4.0 SL / 6.0 TP for positive RR)
+        # Minimum constraints (fixed, points)
         adj_sl = max(adj_sl, 4.0)  # 16 ticks minimum
         adj_tp = max(adj_tp, 6.0)  # 24 ticks minimum (1.5:1 RR)
 

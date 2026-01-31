@@ -618,7 +618,7 @@ class JulieUI:
             "Intraday Dip",
             "Confluence",
             "ICT Model",
-            "ORB Strategy",
+            "Breakout Strategy",
             "ML Physics",
             "Dynamic Engine 1",
             "SMT Divergence",
@@ -1250,14 +1250,22 @@ class JulieUI:
                 # Map strategy names (handle both with and without spaces)
                 strategy_map = {
                     "RegimeAdaptive": "Regime Adaptive",
+                    "AuctionReversion": "Regime Adaptive",
+                    "SmoothTrendAsia": "Regime Adaptive",
                     "IntradayDip": "Intraday Dip",
                     "Confluence": "Confluence",
                     "ICTModel": "ICT Model",
-                    "ORBStrategy": "ORB Strategy",
+                    "ORBStrategy": "Breakout Strategy",
+                    "ORB": "Breakout Strategy",
+                    "ImpulseBreakout": "Breakout Strategy",
+                    "ValueAreaBreakout": "Breakout Strategy",
                     "MLPhysicsStrategy": "ML Physics",
                     "MLPhysics": "ML Physics",
                     "DynamicEngine": "Dynamic Engine 1",
+                    "DynamicEngine2": "Dynamic Engine 1",
                     "SMTStrategy": "SMT Divergence",
+                    "SMTAnalyzer": "SMT Divergence",
+                    "LiquiditySweep": "SMT Divergence",
                     "VIXMeanReversion": "VIX Reversion",
                     "VIXReversion": "VIX Reversion"
                 }
@@ -1286,6 +1294,13 @@ class JulieUI:
                         side = match.group(1)
                         price = match.group(2)
                         self.update_strategy(strategy, f"EXECUTED {side} @ {price}", self.colors['green'])
+                    else:
+                        exec_type = None
+                        exec_match = re.search(r'\b(FAST|STANDARD|QUEUED|LOOSE)\b', line)
+                        if exec_match:
+                            exec_type = exec_match.group(1)
+                        suffix = f" ({exec_type})" if exec_type else ""
+                        self.update_strategy(strategy, f"EXECUTED{suffix}", self.colors['green'])
 
                 # CASE 2: Candidate/Signal (Generated but maybe not chosen) -> YELLOW
                 # We look for "CANDIDATE" or "STRATEGY_SIGNAL"

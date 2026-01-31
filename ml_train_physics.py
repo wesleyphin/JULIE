@@ -53,6 +53,11 @@ warnings.filterwarnings(
     category=FutureWarning,
 )
 
+_VOL_THRESHOLDS_OVERRIDE = None
+_VOL_SESSION_FALLBACKS_OVERRIDE = None
+_VOL_THRESHOLDS_META = None
+_VOL_THRESHOLDS_LOADED = False
+
 
 def _load_csv(csv_path: Path) -> pd.DataFrame:
     with csv_path.open("r", errors="ignore") as f:
@@ -242,56 +247,227 @@ def _build_coarse_keys(index: pd.DatetimeIndex, sessions: np.ndarray, include_qu
     return keys
 
 
+def _normalize_threshold_entry(entry: Dict) -> Dict:
+    if not isinstance(entry, dict):
+        return {}
+    norm = {}
+    for key in ("p10", "p25", "p50", "median", "p75"):
+        if key in entry:
+            try:
+                norm[key] = float(entry[key])
+            except Exception:
+                continue
+    if "median" not in norm and "p50" in norm:
+        norm["median"] = norm["p50"]
+    if "p50" not in norm and "median" in norm:
+        norm["p50"] = norm["median"]
+    if "p10" in norm and "p25" in norm and "p75" in norm:
+        return {
+            "p10": norm["p10"],
+            "p25": norm["p25"],
+            "median": norm.get("median"),
+            "p75": norm["p75"],
+        }
+    return {}
+
+
+def _load_volatility_thresholds_from_file() -> None:
+    global _VOL_THRESHOLDS_OVERRIDE
+    global _VOL_SESSION_FALLBACKS_OVERRIDE
+    global _VOL_THRESHOLDS_META
+    global _VOL_THRESHOLDS_LOADED
+
+    if _VOL_THRESHOLDS_LOADED:
+        return
+    _VOL_THRESHOLDS_LOADED = True
+
+    file_name = str(CONFIG.get("VOLATILITY_THRESHOLDS_FILE", "") or "").strip()
+    if not file_name:
+        return
+    path = Path(file_name)
+    if not path.is_absolute():
+        cwd_path = Path.cwd() / path
+        if cwd_path.exists():
+            path = cwd_path
+        else:
+            alt_path = Path(__file__).resolve().parent / path
+            if alt_path.exists():
+                path = alt_path
+    if not path.exists():
+        return
+
+    try:
+        payload = json.loads(path.read_text())
+    except Exception as exc:
+        logging.warning("Failed to read volatility thresholds from %s: %s", path, exc)
+        return
+
+    if not isinstance(payload, dict):
+        logging.warning("Failed to read volatility thresholds from %s: invalid payload", path)
+        return
+
+    thresholds_raw = payload.get("thresholds", {}) or {}
+    session_raw = payload.get("session_fallbacks", payload.get("session_fallback", {})) or {}
+    meta = payload.get("meta", {}) or {}
+
+    thresholds = {}
+    for key, entry in thresholds_raw.items():
+        normalized = _normalize_threshold_entry(entry)
+        if normalized:
+            thresholds[key] = normalized
+
+    session_fallbacks = {}
+    for key, entry in session_raw.items():
+        normalized = _normalize_threshold_entry(entry)
+        if normalized:
+            session_fallbacks[key] = normalized
+
+    if thresholds:
+        _VOL_THRESHOLDS_OVERRIDE = thresholds
+    if session_fallbacks:
+        _VOL_SESSION_FALLBACKS_OVERRIDE = session_fallbacks
+    if meta:
+        _VOL_THRESHOLDS_META = meta
+
+    logging.info(
+        "Loaded volatility thresholds from %s (keys=%d, session_fallbacks=%d)",
+        path,
+        len(thresholds),
+        len(session_fallbacks),
+    )
+
+
+def _compute_session_std_values(
+    df: pd.DataFrame,
+    sessions: np.ndarray,
+    default_window: int,
+    session_windows: Dict,
+) -> np.ndarray:
+    returns = df["close"].pct_change()
+    std_default = returns.rolling(default_window).std().fillna(0.0).to_numpy()
+    std_values = std_default.copy()
+
+    for session_name, window in (session_windows or {}).items():
+        try:
+            window = int(window)
+        except Exception:
+            continue
+        if window <= 0 or window == default_window:
+            continue
+        mask = sessions == session_name
+        if not mask.any():
+            continue
+        std_session = returns.rolling(window).std().fillna(0.0).to_numpy()
+        std_values[mask] = std_session[mask]
+
+    return std_values
+
+
+def _build_volatility_thresholds(
+    df: pd.DataFrame,
+    min_samples: int,
+) -> Tuple[Dict[str, Dict[str, float]], Dict[str, Dict[str, float]]]:
+    if df.empty:
+        return {}, {}
+
+    index = df.index
+    sessions = _session_from_hours(index.hour.to_numpy())
+
+    mode_cfg = CONFIG.get("VOLATILITY_HIERARCHY_MODE", {}) or {}
+    mode = str(mode_cfg.get("mode", "full") or "full").lower()
+    include_quarter = bool(mode_cfg.get("include_quarter", True))
+
+    if mode == "coarse":
+        keys = _build_coarse_keys(index, sessions, include_quarter)
+    else:
+        keys = _build_hierarchy_keys(index, sessions)
+
+    std_cfg = CONFIG.get("VOLATILITY_STD_WINDOWS", {}) or {}
+    default_window = int(std_cfg.get("default", getattr(volatility_filter, "std_window", 20)) or 20)
+    session_windows = std_cfg.get("sessions", {}) or {}
+
+    std_values = _compute_session_std_values(df, sessions, default_window, session_windows)
+    std_mask = std_values > 0
+    if not np.any(std_mask):
+        return {}, {}
+
+    vol_df = pd.DataFrame({
+        "key": keys,
+        "session": sessions,
+        "std": std_values,
+    })
+    vol_df = vol_df[std_mask]
+
+    thresholds = {}
+    for key, group in vol_df.groupby("key")["std"]:
+        if len(group) < min_samples:
+            continue
+        thresholds[key] = {
+            "p10": float(group.quantile(0.10)),
+            "p25": float(group.quantile(0.25)),
+            "median": float(group.quantile(0.50)),
+            "p75": float(group.quantile(0.75)),
+        }
+
+    session_fallbacks = {}
+    for session_name, group in vol_df.groupby("session")["std"]:
+        if len(group) < min_samples:
+            continue
+        session_fallbacks[session_name] = {
+            "p10": float(group.quantile(0.10)),
+            "p25": float(group.quantile(0.25)),
+            "median": float(group.quantile(0.50)),
+            "p75": float(group.quantile(0.75)),
+        }
+
+    return thresholds, session_fallbacks
+
+
 def _compute_vol_regimes(df: pd.DataFrame) -> pd.Series:
     if df.empty:
         return pd.Series(dtype=object)
     index = df.index
     sessions = _session_from_hours(index.hour.to_numpy())
+    _load_volatility_thresholds_from_file()
+
     mode_cfg = CONFIG.get("VOLATILITY_HIERARCHY_MODE", {}) or {}
     mode = str(mode_cfg.get("mode", "full") or "full").lower()
     include_quarter = bool(mode_cfg.get("include_quarter", True))
+
+    if isinstance(_VOL_THRESHOLDS_META, dict):
+        meta_mode = _VOL_THRESHOLDS_META.get("mode")
+        meta_include = _VOL_THRESHOLDS_META.get("include_quarter")
+        if meta_mode:
+            mode = str(meta_mode).lower()
+        if isinstance(meta_include, bool):
+            include_quarter = meta_include
+
     if mode == "coarse":
         keys = _build_coarse_keys(index, sessions, include_quarter)
-        thresholds_map = COARSE_VOLATILITY_HIERARCHY if include_quarter else COARSE_VOLATILITY_HIERARCHY_NO_Q
+        thresholds_map = _VOL_THRESHOLDS_OVERRIDE or (
+            COARSE_VOLATILITY_HIERARCHY if include_quarter else COARSE_VOLATILITY_HIERARCHY_NO_Q
+        )
     else:
         keys = _build_hierarchy_keys(index, sessions)
-        thresholds_map = VOLATILITY_HIERARCHY
+        thresholds_map = _VOL_THRESHOLDS_OVERRIDE or VOLATILITY_HIERARCHY
 
     std_cfg = CONFIG.get("VOLATILITY_STD_WINDOWS", {}) or {}
+    if isinstance(_VOL_THRESHOLDS_META, dict):
+        meta_std = _VOL_THRESHOLDS_META.get("std_windows")
+        if isinstance(meta_std, dict):
+            std_cfg = meta_std
     default_window = int(std_cfg.get("default", getattr(volatility_filter, "std_window", 20)) or 20)
     session_windows = std_cfg.get("sessions", {}) or {}
-    ny_window = session_windows.get("NY_AM", session_windows.get("NY_PM", default_window))
-    try:
-        ny_window = int(ny_window)
-    except Exception:
-        ny_window = default_window
 
-    returns = df["close"].pct_change()
-    std_default = returns.rolling(default_window).std()
-    std_ny = std_default if ny_window == default_window else returns.rolling(ny_window).std()
-    std_default = std_default.fillna(0.0).to_numpy()
-    std_ny = std_ny.fillna(0.0).to_numpy()
+    std_values = _compute_session_std_values(df, sessions, default_window, session_windows)
+
     default_thresholds = {"p10": 0.00008, "p25": 0.00012, "p75": 0.00028}
-    ny_thresholds_map = {}
-    ny_mask = np.isin(sessions, ["NY_AM", "NY_PM"])
-    if ny_mask.any():
-        ny_df = pd.DataFrame({"key": keys[ny_mask], "std": std_ny[ny_mask]})
-        ny_df = ny_df[ny_df["std"] > 0]
-        for key, group in ny_df.groupby("key")["std"]:
-            if len(group) < 50:
-                continue
-            ny_thresholds_map[key] = {
-                "p10": float(group.quantile(0.10)),
-                "p25": float(group.quantile(0.25)),
-                "p75": float(group.quantile(0.75)),
-            }
+    session_fallbacks = _VOL_SESSION_FALLBACKS_OVERRIDE or SESSION_FALLBACKS
+
     regimes = np.empty(len(df), dtype=object)
     for i, (key, sess) in enumerate(zip(keys, sessions)):
-        current_std = std_ny[i] if sess in ("NY_AM", "NY_PM") else std_default[i]
-        if sess in ("NY_AM", "NY_PM"):
-            thresholds = ny_thresholds_map.get(key) or thresholds_map.get(key) or SESSION_FALLBACKS.get(sess) or default_thresholds
-        else:
-            thresholds = thresholds_map.get(key) or SESSION_FALLBACKS.get(sess) or default_thresholds
+        current_std = std_values[i]
+        thresholds = thresholds_map.get(key) or session_fallbacks.get(sess) or default_thresholds
         if current_std < thresholds["p10"]:
             regimes[i] = VolRegime.ULTRA_LOW
         elif current_std < thresholds["p25"]:
@@ -826,6 +1002,50 @@ def main():
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    vol_min_samples = int(CONFIG.get("VOLATILITY_THRESHOLDS_MIN_SAMPLES", 50) or 50)
+    thresholds_map, session_fallbacks = _build_volatility_thresholds(base_df, vol_min_samples)
+    mode_cfg = CONFIG.get("VOLATILITY_HIERARCHY_MODE", {}) or {}
+    mode = str(mode_cfg.get("mode", "full") or "full").lower()
+    include_quarter = bool(mode_cfg.get("include_quarter", True))
+    std_cfg = CONFIG.get("VOLATILITY_STD_WINDOWS", {}) or {}
+    default_window = int(std_cfg.get("default", getattr(volatility_filter, "std_window", 20)) or 20)
+    std_windows = {
+        "default": default_window,
+        "sessions": std_cfg.get("sessions", {}) or {},
+    }
+
+    thresholds_file = str(CONFIG.get("VOLATILITY_THRESHOLDS_FILE", "") or "").strip()
+    if thresholds_file:
+        thresholds_payload = {
+            "meta": {
+                "mode": mode,
+                "include_quarter": include_quarter,
+                "std_windows": std_windows,
+                "min_samples": vol_min_samples,
+                "row_count": int(len(base_df)),
+                "generated_at": pd.Timestamp.utcnow().isoformat(),
+            },
+            "thresholds": thresholds_map,
+            "session_fallbacks": session_fallbacks,
+        }
+        thresholds_path = out_dir / thresholds_file
+        thresholds_path.write_text(json.dumps(thresholds_payload, indent=2))
+        logging.info("Saved volatility thresholds: %s", thresholds_path)
+
+    global _VOL_THRESHOLDS_OVERRIDE
+    global _VOL_SESSION_FALLBACKS_OVERRIDE
+    global _VOL_THRESHOLDS_META
+    global _VOL_THRESHOLDS_LOADED
+
+    _VOL_THRESHOLDS_OVERRIDE = thresholds_map or None
+    _VOL_SESSION_FALLBACKS_OVERRIDE = session_fallbacks or None
+    _VOL_THRESHOLDS_META = {
+        "mode": mode,
+        "include_quarter": include_quarter,
+        "std_windows": std_windows,
+    }
+    _VOL_THRESHOLDS_LOADED = True
 
     risk_cfg = CONFIG.get("RISK", {})
     point_value = float(risk_cfg.get("POINT_VALUE", 5.0))

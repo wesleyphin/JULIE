@@ -9,7 +9,7 @@ import logging
 from zoneinfo import ZoneInfo
 from datetime import timezone as dt_timezone
 import uuid
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
 import random
 import asyncio
 from pathlib import Path
@@ -17,6 +17,7 @@ from pathlib import Path
 from config import CONFIG, refresh_target_symbol, determine_current_contract_symbol
 from dynamic_sltp_params import dynamic_sltp_engine, get_sltp
 from volatility_filter import volatility_filter, check_volatility, VolRegime
+from fixed_sltp_framework import apply_fixed_sltp, log_fixed_sltp, asia_viability_gate
 from regime_strategy import RegimeAdaptiveStrategy
 from htf_fvg_filter import HTFFVGFilter
 from rejection_filter import RejectionFilter
@@ -32,8 +33,14 @@ from confluence_strategy import ConfluenceStrategy
 from smt_strategy import SMTStrategy
 from dynamic_chop import DynamicChopAnalyzer
 from ict_model_strategy import ICTModelStrategy
+from impulse_breakout_strategy import ImpulseBreakoutStrategy
+from auction_reversion_strategy import AuctionReversionStrategy
+from liquidity_sweep_strategy import LiquiditySweepStrategy
+from value_area_breakout_strategy import ValueAreaBreakoutStrategy
 from ml_physics_strategy import MLPhysicsStrategy
+from smooth_trend_asia_strategy import SmoothTrendAsiaStrategy
 from dynamic_engine_strategy import DynamicEngineStrategy
+from volume_profile import build_volume_profile
 from event_logger import event_logger
 from circuit_breaker import CircuitBreaker
 from news_filter import NewsFilter
@@ -80,6 +87,113 @@ def resample_dataframe(df: pd.DataFrame, timeframe_minutes: int) -> pd.DataFrame
     resampled_df = df.resample(tf_code).agg(agg_dict).dropna()
 
     return resampled_df
+
+
+def asia_trend_bias(history_df: pd.DataFrame, cfg: dict) -> Optional[str]:
+    if history_df.empty:
+        return None
+    close = history_df["close"]
+    ema_fast = int(cfg.get("ema_fast", 20) or 20)
+    ema_slow = int(cfg.get("ema_slow", 50) or 50)
+    ema_slope_bars = int(cfg.get("ema_slope_bars", 20) or 20)
+    if len(close) < max(ema_slow, ema_slope_bars + 1) + 1:
+        return None
+    ema_fast_series = close.ewm(span=ema_fast, adjust=False).mean()
+    ema_slow_series = close.ewm(span=ema_slow, adjust=False).mean()
+    fast_val = float(ema_fast_series.iloc[-1])
+    slow_val = float(ema_slow_series.iloc[-1])
+    slope = fast_val - float(ema_fast_series.iloc[-ema_slope_bars])
+    min_sep = float(cfg.get("min_ema_separation", 0.1) or 0.0)
+    if fast_val > slow_val and slope > 0 and (fast_val - slow_val) >= min_sep:
+        return "LONG"
+    if fast_val < slow_val and slope < 0 and (slow_val - fast_val) >= min_sep:
+        return "SHORT"
+    return None
+
+
+def asia_target_feasibility_override(
+    history_df: pd.DataFrame,
+    side: str,
+    tp_distance: Optional[float],
+    trend_bias: Optional[str],
+    cfg: dict,
+    lookback: int,
+) -> bool:
+    if not cfg or not cfg.get("enabled", True):
+        return False
+    if not history_df.empty and trend_bias:
+        if str(side).upper() != str(trend_bias).upper():
+            return False
+    else:
+        return False
+    try:
+        tp_val = float(tp_distance)
+    except Exception:
+        return False
+    if tp_val <= 0:
+        return False
+    lookback = int(cfg.get("lookback", lookback) or lookback)
+    if len(history_df) < lookback:
+        return False
+    window = history_df.iloc[-lookback:]
+    box_range = float(window["high"].max() - window["low"].min())
+    min_box = float(cfg.get("min_box_range", 0.0) or 0.0)
+    if box_range <= 0 or box_range < min_box:
+        return False
+    max_mult = float(cfg.get("max_tp_box_mult", 1.5) or 1.5)
+    if tp_val <= box_range * max_mult:
+        return True
+    return bool(cfg.get("allow_trend_override", False))
+
+
+def asia_chop_override(
+    chop_reason: Optional[str],
+    side: str,
+    trend_bias: Optional[str],
+    cfg: dict,
+) -> bool:
+    if not cfg or not cfg.get("enabled", True):
+        return False
+    if not trend_bias or str(side).upper() != str(trend_bias).upper():
+        return False
+    reason_lc = str(chop_reason or "").lower()
+    if "wait for breakout" in reason_lc or "range too tight" in reason_lc:
+        return False
+    return bool(cfg.get("allow_trend_override", True))
+
+
+LOG_STRATEGY_ALIASES: Dict[str, Tuple[str, Optional[str]]] = {
+    # RegimeAdaptive family
+    "RegimeAdaptive": ("RegimeAdaptive", None),
+    "AuctionReversion": ("RegimeAdaptive", "Auction Reversion"),
+    "SmoothTrendAsia": ("RegimeAdaptive", "Smooth Trend Asia"),
+    # SMT/liq sweep group
+    "SMTAnalyzer": ("SMT Divergence", None),
+    "SMTStrategy": ("SMT Divergence", None),
+    "LiquiditySweep": ("SMT Divergence", "Liquidity Sweep"),
+    # ORB/breakout group
+    "ORB": ("Breakout Strategy", "Opening Range"),
+    "ORBStrategy": ("Breakout Strategy", "Opening Range"),
+    "ImpulseBreakout": ("Breakout Strategy", "Impulse Breakout"),
+    "ValueAreaBreakout": ("Breakout Strategy", "Value Area Breakout"),
+    # Dynamic Engine
+    "DynamicEngine": ("DynamicEngine1", None),
+    "DynamicEngine2": ("DynamicEngine1", "Dynamic Engine 2"),
+}
+
+
+def get_log_strategy_info(raw_strategy: Optional[str], signal: Optional[Dict] = None) -> Tuple[str, Optional[str]]:
+    """
+    Map raw strategy names to UI-visible log labels, with optional sub-strategy
+    for RegimeAdaptive family.
+    """
+    raw = str(raw_strategy) if raw_strategy else ""
+    display, sub_strategy = LOG_STRATEGY_ALIASES.get(raw, (raw or "Unknown", None))
+    if display == "RegimeAdaptive" and not sub_strategy and signal:
+        signal_sub = signal.get("sub_strategy")
+        if signal_sub:
+            sub_strategy = signal_sub
+    return display, sub_strategy
 
 
 def parse_continuation_key(strategy_name: Optional[str]) -> Optional[str]:
@@ -192,6 +306,322 @@ def continuation_core_trigger(filter_name: str) -> bool:
     return filter_name in {"RegimeBlocker", "TrendFilter", "ChopFilter", "ExtensionFilter"}
 
 
+def _ny_base_session_from_ts(ts) -> Optional[str]:
+    if ts is None:
+        return None
+    try:
+        if isinstance(ts, pd.Timestamp):
+            if ts.tzinfo is not None:
+                ts = ts.tz_convert(NY_TZ)
+            ts = ts.to_pydatetime()
+        hour = ts.hour
+    except Exception:
+        return None
+    if hour >= 18 or hour < 3:
+        return "ASIA"
+    if 3 <= hour < 8:
+        return "LONDON"
+    if 8 <= hour < 12:
+        return "NY_AM"
+    if 12 <= hour < 17:
+        return "NY_PM"
+    return "OFF"
+
+
+def _safe_last_value(series: Optional[pd.Series]) -> Optional[float]:
+    if series is None:
+        return None
+    try:
+        if isinstance(series, pd.Series):
+            value = series.iloc[-1]
+        else:
+            value = series
+        if value is None or pd.isna(value):
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def _calc_atr20(df: pd.DataFrame) -> Optional[float]:
+    if df.empty or len(df) < 21:
+        return None
+    high = df["high"]
+    low = df["low"]
+    close = df["close"]
+    prev_close = close.shift(1)
+    tr_components = pd.concat(
+        [(high - low).abs(), (high - prev_close).abs(), (low - prev_close).abs()],
+        axis=1,
+    )
+    tr = tr_components.max(axis=1)
+    atr20 = tr.rolling(20).mean().iloc[-1]
+    if pd.isna(atr20):
+        return None
+    return float(atr20)
+
+
+def _close_position_in_bar(high: float, low: float, close: float) -> float:
+    rng = float(high) - float(low)
+    if rng <= 0:
+        return 0.5
+    return (float(close) - float(low)) / rng
+
+
+def _get_opening_range_levels(df: pd.DataFrame, current_time, minutes: int = 15) -> tuple[Optional[float], Optional[float]]:
+    if df.empty or current_time is None:
+        return None, None
+    try:
+        if isinstance(current_time, pd.Timestamp):
+            if current_time.tzinfo is not None:
+                current_time = current_time.tz_convert(NY_TZ)
+            current_time = current_time.to_pydatetime()
+        session_start = current_time.replace(hour=9, minute=30, second=0, microsecond=0)
+        session_end = session_start + datetime.timedelta(minutes=minutes)
+        window = df.loc[(df.index >= session_start) & (df.index < session_end)]
+        if window.empty:
+            return None, None
+        return float(window["high"].max()), float(window["low"].min())
+    except Exception:
+        return None, None
+
+
+def _session_high_low(df: pd.DataFrame, current_time, session_name: str) -> tuple[Optional[float], Optional[float]]:
+    if df.empty or current_time is None:
+        return None, None
+    try:
+        if isinstance(current_time, pd.Timestamp):
+            if current_time.tzinfo is not None:
+                current_time = current_time.tz_convert(NY_TZ)
+            current_time = current_time.to_pydatetime()
+        if session_name == "NY_AM":
+            start = current_time.replace(hour=8, minute=0, second=0, microsecond=0)
+            end = current_time.replace(hour=12, minute=0, second=0, microsecond=0)
+        elif session_name == "NY_PM":
+            start = current_time.replace(hour=12, minute=0, second=0, microsecond=0)
+            end = current_time.replace(hour=17, minute=0, second=0, microsecond=0)
+        else:
+            return None, None
+        window = df.loc[(df.index >= start) & (df.index <= min(current_time, end))]
+        if window.empty:
+            return None, None
+        return float(window["high"].max()), float(window["low"].min())
+    except Exception:
+        return None, None
+
+
+def _select_interaction_level(
+    levels: Dict[str, float],
+    price: float,
+    df: pd.DataFrame,
+    band: float,
+) -> Optional[Tuple[str, float]]:
+    if not levels:
+        return None
+    if df.empty or len(df) < 2:
+        return None
+    prev_close = float(df["close"].iloc[-2])
+    candidates: list[Tuple[str, float]] = []
+    for name, level in levels.items():
+        if level is None or not np.isfinite(level):
+            continue
+        if abs(price - level) <= band:
+            candidates.append((name, float(level)))
+            continue
+        crossed = (prev_close - level) * (price - level) < 0
+        if crossed:
+            candidates.append((name, float(level)))
+    if not candidates:
+        return None
+    return min(candidates, key=lambda item: abs(price - item[1]))
+
+
+def _balance_metrics(df: pd.DataFrame, lookback: int = 10) -> Optional[Tuple[float, float, int]]:
+    if df.empty or len(df) < lookback:
+        return None
+    window = df.iloc[-lookback:]
+    closes = window["close"].to_numpy(dtype=float)
+    highs = window["high"].to_numpy(dtype=float)
+    lows = window["low"].to_numpy(dtype=float)
+    deltas = np.diff(closes)
+    sum_abs = float(np.sum(np.abs(deltas)))
+    net_move = float(abs(closes[-1] - closes[0]))
+    er = net_move / max(sum_abs, 1e-9)
+
+    flips = 0
+    signs = np.sign(deltas)
+    for idx in range(1, len(signs)):
+        if signs[idx] != 0 and signs[idx - 1] != 0 and signs[idx] != signs[idx - 1]:
+            flips += 1
+
+    overlap_count = 0
+    for idx in range(1, lookback):
+        overlap = min(highs[idx], highs[idx - 1]) - max(lows[idx], lows[idx - 1])
+        if overlap > 0:
+            overlap_count += 1
+    overlap_ratio = overlap_count / max(lookback - 1, 1)
+    return er, overlap_ratio, flips
+
+
+def _ny_structure_gates(
+    signal: dict,
+    side: str,
+    bar_close: float,
+    df: pd.DataFrame,
+    trend_day_series: Optional[dict],
+    *,
+    require_prefix: Optional[str] = None,
+    log_prefix: str = "NYGate",
+) -> bool:
+    if not signal or df.empty:
+        return True
+    strat_name = str(signal.get("strategy") or "")
+    if require_prefix:
+        if not strat_name.lower().startswith(require_prefix.lower()):
+            return True
+    ts = df.index[-1]
+    session_name = _ny_base_session_from_ts(ts)
+    if session_name not in ("NY_AM", "NY_PM"):
+        return True
+
+    # Gate B: Local balance detector
+    metrics = _balance_metrics(df, lookback=10)
+    if metrics:
+        er, overlap_ratio, flips = metrics
+        if er < 0.25 or overlap_ratio > 0.70 or flips >= 6:
+            logging.info(
+                f"⛔ {log_prefix}Balance blocked | session={session_name} | strategy={strat_name} | "
+                f"side={side} | ER={er:.2f} | overlap={overlap_ratio:.2f} | flips={flips}"
+            )
+            return False
+
+    # Gate A: Acceptance vs rejection at key levels
+    atr20 = _calc_atr20(df)
+    band = max(0.2 * (atr20 or 0.0), 0.5)
+    levels_long: Dict[str, float] = {}
+    levels_short: Dict[str, float] = {}
+
+    if trend_day_series:
+        levels_long["VWAP"] = _safe_last_value(trend_day_series.get("vwap"))
+        levels_short["VWAP"] = _safe_last_value(trend_day_series.get("vwap"))
+        levels_long["PDH"] = _safe_last_value(trend_day_series.get("prior_session_high"))
+        levels_short["PDL"] = _safe_last_value(trend_day_series.get("prior_session_low"))
+
+    orh, orl = _get_opening_range_levels(df, ts)
+    if orh is not None:
+        levels_long["ORH"] = orh
+    if orl is not None:
+        levels_short["ORL"] = orl
+
+    vp = build_volume_profile(df, lookback=120, tick_size=TICK_SIZE)
+    if vp:
+        levels_long["VAH"] = vp.get("vah")
+        levels_short["VAL"] = vp.get("val")
+
+    if side == "LONG":
+        chosen = _select_interaction_level(levels_long, bar_close, df, band)
+        if chosen is not None:
+            level_name, level_val = chosen
+            recent = df.iloc[-2:]
+            if len(recent) < 2:
+                return True
+            closes = recent["close"].to_numpy(dtype=float)
+            highs = recent["high"].to_numpy(dtype=float)
+            lows = recent["low"].to_numpy(dtype=float)
+            close_pos = [
+                _close_position_in_bar(highs[i], lows[i], closes[i]) for i in range(2)
+            ]
+            if not all(c >= level_val for c in closes) or not all(pos >= 0.60 for pos in close_pos):
+                logging.info(
+                    f"⛔ {log_prefix}Acceptance blocked | session={session_name} | strategy={strat_name} | "
+                    f"side={side} | level={level_name} {level_val:.2f} | "
+                    f"closes={[round(c,2) for c in closes]} | close_pos={[round(p,2) for p in close_pos]}"
+                )
+                return False
+    else:
+        chosen = _select_interaction_level(levels_short, bar_close, df, band)
+        if chosen is not None:
+            level_name, level_val = chosen
+            recent = df.iloc[-2:]
+            if len(recent) < 2:
+                return True
+            closes = recent["close"].to_numpy(dtype=float)
+            highs = recent["high"].to_numpy(dtype=float)
+            lows = recent["low"].to_numpy(dtype=float)
+            close_pos = [
+                _close_position_in_bar(highs[i], lows[i], closes[i]) for i in range(2)
+            ]
+            if not all(c <= level_val for c in closes) or not all(pos <= 0.40 for pos in close_pos):
+                logging.info(
+                    f"⛔ {log_prefix}Acceptance blocked | session={session_name} | strategy={strat_name} | "
+                    f"side={side} | level={level_name} {level_val:.2f} | "
+                    f"closes={[round(c,2) for c in closes]} | close_pos={[round(p,2) for p in close_pos]}"
+                )
+                return False
+
+    # Gate C: Opposing liquidity distance
+    tp_dist = signal.get("tp_dist")
+    try:
+        tp_dist_val = float(tp_dist)
+    except Exception:
+        tp_dist_val = None
+    if tp_dist_val and tp_dist_val > 0:
+        session_high, session_low = _session_high_low(df, ts, session_name)
+        swing_high = float(df["high"].iloc[-30:].max()) if len(df) >= 30 else None
+        swing_low = float(df["low"].iloc[-30:].min()) if len(df) >= 30 else None
+
+        opp_levels: Dict[str, float] = {}
+        if side == "LONG":
+            opp_levels["SwingHigh"] = swing_high
+            opp_levels["SessionHigh"] = session_high
+            opp_levels["PDH"] = levels_long.get("PDH")
+            opp_levels["ORH"] = levels_long.get("ORH")
+            opp_levels["VAH"] = levels_long.get("VAH")
+        else:
+            opp_levels["SwingLow"] = swing_low
+            opp_levels["SessionLow"] = session_low
+            opp_levels["PDL"] = levels_short.get("PDL")
+            opp_levels["ORL"] = levels_short.get("ORL")
+            opp_levels["VAL"] = levels_short.get("VAL")
+
+        distances = []
+        for name, level in opp_levels.items():
+            if level is None or not np.isfinite(level):
+                continue
+            if side == "LONG" and level > bar_close:
+                distances.append((name, float(level - bar_close)))
+            if side == "SHORT" and level < bar_close:
+                distances.append((name, float(bar_close - level)))
+        if distances:
+            nearest_name, nearest_dist = min(distances, key=lambda item: item[1])
+            if nearest_dist < 0.60 * tp_dist_val:
+                logging.info(
+                    f"⛔ {log_prefix}Liquidity blocked | session={session_name} | strategy={strat_name} | "
+                    f"side={side} | level={nearest_name} | dist={nearest_dist:.2f} | tp={tp_dist_val:.2f}"
+                )
+                return False
+
+    return True
+
+
+def _ny_continuation_gates(
+    signal: dict,
+    side: str,
+    bar_close: float,
+    df: pd.DataFrame,
+    trend_day_series: Optional[dict],
+) -> bool:
+    return _ny_structure_gates(
+        signal,
+        side,
+        bar_close,
+        df,
+        trend_day_series,
+        require_prefix="continuation",
+        log_prefix="NYGate",
+    )
+
+
 def continuation_rescue_allowed(
     signal: Optional[dict],
     side: str,
@@ -225,6 +655,9 @@ def continuation_rescue_allowed(
             return False
     if not continuation_market_confirmed(side, bar_close, trend_day_series, confirm_cfg):
         logging.info("⛔ Continuation guard: confirmation failed")
+        return False
+    if not _ny_continuation_gates(signal, side, bar_close, df, trend_day_series):
+        logging.info("⛔ Continuation guard: NY structure gate blocked")
         return False
     return True
 
@@ -260,6 +693,7 @@ def ml_vol_regime_ok(
     signal: Optional[dict],
     session_name: Optional[str],
     vol_regime: Optional[str],
+    asia_viable: Optional[bool] = None,
 ) -> bool:
     """Require stronger ML confidence by volatility regime."""
     cfg = CONFIG.get("ML_PHYSICS_VOL_REGIME_GUARD", {}) or {}
@@ -317,6 +751,13 @@ def ml_vol_regime_ok(
         if side in block_set:
             return False
 
+    suppress_low_penalty = bool(
+        asia_viable
+        and session_name
+        and str(session_name).upper() == "ASIA"
+        and regime_key == "low"
+    )
+
     delta = reg_cfg.get("min_conf_delta", 0.0)
     if isinstance(delta, dict):
         delta = delta.get(side, delta.get("default", 0.0))
@@ -324,14 +765,17 @@ def ml_vol_regime_ok(
         delta_val = float(delta or 0.0)
     except Exception:
         delta_val = 0.0
-    required = thr_val + delta_val
-
-    side_extra = reg_cfg.get("side_extra_delta")
-    if isinstance(side_extra, dict) and side in side_extra:
-        try:
-            required += float(side_extra[side])
-        except Exception:
-            pass
+    if suppress_low_penalty:
+        delta_val = 0.0
+        required = thr_val
+    else:
+        required = thr_val + delta_val
+        side_extra = reg_cfg.get("side_extra_delta")
+        if isinstance(side_extra, dict) and side in side_extra:
+            try:
+                required += float(side_extra[side])
+            except Exception:
+                pass
 
     min_conf = reg_cfg.get("min_conf")
     if min_conf is not None:
@@ -509,6 +953,15 @@ VWAP_NO_RECLAIM_BARS_T2 = 20
 VWAP_RECLAIM_SIGMA = 0.5
 VWAP_RECLAIM_CONSECUTIVE_BARS = 15
 TREND_DAY_STICKY_RECLAIM_BARS = 30
+# Trend-day "fade/rotation" deactivation (visual match)
+TREND_DAY_DEACTIVATE_RECLAIM_WINDOW = 15
+TREND_DAY_DEACTIVATE_RECLAIM_COUNT = 12
+TREND_DAY_DEACTIVATE_SIGMA_THRESHOLD = 0.8
+TREND_DAY_DEACTIVATE_SIGMA_BARS = 10
+TREND_DAY_DEACTIVATE_SIGMA_DECAY_THRESHOLD = 0.9
+TREND_DAY_DEACTIVATE_SIGMA_DECAY_BARS = 20
+TREND_DAY_DEACTIVATE_SIGMA_GUARD_MAX = 2.0
+TREND_DAY_DEACTIVATE_SIGMA_GUARD_CURRENT = 1.1
 SIGMA_WINDOW = 30
 IMPULSE_MIN_BARS = 30
 IMPULSE_MAX_RETRACE = 0.25
@@ -531,6 +984,8 @@ ALT_PRE_TIER1_VWAP_SIGMA = 2.0
 TREND_DAY_SMA9_REVERSAL_BARS = 4
 TREND_DAY_SMA9_MIN_SLOPE = 0.2
 TREND_DAY_ATR_CONTRACTION = 1.1
+TREND_DAY_ASIA_STRUCTURE_ONLY = True
+TREND_DAY_ASIA_DISABLE_TIER2 = True
 
 # ==========================================
 # TREND DAY DETECTOR (LIVE)
@@ -979,6 +1434,7 @@ async def run_bot():
     fast_strategies = [
         RegimeAdaptiveStrategy(),
         vix_strategy,          # Promoted to Fast
+        ImpulseBreakoutStrategy(),
     ]
     ENABLE_DYNAMIC_ENGINE_1 = True
     ALLOW_DYNAMIC_ENGINE_SOLO = False
@@ -992,8 +1448,12 @@ async def run_bot():
 
     standard_strategies = [
         IntradayDipStrategy(), # DEMOTED to Standard
+        AuctionReversionStrategy(),
+        LiquiditySweepStrategy(),
+        ValueAreaBreakoutStrategy(),
         ConfluenceStrategy(),
         smt_strategy,
+        SmoothTrendAsiaStrategy(),
     ]
     
     # Only add ML strategy if at least one model loaded successfully
@@ -1020,7 +1480,25 @@ async def run_bot():
     htf_fvg_filter = HTFFVGFilter() # Now uses Memory-Based Class
     structure_blocker = DynamicStructureBlocker(lookback=50)  # Macro trend + fade detection
     regime_blocker = RegimeStructureBlocker(lookback=20)      # Regime-based EQH/EQL tolerance
-    penalty_blocker = PenaltyBoxBlocker(lookback=50, tolerance=5.0, penalty_bars=3)  # Fixed 5pt + 3-bar decay
+    penalty_cfg = CONFIG.get("PENALTY_BOX", {}) or {}
+    penalty_blocker = None
+    if penalty_cfg.get("enabled", True):
+        penalty_blocker = PenaltyBoxBlocker(
+            lookback=int(penalty_cfg.get("lookback", 50) or 50),
+            tolerance=float(penalty_cfg.get("tolerance", 5.0) or 5.0),
+            penalty_bars=int(penalty_cfg.get("penalty_bars", 3) or 3),
+        )
+    asia_calib_cfg = CONFIG.get("ASIA_CALIBRATIONS", {}) or {}
+    asia_calib_enabled = bool(asia_calib_cfg.get("enabled", False))
+    penalty_blocker_asia = None
+    if asia_calib_enabled:
+        asia_penalty_cfg = asia_calib_cfg.get("penalty_box", {}) or {}
+        if asia_penalty_cfg.get("enabled", True):
+            penalty_blocker_asia = PenaltyBoxBlocker(
+                lookback=int(asia_penalty_cfg.get("lookback", 50) or 50),
+                tolerance=float(asia_penalty_cfg.get("tolerance", 1.5) or 1.5),
+                penalty_bars=int(asia_penalty_cfg.get("penalty_bars", 3) or 3),
+            )
     memory_sr = MemorySRFilter(lookback_bars=300, zone_width=2.0, touch_threshold=2)
     news_filter = NewsFilter()
     circuit_breaker = CircuitBreaker(max_daily_loss=600, max_consecutive_losses=7)
@@ -1055,6 +1533,8 @@ async def run_bot():
 
     last_processed_session = None
     last_processed_quarter = None  # Track quarter for quarterly optimization
+    last_gemini_regime_key = None
+    last_gemini_run_ts = 0.0
 
     print("\nActive Strategies:")
     print("  [FAST EXECUTION]")
@@ -1118,6 +1598,7 @@ async def run_bot():
     trend_day_tier = 0
     trend_day_dir = None
     trend_day_lockout_until = None
+    trend_day_max_sigma = 0.0
     was_news_blocked = False
     impulse_day = None
     impulse_active = False
@@ -1171,6 +1652,7 @@ async def run_bot():
         nonlocal impulse_start_price, impulse_extreme, pullback_extreme, max_retracement, bars_since_impulse
         nonlocal last_trend_day_tier, last_trend_day_dir, tier1_down_until, tier1_up_until, tier1_seen
         nonlocal sticky_trend_dir, sticky_reclaim_count, sticky_opposite_count, last_trend_session
+        nonlocal trend_day_max_sigma
 
         if state_restored or not _state_is_fresh(current_time):
             return
@@ -1179,7 +1661,10 @@ async def run_bot():
         chop_filter.load_state(persisted_state.get("chop_filter"))
         directional_loss_blocker.load_state(persisted_state.get("directional_loss_blocker"))
         circuit_breaker.load_state(persisted_state.get("circuit_breaker"))
-        penalty_blocker.load_state(persisted_state.get("penalty_box_blocker"))
+        if penalty_blocker is not None:
+            penalty_blocker.load_state(persisted_state.get("penalty_box_blocker"))
+        if penalty_blocker_asia is not None:
+            penalty_blocker_asia.load_state(persisted_state.get("penalty_box_blocker_asia"))
         rejection_filter.load_state(persisted_state.get("rejection_filter"))
         bank_filter.load_state(persisted_state.get("bank_filter"))
 
@@ -1201,6 +1686,10 @@ async def run_bot():
         bars_since_impulse = int(trend_state.get("bars_since_impulse", bars_since_impulse))
         last_trend_day_tier = int(trend_state.get("last_trend_day_tier", last_trend_day_tier))
         last_trend_day_dir = trend_state.get("last_trend_day_dir", last_trend_day_dir)
+        try:
+            trend_day_max_sigma = float(trend_state.get("trend_day_max_sigma", trend_day_max_sigma))
+        except Exception:
+            pass
         tier1_down_until = parse_dt(trend_state.get("tier1_down_until")) or tier1_down_until
         tier1_up_until = parse_dt(trend_state.get("tier1_up_until")) or tier1_up_until
         tier1_seen = bool(trend_state.get("tier1_seen", tier1_seen))
@@ -1232,6 +1721,29 @@ async def run_bot():
         state_restored = True
         logging.info("✅ Bot state restored from disk")
 
+    def _deactivate_trend_day(reason: str, now: datetime.datetime) -> None:
+        nonlocal trend_day_tier, trend_day_dir
+        nonlocal last_trend_day_tier, last_trend_day_dir
+        nonlocal tier1_down_until, tier1_up_until, tier1_seen
+        nonlocal sticky_trend_dir, sticky_opposite_count, sticky_reclaim_count
+        nonlocal trend_day_max_sigma
+
+        if trend_day_tier > 0 or trend_day_dir:
+            logging.warning(
+                f"🛑 TrendDay deactivated: {reason} @ {now.strftime('%Y-%m-%d %H:%M')}"
+            )
+        trend_day_tier = 0
+        trend_day_dir = None
+        last_trend_day_tier = 0
+        last_trend_day_dir = None
+        tier1_down_until = None
+        tier1_up_until = None
+        tier1_seen = False
+        sticky_trend_dir = None
+        sticky_opposite_count = 0
+        sticky_reclaim_count = 0
+        trend_day_max_sigma = 0.0
+
     def build_persisted_state(current_time: datetime.datetime) -> dict:
         current_time = current_time.astimezone(NY_TZ)
         return {
@@ -1243,7 +1755,8 @@ async def run_bot():
             "chop_filter": chop_filter.get_state(),
             "directional_loss_blocker": directional_loss_blocker.get_state(),
             "circuit_breaker": circuit_breaker.get_state(),
-            "penalty_box_blocker": penalty_blocker.get_state(),
+            "penalty_box_blocker": penalty_blocker.get_state() if penalty_blocker is not None else None,
+            "penalty_box_blocker_asia": penalty_blocker_asia.get_state() if penalty_blocker_asia is not None else None,
             "rejection_filter": rejection_filter.get_state(),
             "bank_filter": bank_filter.get_state(),
             "trend_day": {
@@ -1259,6 +1772,7 @@ async def run_bot():
                 "bars_since_impulse": bars_since_impulse,
                 "last_trend_day_tier": last_trend_day_tier,
                 "last_trend_day_dir": last_trend_day_dir,
+                "trend_day_max_sigma": trend_day_max_sigma,
                 "tier1_down_until": tier1_down_until.isoformat() if tier1_down_until else None,
                 "tier1_up_until": tier1_up_until.isoformat() if tier1_up_until else None,
                 "tier1_seen": tier1_seen,
@@ -1494,17 +2008,7 @@ async def run_bot():
                     pending_impulse_rescues.clear()
                     logging.info("NEWS BLACKOUT: cleared pending impulse rescues")
                 if trend_day_tier > 0 or trend_day_dir:
-                    logging.warning("🛑 TrendDay reset due to news blackout")
-                    trend_day_tier = 0
-                    trend_day_dir = None
-                    last_trend_day_tier = 0
-                    last_trend_day_dir = None
-                    tier1_down_until = None
-                    tier1_up_until = None
-                    tier1_seen = False
-                    sticky_trend_dir = None
-                    sticky_opposite_count = 0
-                    sticky_reclaim_count = 0
+                    _deactivate_trend_day("news blackout", current_time)
                 was_news_blocked = True
             elif was_news_blocked:
                 trend_day_lockout_until = current_time + datetime.timedelta(minutes=10)
@@ -1558,17 +2062,92 @@ async def run_bot():
             # Get current quarter (1-4) within the session
             current_quarter = bank_filter.get_quarter(hour, minute, base_session)
 
-            # Trigger optimization on session change OR quarter change (4 sessions × 4 quarters = 16 per day)
+            # Track session/quarter changes for logging; Gemini runs only when regime changes
             session_changed = current_session_name != last_processed_session
             quarter_changed = current_quarter != last_processed_quarter
 
-            if session_changed or quarter_changed:
+            # Gemini: Only re-prompt on regime changes (ADX/chop, vol regime, holiday/news context)
+            gemini_enabled = CONFIG.get('GEMINI', {}).get('enabled', False)
+            trend_status = "UNKNOWN"
+            chop_status = "UNKNOWN"
+            vol_regime = None
+            holiday_context = "NORMAL_LIQUIDITY"
+            seasonal_context = "NORMAL_SEASONAL"
+            regime_key = None
+            regime_changed = False
+
+            if gemini_enabled:
+                # ADX/Chop regime (15m)
+                try:
+                    if not master_df.empty:
+                        df_15m = master_df.resample('15min').agg({'high': 'max', 'low': 'min', 'close': 'last'}).dropna()
+                        if not df_15m.empty:
+                            adx_score = optimizer._calculate_adx(df_15m)
+                            chop_score = optimizer._calculate_choppiness_index(df_15m)
+                            trend_status = "TRENDING" if adx_score > 25 else "CHOPPY/RANGING"
+                            chop_status = "CHOPPY" if chop_score >= 61.8 else ("TRENDING" if chop_score <= 38.2 else "NEUTRAL")
+                except Exception as e:
+                    logging.debug(f"Gemini regime calc failed (ADX/Chop): {e}")
+
+                # Volatility regime
+                try:
+                    if not master_df.empty:
+                        vol_regime, _, _ = volatility_filter.get_regime(master_df, master_df.index[-1])
+                except Exception:
+                    vol_regime = None
+
+                # Holiday/seasonal context
+                try:
+                    holiday_context = news_filter.get_holiday_context(current_time)
+                except Exception as e:
+                    logging.debug(f"Gemini holiday context failed: {e}")
+                    holiday_context = "NORMAL_LIQUIDITY"
+
+                try:
+                    seasonal_context = news_filter.get_seasonal_context(current_time)
+                except Exception as e:
+                    logging.debug(f"Gemini seasonal context failed: {e}")
+                    seasonal_context = "NORMAL_SEASONAL"
+
+                regime_key = (
+                    current_session_name,
+                    trend_status,
+                    chop_status,
+                    vol_regime,
+                    holiday_context,
+                    seasonal_context,
+                    bool(news_blocked),
+                )
+                regime_changed = regime_key != last_gemini_regime_key
+
+            if regime_changed:
                 if session_changed:
                     logging.info(f"🔄 SESSION HANDOVER: {last_processed_session} -> {current_session_name} Q{current_quarter} (Base: {base_session})")
-                else:
+                elif quarter_changed:
                     logging.info(f"🔄 QUARTER CHANGE: {current_session_name} Q{last_processed_quarter} -> Q{current_quarter}")
+                else:
+                    logging.info(
+                        f"🔄 REGIME CHANGE: {current_session_name} | trend={trend_status} | chop={chop_status} | "
+                        f"vol={vol_regime} | holiday={holiday_context} | seasonal={seasonal_context} | "
+                        f"news_blocked={news_blocked}"
+                    )
 
-                if CONFIG.get('GEMINI', {}).get('enabled', False):
+                can_run_gemini = True
+                now_ts = time.time()
+                # Enforce a minimum cooldown of 30 minutes unless a session reset occurred.
+                gemini_min_interval = float(CONFIG.get("GEMINI", {}).get("min_interval_minutes", 0))
+                effective_min_interval = max(30.0, gemini_min_interval)
+                if not session_changed and effective_min_interval > 0:
+                    elapsed = now_ts - last_gemini_run_ts
+                    min_interval_sec = effective_min_interval * 60.0
+                    if elapsed < min_interval_sec:
+                        can_run_gemini = False
+                        remaining_min = (min_interval_sec - elapsed) / 60.0
+                        logging.info(
+                            f"⏳ Gemini cooldown: skipping optimization ({remaining_min:.1f} min remaining)"
+                        )
+
+                if gemini_enabled and can_run_gemini:
                     print("\n" + "=" * 60)
                     print(f"🧠 GEMINI OPTIMIZATION - {current_session_name} Q{current_quarter}")
                     print("=" * 60)
@@ -1580,36 +2159,26 @@ async def run_bot():
                     except Exception as e:
                         events_str = "Events data unavailable."
 
-                    try:
-                        holiday_context = news_filter.get_holiday_context(current_time)
-                        # Log holiday status
-                        if holiday_context == "HOLIDAY_TODAY":
-                            logging.info(f"🚨 HOLIDAY STATUS: {holiday_context} - Market closed/dead volume")
-                        elif holiday_context.startswith("PRE_HOLIDAY"):
-                            days = holiday_context.split("_")[-2]
-                            logging.info(f"📅 HOLIDAY STATUS: Bank Holiday in {days} day(s) - Reducing targets")
-                        elif holiday_context == "POST_HOLIDAY_RECOVERY":
-                            logging.info(f"🔄 HOLIDAY STATUS: {holiday_context} - Volatility expanding")
-                        else:
-                            logging.info(f"✅ HOLIDAY STATUS: {holiday_context}")
-                    except Exception as e:
-                        logging.warning(f"Failed to get holiday context: {e}")
-                        holiday_context = "NORMAL_LIQUIDITY"
+                    # Log holiday status
+                    if holiday_context == "HOLIDAY_TODAY":
+                        logging.info(f"🚨 HOLIDAY STATUS: {holiday_context} - Market closed/dead volume")
+                    elif holiday_context.startswith("PRE_HOLIDAY"):
+                        days = holiday_context.split("_")[-2]
+                        logging.info(f"📅 HOLIDAY STATUS: Bank Holiday in {days} day(s) - Reducing targets")
+                    elif holiday_context == "POST_HOLIDAY_RECOVERY":
+                        logging.info(f"🔄 HOLIDAY STATUS: {holiday_context} - Volatility expanding")
+                    else:
+                        logging.info(f"✅ HOLIDAY STATUS: {holiday_context}")
 
                     # Get Seasonal Context
-                    try:
-                        seasonal_context = news_filter.get_seasonal_context(current_time)
-                        # Log seasonal phase with specific emoji indicators
-                        if seasonal_context == "PHASE_1_LAST_GASP":
-                            logging.info(f"⚡ SEASONAL PHASE: LAST GASP (Dec 20-23) - High volume, violent trends")
-                        elif seasonal_context == "PHASE_2_DEAD_ZONE":
-                            logging.info(f"☠️  SEASONAL PHASE: DEAD ZONE (Dec 24-31) - 60% volume drop, broken structure")
-                        elif seasonal_context == "PHASE_3_JAN2_REENTRY":
-                            logging.info(f"🐻 SEASONAL PHASE: JAN 2 RE-ENTRY - Bearish bias, funds returning")
-                        # NORMAL_SEASONAL doesn't need logging
-                    except Exception as e:
-                        logging.warning(f"Failed to get seasonal context: {e}")
-                        seasonal_context = "NORMAL_SEASONAL"
+                    # Log seasonal phase with specific emoji indicators
+                    if seasonal_context == "PHASE_1_LAST_GASP":
+                        logging.info(f"⚡ SEASONAL PHASE: LAST GASP (Dec 20-23) - High volume, violent trends")
+                    elif seasonal_context == "PHASE_2_DEAD_ZONE":
+                        logging.info(f"☠️  SEASONAL PHASE: DEAD ZONE (Dec 24-31) - 60% volume drop, broken structure")
+                    elif seasonal_context == "PHASE_3_JAN2_REENTRY":
+                        logging.info(f"🐻 SEASONAL PHASE: JAN 2 RE-ENTRY - Bearish bias, funds returning")
+                    # NORMAL_SEASONAL doesn't need logging
 
                     # Log Micro-Session Specifics
                     if current_session_name == "NY_LUNCH":
@@ -1695,6 +2264,22 @@ async def run_bot():
                         CONFIG['DYNAMIC_SL_MULTIPLIER'] = sl_mult
                         CONFIG['DYNAMIC_TP_MULTIPLIER'] = tp_mult
 
+                        # Update Fixed SL/TP viability overrides (session-level)
+                        viability_params = opt_result.get("viability_params") or {}
+                        fixed_cfg = CONFIG.setdefault("FIXED_SLTP_FRAMEWORK", {})
+                        viability_cfg = fixed_cfg.setdefault("viability", {})
+                        runtime_overrides = viability_cfg.setdefault("runtime_overrides", {})
+                        if viability_params:
+                            runtime_overrides[base_session] = viability_params
+                            logging.info(
+                                f"🧪 FixedSLTP viability override ({base_session}): {viability_params}"
+                            )
+                        elif base_session in runtime_overrides:
+                            runtime_overrides.pop(base_session, None)
+                            logging.info(
+                                f"🧹 FixedSLTP viability override cleared ({base_session})"
+                            )
+
                         # NEW: Update DynamicChop Analyzer
                         chop_analyzer.update_gemini_params(chop_mult)
 
@@ -1721,11 +2306,20 @@ async def run_bot():
                         CONFIG['DYNAMIC_SL_MULTIPLIER'] = 1.0
                         CONFIG['DYNAMIC_TP_MULTIPLIER'] = 1.0
                         chop_analyzer.update_gemini_params(1.0)  # Reset on failure
+                        fixed_cfg = CONFIG.setdefault("FIXED_SLTP_FRAMEWORK", {})
+                        viability_cfg = fixed_cfg.setdefault("viability", {})
+                        runtime_overrides = viability_cfg.setdefault("runtime_overrides", {})
+                        runtime_overrides.pop(base_session, None)
                         logging.warning("⚠️  Gemini optimization failed - using default multipliers")
                         print("=" * 60 + "\n")
 
-                last_processed_session = current_session_name
-                last_processed_quarter = current_quarter
+                    last_gemini_run_ts = now_ts
+
+                last_gemini_regime_key = regime_key
+
+            # Always track latest session/quarter, even if Gemini doesn't re-run
+            last_processed_session = current_session_name
+            last_processed_quarter = current_quarter
 
             # === STEP 2: INCREMENTAL UPDATE (SEQUENTIAL FETCH) ===
             # Fetch MES first, then MNQ, then VIX immediately after to keep timestamps close
@@ -1851,7 +2445,10 @@ async def run_bot():
             extension_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             structure_blocker.update(new_df)
             regime_blocker.update(new_df)
-            penalty_blocker.update(new_df)
+            if penalty_blocker is not None:
+                penalty_blocker.update(new_df)
+            if penalty_blocker_asia is not None:
+                penalty_blocker_asia.update(new_df)
             memory_sr.update(new_df)
             directional_loss_blocker.update_quarter(current_time)
             impulse_filter.update(new_df)
@@ -1988,6 +2585,7 @@ async def run_bot():
                             sticky_trend_dir = None
                             sticky_opposite_count = 0
                             sticky_reclaim_count = 0
+                            trend_day_max_sigma = 0.0
                             raise StopIteration
                         trend_day_series = compute_trend_day_series(new_df)
                         trend_session = "NY" if base_session in ("NY_AM", "NY_PM") else base_session
@@ -2009,6 +2607,7 @@ async def run_bot():
                             sticky_trend_dir = None
                             sticky_reclaim_count = 0
                             sticky_opposite_count = 0
+                            trend_day_max_sigma = 0.0
 
                         day_key = trend_day_series["day_index"].iloc[-1]
                         if impulse_day != day_key:
@@ -2026,6 +2625,7 @@ async def run_bot():
                             sticky_trend_dir = None
                             sticky_reclaim_count = 0
                             sticky_opposite_count = 0
+                            trend_day_max_sigma = 0.0
 
                         bar_close = float(currbar["close"])
                         bar_high = float(currbar["high"])
@@ -2060,9 +2660,9 @@ async def run_bot():
                         confirm_down = False
                         confirm_up = False
 
-                        if pd.notna(atr_expansion) and pd.notna(vwap_sigma):
-                            atr_ok_t1 = atr_expansion >= ATR_EXP_T1
-                            atr_ok_t2 = atr_expansion >= ATR_EXP_T2
+                        asia_structure_only = TREND_DAY_ASIA_STRUCTURE_ONLY and base_session == "ASIA"
+
+                        if pd.notna(vwap_sigma):
                             displaced_down = vwap_sigma <= -VWAP_SIGMA_T1
                             displaced_up = vwap_sigma >= VWAP_SIGMA_T1
                             no_reclaim_down_t1 = bool(trend_day_series["no_reclaim_down_t1"].iloc[-1])
@@ -2071,6 +2671,14 @@ async def run_bot():
                             no_reclaim_up_t2 = bool(trend_day_series["no_reclaim_up_t2"].iloc[-1])
                             reclaim_down = bool(trend_day_series["reclaim_down"].iloc[-1])
                             reclaim_up = bool(trend_day_series["reclaim_up"].iloc[-1])
+
+                        if pd.notna(atr_expansion):
+                            atr_ok_t1 = atr_expansion >= ATR_EXP_T1
+                            atr_ok_t2 = atr_expansion >= ATR_EXP_T2
+
+                        if asia_structure_only:
+                            atr_ok_t1 = True
+                            atr_ok_t2 = True
 
                         if pd.notna(ema50_val):
                             ema_down = bar_close < ema50_val
@@ -2196,6 +2804,9 @@ async def run_bot():
                             and bars_since_impulse >= IMPULSE_MIN_BARS
                             and max_retracement <= IMPULSE_MAX_RETRACE
                         )
+                        if TREND_DAY_ASIA_DISABLE_TIER2 and base_session == "ASIA":
+                            tier2_down = False
+                            tier2_up = False
 
                         computed_tier = 0
                         computed_dir = None
@@ -2254,6 +2865,9 @@ async def run_bot():
                             trend_day_dir = computed_dir
                             trend_day_tier = computed_tier
 
+                        if trend_day_tier > 0 and trend_day_dir and pd.notna(vwap_sigma):
+                            trend_day_max_sigma = max(trend_day_max_sigma, abs(float(vwap_sigma)))
+
                         if trend_day_tier > 0 and trend_day_dir:
                             loss_limit = directional_loss_blocker.consecutive_loss_limit
                             if trend_day_dir == "up":
@@ -2281,60 +2895,44 @@ async def run_bot():
                                     "[TrendDay] DLB status after deactivation: "
                                     f"blocked={dlb_blocked} losses={dlb_losses} until={dlb_until_str}"
                                 )
-                                trend_day_tier = 0
-                                trend_day_dir = None
-                                last_trend_day_tier = 0
-                                last_trend_day_dir = None
-                                tier1_down_until = None
-                                tier1_up_until = None
-                                tier1_seen = False
-                                sticky_trend_dir = None
-                                sticky_opposite_count = 0
-                                sticky_reclaim_count = 0
+                                _deactivate_trend_day(
+                                    f"DLB {loss_count} {trend_day_dir.upper()} losses",
+                                    current_time,
+                                )
                         if trend_day_tier > 0 and trend_day_dir:
                             # Disable TrendDay if a large impulse prints in the OPPOSITE direction.
                             # Uses the same impulse criteria + wick override as ImpulseFilter.
                             opp_impulse = False
                             opp_reason = ""
-                            if impulse_filter.avg_body_size > 0:
-                                impulse_threshold = impulse_filter.avg_body_size * impulse_filter.impulse_multiplier
-                                if impulse_filter.last_candle_body > impulse_threshold:
-                                    upper_wick = impulse_filter.last_candle_high - max(
-                                        impulse_filter.last_candle_open, impulse_filter.last_candle_close
-                                    )
-                                    lower_wick = min(
-                                        impulse_filter.last_candle_open, impulse_filter.last_candle_close
-                                    ) - impulse_filter.last_candle_low
-                                    wick_threshold = impulse_filter.last_candle_body * impulse_filter.wick_ratio_threshold
-                                    if trend_day_dir == "up" and impulse_filter.last_candle_dir == "RED":
-                                        if lower_wick <= wick_threshold:
-                                            opp_impulse = True
-                                            opp_reason = (
-                                                f"Red impulse {impulse_filter.last_candle_body:.2f} > "
-                                                f"{impulse_threshold:.2f}"
-                                            )
-                                    elif trend_day_dir == "down" and impulse_filter.last_candle_dir == "GREEN":
-                                        if upper_wick <= wick_threshold:
-                                            opp_impulse = True
-                                            opp_reason = (
-                                                f"Green impulse {impulse_filter.last_candle_body:.2f} > "
-                                                f"{impulse_threshold:.2f}"
-                                            )
+                            is_impulse, impulse_threshold, _ = impulse_filter.get_impulse_stats()
+                            if is_impulse:
+                                upper_wick = impulse_filter.last_candle_high - max(
+                                    impulse_filter.last_candle_open, impulse_filter.last_candle_close
+                                )
+                                lower_wick = min(
+                                    impulse_filter.last_candle_open, impulse_filter.last_candle_close
+                                ) - impulse_filter.last_candle_low
+                                wick_threshold = impulse_filter.last_candle_body * impulse_filter.wick_ratio_threshold
+                                if trend_day_dir == "up" and impulse_filter.last_candle_dir == "RED":
+                                    if lower_wick <= wick_threshold:
+                                        opp_impulse = True
+                                        opp_reason = (
+                                            f"Red impulse {impulse_filter.last_candle_body:.2f} > "
+                                            f"{impulse_threshold:.2f}"
+                                        )
+                                elif trend_day_dir == "down" and impulse_filter.last_candle_dir == "GREEN":
+                                    if upper_wick <= wick_threshold:
+                                        opp_impulse = True
+                                        opp_reason = (
+                                            f"Green impulse {impulse_filter.last_candle_body:.2f} > "
+                                            f"{impulse_threshold:.2f}"
+                                        )
                             if opp_impulse:
                                 logging.warning(
                                     "[TrendDay] Deactivating tier/alt due to opposite impulse: "
                                     f"{opp_reason}"
                                 )
-                                trend_day_tier = 0
-                                trend_day_dir = None
-                                last_trend_day_tier = 0
-                                last_trend_day_dir = None
-                                tier1_down_until = None
-                                tier1_up_until = None
-                                tier1_seen = False
-                                sticky_trend_dir = None
-                                sticky_opposite_count = 0
-                                sticky_reclaim_count = 0
+                                _deactivate_trend_day(f"opposite impulse ({opp_reason})", current_time)
                         if trend_day_tier > 0 and trend_day_dir:
                             sma9_slope_series = trend_day_series.get("sma9_slope")
                             sma9_series = trend_day_series.get("sma9")
@@ -2370,16 +2968,74 @@ async def run_bot():
                                     "[TrendDay] Deactivating tier/alt due to SMA9 reversal + ATR contraction: "
                                     f"slope_avg={avg_slope:.3f} atr_exp={atr_expansion:.3f}"
                                 )
-                                trend_day_tier = 0
-                                trend_day_dir = None
-                                last_trend_day_tier = 0
-                                last_trend_day_dir = None
-                                tier1_down_until = None
-                                tier1_up_until = None
-                                tier1_seen = False
-                                sticky_trend_dir = None
-                                sticky_opposite_count = 0
-                                sticky_reclaim_count = 0
+                                _deactivate_trend_day(
+                                    f"SMA9 reversal + ATR contraction (slope_avg={avg_slope:.3f})",
+                                    current_time,
+                                )
+
+                        # === TrendDay "rotation/mean-reversion" deactivation ===
+                        if trend_day_tier > 0 and trend_day_dir:
+                            vwap_series = trend_day_series.get("vwap")
+                            sigma_series = trend_day_series.get("vwap_sigma_dist")
+                            close_series = new_df.get("close")
+
+                            # Gate A: VWAP reclaim + sigma decay hold
+                            if (
+                                vwap_series is not None
+                                and sigma_series is not None
+                                and close_series is not None
+                                and len(close_series) >= TREND_DAY_DEACTIVATE_RECLAIM_WINDOW
+                                and len(vwap_series) >= TREND_DAY_DEACTIVATE_RECLAIM_WINDOW
+                                and len(sigma_series) >= TREND_DAY_DEACTIVATE_SIGMA_BARS
+                            ):
+                                recent_close = close_series.iloc[-TREND_DAY_DEACTIVATE_RECLAIM_WINDOW:]
+                                recent_vwap = vwap_series.iloc[-TREND_DAY_DEACTIVATE_RECLAIM_WINDOW:]
+                                if trend_day_dir == "up":
+                                    reclaim_count = int(
+                                        (recent_close.to_numpy() < recent_vwap.to_numpy()).sum()
+                                    )
+                                else:
+                                    reclaim_count = int(
+                                        (recent_close.to_numpy() > recent_vwap.to_numpy()).sum()
+                                    )
+
+                                sigma_recent = sigma_series.iloc[-TREND_DAY_DEACTIVATE_SIGMA_BARS:]
+                                sigma_ok = bool(
+                                    (sigma_recent.abs() < TREND_DAY_DEACTIVATE_SIGMA_THRESHOLD).all()
+                                )
+
+                                if reclaim_count >= TREND_DAY_DEACTIVATE_RECLAIM_COUNT and sigma_ok:
+                                    _deactivate_trend_day(
+                                        "VWAP reclaim + sigma decay "
+                                        f"(reclaim={reclaim_count}/{TREND_DAY_DEACTIVATE_RECLAIM_WINDOW}, "
+                                        f"sigma<{TREND_DAY_DEACTIVATE_SIGMA_THRESHOLD})",
+                                        current_time,
+                                    )
+
+                            # Gate B: sigma decay kill switch
+                            if trend_day_tier > 0 and trend_day_dir and sigma_series is not None:
+                                if len(sigma_series) >= TREND_DAY_DEACTIVATE_SIGMA_DECAY_BARS:
+                                    sigma_decay_ok = bool(
+                                        (
+                                            sigma_series.iloc[-TREND_DAY_DEACTIVATE_SIGMA_DECAY_BARS:]
+                                            .abs()
+                                            < TREND_DAY_DEACTIVATE_SIGMA_DECAY_THRESHOLD
+                                        ).all()
+                                    )
+                                    current_sigma = sigma_series.iloc[-1]
+                                    guard_active = False
+                                    if pd.notna(current_sigma):
+                                        guard_active = (
+                                            trend_day_max_sigma >= TREND_DAY_DEACTIVATE_SIGMA_GUARD_MAX
+                                            and abs(float(current_sigma)) >= TREND_DAY_DEACTIVATE_SIGMA_GUARD_CURRENT
+                                        )
+                                    if sigma_decay_ok and not guard_active:
+                                        _deactivate_trend_day(
+                                            "VWAP sigma decay "
+                                            f"(<{TREND_DAY_DEACTIVATE_SIGMA_DECAY_THRESHOLD} for "
+                                            f"{TREND_DAY_DEACTIVATE_SIGMA_DECAY_BARS} bars)",
+                                            current_time,
+                                        )
 
                         if trend_day_tier > 0 and (
                             trend_day_tier != last_trend_day_tier or trend_day_dir != last_trend_day_dir
@@ -2402,6 +3058,7 @@ async def run_bot():
                         sticky_reclaim_count = 0
                         sticky_opposite_count = 0
                         tier1_seen = False
+                        trend_day_max_sigma = 0.0
                 else:
                     trend_day_tier = 0
                     trend_day_dir = None
@@ -2411,6 +3068,7 @@ async def run_bot():
                     sticky_reclaim_count = 0
                     sticky_opposite_count = 0
                     tier1_seen = False
+                    trend_day_max_sigma = 0.0
 
                 # === RISK TELEMETRY (PERIODIC HEARTBEAT) ===
                 # Calculate current risk metrics
@@ -2632,7 +3290,7 @@ async def run_bot():
                                     vix_ts = vix_ts.replace(tzinfo=dt_timezone.utc)
                                 else:
                                     vix_ts = vix_ts.astimezone(dt_timezone.utc)
-                            if abs((vix_ts - mes_ts).total_seconds()) > 120:
+                            if abs((vix_ts - mes_ts).total_seconds()) > 300:
                                 logging.info("VIX stale vs MES; skipping VIXReversionStrategy")
                                 continue
                             signal = strat.on_bar(new_df, vix_df)
@@ -2641,6 +3299,13 @@ async def run_bot():
 
                         if signal:
                             if hostile_day_active and is_hostile_disabled_strategy(signal, strat_name):
+                                event_logger.log_filter_check(
+                                    "HostileDay",
+                                    signal['side'],
+                                    False,
+                                    "hostile day active",
+                                    strategy=signal.get('strategy', strat_name)
+                                )
                                 logging.info(f"🛑 HOSTILE DAY: Skipping {strat_name}")
                                 continue
                             # ==========================================
@@ -2658,16 +3323,6 @@ async def run_bot():
                             signal['sl_dist'] = old_sl * sl_mult
                             signal['tp_dist'] = old_tp * tp_mult
 
-                            # Enforce minimums
-                            MIN_SL = 4.0
-                            MIN_TP = 6.0
-                            if signal['sl_dist'] < MIN_SL:
-                                logging.warning(f"⚠️ SL too tight ({signal['sl_dist']:.2f}), enforcing minimum {MIN_SL}")
-                                signal['sl_dist'] = MIN_SL
-                            if signal['tp_dist'] < MIN_TP:
-                                logging.warning(f"⚠️ TP too tight ({signal['tp_dist']:.2f}), enforcing minimum {MIN_TP}")
-                                signal['tp_dist'] = MIN_TP
-
                             if sl_mult != 1.0 or tp_mult != 1.0:
                                 logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
 
@@ -2680,13 +3335,20 @@ async def run_bot():
                             candidate_signals.append((1, strat, signal, strat_name))
 
                             # Log as candidate
+                            log_strategy, log_sub = get_log_strategy_info(
+                                signal.get('strategy', strat_name),
+                                signal
+                            )
+                            log_info = {"status": "CANDIDATE", "priority": "FAST"}
+                            if log_sub:
+                                log_info["sub_strategy"] = log_sub
                             event_logger.log_strategy_signal(
-                                strategy_name=signal.get('strategy', strat_name),
+                                strategy_name=log_strategy,
                                 side=signal['side'],
                                 tp_dist=signal.get('tp_dist', 6.0),
                                 sl_dist=signal.get('sl_dist', 4.0),
                                 price=current_price,
-                                additional_info={"status": "CANDIDATE", "priority": "FAST"}
+                                additional_info=log_info
                             )
                             logging.info(f"📊 CANDIDATE (FAST): {strat_name} {signal['side']} @ {current_price:.2f}")
 
@@ -2703,10 +3365,29 @@ async def run_bot():
                 for strat in current_standard:
                     strat_name = strat.__class__.__name__
                     signal = None
+                    priority = 2
 
                     # (SMT needs master_mnq_df, ML needs ml_signal, others use new_df)
                     if strat_name == "MLPhysicsStrategy":
                         signal = ml_signal
+                        if signal:
+                            boost_cfg = CONFIG.get("ML_PHYSICS_PRIORITY_BOOST", {}) or {}
+                            if boost_cfg.get("enabled", False):
+                                try:
+                                    min_conf = float(boost_cfg.get("min_confidence", 0.0))
+                                except Exception:
+                                    min_conf = 0.0
+                                sessions = boost_cfg.get("sessions") or []
+                                if not sessions or base_session in sessions:
+                                    try:
+                                        ml_conf = float(signal.get("ml_confidence", 0.0))
+                                    except Exception:
+                                        ml_conf = 0.0
+                                    if ml_conf >= min_conf:
+                                        try:
+                                            priority = int(boost_cfg.get("boost_priority", 1))
+                                        except Exception:
+                                            priority = 1
                     elif strat_name == "SMTStrategy":
                         try:
                             mnq_df = master_mnq_df
@@ -2744,16 +3425,6 @@ async def run_bot():
                         signal['sl_dist'] = old_sl * sl_mult
                         signal['tp_dist'] = old_tp * tp_mult
 
-                        # Enforce minimums
-                        MIN_SL = 4.0
-                        MIN_TP = 6.0
-                        if signal['sl_dist'] < MIN_SL:
-                            logging.warning(f"⚠️ SL too tight ({signal['sl_dist']:.2f}), enforcing minimum {MIN_SL}")
-                            signal['sl_dist'] = MIN_SL
-                        if signal['tp_dist'] < MIN_TP:
-                            logging.warning(f"⚠️ TP too tight ({signal['tp_dist']:.2f}), enforcing minimum {MIN_TP}")
-                            signal['tp_dist'] = MIN_TP
-
                         if sl_mult != 1.0 or tp_mult != 1.0:
                             logging.info(f"🧠 GEMINI OPTIMIZED: {strat_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
 
@@ -2764,31 +3435,158 @@ async def run_bot():
 
                         # Add to candidate list (Priority 2 = STANDARD)
                         if hostile_day_active and is_hostile_disabled_strategy(signal, strat_name):
+                            event_logger.log_filter_check(
+                                "HostileDay",
+                                signal['side'],
+                                False,
+                                "hostile day active",
+                                strategy=signal.get('strategy', strat_name)
+                            )
                             logging.info(f"🛑 HOSTILE DAY: Skipping {strat_name}")
                             continue
-                        candidate_signals.append((2, strat, signal, strat_name))
+                        candidate_signals.append((priority, strat, signal, strat_name))
 
                         # Log as candidate
+                        log_strategy, log_sub = get_log_strategy_info(
+                            signal.get('strategy', strat_name),
+                            signal
+                        )
+                        priority_label = "FAST" if priority == 1 else "STANDARD"
+                        log_info = {"status": "CANDIDATE", "priority": priority_label}
+                        if log_sub:
+                            log_info["sub_strategy"] = log_sub
+                        if strat_name == "MLPhysicsStrategy" and priority == 1:
+                            log_info["confidence_boosted"] = True
                         event_logger.log_strategy_signal(
-                            strategy_name=signal.get('strategy', strat_name),
+                            strategy_name=log_strategy,
                             side=signal['side'],
                             tp_dist=signal.get('tp_dist', 6.0),
                             sl_dist=signal.get('sl_dist', 4.0),
                             price=current_price,
-                            additional_info={"status": "CANDIDATE", "priority": "STANDARD"}
+                            additional_info=log_info
                         )
-                        logging.info(f"📊 CANDIDATE (STANDARD): {strat_name} {signal['side']} @ {current_price:.2f}")
+                        logging.info(
+                            f"📊 CANDIDATE ({priority_label}): {strat_name} {signal['side']} @ {current_price:.2f}"
+                        )
 
                 # -----------------------------------------------------------------
                 # SELECTION PHASE: Process candidates by priority until one passes
                 # -----------------------------------------------------------------
-                candidate_signals.sort(key=lambda x: x[0])
+                def signal_confidence(sig):
+                    for key in (
+                        "ml_confidence",
+                        "confidence",
+                        "final_score",
+                        "score",
+                        "opt_wr",
+                        "wr",
+                        "win_rate",
+                    ):
+                        if key in sig and sig.get(key) is not None:
+                            try:
+                                return float(sig.get(key))
+                            except Exception:
+                                continue
+                    return 0.0
+
+                ml_soft_cfg = CONFIG.get("ML_PHYSICS_SOFT_GATING", {}) or {}
+                if ml_soft_cfg.get("enabled", False) and candidate_signals:
+                    ml_candidates = [
+                        (priority, sig, s_name)
+                        for priority, _, sig, s_name in candidate_signals
+                        if str(sig.get("strategy", s_name)).startswith("MLPhysics")
+                    ]
+                    if ml_candidates:
+                        ml_priority, ml_sig, ml_name = max(
+                            ml_candidates, key=lambda item: signal_confidence(item[1])
+                        )
+                        ml_conf = signal_confidence(ml_sig)
+                        try:
+                            min_conf = float(ml_soft_cfg.get("min_confidence", 0.0))
+                        except Exception:
+                            min_conf = 0.0
+                        if ml_conf >= min_conf:
+                            block_standard = bool(ml_soft_cfg.get("block_standard", True))
+                            block_fast = bool(ml_soft_cfg.get("block_fast", False))
+                            blocked_priorities = set()
+                            if block_standard:
+                                blocked_priorities.add(2)
+                            if block_fast:
+                                blocked_priorities.add(1)
+                            ml_side = ml_sig.get("side")
+                            if ml_side in ("LONG", "SHORT") and blocked_priorities:
+                                new_candidates = []
+                                for priority, strat, sig, s_name in candidate_signals:
+                                    if str(sig.get("strategy", s_name)).startswith("MLPhysics"):
+                                        new_candidates.append((priority, strat, sig, s_name))
+                                        continue
+                                    if sig.get("side") != ml_side and priority in blocked_priorities:
+                                        event_logger.log_filter_check(
+                                            "MLSoftGate",
+                                            sig.get("side", "UNKNOWN"),
+                                            False,
+                                            f"ml_conf {ml_conf:.1%} >= {min_conf:.1%}",
+                                            strategy=sig.get("strategy", s_name),
+                                        )
+                                        logging.info(
+                                            f"🧠 ML SOFT GATE: blocked {s_name} "
+                                            f"{sig.get('side')} (conf {ml_conf:.1%})"
+                                        )
+                                        continue
+                                    new_candidates.append((priority, strat, sig, s_name))
+                                candidate_signals = new_candidates
+
+                candidate_signals.sort(
+                    key=lambda x: (x[0], -signal_confidence(x[2]))
+                )
 
                 vol_regime_current = None
                 try:
                     vol_regime_current, _, _ = volatility_filter.get_regime(new_df)
                 except Exception:
                     vol_regime_current = None
+
+                asia_viable = True
+                asia_viable_reason = None
+                if base_session == "ASIA":
+                    asia_viable, asia_viable_reason = asia_viability_gate(
+                        new_df,
+                        ts=current_time,
+                        session=base_session,
+                    )
+                    if not asia_viable:
+                        event_logger.log_filter_check(
+                            "AsiaViabilityGate",
+                            "ALL",
+                            False,
+                            asia_viable_reason or "Asia gate blocked",
+                            strategy="Global",
+                        )
+                        continue
+
+                asia_soft_ext_cfg = CONFIG.get("ASIA_SOFT_EXTENSION_FILTER", {}) or {}
+                asia_soft_ext_enabled = bool(
+                    asia_soft_ext_cfg.get("enabled", False)
+                    and base_session == "ASIA"
+                    and asia_viable
+                )
+                try:
+                    asia_soft_ext_base = float(asia_soft_ext_cfg.get("base_score", 1.0))
+                except Exception:
+                    asia_soft_ext_base = 1.0
+                try:
+                    asia_soft_ext_penalty = float(asia_soft_ext_cfg.get("penalty", 0.35))
+                except Exception:
+                    asia_soft_ext_penalty = 0.35
+                try:
+                    asia_soft_ext_threshold = float(asia_soft_ext_cfg.get("score_threshold", 0.65))
+                except Exception:
+                    asia_soft_ext_threshold = 0.65
+
+                asia_trend_bias_side = None
+                if asia_calib_enabled and base_session == "ASIA":
+                    trend_cfg = asia_calib_cfg.get("trend_bias", {}) or {}
+                    asia_trend_bias_side = asia_trend_bias(new_df, trend_cfg)
 
                 # Multi-strategy consensus override (vote-based)
                 direction_counts = {"LONG": 0, "SHORT": 0}
@@ -2802,7 +3600,7 @@ async def run_bot():
                         if str(strat_label).startswith("MLPhysics"):
                             if not consensus_ml_ok(sig, s_name):
                                 continue
-                            if not ml_vol_regime_ok(sig, base_session, vol_regime_current):
+                            if not ml_vol_regime_ok(sig, base_session, vol_regime_current, asia_viable=asia_viable):
                                 continue
                         weight = 2 if s_name == "SMTStrategy" else 1
                         direction_counts[side] += weight
@@ -2830,7 +3628,7 @@ async def run_bot():
                             not str(sig.get("strategy", s_name)).startswith("MLPhysics")
                             or (
                                 consensus_ml_ok(sig, s_name)
-                                and ml_vol_regime_ok(sig, base_session, vol_regime_current)
+                                and ml_vol_regime_ok(sig, base_session, vol_regime_current, asia_viable=asia_viable)
                             )
                         )
                     ]
@@ -2870,9 +3668,23 @@ async def run_bot():
                     rescue_logged = False
 
                     if consensus_side and signal['side'] != consensus_side:
+                        event_logger.log_filter_check(
+                            "Consensus",
+                            signal['side'],
+                            False,
+                            f"consensus={consensus_side}",
+                            strategy=signal.get('strategy', strat_name)
+                        )
                         logging.info(f"⏭️ Skipping {strat_name} {signal['side']} due to consensus {consensus_side}")
                         continue
                     if hostile_day_active and is_hostile_disabled_strategy(signal, strat_name):
+                        event_logger.log_filter_check(
+                            "HostileDay",
+                            signal['side'],
+                            False,
+                            "hostile day active",
+                            strategy=signal.get('strategy', strat_name)
+                        )
                         logging.info(f"🛑 HOSTILE DAY: Skipping {strat_name}")
                         continue
 
@@ -3028,12 +3840,50 @@ async def run_bot():
                                 "🧮 CONSENSUS TP SOURCE: "
                                 f"{consensus_tp_source} TP={signal['tp_dist']:.2f} SL={signal['sl_dist']:.2f}"
                             )
+                        fixed_ok, fixed_details = apply_fixed_sltp(
+                            signal,
+                            new_df,
+                            current_price,
+                            ts=current_time,
+                            session=base_session,
+                        )
+                        if not fixed_ok:
+                            reason = fixed_details.get("reason", "FixedSLTP blocked")
+                            log_filter_block("FixedSLTP", reason)
+                            if is_rescued:
+                                log_rescue_failed(f"FixedSLTP: {reason}")
+                            continue
+                        if fixed_details:
+                            signal["sl_dist"] = fixed_details["sl_dist"]
+                            signal["tp_dist"] = fixed_details["tp_dist"]
+                            signal["sltp_bracket"] = fixed_details.get("bracket")
+                            signal["vol_regime"] = fixed_details.get("vol_regime", signal.get("vol_regime"))
+                            log_fixed_sltp(fixed_details, signal.get("strategy"))
                         is_feasible, feasibility_reason = chop_analyzer.check_target_feasibility(
                             entry_price=current_price,
                             side=signal['side'],
                             tp_distance=signal.get('tp_dist', 6.0),
                             df_1m=new_df,
                         )
+                        if (not is_feasible) and asia_calib_enabled and base_session == "ASIA":
+                            tf_cfg = asia_calib_cfg.get("target_feasibility", {}) or {}
+                            lookback = int(getattr(chop_analyzer, "LOOKBACK", 20) or 20)
+                            if asia_target_feasibility_override(
+                                new_df,
+                                signal['side'],
+                                signal.get('tp_dist', 6.0),
+                                asia_trend_bias_side,
+                                tf_cfg,
+                                lookback,
+                            ):
+                                is_feasible = True
+                                event_logger.log_filter_check(
+                                    "TargetFeasibility",
+                                    signal['side'],
+                                    True,
+                                    "ASIA trend override",
+                                    strategy=signal.get('strategy', strat_name),
+                                )
                         if not is_feasible:
                             if try_consensus_rescue("TargetFeasibility", feasibility_reason):
                                 do_execute = True
@@ -3073,6 +3923,22 @@ async def run_bot():
                                 "NEUTRAL",
                                 vol_regime,
                             )
+                            if chop_blocked and asia_calib_enabled and base_session == "ASIA":
+                                chop_cfg = asia_calib_cfg.get("chop_filter", {}) or {}
+                                if asia_chop_override(
+                                    chop_reason,
+                                    signal['side'],
+                                    asia_trend_bias_side,
+                                    chop_cfg,
+                                ):
+                                    chop_blocked = False
+                                    event_logger.log_filter_check(
+                                        "ChopFilter",
+                                        signal['side'],
+                                        True,
+                                        "ASIA trend override",
+                                        strategy=signal.get('strategy', strat_name),
+                                    )
                             if chop_blocked:
                                 if is_chop_hard_stop(chop_reason):
                                     log_filter_block("ChopFilter", chop_reason)
@@ -3092,6 +3958,15 @@ async def run_bot():
                                     continue
 
                         ext_blocked, ext_reason = extension_filter.should_block_trade(signal['side'])
+                        if ext_blocked and asia_soft_ext_enabled:
+                            soft_score = asia_soft_ext_base - asia_soft_ext_penalty
+                            if soft_score >= asia_soft_ext_threshold:
+                                ext_blocked = False
+                                ext_reason = (
+                                    f"ASIA soft extension score {soft_score:.2f} >= "
+                                    f"{asia_soft_ext_threshold:.2f}"
+                                )
+                                logging.info(f"✅ ExtensionFilter soft pass: {ext_reason}")
                         if ext_blocked:
                             if is_rescued:
                                 if consensus_bypass_allowed:
@@ -3118,7 +3993,7 @@ async def run_bot():
                         signal['tp_dist'] = vol_adj['tp_dist']
                         if vol_adj.get('adjustment_applied', False): signal['size'] = vol_adj['size']
                         signal['vol_regime'] = vol_adj.get('regime', 'UNKNOWN')
-                        if not ml_vol_regime_ok(signal, base_session, signal['vol_regime']):
+                        if not ml_vol_regime_ok(signal, base_session, signal['vol_regime'], asia_viable=asia_viable):
                             log_filter_block("MLVolRegimeGuard", f"regime={signal['vol_regime']}")
                             if is_rescued:
                                 log_rescue_failed("MLVolRegimeGuard")
@@ -3223,10 +4098,49 @@ async def run_bot():
                                 logging.info(f"BLOCKED by TrendDayTier{trend_day_tier}")
                                 continue
 
+                        fixed_ok, fixed_details = apply_fixed_sltp(
+                            signal,
+                            new_df,
+                            current_price,
+                            ts=current_time,
+                            session=base_session,
+                        )
+                        if not fixed_ok:
+                            reason = fixed_details.get("reason", "FixedSLTP blocked")
+                            log_filter_block("FixedSLTP", reason)
+                            if is_rescued:
+                                log_rescue_failed(f"FixedSLTP: {reason}")
+                            continue
+                        if fixed_details:
+                            signal["sl_dist"] = fixed_details["sl_dist"]
+                            signal["tp_dist"] = fixed_details["tp_dist"]
+                            signal["sltp_bracket"] = fixed_details.get("bracket")
+                            signal["vol_regime"] = fixed_details.get("vol_regime", signal.get("vol_regime"))
+                            log_fixed_sltp(fixed_details, signal.get("strategy"))
+
                         # 1. Target Feasibility
                         is_feasible, feasibility_reason = chop_analyzer.check_target_feasibility(
                             entry_price=current_price, side=signal['side'], tp_distance=signal.get('tp_dist', 6.0), df_1m=new_df
                         )
+                        if (not is_feasible) and asia_calib_enabled and base_session == "ASIA":
+                            tf_cfg = asia_calib_cfg.get("target_feasibility", {}) or {}
+                            lookback = int(getattr(chop_analyzer, "LOOKBACK", 20) or 20)
+                            if asia_target_feasibility_override(
+                                new_df,
+                                signal['side'],
+                                signal.get('tp_dist', 6.0),
+                                asia_trend_bias_side,
+                                tf_cfg,
+                                lookback,
+                            ):
+                                is_feasible = True
+                                event_logger.log_filter_check(
+                                    "TargetFeasibility",
+                                    signal['side'],
+                                    True,
+                                    "ASIA trend override",
+                                    strategy=signal.get('strategy', strat_name),
+                                )
                         if not is_feasible:
                             log_filter_block('TargetFeasibility', feasibility_reason)
                             logging.info(f"Signal ignored ({priority_label}): {feasibility_reason}")
@@ -3314,6 +4228,22 @@ async def run_bot():
                         chop_blocked, chop_reason = chop_filter.should_block_trade(
                             signal['side'], rejection_filter.prev_day_pm_bias, current_price, 'NEUTRAL', vol_regime
                         )
+                        if chop_blocked and asia_calib_enabled and base_session == "ASIA":
+                            chop_cfg = asia_calib_cfg.get("chop_filter", {}) or {}
+                            if asia_chop_override(
+                                chop_reason,
+                                signal['side'],
+                                asia_trend_bias_side,
+                                chop_cfg,
+                            ):
+                                chop_blocked = False
+                                event_logger.log_filter_check(
+                                    "ChopFilter",
+                                    signal['side'],
+                                    True,
+                                    "ASIA trend override",
+                                    strategy=signal.get('strategy', strat_name),
+                                )
                         if chop_blocked:
                             if is_chop_hard_stop(chop_reason):
                                 log_filter_block('ChopFilter', chop_reason)
@@ -3332,6 +4262,15 @@ async def run_bot():
                             elif not try_rescue_trigger(chop_reason, 'ChopFilter'):
                                 continue
                         ext_blocked, ext_reason = extension_filter.should_block_trade(signal['side'])
+                        if ext_blocked and asia_soft_ext_enabled:
+                            soft_score = asia_soft_ext_base - asia_soft_ext_penalty
+                            if soft_score >= asia_soft_ext_threshold:
+                                ext_blocked = False
+                                ext_reason = (
+                                    f"ASIA soft extension score {soft_score:.2f} >= "
+                                    f"{asia_soft_ext_threshold:.2f}"
+                                )
+                                logging.info(f"✅ ExtensionFilter soft pass: {ext_reason}")
                         if ext_blocked:
                             if is_rescued:
                                 if rescue_bypass_allowed:
@@ -3357,7 +4296,7 @@ async def run_bot():
                         if vol_adj.get('adjustment_applied', False):
                             signal['size'] = vol_adj['size']
                         signal['vol_regime'] = vol_adj.get('regime', 'UNKNOWN')
-                        if not ml_vol_regime_ok(signal, base_session, signal['vol_regime']):
+                        if not ml_vol_regime_ok(signal, base_session, signal['vol_regime'], asia_viable=asia_viable):
                             log_filter_block("MLVolRegimeGuard", f"regime={signal['vol_regime']}")
                             if is_rescued:
                                 log_rescue_failed("MLVolRegimeGuard")
@@ -3366,6 +4305,23 @@ async def run_bot():
                     if not do_execute:
                         continue
 
+                    # Decision summary for UI/logs
+                    try:
+                        decision_reason = (
+                            f"priority={priority_label} entry_mode={signal.get('entry_mode','standard')} "
+                            f"consensus={consensus_side or 'none'} "
+                            f"vol_regime={signal.get('vol_regime', vol_regime_current) or 'UNKNOWN'} "
+                            f"trend_day={trend_day_tier if trend_day_tier is not None else 0}/{trend_day_dir or 'none'}"
+                        )
+                        event_logger.log_filter_check(
+                            "Decision",
+                            signal['side'],
+                            True,
+                            decision_reason,
+                            strategy=signal.get('strategy', strat_name)
+                        )
+                    except Exception:
+                        pass
                     # === EXECUTION ===
                     signal.setdefault('entry_mode', "standard")
                     if signal.get("_defer_impulse_rescue"):
@@ -3509,19 +4465,29 @@ async def run_bot():
                                 sig['sl_dist'] = old_sl * sl_mult
                                 sig['tp_dist'] = old_tp * tp_mult
 
-                                # Enforce minimums to prevent dangerously tight stops
-                                MIN_SL = 4.0  # 16 ticks minimum
-                                MIN_TP = 6.0  # 24 ticks minimum (1.5:1 RR)
-                                if sig['sl_dist'] < MIN_SL:
-                                    logging.warning(f"⚠️ SL too tight ({sig['sl_dist']:.2f}), enforcing minimum {MIN_SL}")
-                                    sig['sl_dist'] = MIN_SL
-                                if sig['tp_dist'] < MIN_TP:
-                                    logging.warning(f"⚠️ TP too tight ({sig['tp_dist']:.2f}), enforcing minimum {MIN_TP}")
-                                    sig['tp_dist'] = MIN_TP
-
                                 if sl_mult != 1.0 or tp_mult != 1.0:
                                     logging.info(f"🧠 GEMINI OPTIMIZED: {s_name} | SL: {old_sl:.2f}->{sig['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{sig['tp_dist']:.2f} (x{tp_mult})")
                                 # ==========================================
+
+                                fixed_ok, fixed_details = apply_fixed_sltp(
+                                    sig,
+                                    new_df,
+                                    current_price,
+                                    ts=current_time,
+                                    session=base_session,
+                                )
+                                if not fixed_ok:
+                                    reason = fixed_details.get("reason", "FixedSLTP blocked")
+                                    logging.info(f"⛔ Signal ignored (LOOSE): {reason}")
+                                    event_logger.log_filter_check("FixedSLTP", sig["side"], False, reason, strategy=sig.get("strategy", s_name))
+                                    del pending_loose_signals[s_name]
+                                    continue
+                                if fixed_details:
+                                    sig["sl_dist"] = fixed_details["sl_dist"]
+                                    sig["tp_dist"] = fixed_details["tp_dist"]
+                                    sig["sltp_bracket"] = fixed_details.get("bracket")
+                                    sig["vol_regime"] = fixed_details.get("vol_regime", sig.get("vol_regime"))
+                                    log_fixed_sltp(fixed_details, sig.get("strategy", s_name))
 
                                 # Enforce HTF range fade directional restriction
                                 if trend_day_tier > 0 and trend_day_dir:
@@ -3555,6 +4521,25 @@ async def run_bot():
                                     tp_distance=sig.get('tp_dist', 6.0),
                                     df_1m=new_df
                                 )
+                                if (not is_feasible) and asia_calib_enabled and base_session == "ASIA":
+                                    tf_cfg = asia_calib_cfg.get("target_feasibility", {}) or {}
+                                    lookback = int(getattr(chop_analyzer, "LOOKBACK", 20) or 20)
+                                    if asia_target_feasibility_override(
+                                        new_df,
+                                        sig['side'],
+                                        sig.get('tp_dist', 6.0),
+                                        asia_trend_bias_side,
+                                        tf_cfg,
+                                        lookback,
+                                    ):
+                                        is_feasible = True
+                                        event_logger.log_filter_check(
+                                            "ChopFeasibility",
+                                            sig['side'],
+                                            True,
+                                            "ASIA trend override",
+                                            strategy=sig.get('strategy', s_name),
+                                        )
                                 if not is_feasible:
                                     logging.info(f"⛔ Signal ignored (LOOSE): {feasibility_reason}")
                                     event_logger.log_filter_check("ChopFeasibility", sig['side'], False, feasibility_reason, strategy=sig.get('strategy', s_name))
@@ -3627,13 +4612,15 @@ async def run_bot():
                                 else:
                                     event_logger.log_filter_check("RegimeBlocker", sig['side'], True, strategy=sig.get('strategy', s_name))
                                 # Penalty Box Blocker (Fixed 5.0pt tolerance + 3-bar decay)
-                                penalty_blocked, penalty_reason = penalty_blocker.should_block_trade(sig['side'], current_price)
-                                if penalty_blocked:
-                                    logging.info(f"🚫 {penalty_reason}")
-                                    event_logger.log_filter_check("PenaltyBoxBlocker", sig['side'], False, penalty_reason, strategy=sig.get('strategy', s_name))
-                                    del pending_loose_signals[s_name]; continue
-                                else:
-                                    event_logger.log_filter_check("PenaltyBoxBlocker", sig['side'], True, strategy=sig.get('strategy', s_name))
+                                penalty_source = penalty_blocker_asia if base_session == "ASIA" and penalty_blocker_asia is not None else penalty_blocker
+                                if penalty_source is not None:
+                                    penalty_blocked, penalty_reason = penalty_source.should_block_trade(sig['side'], current_price)
+                                    if penalty_blocked:
+                                        logging.info(f"🚫 {penalty_reason}")
+                                        event_logger.log_filter_check("PenaltyBoxBlocker", sig['side'], False, penalty_reason, strategy=sig.get('strategy', s_name))
+                                        del pending_loose_signals[s_name]; continue
+                                    else:
+                                        event_logger.log_filter_check("PenaltyBoxBlocker", sig['side'], True, strategy=sig.get('strategy', s_name))
                                 mem_blocked, mem_reason = memory_sr.should_block_trade(sig['side'], current_price)
                                 if mem_blocked:
                                     logging.info(f"🚫 {mem_reason}")
@@ -3681,6 +4668,22 @@ async def run_bot():
                                     trend_state=trend_state,
                                     vol_regime=vol_regime
                                 )
+                                if chop_blocked and asia_calib_enabled and base_session == "ASIA":
+                                    chop_cfg = asia_calib_cfg.get("chop_filter", {}) or {}
+                                    if asia_chop_override(
+                                        chop_reason,
+                                        sig['side'],
+                                        asia_trend_bias_side,
+                                        chop_cfg,
+                                    ):
+                                        chop_blocked = False
+                                        event_logger.log_filter_check(
+                                            "ChopFilter",
+                                            sig['side'],
+                                            True,
+                                            "ASIA trend override",
+                                            strategy=sig.get('strategy', s_name),
+                                        )
                                 if chop_blocked:
                                     event_logger.log_filter_check("ChopFilter", sig['side'], False, chop_reason, strategy=sig.get('strategy', s_name))
                                     del pending_loose_signals[s_name]; continue
@@ -3688,11 +4691,26 @@ async def run_bot():
                                     event_logger.log_filter_check("ChopFilter", sig['side'], True, strategy=sig.get('strategy', s_name))
 
                                 ext_blocked, ext_reason = extension_filter.should_block_trade(sig['side'])
+                                soft_ext_reason = None
+                                if ext_blocked and asia_soft_ext_enabled:
+                                    soft_score = asia_soft_ext_base - asia_soft_ext_penalty
+                                    if soft_score >= asia_soft_ext_threshold:
+                                        ext_blocked = False
+                                        soft_ext_reason = (
+                                            f"ASIA soft extension score {soft_score:.2f} >= "
+                                            f"{asia_soft_ext_threshold:.2f}"
+                                        )
                                 if ext_blocked:
                                     event_logger.log_filter_check("ExtensionFilter", sig['side'], False, ext_reason, strategy=sig.get('strategy', s_name))
                                     del pending_loose_signals[s_name]; continue
                                 else:
-                                    event_logger.log_filter_check("ExtensionFilter", sig['side'], True, strategy=sig.get('strategy', s_name))
+                                    event_logger.log_filter_check(
+                                        "ExtensionFilter",
+                                        sig['side'],
+                                        True,
+                                        soft_ext_reason,
+                                        strategy=sig.get('strategy', s_name),
+                                    )
 
                                 # Trend Filter (already checked above with is_range_fade)
                                 if trend_blocked:
@@ -3718,7 +4736,7 @@ async def run_bot():
                                 sig['sl_dist'] = vol_adj['sl_dist']
                                 sig['tp_dist'] = vol_adj['tp_dist']
                                 sig['vol_regime'] = vol_adj.get('regime', 'UNKNOWN')
-                                if not ml_vol_regime_ok(sig, base_session, sig['vol_regime']):
+                                if not ml_vol_regime_ok(sig, base_session, sig['vol_regime'], asia_viable=asia_viable):
                                     event_logger.log_filter_check(
                                         "MLVolRegimeGuard",
                                         sig['side'],
@@ -3739,7 +4757,17 @@ async def run_bot():
                                     )
 
                                 logging.info(f"✅ LOOSE EXEC: {s_name}")
-                                event_logger.log_strategy_execution(s_name, "LOOSE")
+                                exec_strategy, exec_sub = get_log_strategy_info(s_name, sig)
+                                if exec_sub:
+                                    exec_name = f"{exec_strategy} ({exec_sub})"
+                                else:
+                                    exec_name = exec_strategy
+                                event_logger.log_strategy_execution(
+                                    exec_name,
+                                    "LOOSE",
+                                    side=sig.get("side"),
+                                    price=current_price,
+                                )
 
                                 # Track old trade result BEFORE close_and_reverse overwrites active_trade
                                 if active_trade is not None:
@@ -3820,16 +4848,6 @@ async def run_bot():
                                         signal['sl_dist'] = old_sl * sl_mult
                                         signal['tp_dist'] = old_tp * tp_mult
 
-                                        # Enforce minimums to prevent dangerously tight stops
-                                        MIN_SL = 4.0  # 16 ticks minimum
-                                        MIN_TP = 6.0  # 24 ticks minimum (1.5:1 RR)
-                                        if signal['sl_dist'] < MIN_SL:
-                                            logging.warning(f"⚠️ SL too tight ({signal['sl_dist']:.2f}), enforcing minimum {MIN_SL}")
-                                            signal['sl_dist'] = MIN_SL
-                                        if signal['tp_dist'] < MIN_TP:
-                                            logging.warning(f"⚠️ TP too tight ({signal['tp_dist']:.2f}), enforcing minimum {MIN_TP}")
-                                            signal['tp_dist'] = MIN_TP
-
                                         if sl_mult != 1.0 or tp_mult != 1.0:
                                             logging.info(f"🧠 GEMINI OPTIMIZED: {s_name} | SL: {old_sl:.2f}->{signal['sl_dist']:.2f} (x{sl_mult}) | TP: {old_tp:.2f}->{signal['tp_dist']:.2f} (x{tp_mult})")
                                         # ==========================================
@@ -3856,13 +4874,20 @@ async def run_bot():
                                             continue
 
                                         # Enhanced event logging: Strategy signal generated
+                                        log_strategy, log_sub = get_log_strategy_info(
+                                            signal.get('strategy', s_name),
+                                            signal
+                                        )
+                                        log_info = {"execution_type": "LOOSE"}
+                                        if log_sub:
+                                            log_info["sub_strategy"] = log_sub
                                         event_logger.log_strategy_signal(
-                                            strategy_name=signal.get('strategy', s_name),
+                                            strategy_name=log_strategy,
                                             side=signal['side'],
                                             tp_dist=signal.get('tp_dist', 6.0),
                                             sl_dist=signal.get('sl_dist', 4.0),
                                             price=current_price,
-                                            additional_info={"execution_type": "LOOSE"}
+                                            additional_info=log_info
                                         )
 
                                         rej_blocked, rej_reason = rejection_filter.should_block_trade(signal['side'])
@@ -3909,12 +4934,14 @@ async def run_bot():
                                         else:
                                             event_logger.log_filter_check("RegimeBlocker", signal['side'], True, strategy=signal.get('strategy', s_name))
                                         # Penalty Box Blocker (Fixed 5.0pt tolerance + 3-bar decay)
-                                        penalty_blocked, penalty_reason = penalty_blocker.should_block_trade(signal['side'], current_price)
-                                        if penalty_blocked:
-                                            event_logger.log_filter_check("PenaltyBoxBlocker", signal['side'], False, penalty_reason, strategy=signal.get('strategy', s_name))
-                                            continue
-                                        else:
-                                            event_logger.log_filter_check("PenaltyBoxBlocker", signal['side'], True, strategy=signal.get('strategy', s_name))
+                                        penalty_source = penalty_blocker_asia if base_session == "ASIA" and penalty_blocker_asia is not None else penalty_blocker
+                                        if penalty_source is not None:
+                                            penalty_blocked, penalty_reason = penalty_source.should_block_trade(signal['side'], current_price)
+                                            if penalty_blocked:
+                                                event_logger.log_filter_check("PenaltyBoxBlocker", signal['side'], False, penalty_reason, strategy=signal.get('strategy', s_name))
+                                                continue
+                                            else:
+                                                event_logger.log_filter_check("PenaltyBoxBlocker", signal['side'], True, strategy=signal.get('strategy', s_name))
                                         mem_blocked, mem_reason = memory_sr.should_block_trade(signal['side'], current_price)
                                         if mem_blocked:
                                             event_logger.log_filter_check("MemorySR", signal['side'], False, mem_reason, strategy=signal.get('strategy', s_name))
@@ -3961,6 +4988,22 @@ async def run_bot():
                                             trend_state=trend_state,
                                             vol_regime=vol_regime
                                         )
+                                        if chop_blocked and asia_calib_enabled and base_session == "ASIA":
+                                            chop_cfg = asia_calib_cfg.get("chop_filter", {}) or {}
+                                            if asia_chop_override(
+                                                chop_reason,
+                                                signal['side'],
+                                                asia_trend_bias_side,
+                                                chop_cfg,
+                                            ):
+                                                chop_blocked = False
+                                                event_logger.log_filter_check(
+                                                    "ChopFilter",
+                                                    signal['side'],
+                                                    True,
+                                                    "ASIA trend override",
+                                                    strategy=signal.get('strategy', s_name),
+                                                )
                                         if chop_blocked:
                                             event_logger.log_filter_check("ChopFilter", signal['side'], False, chop_reason, strategy=signal.get('strategy', s_name))
                                             continue
@@ -3968,11 +5011,26 @@ async def run_bot():
                                             event_logger.log_filter_check("ChopFilter", signal['side'], True, strategy=signal.get('strategy', s_name))
 
                                         ext_blocked, ext_reason = extension_filter.should_block_trade(signal['side'])
+                                        soft_ext_reason = None
+                                        if ext_blocked and asia_soft_ext_enabled:
+                                            soft_score = asia_soft_ext_base - asia_soft_ext_penalty
+                                            if soft_score >= asia_soft_ext_threshold:
+                                                ext_blocked = False
+                                                soft_ext_reason = (
+                                                    f"ASIA soft extension score {soft_score:.2f} >= "
+                                                    f"{asia_soft_ext_threshold:.2f}"
+                                                )
                                         if ext_blocked:
                                             event_logger.log_filter_check("ExtensionFilter", signal['side'], False, ext_reason, strategy=signal.get('strategy', s_name))
                                             continue
                                         else:
-                                            event_logger.log_filter_check("ExtensionFilter", signal['side'], True, strategy=signal.get('strategy', s_name))
+                                            event_logger.log_filter_check(
+                                                "ExtensionFilter",
+                                                signal['side'],
+                                                True,
+                                                soft_ext_reason,
+                                                strategy=signal.get('strategy', s_name),
+                                            )
 
                                         # Trend Filter (already checked above with is_range_fade)
                                         if trend_blocked:
@@ -3998,7 +5056,7 @@ async def run_bot():
                                         signal['sl_dist'] = vol_adj['sl_dist']
                                         signal['tp_dist'] = vol_adj['tp_dist']
                                         signal['vol_regime'] = vol_adj.get('regime', 'UNKNOWN')
-                                        if not ml_vol_regime_ok(signal, base_session, signal['vol_regime']):
+                                        if not ml_vol_regime_ok(signal, base_session, signal['vol_regime'], asia_viable=asia_viable):
                                             event_logger.log_filter_check(
                                                 "MLVolRegimeGuard",
                                                 signal['side'],
@@ -4019,13 +5077,20 @@ async def run_bot():
                                             )
 
                                         # Log as QUEUED for UI visibility
+                                        log_strategy, log_sub = get_log_strategy_info(
+                                            signal.get('strategy', s_name),
+                                            signal
+                                        )
+                                        log_info = {"status": "QUEUED", "priority": "LOOSE"}
+                                        if log_sub:
+                                            log_info["sub_strategy"] = log_sub
                                         event_logger.log_strategy_signal(
-                                            strategy_name=signal.get('strategy', s_name),
+                                            strategy_name=log_strategy,
                                             side=signal['side'],
                                             tp_dist=signal.get('tp_dist', 0),
                                             sl_dist=signal.get('sl_dist', 0),
                                             price=current_price,
-                                            additional_info={"status": "QUEUED", "priority": "LOOSE"}
+                                            additional_info=log_info
                                         )
                                         logging.info(f"🕐 Queuing {s_name} signal")
                                         pending_loose_signals[s_name] = {'signal': signal, 'bar_count': 0}

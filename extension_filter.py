@@ -382,7 +382,7 @@ class ExtensionFilter:
         
         self.state = 'NORMAL'
         self.extension_direction: Optional[str] = None
-        self.current_thresholds: Dict = DEFAULT_THRESHOLDS.copy()
+        self.current_thresholds: Dict = DEFAULT_THRESHOLDS
     
     def _get_session(self, hour: int) -> str:
         """Determine session from hour (ET)."""
