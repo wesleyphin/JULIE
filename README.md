@@ -1,1131 +1,618 @@
-# Julie: Advanced MES Futures Trading System
+# Julie: Advanced MES Futures Trading System (TopstepX / ProjectX Gateway)
 
-![Version](https://img.shields.io/badge/version-2.0.0-blue.svg) ![Market](https://img.shields.io/badge/Market-MES%20Futures-green.svg) ![Platform](https://img.shields.io/badge/Platform-TopstepX-orange.svg) ![Python](https://img.shields.io/badge/Python-3.11+-green.svg) ![License](https://img.shields.io/badge/License-Proprietary-red.svg)
+Julie is an automated, session-specialized futures trading system built for MES
+(and ES for training/backtests) on the TopstepX ProjectX Gateway. It runs a portfolio
+of strategies, routes every candidate through a defense layer of filters and blockers,
+and places fixed OCO brackets at entry. This README is intentionally detailed and
+mirrors the current repository behavior.
 
-**Julie** is a modern, high-frequency, session-specialized algorithmic trading bot built to execute autonomously on the **ProjectX Gateway (TopstepX)**. Unlike traditional bots that use a single logic set, Julie functions as an orchestrator for a "Team of Rivals"—a portfolio of **10 distinct strategy classes** that compete to find the best entry, all governed by a central "Defense Layer" of dynamic filters and blockers.
+## Metadata
 
-## 🚀 Quick Start
+| Item | Value |
+| --- | --- |
+| Platform | TopstepX ProjectX Gateway (REST + SignalR) |
+| Primary Contract | MES (ES supported for training/backtests) |
+| Core Timeframe | 1m (some ML sessions use 3m) |
+| Language | Python 3.11+ |
+| UI | Tkinter dashboard (optional) |
+| Backtest | backtest_mes_et.py / backtest_mes_et_ui.py |
+| Optimizer | Gemini (optional, rate-limited) |
+| Units | Points (tick_size = 0.25 for MES) |
+
+## Table of Contents
+
+- Quick Start
+- System Architecture
+- Modern Features
+- Session Schedule
+- Strategy Layer
+- Strategy Biographies (Deep Dive)
+- Defense Layer (Filters and Blockers)
+- Risk, SL/TP, and Viability
+- Dynamic Parameters System
+- ML Physics (Models and Guardrails)
+- ASIA Calibrations and Smooth Trend Asia
+- Continuation and Rescue Flow
+- News and Holiday Filtering
+- Gemini Optimizer (Optional)
+- Session Manager and Quarterly Theory
+- Backtesting
+- File Layout
+- Troubleshooting
+- Safety and Notes
+
+## Quick Start
 
 ### Prerequisites
-- **Python 3.11 or higher**
-- **Internet connection** (for API access)
-- **TopstepX account** with valid credentials
+- Python 3.11+
+- TopstepX account and API key
+- Internet connection
 
-### Installation
+### Install
 
-#### macOS
 ```bash
-# 1. Install Python 3.11+ (if not already installed)
-brew install python@3.11
-
-# 2. Clone the repository
-git clone <repository-url>
-cd JULIE
-
-# 3. Install required Python packages
-pip3 install requests pandas numpy
-
-# 4. Configure credentials
-# Edit config.py and add your TopstepX credentials:
-# CONFIG["USERNAME"] = "your_username"
-# CONFIG["API_KEY"] = "your_api_key"
+pip install -r freeze.txt
 ```
 
-#### Windows
-```cmd
-# 1. Install Python 3.11+ from python.org (if not already installed)
-# Download from: https://www.python.org/downloads/
+Minimal install:
 
-# 2. Clone the repository
-git clone <repository-url>
-cd JULIE
-
-# 3. Install required Python packages
+```bash
 pip install requests pandas numpy
-
-# 4. Configure credentials
-# Edit config.py and add your TopstepX credentials:
-# CONFIG["USERNAME"] = "your_username"
-# CONFIG["API_KEY"] = "your_api_key"
 ```
 
-### Running JULIE
+### Configure credentials
 
-#### Option 1: Trading Bot (Headless)
-Run the core trading bot without UI:
+Edit `config.py`:
 
-**macOS/Linux:**
+```python
+CONFIG["USERNAME"] = "your_username"
+CONFIG["API_KEY"] = "your_api_key"
+```
+
+### Run the live bot
+
 ```bash
-python3 julie001.py
-```
-
-**Windows:**
-```cmd
 python julie001.py
 ```
 
-#### Option 2: Tkinter UI Dashboard
-Run the modern Tkinter-based trading dashboard:
+### Run the UI (Tkinter)
 
-**macOS:**
 ```bash
-# Install tkinter (comes with Python on macOS)
-python3 launch_ui.py
-```
-
-**Windows:**
-```cmd
-# Install tkinter (comes with Python on Windows)
 python launch_ui.py
 ```
 
-The UI provides:
-- Real-time market data display
-- Live strategy status monitoring
-- Active position tracking with P&L
-- Filter status dashboard
-- Live event log
+### Run a backtest
 
-See [TKINTER_UI_README.md](TKINTER_UI_README.md) for detailed UI documentation.
+```bash
+python backtest_mes_et.py
+```
 
----
+Optional backtest UI:
 
-## 📖 Table of Contents
-- [Quick Start](#-quick-start)
-- [System Architecture](#1-system-architecture)
-- [Modern Features](#modern-features)
-- [Strategy Biography (Deep Dive)](#2-strategy-biography-deep-dive)
-- [Defense Layer: Filters & Blockers](#3-defense-layer-filters--blockers)
-- [Risk Management System](#4-risk-management-system)
-- [LLM Integration & Optimization](#5-llm-integration--optimization)
-- [Session Management & Quarterly Theory](#6-session-management--quarterly-theory)
-- [SMT Divergence Analysis](#7-smt-divergence-analysis)
-- [Dynamic Parameters System](#8-dynamic-parameters-system)
+```bash
+python backtest_mes_et_ui.py
+```
 
----
+## System Architecture
+
+Julie is structured as a layered pipeline: strategies generate candidates, filters decide
+eligibility, risk and SL/TP assign brackets, and the execution layer submits orders.
+
+```
+                           JULIE SYSTEM
+
+   Market Data (SignalR) + Historical Bars (REST)
+                         |
+                         v
+               Feature/Context Builder
+     (session, vol regime, levels, indicators, ATR, VWAP)
+                         |
+                         v
+                   Strategy Layer
+      (signals from multiple engines, per-session)
+                         |
+                         v
+               Defense Layer (Filters)
+   (chop, extension, trend, impulse, HTF FVG, news, etc)
+                         |
+                         v
+                Blockers and Guardrails
+      (structure, directional loss, penalty box, ML guards)
+                         |
+                         v
+              Risk and SL/TP Assignment
+          (fixed brackets or dynamic parameters)
+                         |
+                         v
+                Execution (TopstepX API)
+                         |
+                         v
+                   Trade Management
+              (logging, state, backtest)
+                         |
+                         v
+              Optional Optimizer (Gemini)
+```
+
+Key runtime modules:
+- `julie001.py` orchestrates live execution and filter order.
+- `async_market_stream.py` and `async_tasks.py` manage data/heartbeat/HTF updates.
+- `event_logger.py` and `topstep_live_bot.log` provide structured logs.
+- `filter_arbitrator.py` can arbitrate between legacy and upgraded filter systems.
 
 ## Modern Features
 
-### Async Architecture
-Julie v2.0 features a fully asynchronous architecture for improved performance:
-- **AsyncMarketDataManager**: Non-blocking real-time market data streaming via SignalR
-- **Concurrent Task Execution**: Heartbeat monitoring, position syncing, and strategy execution run in parallel
-- **Event-Driven Design**: Efficient event handling and logging system
-
-### Professional Trading Dashboard
-- **Tkinter UI**: Modern dark-themed professional dashboard
-- **Real-time Monitoring**: Live strategy status, positions, and filter states
-- **Event Log**: Complete audit trail of all trading activities
-- **Multi-Account Support**: Easy account switching via dropdown
-
-### Enhanced Components
-- **Yahoo VIX Integration**: Real-time VIX data for volatility-based strategies
-- **Gemini AI Optimizer**: Continuous LLM-powered parameter optimization
-- **Event Logger**: Comprehensive structured logging system
-- **Circuit Breaker**: Advanced safety mechanisms with automatic recovery
-- **Holiday Retrofitting**: Intelligent holiday detection with pre/post-holiday behavior adjustment
-
----
-
-## 1. System Architecture
-
-### Core Philosophy
-* **Micro-Regime Specialization:** The market is not treated as a monolith. Julie fragments the trading year into **320 specific time contexts** (e.g., *"Q1 Week 3 Tuesday London Session"*) and applies unique risk parameters to each.
-* **Defensive Priority:** A trade signal is only an "application." The central filter system acts as a strict "underwriter," rejecting any application that violates market structure, volatility limits, or institutional bias constraints.
-* **Dynamic Risk:** Stop Losses (SL) and Take Profits (TP) breathe with the market, expanding during high volatility and contracting during chop, determined by real-time **Shannon Entropy** and **GARCH** volatility models.
-* **LLM-Powered Optimization:** Parameters are continuously refined using Google's Gemini AI to analyze performance and suggest improvements.
-
-### The 320 Hierarchical Threshold System
-
-Julie uses a sophisticated time-bucketing system that creates unique trading contexts:
-
-```
-Format: YearlyQ_MonthlyQ_DayOfWeek_Session
-Example: Q1_W1_MON_ASIA, Q3_W3_FRI_NY_PM
-```
-
-| Component | Values | Count |
-|:---|:---|:---|
-| **Yearly Quarter** | Q1, Q2, Q3, Q4 | 4 |
-| **Monthly Week** | W1, W2, W3, W4 | 4 |
-| **Day of Week** | MON, TUE, WED, THU, FRI | 5 |
-| **Session** | ASIA, LONDON, NY_AM, NY_PM | 4 |
-| **Total Combinations** | 4 × 4 × 5 × 4 | **320** |
-
-Each of these 320 contexts has its own optimized thresholds for:
-- Stop Loss / Take Profit
-- Chop detection thresholds
-- Extension percentiles
-- Volatility scaling factors
-
----
-
-## 2. Strategy Biography (Deep Dive)
-
-Julie runs **10 primary strategy engines** simultaneously. Each strategy generates signals independently, but all must pass through the Defense Layer.
-
-<details>
-<summary><strong>A. Regime Adaptive Strategy (The Core)</strong></summary>
-
-*This is the system's flagship strategy. It relies on historical probabilities specific to the current moment in time.*
-
-* **Logic:**
-    * **Trend:** Uses `SMA20` vs `SMA200` crossover + Low Volatility regime to identify trend.
-    * **Trigger:** Enters on pullbacks (Long) or rallies (Short) that exhibit a "Range Spike" (candle range > 20-period average).
-    * **Signal Reversion (The "Fade"):** The system maintains a database of **150 specific time combos** where standard logic historically fails (Win Rate < 35%). In these specific windows (e.g., *Q1 Week 4 Friday NY PM*), the bot **inverts** the signal (Longs become Shorts), effectively fading the trap.
-
-| Feature | Details |
-| :--- | :--- |
-| **Total Iterations** | **320 Unique Micro-Regimes** (4 Quarters × 4 Weeks × 5 Days × 4 Sessions) |
-| **Risk Parameters** | **320 Fixed Pairs** (Hardcoded SL/TP for every window) |
-
-**Examples of Optimized Parameters:**
-| Time Context | Strategy Type | Stop Loss | Take Profit |
-| :--- | :--- | :--- | :--- |
-| `Q1_W1_FRI_NY_AM` | High Volatility | **8.68 pts** | **14.46 pts** |
-| `Q4_W4_THU_ASIA` | Scalp | **0.78 pts** | **1.29 pts** |
-| `Q3_W1_TUE_LONDON` | Balanced | **2.50 pts** | **3.00 pts** |
-
-</details>
-
-<details>
-<summary><strong>B. Intraday Dip Strategy</strong></summary>
-
-*A mean-reversion strategy designed to catch overextended moves relative to the daily open.*
-
-* **Logic:** Tracks the **09:30 ET Open** price.
-    * **Long Signal:** Price down **≥ 1.0%** from open + Z-Score **< -0.5** (Oversold) + Volatility Spike.
-    * **Short Signal:** Price up **≥ 1.25%** from open + Z-Score **> 1.0** (Overbought) + Volatility Spike.
-* **Risk:** **Dynamic SL/TP** (Infinite combinations calculated by the `OptimizedTPEngine`).
-
-</details>
-
-<details>
-<summary><strong>C. Confluence Strategy (ICT)</strong></summary>
-
-*A strict price-action model focusing on liquidity sweeps.*
-
-* **Logic:** Tracks previous session High/Low. Waits for a "Sweep" (wick past the level) followed by a close back inside the range.
-* **Confirmation:** The sweep must occur while price is inside a **Higher Time Frame FVG** AND near a **$12.50 Bank Level** (e.g., 4012.50, 4025.00).
-* **Risk (Fixed):**
-    * **TP:** 5.0 Points
-    * **SL:** 2.0 Points
-
-</details>
-
-<details>
-<summary><strong>D. ICT Model Strategy (Silver Bullet)</strong></summary>
-
-*Hunts for specific "Silver Bullet" setups during the NY AM Session (09:30–11:00 ET).*
-
-* **Bias:** Determines bias by comparing current price to the **10:00 AM Open** (Above = Bullish, Below = Bearish).
-* **Manipulation:** Waits for price to sweep a key liquidity level (Previous Day Low or Bullish 5m FVG Low).
-* **Trigger:** Enters when a **1-minute Inversion FVG** (a Bearish FVG that gets broken upward) is confirmed.
-* **Risk:** **Dynamic** (Calculated by Engine).
-
-</details>
-
-<details>
-<summary><strong>E. ORB Strategy (Opening Range Breakout)</strong></summary>
-
-*Opening Range Breakout logic with retest confirmation.*
-
-* **Logic:** Defines the High/Low of the first 15 minutes of the NY session (**09:30–09:45 ET**).
-* **Filter:** If range > **15 points**, strategy disables (avoids chop).
-* **Trigger:** Requires a **retest** of the range midpoint (50% level) after 09:45, followed by a break of the High (Long only).
-* **Risk:** **Dynamic**.
-
-</details>
-
-<details>
-<summary><strong>F. ML Physics Strategy</strong></summary>
-
-*Uses 4 session-specific Neural Network models trained on velocity and "physics" features (Z-Scores of Price, ATR, Volume).*
-
-**Features Used:**
-- Price velocity and acceleration
-- ATR-normalized movements
-- Volume momentum
-- Z-Score deviations
-
-| Session | Stop Loss | Take Profit |
-| :--- | :--- | :--- |
-| **Asia** | 4.0 pts | 6.0 pts |
-| **London** | 4.0 pts | 4.0 pts |
-| **NY AM** | 10.0 pts | 4.0 pts |
-| **NY PM** | 10.0 pts | 8.0 pts |
-
-</details>
-
-<details>
-<summary><strong>G. Dynamic Engine 1</strong></summary>
-
-*A massive library of indicator-based conditions wrapped into a single strategy engine.*
-
-* **Total Sub-Strategies:** **235** distinct indicator-based strategies
-* **Indicators Used:** RSI, MACD, Bollinger Bands, Stochastic, ADX, CCI, Williams %R, and more
-* **Risk:** Each sub-strategy has its own unique SL/TP parameters defined within the engine
-* **Selection:** Sub-strategies are selected based on current market regime and historical performance
-
-</details>
-
-<details>
-<summary><strong>H. Dynamic Engine 2</strong></summary>
-
-*A price-action focused engine with hardcoded pattern recognition.*
-
-* **Total Sub-Strategies:** **167** price-action based strategies
-* **Patterns:** Engulfing candles, pin bars, inside bars, outside bars, doji patterns
-* **Structure:** Swing highs/lows, trend breaks, consolidation breakouts
-* **Risk:** Unique parameters per sub-strategy
-* **Features:**
-    * Fade-edge trades with minimum SL floor
-    * Positive R:R enforcement
-    * Session-specific parameter optimization
-
-</details>
-
-<details>
-<summary><strong>I. SMT Divergence Strategy</strong></summary>
-
-*Smart Money Technique divergence detection between correlated instruments.*
-
-* **Logic:** Monitors ES (E-mini S&P 500) and NQ (E-mini Nasdaq) for divergences
-* **Bullish SMT:** NQ makes lower low while ES makes higher low (or holds)
-* **Bearish SMT:** NQ makes higher high while ES makes lower high (or holds)
-* **Confirmation:** Requires FVG confluence and session timing alignment
-* **Use Case:** Institutional order flow detection
-
-</details>
-
-<details>
-<summary><strong>J. VIX Mean Reversion Strategy (NEW in v2.0)</strong></summary>
-
-*Volatility-based mean reversion trading using real-time VIX data.*
-
-* **Logic:**
-    * Monitors **VIX (CBOE Volatility Index)** for mean reversion opportunities
-    * Uses **Bollinger Bands** with dynamic Z-scores to detect overbought/oversold VIX levels
-    * **Signal Trigger:** When VIX crosses below upper band (fear subsiding → bullish for equities)
-    * **20-period SMA** with standard deviation-based bands
-
-* **Micro-Segmentation:** **557 unique time segments** with optimized Z-score thresholds
-    * Format: `(Quarter, Month, Week, DayOfWeek, SessionID)`
-    * Z-scores range from **1.5 to 2.5** depending on time context
-    * Example: Q1 Week 1 Monday AM Session uses Z=1.5, while Q2 Week 4 Friday PM uses Z=2.5
-
-* **Risk (Fixed):**
-    * **SL:** 4.0 Points
-    * **TP:** 6.0 Points
-    * **Position Size:** 5 contracts (aggressive)
-
-* **Data Source:** Yahoo Finance VIX feed via `YahooVIXClient`
-
-* **Trading Philosophy:**
-    * High VIX = Market fear → Eventually reverts to mean → Bullish opportunity
-    * Only takes **LONG** trades on MES when VIX extreme levels subside
-    * Inverse volatility strategy: Sell fear, buy normalization
-
-| Feature | Details |
-| :--- | :--- |
-| **Total Segments** | **557 Micro-Segments** |
-| **Indicator** | Bollinger Bands (20-period SMA ± Z×STD) |
-| **Signal Type** | Mean reversion crossover |
-| **Direction** | LONG only (bullish on VIX contraction) |
-| **Data Frequency** | Real-time VIX updates from Yahoo Finance |
-
-</details>
-
----
-
-## 3. Defense Layer: Filters & Blockers
-
-This is the most critical component. A signal from any strategy above **MUST** pass all relevant filters to be executed. Julie employs **10 filters** and **2 blockers**.
-
-### Primary Filters
-
-#### 1. Rejection Filter (Bias Establishment)
-Tracks key levels and establishes directional bias based on price reactions.
-
-**Tracked Levels:**
-- Previous Day PM High/Low
-- Previous Session High/Low
-- Midnight ORB (Opening Range Breakout) High/Low
-
-**Logic:**
-| Event | Result |
-|:---|:---|
-| Price sweeps Low + closes back above | **Long Bias** established → Shorts BLOCKED |
-| Price sweeps High + closes back below | **Short Bias** established → Longs BLOCKED |
-
-**Key Features:**
-- **1-Candle Close Confirmation:** Requires a full candle close beyond level to establish bias
-- **Continuation Logic:** After rejection, allows continuation trades in bias direction
-- **Breakout Threshold:** Minimum 1.0 points beyond level required
-- **Bias Persistence:** Bias remains until opposing rejection occurs
-
-#### 2. Chop Filter (320 Hierarchical Thresholds)
-Detects consolidation/ranging markets using time-specific thresholds.
-
-**States:**
-| State | Description |
-|:---|:---|
-| `NORMAL` | Market trending, trades allowed |
-| `IN_CHOP` | Consolidation detected, ALL trades blocked |
-| `BREAKOUT_LONG/SHORT` | Initial breakout detected, awaiting confirmation |
-| `CONFIRMED_LONG/SHORT` | Breakout confirmed, directional trades allowed |
-| `FAILED_LONG/SHORT` | False breakout, reverts to chop |
-
-**Features:**
-- **320 Unique Thresholds:** One for each time context (e.g., `Q1_W1_MON_ASIA: 2.25 pts`)
-- **Structure Validation:** Confirms breakouts with HH/HL (uptrend) or LH/LL (downtrend) patterns
-- **"Fade the Range" Logic:** Identifies mean-reversion opportunities at range extremes
-- **Volatility Scaling ("Accordion Effect"):** Thresholds expand/contract with volatility
-- **Time Decay Tracking:** "The longer the base, the higher in space" - tracks consolidation duration
-
-#### 3. Extension Filter (Exhaustion Detection)
-Compares current range to historical percentiles to detect overextension.
-
-**320 Hierarchical Thresholds Include:**
-| Threshold Type | Description |
-|:---|:---|
-| `session_extended` | Session range exceeds normal extension |
-| `session_extreme` | Session range at extreme extension |
-| `daily_extended` | Daily range exceeds normal extension |
-| `daily_extreme` | Daily range at extreme extension |
-
-**States:**
-| State | Action |
-|:---|:---|
-| `NORMAL` | All trades allowed |
-| `EXTENDED_UP` | Longs blocked (upside exhausted) |
-| `EXTENDED_DOWN` | Shorts blocked (downside exhausted) |
-| `EXTREME_UP` | Longs blocked, fade shorts considered |
-| `EXTREME_DOWN` | Shorts blocked, fade longs considered |
-
-#### 4. Volatility Filter
-Classifies market volatility regime and adjusts trading behavior.
-
-**Regimes:**
-| Regime | ATR Condition | Action |
-|:---|:---|:---|
-| `ULTRA_LOW` | ATR < 0.5 pts | Skip all trades |
-| `LOW` | ATR < 1.0 pts | Increase SL (1.5x), reduce size (0.67x) |
-| `NORMAL` | ATR 1.0-3.0 pts | Standard parameters |
-| `HIGH` | ATR 3.0-5.0 pts | Tighter stops, larger targets |
-| `EXTREME` | ATR > 5.0 pts | Reduced position size, wider stops |
-
-#### 5. Trend Filter
-Validates trade direction against multi-timeframe trend.
-
-**Components:**
-- **SMA Alignment:** 20/50/200 period moving average relationships
-- **Higher Timeframe Bias:** 1H and 4H trend direction
-- **Trend Strength:** ADX-based trend strength measurement
-
-**Logic:**
-- Longs blocked when all timeframes show bearish alignment
-- Shorts blocked when all timeframes show bullish alignment
-
-#### 6. Impulse Filter
-Detects impulsive moves that may indicate continuation or exhaustion.
-
-**Detection Criteria:**
-- Candle range > 2x ATR
-- Volume > 1.5x average
-- Close near high/low of candle (>70% body)
-
-**Action:**
-- After bullish impulse: Shorts blocked for N bars
-- After bearish impulse: Longs blocked for N bars
-
-#### 7. HTF FVG Filter (Higher Timeframe Fair Value Gaps)
-Scans 1-Hour and 4-Hour charts for Fair Value Gaps.
-
-**Features:**
-- **Memory:** Remembers FVG zones for up to **141 bars**
-- **Resistance Logic:** Blocks longs directly below bearish 4H FVG
-- **Support Logic:** Blocks shorts directly above bullish 4H FVG
-- **Mitigation Tracking:** Removes FVGs once price fills the gap
-
-#### 8. Bank Level Quarter Filter
-Tracks institutional $12.50 bank levels relative to key reference points.
-
-**Bank Levels:** $12.50 increments (e.g., 4012.50, 4025.00, 4037.50)
-
-**Reference Points:**
-- Previous Session High/Low
-- Previous PM High/Low
-- Midnight ORB High/Low
-
-**Confirmation:** Requires **2-candle confirmation** at bank level before establishing bias
-
-#### 9. Memory S/R Filter (Support/Resistance Memory)
-Tracks historical support and resistance levels with touch count.
-
-**Features:**
-- Remembers levels where price reversed multiple times
-- Weights levels by recency and touch count
-- Blocks trades directly into strong S/R without confirmation
-
-#### 10. News Filter & Holiday Retrofitting
-Blocks trading around high-impact economic events and intelligently adjusts behavior based on bank holiday proximity.
-
-**Events Tracked:**
-- FOMC announcements
-- NFP (Non-Farm Payrolls)
-- CPI/PPI releases
-- GDP announcements
-
-**Buffer Periods:**
-- Pre-news: 15-30 minutes before event
-- Post-news: 5-15 minutes after event (configurable)
-
-**Holiday Retrofitting System (NEW in v2.0):**
-
-Julie integrates a sophisticated **Holiday Context Engine** that uses historical analysis to adjust trading behavior around U.S. Federal Bank Holidays.
-
-| Holiday Event | Context | Trading Adjustments |
-|:---|:---|:---|
-| **Thanksgiving Eve** | PRE_HOLIDAY (Wed) | Hard stop @ 12:00 PM. Volume fades to 87% |
-| **Thanksgiving Day** | HOLIDAY_TODAY (Thu) | Market closed - All trades blocked |
-| **Thanksgiving Friday** | POST_HOLIDAY (Fri) | **FULL DISABLE** - Volume only 41% (Dead zone trap) |
-| **Independence Day** | HOLIDAY_TODAY (Jul 4) | Market closed - All trades blocked |
-| **July 3rd** | PRE_HOLIDAY | "Patriot Drift" - Mean reversion only, 50% size, early close @ 1 PM |
-| **Labor Day Tuesday** | POST_HOLIDAY_EXPLOSION | **Volatility 1.74x** - Aggressive short bias, -39pt returns, widen stops |
-| **MLK Day Tuesday** | POST_HOLIDAY_TUESDAY | Volatility 1.4x - Gap fill reversal pattern (-9pt gap expected) |
-| **Presidents Day Tuesday** | POST_HOLIDAY_TUESDAY | Volatility 0.8x (Low) - Bearish drift -20pts, take profits early |
-| **Memorial Day Tuesday** | POST_HOLIDAY | Neutral/Normal behavior |
-| **Easter Monday** | POST_HOLIDAY | No pre-market trade (Europe closed), normal open |
-| **Generic Pre-Holiday** | PRE_HOLIDAY_1-3_DAYS | TP multiplier → 0.6x-0.7x, Chop multiplier → 1.5x-2.0x |
-
-**Risk Engine Holiday Adjustments:**
-
-| Scenario | SL Multiplier | TP Multiplier | Chop Multiplier | Trap Avoidance |
-|:---|:---|:---|:---|:---|
-| **HOLIDAY_TODAY** | Standard | **0.5x** (Minimum) | **2.0x - 3.0x** | Standard |
-| **PRE_HOLIDAY (1-3 days)** | Standard | **0.6x - 0.7x** | **1.5x - 2.0x** | **3.0x - 4.0x** body/vol |
-| **POST_HOLIDAY (Next day)** | **1.2x** | Standard | **1.2x - 1.5x** | **2.5x+** until flow clear |
-| **Labor Day Explosion** | **1.5x** (Wide) | Standard | Disabled | Disabled mean reversion |
-
-**Implementation:**
-- Uses `pandas.tseries.holiday.USFederalHolidayCalendar` for precise date detection
-- Checks 3 days forward and 1 day backward for holiday proximity
-- Each holiday has a unique "game plan" derived from historical backtesting
-- Integrates with Gemini optimizer for context-aware parameter suggestions
-
-**Historical Patterns Encoded:**
-- **The Bearish Tuesdays**: MLK, Presidents Day (post-holiday negative drift)
-- **The Volatility Explosion**: Labor Day Tuesday (1.74x vol expansion)
-- **The Dead Zones**: Thanksgiving week, July 4th week (liquidity evaporation)
-- **The Gap Fill Reversals**: MLK Day Tuesday (-9pt gap pattern)
-
----
-
-### Blockers
-
-#### 1. Dynamic Structure Blocker
-Identifies local market structure to prevent trading into weak levels.
-
-**Detection:**
-- **Swing Highs/Lows:** Uses fractal logic (N bars left/right)
-- **Equal Highs/Lows:** Detects liquidity pools (stops clustered at same level)
-
-**Blocking Logic:**
-| Structure | Action |
-|:---|:---|
-| **Weak Highs** (Equal Highs) | Shorts blocked (liquidity grab likely) |
-| **Weak Lows** (Equal Lows) | Longs blocked (liquidity grab likely) |
-| **Strong High** (Clear rejection) | Shorts allowed after confirmation |
-| **Strong Low** (Clear rejection) | Longs allowed after confirmation |
-
-#### 2. Directional Loss Blocker
-Tracks consecutive losses by direction and temporarily blocks that direction.
-
-**Logic:**
-- Tracks win/loss by direction (Long/Short) per session
-- After **N consecutive losses** in one direction, that direction is blocked
-- Block persists until:
-    - New session begins
-    - Opposing direction wins
-    - Cooldown period expires
-
-**Purpose:** Prevents "revenge trading" in a direction the market is clearly not favoring
-
----
-
-## 4. Risk Management System
-
-### Risk Engine
-The central risk management system that governs all position sizing and exposure.
-
-| Feature | Description |
-|:---|:---|
-| **Kelly Criterion Sizing** | Optimal position size based on win rate and risk/reward |
-| **Max Daily Loss** | Hard stop on daily losses (e.g., $500) |
-| **Max Position Size** | Caps maximum contracts per trade |
-| **Correlation Adjustment** | Reduces size when multiple correlated positions open |
-| **Volatility Scaling** | Adjusts size inversely to current volatility |
-
-### Circuit Breaker
-Emergency stop system that halts all trading under specific conditions.
-
-**Trigger Conditions:**
-| Trigger | Threshold | Action |
-|:---|:---|:---|
-| **Daily Loss Limit** | -$500 | Halt all trading for day |
-| **Consecutive Losses** | 5 losses in a row | 30-minute cooldown |
-| **Drawdown %** | -3% of account | Reduce position size 50% |
-| **Win Rate Collapse** | <25% over 20 trades | Review and reduce activity |
-
-**Recovery:**
-- Automatic reset at new trading day (6 PM ET)
-- Manual override available for exceptional circumstances
-
-### Dynamic SL/TP Engine
-Calculates optimal stop loss and take profit using statistical models.
-
-**Models Used:**
-| Model | Purpose |
-|:---|:---|
-| **Shannon Entropy** | Measures market noise/randomness |
-| **GARCH Volatility** | Predicts future volatility |
-| **ATR Multiplier** | Base SL/TP on current range |
-
-**Adjustments:**
-| Condition | SL Multiplier | TP Multiplier |
-|:---|:---|:---|
-| High Entropy (Chop) | 0.95x | 0.95x |
-| Low Entropy (Trend) | 1.0x | 1.35x |
-| High Volatility | 1.25x | 1.5x |
-| Low Volatility | 1.5x | 1.0x |
-
-### Trade Management Features
-
-| Feature | Description |
-|:---|:---|
-| **Break-Even** | Moves stop to entry + 1 tick at **40%** of TP target |
-| **Trailing Stop** | Trails by ATR once **60%** of TP reached |
-| **Early Exit** | Closes trades not profitable within N bars (prevents "zombie trades") |
-| **Partial Profits** | Takes 50% off at first target, lets rest run |
-
----
-
-## 5. LLM Integration & Optimization
-
-### Gemini Optimizer
-Julie integrates with **Google's Gemini AI** for continuous parameter optimization.
-
-**Capabilities:**
-| Feature | Description |
-|:---|:---|
-| **Performance Analysis** | Analyzes trade history to identify patterns |
-| **Parameter Suggestions** | Recommends SL/TP adjustments based on recent performance |
-| **Regime Detection** | Identifies when market regime has shifted |
-| **Strategy Ranking** | Ranks strategies by current effectiveness |
-
-**Optimization Cycle:**
-1. **Data Collection:** Aggregates last N trades with full context
-2. **Analysis Request:** Sends structured data to Gemini API
-3. **Response Parsing:** Extracts parameter recommendations
-4. **Validation:** Backtests suggestions against recent data
-5. **Application:** Applies validated changes to live parameters
-
-**Example Prompt Structure:**
-```
-Given the following trade data for Q1_W2_TUE_NY_AM:
-- Win Rate: 42%
-- Average Win: 3.2 pts
-- Average Loss: 2.8 pts
-- Current SL: 2.5 pts
-- Current TP: 4.0 pts
-
-Suggest optimized SL/TP parameters to improve expectancy.
-```
-
-**Safety Guards:**
-- Maximum parameter change per cycle: ±20%
-- Minimum sample size: 20 trades
-- Confidence threshold: 70% before applying changes
-
----
-
-## 6. Session Management & Quarterly Theory
-
-### Session Manager
-Manages trading sessions and applies Quarterly Theory concepts.
-
-**Trading Sessions (All times ET):**
-| Session | Start | End | Characteristics |
-|:---|:---|:---|:---|
-| **Asia** | 6:00 PM | 2:00 AM | Low volatility, range-bound |
-| **London** | 2:00 AM | 5:00 AM | Trend initiation, breakouts |
-| **NY AM** | 9:30 AM | 12:00 PM | Highest volatility, reversals |
-| **NY PM** | 12:00 PM | 4:00 PM | Trend continuation or reversal |
-
-### Quarterly Theory Integration
-Julie incorporates ICT's Quarterly Theory for macro timing.
-
-**Quarterly Shifts:**
-| Quarter | Dates | Typical Behavior |
-|:---|:---|:---|
-| **Q1** | Jan-Mar | Accumulation, trend establishment |
-| **Q2** | Apr-Jun | Distribution or continuation |
-| **Q3** | Jul-Sep | Reversal or consolidation |
-| **Q4** | Oct-Dec | Final move, volatility increase |
-
-**Weekly Power of 3:**
-- **Monday:** Accumulation/manipulation
-- **Tuesday-Wednesday:** Distribution/expansion
-- **Thursday-Friday:** Reversal or continuation
-
-**Session Power of 3:**
-- **Asia:** Accumulation
-- **London:** Manipulation
-- **NY:** Distribution
-
----
-
-## 7. SMT Divergence Analysis
-
-### SMT Analyzer
-Detects Smart Money Technique divergences between correlated instruments.
-
-**Correlated Pairs Monitored:**
-| Primary | Secondary | Correlation |
-|:---|:---|:---|
-| ES (S&P 500) | NQ (Nasdaq) | High positive |
-| ES | YM (Dow) | High positive |
-| ES | RTY (Russell) | Moderate positive |
-
-**Divergence Types:**
-| Type | ES Action | NQ Action | Signal |
-|:---|:---|:---|:---|
-| **Bullish SMT** | Higher Low | Lower Low | Long ES |
-| **Bearish SMT** | Lower High | Higher High | Short ES |
-| **Hidden Bullish** | Lower Low | Higher Low | Strong Long |
-| **Hidden Bearish** | Higher High | Lower High | Strong Short |
-
-**Confirmation Requirements:**
-- Divergence must occur at key level (session high/low, bank level)
-- Volume confirmation preferred
-- FVG confluence increases probability
-
----
-
-## 8. Dynamic Parameters System
-
-### The 320 Parameter Matrix
-Every time context has its own set of optimized parameters stored in `dynamic_sltp_params.py`.
-
-**Parameters per Context:**
-```python
-{
-    "Q1_W1_MON_ASIA": {
-        "sl": 2.50,
-        "tp": 4.00,
-        "chop_threshold": 2.25,
-        "extension_session": 0.85,
-        "extension_daily": 0.90,
-        "volatility_multiplier": 1.0,
-        "max_trades": 3,
-        "min_rr": 1.5
-    },
-    # ... 319 more contexts
-}
-```
-
-### Parameter Categories
-
-| Category | Description |
-|:---|:---|
-| **SL/TP** | Stop Loss and Take Profit in points |
-| **Chop Threshold** | Minimum range to consider market "trending" |
-| **Extension Percentiles** | Session/daily range exhaustion levels |
-| **Volatility Multiplier** | Scaling factor for current volatility regime |
-| **Max Trades** | Maximum trades allowed in this context |
-| **Min R:R** | Minimum risk/reward ratio required |
-
-### Configuration File (config.py)
-
-**Core Settings:**
-```python
-# Risk Settings
-MAX_DAILY_LOSS = 500
-MAX_POSITION_SIZE = 5
-DEFAULT_SL = 3.0
-DEFAULT_TP = 5.0
-
-# Session Settings
-ASIA_START = "18:00"
-LONDON_START = "02:00"
-NY_AM_START = "09:30"
-NY_PM_START = "12:00"
-
-# Filter Settings
-CHOP_LOOKBACK = 20
-FVG_MEMORY_BARS = 141
-REJECTION_CONFIRM_BARS = 1
-
-# LLM Settings
-GEMINI_API_KEY = "..."
-OPTIMIZATION_INTERVAL = 86400  # Daily
-```
-
----
-
-## Architecture Diagram
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         JULIE SYSTEM                            │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                   STRATEGY LAYER                         │   │
-│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────────┐   │   │
-│  │  │ Regime  │ │   ICT   │ │   ORB   │ │ ML Physics  │   │   │
-│  │  └────┬────┘ └────┬────┘ └────┬────┘ └──────┬──────┘   │   │
-│  │  ┌────┴────┐ ┌────┴────┐ ┌────┴────┐ ┌──────┴──────┐   │   │
-│  │  │Dyn Eng 1│ │Dyn Eng 2│ │  SMT    │ │Intraday Dip │   │   │
-│  │  └────┬────┘ └────┬────┘ └────┬────┘ └──────┬──────┘   │   │
-│  └───────┼──────────┼──────────┼──────────────┼───────────┘   │
-│          │          │          │              │               │
-│          ▼          ▼          ▼              ▼               │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                   DEFENSE LAYER                          │   │
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐   │   │
-│  │  │Rejection │ │   Chop   │ │Extension │ │Volatility│   │   │
-│  │  │  Filter  │ │  Filter  │ │  Filter  │ │  Filter  │   │   │
-│  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘   │   │
-│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐   │   │
-│  │  │  Trend   │ │ Impulse  │ │ HTF FVG  │ │Bank Level│   │   │
-│  │  │  Filter  │ │  Filter  │ │  Filter  │ │  Filter  │   │   │
-│  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘   │   │
-│  │  ┌──────────┐ ┌──────────┐ ┌───────────────────────┐   │   │
-│  │  │Memory SR │ │  News    │ │ Structure │ Dir Loss  │   │   │
-│  │  │  Filter  │ │  Filter  │ │  Blocker  │ Blocker   │   │   │
-│  │  └──────────┘ └──────────┘ └───────────────────────┘   │   │
-│  └─────────────────────────┬───────────────────────────────┘   │
-│                            │                                    │
-│                            ▼                                    │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                   RISK LAYER                             │   │
-│  │  ┌────────────┐  ┌─────────────┐  ┌─────────────────┐   │   │
-│  │  │Risk Engine │  │Circuit Break│  │Dynamic SL/TP    │   │   │
-│  │  │            │  │             │  │    Engine       │   │   │
-│  │  └────────────┘  └─────────────┘  └─────────────────┘   │   │
-│  └─────────────────────────┬───────────────────────────────┘   │
-│                            │                                    │
-│                            ▼                                    │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                   EXECUTION LAYER                        │   │
-│  │           ProjectX Gateway (TopstepX API)                │   │
-│  └─────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                   OPTIMIZATION LAYER                     │   │
-│  │  ┌────────────────┐      ┌────────────────────────┐     │   │
-│  │  │Session Manager │      │   Gemini Optimizer     │     │   │
-│  │  │(Quarterly Theory)     │   (LLM Integration)    │     │   │
-│  │  └────────────────┘      └────────────────────────┘     │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## File Structure
-
-```
-JULIE/
-├── julie001.py                      # Main entry point (asyncio-based)
-├── config.py                        # Configuration settings
-├── dynamic_sltp_params.py           # 320 hierarchical parameters
-├── regime_sltp_params.py            # Regime-specific parameters
-│
-├── UI & Launching
-│   ├── launch_ui.py                 # UI launcher with dependency checks
-│   ├── julie_tkinter_ui.py          # Modern Tkinter dashboard (v2.0)
-│   ├── julie_ui.py                  # API/log monitoring utilities
-│   ├── account_selector.py          # Account selection interface
-│   └── TKINTER_UI_README.md         # UI documentation
-│
-├── Core Async Components
-│   ├── async_market_stream.py       # AsyncIO market data manager
-│   ├── async_tasks.py               # Background task management
-│   ├── client.py                    # ProjectX API client
-│   └── event_logger.py              # Structured event logging
-│
-├── Strategies
-│   ├── regime_strategy.py           # Regime Adaptive Strategy
-│   ├── intraday_dip_strategy.py     # Mean-reversion strategy
-│   ├── confluence_strategy.py       # ICT Confluence
-│   ├── ict_model_strategy.py        # Silver Bullet
-│   ├── orb_strategy.py              # Opening Range Breakout
-│   ├── ml_physics_strategy.py       # Neural Network (4 session models)
-│   ├── dynamic_engine_strategy.py   # 235 indicator sub-strategies
-│   ├── dynamic_engine2_strategy.py  # 167 price-action sub-strategies
-│   ├── smt_strategy.py              # SMT Divergence
-│   ├── vixmeanreversion.py          # VIX reversion strategy
-│   ├── strategy_base.py             # Base strategy class
-│   ├── dynamic_signal_engine.py     # Dynamic Engine 1 implementation
-│   └── dynamic_signal_engine2.py    # Dynamic Engine 2 implementation
-│
-├── Filters
-│   ├── rejection_filter.py          # Bias establishment filter
-│   ├── chop_filter.py               # Consolidation detection
-│   ├── extension_filter.py          # Exhaustion detection
-│   ├── volatility_filter.py         # Regime classification
-│   ├── trend_filter.py              # Multi-timeframe trend
-│   ├── impulse_filter.py            # Momentum detection
-│   ├── htf_fvg_filter.py            # Higher timeframe FVG
-│   ├── bank_level_quarter_filter.py # Institutional levels
-│   ├── memory_sr_filter.py          # Historical S/R levels
-│   └── news_filter.py               # Economic event blocking
-│
-├── Blockers
-│   ├── dynamic_structure_blocker.py # Structure-based blocking
-│   └── directional_loss_blocker.py  # Consecutive loss prevention
-│
-├── Risk Management
-│   ├── risk_engine.py               # Position sizing & TP calculation
-│   ├── circuit_breaker.py           # Emergency stop system
-│   └── param_scaler.py              # Parameter scaling utilities
-│
-├── Analysis & Optimization
-│   ├── smt_analyzer.py              # SMT divergence detection
-│   ├── session_manager.py           # Session & quarterly theory
-│   ├── gemini_optimizer.py          # LLM-powered optimization
-│   ├── yahoo_vix_client.py          # VIX data integration
-│   └── dynamic_chop.py              # Dynamic chop analysis
-│
-├── Testing & Utilities
-│   └── test_holiday_detection.py    # Holiday detection testing script
-│
-└── Resources
-    ├── README.md                    # This file
-    ├── ASYNCIO_UPGRADE_SUMMARY.md   # Async migration notes
-    ├── Rose.bat                     # Windows launcher script
-    ├── logo.gif                     # UI logo asset
-    └── *.csv                        # Historical data files
-```
-
----
-
-## Quick Reference
-
-### Filter Summary Table
-
-| Filter | Purpose | Blocks |
-|:---|:---|:---|
-| Rejection | Bias establishment | Opposite direction after sweep |
-| Chop | Consolidation detection | All trades during chop |
-| Extension | Exhaustion detection | Direction of exhaustion |
-| Volatility | Regime classification | Ultra-low vol trades |
-| Trend | Direction validation | Counter-trend trades |
-| Impulse | Momentum detection | Counter-impulse trades |
-| HTF FVG | Resistance/Support zones | Trades into unfilled FVGs |
-| Bank Level | Institutional levels | Trades against confirmed bias |
-| Memory S/R | Historical levels | Trades into strong S/R |
-| News | Event risk | All trades around news |
+Julie includes several modern runtime features that mirror the original design goals:
+
+| Feature | Purpose | Primary Files |
+| --- | --- | --- |
+| Async market streaming | Non-blocking SignalR market data | async_market_stream.py |
+| Background tasks | Heartbeat, position sync, HTF structure | async_tasks.py |
+| Tkinter UI | Live status, logs, and health | launch_ui.py, julie_tkinter_ui.py |
+| Event logger | Structured log entries for audits | event_logger.py |
+| VIX integration | VIX-based strategy support | yahoo_vix_client.py, vixmeanreversion.py |
+| Gemini optimizer | Runtime tuning of select parameters | gemini_optimizer.py |
+| Filter arbitrator | Legacy vs upgraded filter arbitration | filter_arbitrator.py |
+
+## Session Schedule
+
+Sessions are defined in `CONFIG["SESSIONS"]` (ET):
+
+| Session | Hours (ET) | Notes |
+| --- | --- | --- |
+| ASIA | 18:00-02:59 | Lower volatility / smoother trends |
+| LONDON | 03:00-07:59 | Trend initiation / breakouts |
+| NY_AM | 08:00-11:59 | Highest volatility / reversals |
+| NY_PM | 12:00-16:59 | Continuation or rotation |
+
+(Exact hours are defined in `config.py` and can be adjusted.)
+
+## Strategy Layer
+
+Julie runs a portfolio of strategy engines. Some are session-specific, others are global.
+UI grouping is defined by `LOG_STRATEGY_ALIASES` in `julie001.py`.
 
 ### Strategy Quick Reference
 
-| Strategy | Style | Time Focus | Risk Type |
-|:---|:---|:---|:---|
-| Regime | Trend/Fade | All sessions | 320 Fixed |
-| Intraday Dip | Mean Reversion | NY | Dynamic |
-| Confluence | Sweep & Reject | All | Fixed |
-| ICT Model | Silver Bullet | NY AM | Dynamic |
-| ORB | Breakout | NY Open | Dynamic |
-| ML Physics | Neural Net | All | Session-based |
-| Dynamic Engine 1 | Indicator | All | Per-strategy |
-| Dynamic Engine 2 | Price Action | All | Per-strategy |
-| SMT | Divergence | All | Dynamic |
-| VIX Reversion | Mean Reversion | All | Fixed (557 segments) |
+| Strategy Family | Style | Sessions | SL/TP Source | UI Group | File |
+| --- | --- | --- | --- | --- | --- |
+| RegimeAdaptive | Trend + fade | All | Regime params or dynamic | RegimeAdaptive | regime_strategy.py |
+| IntradayDip | Mean reversion | NY | Dynamic | IntradayDip | intraday_dip_strategy.py |
+| Confluence (ICT) | Sweep + reject | All | Fixed | Confluence | confluence_strategy.py |
+| ICT Model | Silver Bullet | NY_AM | Dynamic | ICT Model | ict_model_strategy.py |
+| Breakout Strategy Group | Breakouts + acceptance | NY / LDN | Dynamic | Breakout Strategy | orb_strategy.py, impulse_breakout_strategy.py, value_area_breakout_strategy.py |
+| Auction Reversion | Value area fade | NY/LDN | Dynamic | RegimeAdaptive | auction_reversion_strategy.py |
+| Liquidity Sweep | Sweep + reclaim | All | Dynamic | SMT Divergence | liquidity_sweep_strategy.py |
+| Smooth Trend Asia | Pullback trend | ASIA | Dynamic | RegimeAdaptive | smooth_trend_asia_strategy.py |
+| ML Physics | ML directional | All | Session/regime | ML Physics | ml_physics_strategy.py |
+| Dynamic Engine 1 | Indicator library | All | Fixed brackets | DynamicEngine1 | dynamic_engine_strategy.py |
+| SMT Divergence | Inter-market | All | Dynamic | SMT Divergence | smt_strategy.py |
+| VIX Mean Reversion | Volatility fade | NY | Fixed | VIX | vixmeanreversion.py |
+| Continuation (Fractal Sweep) | Continuation rescue | NY/LDN | Dynamic | Continuation | continuation_strategy.py |
+| Dynamic Engine 2 (experimental) | Price action library | All | Fixed brackets | DynamicEngine1 (sub) | dynamic_engine2_strategy.py |
 
----
+UI grouping highlights:
+- RegimeAdaptive group includes Auction Reversion and Smooth Trend Asia as sub-strategies.
+- Breakout Strategy group includes ORB, Impulse Breakout, and Value Area Breakout.
+- SMT Divergence group includes Liquidity Sweep as a sub-strategy.
+- Dynamic Engine 2 is present in the repo but not wired by default.
 
-## Configuration
+## Strategy Biographies (Deep Dive)
 
-### API Credentials
-Edit `config.py` to configure your TopstepX credentials:
+### RegimeAdaptive (core)
+- Uses a 320-context time hierarchy (Quarter x Week-of-month x Day-of-week x Session).
+- Trend bias uses SMA20 vs SMA200 plus volatility regime.
+- Range spike trigger: candle range exceeds rolling average.
+- Signal inversion for known failure windows (fade logic) when historical win rate is poor.
+- SL/TP from `regime_sltp_params.py` if present, otherwise dynamic parameters with floors.
 
-```python
-CONFIG = {
-    "USERNAME": "your_topstepx_username",
-    "API_KEY": "your_topstepx_api_key",
-    "ACCOUNT_ID": None,  # Auto-fetched or set via env var JULIE_ACCOUNT_ID
-    # ... other settings
-}
+Time bucket format:
+
+| Component | Values | Count |
+| --- | --- | --- |
+| Yearly Quarter | Q1, Q2, Q3, Q4 | 4 |
+| Week of Month | W1, W2, W3, W4 | 4 |
+| Day of Week | MON-FRI | 5 |
+| Session | ASIA, LONDON, NY_AM, NY_PM | 4 |
+| Total | 4 x 4 x 5 x 4 | 320 |
+
+### IntradayDip
+- Mean reversion anchored to the NY session open (09:30 ET).
+- Looks for large deviations with Z-score confirmation and volatility context.
+
+### Confluence (ICT sweep/reject)
+- Sweeps prior session highs/lows and confirms rejection.
+- Uses hourly body-gap FVG alignment and bank-level proximity.
+- Fixed bracket by design for this strategy.
+
+### ICT Model (Silver Bullet)
+- NY AM only.
+- Requires sweep of a key liquidity level plus inversion FVG confirmation.
+
+### Breakout Strategy Group
+- ORB: uses the first 15 minutes of the NY session; retest of midpoint then breakout.
+- Impulse Breakout: range expansion plus volume confirmation and ATR buffer.
+- Value Area Breakout: requires acceptance beyond VAH/VAL for multiple bars.
+
+### Auction Reversion
+- Value-area fade strategy when ER is low (rotational regime).
+- Skips high-vol regimes and requires minimum range.
+
+### Liquidity Sweep
+- Identifies sweep beyond pivots, then reclaim.
+- Requires wick size, optional follow-through, and cooldown.
+- Can be limited to low/normal regimes to avoid chasing impulses.
+
+### Smooth Trend Asia
+- Dedicated ASIA pullback strategy with strict trend qualification.
+- EMA20/EMA50 alignment, ER/persistence checks, ATR ratio caps.
+- Pullback touch + reclaim trigger (Trigger A) with max stop constraint.
+
+### ML Physics
+- Session-specific ML models with volatility splits.
+- Labels can be barrier (TP before SL), ATR expansion, or direction.
+- Guardrails apply by session/regime to avoid poor market states.
+
+### Dynamic Engine 1
+- Library of indicator sub-strategies.
+- Uses fixed SL/TP framework and viability checks.
+
+### SMT Divergence
+- Divergence detection between ES and NQ (and related instruments).
+- Seeks liquidity divergence and confirmation.
+
+### VIX Mean Reversion
+- 557 micro-segments (Quarter, Month, Week, Day, SessionID).
+- Bollinger band mean reversion on VIX; generates MES long bias.
+- Fixed SL/TP and size defined inside the strategy.
+
+### Continuation (Fractal Sweep)
+- Continuation entries used when primary signals are blocked.
+- Guarded by allowlist + confirmation checks to avoid over-trading.
+
+## Defense Layer (Filters and Blockers)
+
+The defense layer decides if a candidate can trade. It includes filters (market state)
+plus blockers (risk or structure rules).
+
+### Filter Summary
+
+| Filter | Purpose | Blocks |
+| --- | --- | --- |
+| Rejection Filter | Bias from sweeps/rejections | Counter-bias trades |
+| Chop Filter | Consolidation detection | All trades during chop |
+| Extension Filter | Session/daily exhaustion | Direction of extension |
+| Volatility Filter | Regime classification | Ultra-low vol trades |
+| Trend Filter | Multi-timeframe alignment | Counter-trend trades |
+| Impulse Filter | Recent impulse detection | Trades against impulse |
+| HTF FVG Filter | HTF imbalance zones | Trades into unfilled gaps |
+| Bank Level Filter | Institutional levels | Trades against confirmed bias |
+| Memory SR Filter | Historical S/R memory | Trades into strong S/R |
+| News Filter | Event risk windows | Trades during blackout |
+
+### Blockers
+
+| Blocker | Purpose |
+| --- | --- |
+| Dynamic Structure Blocker | Local pivot/structure protection |
+| Directional Loss Blocker | Blocks a direction after loss streaks |
+| Penalty Box | Blocks trades near recent extremes |
+
+### Chop Filter (state machine)
+The chop filter uses 320 time-bucket thresholds and a state machine:
+
+| State | Meaning |
+| --- | --- |
+| NORMAL | Trend or acceptable range |
+| IN_CHOP | Consolidation detected |
+| BREAKOUT_LONG/SHORT | Breakout detected, structure not confirmed |
+| CONFIRMED_LONG/SHORT | HH/HL or LL/LH confirms breakout |
+| FAILED_LONG/SHORT | Breakout failed (fade logic possible) |
+
+Additional features:
+- Volatility scaling (accordion effect) widens/narrows thresholds.
+- Time-in-chop decay blocks fading after too long.
+- Structure validation uses recent swings.
+
+### Extension Filter
+Checks session and daily range expansion vs time-bucket thresholds:
+- Blocks trades in the exhausted direction.
+- Supports "extended" and "extreme" thresholds.
+
+### Volatility Regimes
+
+| Regime | Interpretation | Typical Action |
+| --- | --- | --- |
+| ultra_low | Very quiet | Skip or tighten |
+| low | Quiet | Guarded trades |
+| normal | Baseline | Standard rules |
+| high | Elevated | High-vol guards |
+
+### Dynamic Chop Analyzer
+`dynamic_chop.py` maintains dynamic thresholds and target feasibility checks:
+- Calibrates 1m/15m/60m thresholds using percentiles of recent range.
+- Adds an HTF breakout check to avoid blocking true expansions.
+- Enforces room-to-target logic in rotational regimes.
+- Supports a Gemini multiplier to adjust sensitivity.
+
+### Bank Level and Quarterly Theory Filter
+`bank_level_quarter_filter.py` tracks $12.50 grid levels and session quarters
+inspired by Daye's Quarterly Theory. It establishes bias after multi-candle
+confirmation and tracks key reference points (prior session highs/lows, midnight ORB).
+
+## Risk, SL/TP, and Viability
+
+### Units and OCO Constraints
+- All distances are in points (tick_size = 0.25).
+- Orders are sent with fixed OCO brackets and are not widened after entry.
+
+### Fixed SL/TP Framework (OCO compatible)
+When enabled, Julie assigns a bracket preset by regime/session:
+
+| Bracket | SL | TP | Typical Use |
+| --- | --- | --- | --- |
+| ASIA_SMOOTH | 1.75 | 2.00 | Smooth ASIA trends |
+| NORMAL_TREND | 2.25 | 2.75 | General trend |
+| IMPULSE | 3.00 | 4.50 | High-volatility impulses |
+
+Viability checks (when enabled):
+- ATR floor (reject trades if ATR too low)
+- Room-to-target (ensure enough runway for TP)
+- Session overrides (ASIA uses smaller minimum room)
+
+### Dynamic SL/TP (time-bucketed)
+`dynamic_sltp_params.py` provides 320 time-context-specific parameters. These are used by
+RegimeAdaptive, ML Physics, and other strategies when fixed brackets are disabled.
+
+### Optimized TP Engine
+`risk_engine.py` contains an `OptimizedTPEngine` that uses:
+- Return volatility (std of returns)
+- GARCH(1,1) volatility estimate
+- Shannon entropy of returns
+It scales TP around a 2.0-point base and is used by select strategies.
+
+### Circuit Breaker
+The circuit breaker halts trading when risk limits are hit:
+
+| Trigger | Default | Action |
+| --- | --- | --- |
+| Max daily loss | Configurable | Block all trades |
+| Max consecutive losses | Configurable | Block all trades |
+
+### Risk Defaults
+Key config items:
+- `RISK`: point value, fees, min net profit (optional enforcement)
+- `SLTP_MIN`: minimum SL/TP floors in points
+
+Break-even support exists in the client and event logger and can be wired into live trade
+management as needed.
+
+## Dynamic Parameters System
+
+Julie uses time-bucketed parameter sets for multiple subsystems. The canonical key format is:
+
+```
+YearlyQ_MonthlyQ_DayOfWeek_Session
+Example: Q1_W2_TUE_NY_AM
 ```
 
-### Risk Settings
-Key risk parameters in `config.py`:
+Key uses:
+- `dynamic_sltp_params.py` provides 320 time-context SL/TP parameter pairs.
+- `chop_filter.py` uses 320 time-context chop/median/breakout thresholds.
+- `extension_filter.py` uses time-context extension thresholds.
 
-```python
-CONFIG = {
-    "MAX_DAILY_LOSS": 1000.0,  # Maximum daily loss in dollars
-    "RISK": {
-        "POINT_VALUE": 5.0,      # MES = $5 per point
-        "FEES_PER_SIDE": 2.50,   # Commission per side
-        "MIN_NET_PROFIT": 10.0,  # Minimum profit threshold
-        "CONTRACTS": 1           # Position size
-    }
-}
+Parameter categories (by subsystem):
+
+| Category | Typical Use |
+| --- | --- |
+| SL/TP multipliers | Time-specific risk sizing |
+| Chop thresholds | Consolidation detection states |
+| Extension thresholds | Session/daily exhaustion detection |
+| Volatility scalars | Regime-aware threshold scaling |
+
+## ML Physics (Models and Guardrails)
+
+### Feature Set (training)
+The ML pipeline uses features derived from:
+- RSI, ADX, ATR, slope, volatility, range
+- Returns (1, 5, 15 bars)
+- Z-scores (price, ATR, volatility, range, volume)
+- Relative volume (RVOL)
+- Time-of-day cyclical encoding
+- Trend flags and volatility flags
+
+### Label Modes
+- Barrier: TP before SL within horizon
+- ATR: move exceeds ATR threshold within horizon
+- Direction: simple future return direction
+
+### Model Splits
+- 2-way split (low/high volatility) for all sessions
+- 3-way split (low/normal/high) for NY sessions
+- Volatility regimes based on std of returns with per-session windows
+  (NY uses longer windows for stability)
+
+### Guardrails
+- Walk-forward guard: requires positive folds to enable sessions
+- Vol-regime confidence guard: adds confidence deltas per regime
+- High-vol threshold bump and directional gates
+- NY normal structure filter (ER + VWAP cross constraint)
+
+### Training Commands
+
+```bash
+python ml_train_physics.py --csv ml_mes_et.csv --walk-forward --out-dir .
 ```
 
-### Environment Variables
-- `JULIE_ACCOUNT_ID`: Override account ID selection
+Automated LORO + walk-forward pipeline:
 
----
+```bash
+python ml_physics_auto_pipeline.py --manifest regimes.json --base-csv es_master.csv --out-dir .
+```
+
+Outputs:
+- model_*.joblib
+- ml_physics_thresholds.json
+- ml_physics_metrics.json
+
+## ASIA Calibrations and Smooth Trend Asia
+
+### ASIA Viability Gate
+ASIA trades require at least one of:
+- ATR expansion (ATR5/ATR60 >= threshold)
+- Compression then release (range expansion after low ATR percentile)
+- Structural interaction (NY close, value area, or ASIA sweep)
+
+### ASIA Calibrations
+ASIA-specific overrides can loosen or tighten:
+- Penalty box tolerance
+- Target feasibility bounds
+- Chop filter behavior
+
+There are separate live and backtest blocks:
+- `ASIA_CALIBRATIONS`
+- `BACKTEST_ASIA_CALIBRATIONS`
+
+### Smooth Trend Asia Strategy
+Dedicated slow-trend strategy with:
+- EMA alignment and slope
+- ER and persistence thresholds
+- Pullback touch and reclaim trigger
+- Max stop constraint and cooldown
+
+## Continuation and Rescue Flow
+
+Julie supports continuation/rescue logic when primary signals are blocked.
+Key controls:
+- Backtest allowlist and confirmation blocks
+- Live continuation guard and confirmations
+- Entry modes logged as standard or rescued
+- Rescues can be suppressed for ML Physics to avoid conflicts
+
+## News and Holiday Filtering
+
+### News Filter (ForexFactory)
+`news_filter.py` dynamically pulls high-impact USD events and creates blackout windows.
+
+Defaults (configurable):
+- High-impact USD events only
+- 20 minutes pre-event, 20 minutes post-event
+- Daily market close/maintenance blackout at 16:55 ET for 70 minutes
+
+### Holiday and Seasonal Context
+The news filter also embeds holiday and seasonal behavior rules, including:
+
+| Scenario | Effect |
+| --- | --- |
+| Thanksgiving Wed after 12:00 | Block trades |
+| Thanksgiving Day | Market closed | 
+| Thanksgiving Friday | Full disable |
+| July 3 after 13:00 | Early close block |
+| July 4 | Market closed |
+| Labor Day Tuesday | Post-holiday volatility context |
+| MLK / Presidents / Juneteenth Tuesday | Post-holiday context |
+| Memorial Day | Holiday context |
+| Easter Monday | Post-holiday context |
+| Dec 20-23 | Seasonal context |
+| Dec 24-31 | Holiday week context |
+| Jan 2 | Early-year context |
+
+These contexts are also supplied to Gemini for context-aware tuning.
+
+## Gemini Optimizer (Optional)
+
+Gemini can adjust select parameters and multipliers at runtime:
+- Trend filter multipliers
+- Dynamic chop multiplier
+- Viability tuning (atr_floor, lookback, room-to-target factor)
+
+Behavior:
+- Only runs if `CONFIG["GEMINI"]["enabled"]` and API key are set
+- Re-prompts on regime changes (ADX/chop, volatility regime, holiday context)
+- Rate limited by `CONFIG["GEMINI"]["min_interval_minutes"]`
+- Fixed bracket sizes remain unchanged when fixed SL/TP is enabled
+
+## Session Manager and Quarterly Theory
+
+### Bank Level Quarter Filter
+`bank_level_quarter_filter.py` tracks $12.50 grid levels and session-specific time
+quarters inspired by Daye's Quarterly Theory.
+
+Quarter sizes by session:
+
+| Session | Quarter Length |
+| --- | --- |
+| ASIA | 135 minutes |
+| LONDON | 75 minutes |
+| NY_AM | 60 minutes |
+| NY_PM | 75 minutes |
+
+Levels tracked:
+- Previous PM high/low
+- Previous session high/low
+- Midnight ORB high/low
+
+### Volume Profile
+Value area levels (VAH/VAL/POC) are derived from recent volume profile windows and used
+by Auction Reversion and Value Area Breakout.
+
+## Backtesting
+
+- Backtest runner: `backtest_mes_et.py`
+- UI runner: `backtest_mes_et_ui.py`
+- Auto contract selection per day:
+  - `BACKTEST_SYMBOL_MODE = "auto_by_day"`
+  - `BACKTEST_SYMBOL_AUTO_METHOD = "volume"` or `"rows"`
+- Backtest-only overrides: `BACKTEST_*` keys in `config.py`
+- Reports saved to `backtest_reports/*.json`
+
+## File Layout
+
+```
+config.py
+julie001.py
+backtest_mes_et.py
+backtest_mes_et_ui.py
+fixed_sltp_framework.py
+risk_engine.py
+regime_strategy.py
+intraday_dip_strategy.py
+confluence_strategy.py
+ict_model_strategy.py
+orb_strategy.py
+impulse_breakout_strategy.py
+value_area_breakout_strategy.py
+auction_reversion_strategy.py
+liquidity_sweep_strategy.py
+smooth_trend_asia_strategy.py
+ml_physics_strategy.py
+ml_train_physics.py
+ml_physics_auto_pipeline.py
+continuation_strategy.py
+smt_strategy.py
+vixmeanreversion.py
+dynamic_engine_strategy.py
+dynamic_engine2_strategy.py
+dynamic_chop.py
+volatility_filter.py
+trend_filter.py
+chop_filter.py
+extension_filter.py
+news_filter.py
+```
 
 ## Troubleshooting
 
-### Common Issues
+- No trades: check chop/extension/volatility filters and ASIA viability gate.
+- ML models not loading: verify model_*.joblib files and thresholds JSON.
+- Backtest differs from live: check BACKTEST_* overrides in config.
+- Gemini slow startup: disable Gemini or increase min interval.
+- News blackout unexpected: confirm holiday/news windows in `news_filter.py`.
 
-#### "ModuleNotFoundError: No module named 'X'"
-**Solution:** Install missing dependencies:
-```bash
-# macOS/Linux
-pip3 install requests pandas numpy
+## Safety and Notes
 
-# Windows
-pip install requests pandas numpy
-```
-
-#### "Authentication failed" or "401 Unauthorized"
-**Solution:**
-1. Verify your credentials in `config.py`
-2. Ensure your TopstepX account is active
-3. Check that your API key hasn't expired
-
-#### UI won't start
-**Solution:**
-```bash
-# macOS/Linux
-sudo apt-get install python3-tk  # Ubuntu/Debian
-brew install python-tk@3.11      # macOS
-
-# Windows - tkinter comes with Python installer
-# Reinstall Python and ensure "tcl/tk" is checked
-```
-
-#### Bot stops trading unexpectedly
-**Solution:** Check the logs for:
-- Circuit breaker triggers (`topstep_live_bot.log`)
-- Daily loss limits reached
-- Connection issues with TopstepX API
-- Missing market data
-
-#### Python version issues
-**Solution:**
-```bash
-# Check your Python version
-python3 --version  # Should be 3.11 or higher
-
-# Install Python 3.11+ if needed
-# macOS:
-brew install python@3.11
-
-# Windows:
-# Download from https://www.python.org/downloads/
-```
-
-### Logs and Debugging
-- **Trading Log**: `topstep_live_bot.log` - Contains all bot activities
-- **Event Log**: Visible in Tkinter UI dashboard
-- **Debug Mode**: Set `logging.DEBUG` in `julie001.py` for verbose output
-
-### Performance Optimization
-1. **Reduce Update Frequency**: Edit timing values in `julie_tkinter_ui.py`
-2. **Disable Unused Strategies**: Comment out strategy imports in `julie001.py`
-3. **Limit Historical Data**: Reduce lookback periods in filters
-
----
-
-## System Requirements
-
-### Minimum Requirements
-- **CPU**: 2+ cores
-- **RAM**: 4GB minimum, 8GB recommended
-- **Storage**: 500MB for application + logs
-- **Network**: Stable internet connection (low latency preferred)
-- **OS**:
-  - macOS 10.15+
-  - Windows 10/11
-  - Linux (Ubuntu 20.04+, Debian 10+)
-
-### Recommended Requirements
-- **CPU**: 4+ cores
-- **RAM**: 16GB
-- **Network**: <50ms latency to TopstepX servers
-- **Display**: 1920x1080 or higher (for UI)
-
----
-
-## Advanced Topics
-
-### Running on a VPS
-For 24/7 operation, consider deploying on a VPS:
-
-```bash
-# Using screen to keep bot running
-screen -S julie
-python3 julie001.py
-# Detach: Ctrl+A, then D
-# Reattach: screen -r julie
-```
-
-### Multiple Instances
-To run multiple accounts simultaneously:
-1. Create separate directories for each instance
-2. Configure different `ACCOUNT_ID` in each `config.py`
-3. Run each instance in its own terminal/screen session
-
-### Monitoring and Alerts
-Consider setting up:
-- **Log monitoring**: Use `tail -f topstep_live_bot.log`
-- **Email alerts**: Integrate with Gmail API for trade notifications
-- **SMS alerts**: Use Twilio API for critical events
-
----
-
-## Changelog
-
-### v2.0.0 (2025)
-- ✨ **New VIX Mean Reversion Strategy** - 10th strategy engine with 557 micro-segments
-- ✨ **Holiday Retrofitting System** - Intelligent pre/post-holiday behavior with historical pattern analysis
-- ✨ Added full asyncio architecture with `async_market_stream.py` and `async_tasks.py`
-- ✨ New modern Tkinter UI dashboard (`julie_tkinter_ui.py`)
-- ✨ Yahoo VIX integration with real-time volatility data (`yahoo_vix_client.py`)
-- ✨ Enhanced event logging system with structured logging
-- ✨ Improved error handling and circuit breaker logic
-- 🔧 Refactored signal discovery and execution architecture
-- 🔧 U.S. Federal Holiday calendar integration with unique game plans per holiday
-- 🐛 Fixed time variable errors and async bugs
-
-### v1.0.0 (2023-2024)
-- Initial release with 9 strategy engines
-- 320 hierarchical threshold system
-- Defense layer with 10 filters and 2 blockers
-- Gemini AI optimizer integration
-- Dynamic SL/TP engine
-
----
-
-## Support & Contributing
-
-### Getting Help
-1. Check this README and [TKINTER_UI_README.md](TKINTER_UI_README.md)
-2. Review logs in `topstep_live_bot.log`
-3. Check [ASYNCIO_UPGRADE_SUMMARY.md](ASYNCIO_UPGRADE_SUMMARY.md) for async architecture details
-
-### Security
-- **Never commit credentials**: Keep `config.py` with real credentials in `.gitignore`
-- **API Key Safety**: Store API keys in environment variables for production
-- **Audit Logs**: Review `topstep_live_bot.log` regularly
-
----
-
-*Julie v2.0.0 - Built for precision, optimized for survival, powered by async.*
+- This repository is for research and automation. Futures trading involves risk.
+- Use paper trading and backtests before live deployment.
+- Never commit credentials; keep real keys out of version control.
+- All distances are in points (not ticks). Ensure external data or parameter files
+  are normalized consistently.
