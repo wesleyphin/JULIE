@@ -317,7 +317,7 @@ discovery:
 
 ```math
 \begin{aligned}
-m_t^\star &= \underset{m \in \mathcal{F}_t}{\operatorname{argmax}}
+m_t^\star &= \underset{m \in \mathcal{F}_t}{\mathrm{arg\,max}}
 \;\mathcal{S}_\theta(m, \mathbf{x}_t), \\
 \mathrm{trade}_t &= \mathbb{1}\!\left\{
 \mathcal{S}_\theta(m_t^\star, \mathbf{x}_t) \ge \tau_t
@@ -448,10 +448,10 @@ A compact way to describe the hierarchy is:
 
 ```math
 \begin{aligned}
-r_t^\star &= \underset{r}{\operatorname{argmax}}
+r_t^\star &= \underset{r}{\mathrm{arg\,max}}
 \; P_\theta(r \mid \mathbf{x}_t), \\
-\mathcal{L}_t &= \operatorname{LaneSet}(r_t^\star, \mathbf{x}_t), \\
-m_t^\star &= \underset{m \in \mathcal{F}_t \cap \mathcal{L}_t}{\operatorname{argmax}}
+\mathcal{L}_t &= \mathrm{LaneSet}(r_t^\star, \mathbf{x}_t), \\
+m_t^\star &= \underset{m \in \mathcal{F}_t \cap \mathcal{L}_t}{\mathrm{arg\,max}}
 \;\mathcal{S}_{\mathrm{lane}}(m, \mathbf{x}_t).
 \end{aligned}
 ```
@@ -749,14 +749,14 @@ close to:
 \mathbb{1}\!\left\{
 \mathrm{SMA}^{(f)}_t > \mathrm{SMA}^{(s)}_t
 \;\wedge\;
-v_t < \operatorname{med}(v)_t
+v_t < \mathrm{med}(v)_t
 \right\}, \\
 \mathrm{TrendDown}_t
 &=
 \mathbb{1}\!\left\{
 \mathrm{SMA}^{(f)}_t < \mathrm{SMA}^{(s)}_t
 \;\wedge\;
-v_t < \operatorname{med}(v)_t
+v_t < \mathrm{med}(v)_t
 \right\}.
 \end{aligned}
 ```
@@ -1072,14 +1072,14 @@ In the live inference code, side scoring is approximately:
 \begin{aligned}
 \mathrm{TP}_{\mathrm{ATR}}
 &=
-\operatorname{clip}\!\left(
+\mathrm{clip}\!\left(
 Q_{\mathrm{MFE}}(0.90),\;
 \mathrm{TP}_{\min},\;
 \mathrm{TP}_{\max,\sigma}
 \right), \\
 \mathrm{SL}_{\mathrm{ATR}}
 &=
-\operatorname{clip}\!\left(
+\mathrm{clip}\!\left(
 \left|Q_{\mathrm{MAE}}(0.10)\right|,\;
 \mathrm{SL}_{\min},\;
 \mathrm{SL}_{\max,\sigma}
@@ -1134,7 +1134,7 @@ optimization:
 ```math
 \left(\mathrm{SL}^\star,\mathrm{TP}^\star\right)
 =
-\underset{(\mathrm{SL},\mathrm{TP}) \in \mathcal{G}}{\operatorname{argmax}}
+\underset{(\mathrm{SL},\mathrm{TP}) \in \mathcal{G}}{\mathrm{arg\,max}}
 \left[
 p_{\mathrm{hit}}(\mathrm{SL},\mathrm{TP})\mathrm{TP}
 -\left(1-p_{\mathrm{hit}}(\mathrm{SL},\mathrm{TP})\right)\mathrm{SL}
@@ -1192,7 +1192,7 @@ The gate is solving:
 \begin{aligned}
 p_{\mathrm{take}}
 &=
-\operatorname{Cal}\!\left(
+\mathrm{Cal}\!\left(
 h_\psi(\mathbf{x}_t, s_t, \mathrm{EV}, \mathrm{TP}_{\mathrm{ATR}},
 \mathrm{SL}_{\mathrm{ATR}}, \rho_t, \dots)
 \right), \\
@@ -1265,7 +1265,7 @@ In compact notation, AetherFlow behaves like:
 \begin{aligned}
 f_t^\star
 &=
-\underset{f}{\operatorname{argmax}}
+\underset{f}{\mathrm{arg\,max}}
 \;\mathcal{S}_f(\mathbf{x}_t), \\
 \mathrm{TakeSetup}_t
 &=
@@ -1336,29 +1336,29 @@ a_t
 \mathrm{hotspot}_t, \\
 \delta_t
 &=
-\operatorname{clip}\!\left(
-\frac{\sqrt{\operatorname{mean}(r_{i,t}^2)}}{\pi}
+\mathrm{clip}\!\left(
+\frac{\sqrt{\mathrm{mean}(r_{i,t}^2)}}{\pi}
 \right), \\
 u_t
 &=
-\operatorname{clip}\!\left(
-1 - \frac{\operatorname{mean}\!\left(|\Delta \mathrm{direction}|\right)}{\pi}
+\mathrm{clip}\!\left(
+1 - \frac{\mathrm{mean}\!\left(|\Delta \mathrm{direction}|\right)}{\pi}
 \right), \\
 \chi_t
 &=
-\operatorname{clip}\!\left(
+\mathrm{clip}\!\left(
 0.65\,\mathrm{Var}_{\mathrm{dir},t}
 +
 0.35\,\mathrm{EWMA}(\mathrm{turbulence})_t
 \right), \\
 R_t
 &=
-\operatorname{clip}\!\left(
+\mathrm{clip}\!\left(
 0.3 B_t + 0.2 V_t + 0.4 a_t + 0.1 \chi_t + 0.1
 \right), \\
 \mu_t^{\mathrm{risk}}
 &=
-\operatorname{clip}\!\left(
+\mathrm{clip}\!\left(
 0.5 + 1.2 R_t - 0.8 \chi_t,\;
 \mu_{\min},\;
 \mu_{\max}
@@ -1515,7 +1515,7 @@ a_t^{\mathrm{pct}} u_t^{\mathrm{pct}} \left(1-\chi_t^{\mathrm{pct}}\right), \\
 }{4}, \\
 \nu_t
 &=
-\operatorname{clip}\!\left(
+\mathrm{clip}\!\left(
 \frac{
 \left|a_t^{\mathrm{pct}}-0.5\right|
 +
@@ -1777,14 +1777,14 @@ The translation into executable geometry is explicit:
 \begin{aligned}
 \mathrm{SL}_f
 &=
-\operatorname{clip}\!\left(
+\mathrm{clip}\!\left(
 \mathrm{ATR}_{14}\,\lambda_f^{\mathrm{SL}},\;
 1.0,\;
 8.0
 \right), \\
 \mathrm{TP}_f
 &=
-\operatorname{clip}\!\left(
+\mathrm{clip}\!\left(
 \mathrm{ATR}_{14}\,\lambda_f^{\mathrm{TP}},\;
 \max\!\left(1.2\,\mathrm{SL}_f,\;1.5\right),\;
 16.0
