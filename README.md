@@ -315,7 +315,7 @@ $\pi_\theta(\mathbf{x}_t, \mathcal{M}) \to \{\varnothing\} \cup \mathcal{M}$.
 The live decision is therefore constrained optimization, not open-ended
 discovery:
 
-$$
+```math
 \begin{aligned}
 m_t^\star &= \underset{m \in \mathcal{F}_t}{\operatorname{argmax}}
 \;\mathcal{S}_\theta(m, \mathbf{x}_t), \\
@@ -323,7 +323,7 @@ m_t^\star &= \underset{m \in \mathcal{F}_t}{\operatorname{argmax}}
 \mathcal{S}_\theta(m_t^\star, \mathbf{x}_t) \ge \tau_t
 \right\}.
 \end{aligned}
-$$
+```
 
 Here $\mathcal{F}_t$ is the feasible subset of $\mathcal{M}$ that survives
 live runtime guards.
@@ -380,13 +380,13 @@ runtime checks.
 
 Formally, the wrapper is constructing:
 
-$$
+```math
 \mathcal{F}_t
 =
 \left\{
 m \in \mathcal{M} : g_{\mathrm{base}}(m, \mathbf{x}_t) = 1
 \right\}.
-$$
+```
 
 Here $g_{\mathrm{base}}$ bundles session compatibility, timeframe availability,
 bracket realizability, and local feasibility logic. Every later DE3 score is
@@ -446,7 +446,7 @@ generator.
 
 A compact way to describe the hierarchy is:
 
-$$
+```math
 \begin{aligned}
 r_t^\star &= \underset{r}{\operatorname{argmax}}
 \; P_\theta(r \mid \mathbf{x}_t), \\
@@ -454,7 +454,7 @@ r_t^\star &= \underset{r}{\operatorname{argmax}}
 m_t^\star &= \underset{m \in \mathcal{F}_t \cap \mathcal{L}_t}{\operatorname{argmax}}
 \;\mathcal{S}_{\mathrm{lane}}(m, \mathbf{x}_t).
 \end{aligned}
-$$
+```
 
 `de3_v4_route_confidence` and the stored route margin are effectively
 diagnostics of how separated the winning corridor is from the competing ones.
@@ -492,7 +492,7 @@ score from weighted, saturating components rather than a single opaque number.
 If $\alpha_\bullet$, $\beta_\bullet$, and $\gamma_\bullet$ denote artifact
 weights, a faithful high-level summary is:
 
-$$
+```math
 \begin{aligned}
 \mathcal{S}_{\mathrm{entry}}
 &=
@@ -521,16 +521,16 @@ $$
 +\gamma_3 c_{\mathrm{action}}
 +\gamma_4 c_{\mathrm{sideprior}}.
 \end{aligned}
-$$
+```
 
 Most non-binary components are normalized in the live code as
 $w \tanh\!\big((v-\mu)/\sigma\big)$, and a candidate is admitted only if
 
-$$
+```math
 \mathcal{S}_{\mathrm{entry}}
 \ge
 \tau_{\mathrm{base}} + \delta_{\mathrm{scope}}.
-$$
+```
 
 The execution policy is similarly engineered: it first applies hard bounds such
 as minimum route confidence or maximum loss share, then computes a normalized
@@ -559,7 +559,7 @@ has already been selected. This is one of the reasons DE3 is not simply a
 
 The pre-router profit gate is best understood as a conditional expectancy test:
 
-$$
+```math
 \mathrm{AllowLane}_t
 =
 \mathbb{1}\!\left\{
@@ -569,7 +569,7 @@ n(\ell,\sigma) \ge n_{\min}, \\
 \mathbb{E}[R_t \mid \ell,\sigma] \ge \mathrm{EV}_{\min}
 \end{array}
 \right\}.
-$$
+```
 
 Signal-size logic then acts as a post-selection map from trade identity to risk
 budget, rather than as a fixed per-engine constant.
@@ -597,7 +597,7 @@ identical.
 At the accounting layer, the chosen payload corresponds to the familiar
 decomposition:
 
-$$
+```math
 \begin{aligned}
 \mathrm{EV}_{\mathrm{gross}}
 &\approx
@@ -607,7 +607,7 @@ p_{\mathrm{hit}} \cdot \mathrm{TP}
 &\approx
 \mathrm{EV}_{\mathrm{gross}} - \mathrm{fees}.
 \end{aligned}
-$$
+```
 
 with $\mathrm{TP}$ and $\mathrm{SL}$ expressed in the concrete stop and target
 distances that the runtime will actually send downstream.
@@ -624,7 +624,7 @@ too far away from the trade's intended entry geometry.
 
 Mathematically the gate is very simple:
 
-$$
+```math
 \begin{aligned}
 d_t^{\mathrm{drift}}
 &=
@@ -635,7 +635,7 @@ d_t^{\mathrm{drift}}
 d_t^{\mathrm{drift}} \le \delta_{\max}
 \right\}.
 \end{aligned}
-$$
+```
 
 The anchor is tracked per strategy / side / time bucket, which makes the gate a
 scale-adjusted freshness test rather than a fixed-point heuristic.
@@ -685,9 +685,9 @@ environment.
 
 Formally, the context key is a discrete state variable:
 
-$$
+```math
 k_t = \big(q_t,\; w_t,\; \mathrm{dow}_t,\; \ell_t\big),
-$$
+```
 
 where $q_t$ is quarter, $w_t$ is week-in-month, $\mathrm{dow}_t$ is
 day-of-week, and $\ell_t$ is the session label.
@@ -742,7 +742,7 @@ is calendar-conditioned, but still price- and volatility-aware at the bar level.
 When low-vol trend confirmation is enabled, the effective trend predicates are
 close to:
 
-$$
+```math
 \begin{aligned}
 \mathrm{TrendUp}_t
 &=
@@ -759,7 +759,7 @@ v_t < \operatorname{med}(v)_t
 v_t < \operatorname{med}(v)_t
 \right\}.
 \end{aligned}
-$$
+```
 
 Here $v_t$ comes from rolling close-to-close volatility and the decisive
 price geometry normalized by ATR whenever ATR is available.
@@ -798,7 +798,7 @@ the very geometry of the signal.
 
 At runtime, the three rule families reduce to threshold inequalities:
 
-$$
+```math
 \begin{aligned}
 \text{Pullback}_{\mathrm{long}}:\quad
 &\mathrm{TrendUp}_t, \\
@@ -822,7 +822,7 @@ $$
 &C_t >
 \mathrm{HH}_{L}(t) + \lambda_{\mathrm{cross}}\mathrm{ATR}_t.
 \end{aligned}
-$$
+```
 
 The short rules are the sign-mirrored analogs. Candidate strength is then the
 amount by which the close exceeds the relevant trigger, which allows the engine
@@ -864,7 +864,7 @@ be converted into a systematic contrarian rule rather than a dead zone.
 
 In policy terms, the artifact applies a map:
 
-$$
+```math
 \pi(k_t, s_t^{\mathrm{raw}})
 \in
 \left\{
@@ -872,11 +872,11 @@ $$
 \mathrm{reversed},\;
 \mathrm{skip}
 \right\}.
-$$
+```
 
 and the emitted side becomes:
 
-$$
+```math
 s_t
 =
 \begin{cases}
@@ -884,7 +884,7 @@ s_t^{\mathrm{raw}}, & \pi = \mathrm{normal}, \\
 -\,s_t^{\mathrm{raw}}, & \pi = \mathrm{reversed}, \\
 \varnothing, & \pi = \mathrm{skip}.
 \end{cases}
-$$
+```
 
 That is why RegimeAdaptive can turn a historically bad continuation context
 into a systematic fade without changing the underlying detector.
@@ -985,7 +985,7 @@ That is why the live replacement runtime is called `dist_bracket_ml`.
 In compact notation, MLPhysics is trying to estimate a conditional object of
 the form:
 
-$$
+```math
 \mathcal{D}_t^{(s)}
 =
 \left\{
@@ -995,7 +995,7 @@ Q_{\mathrm{MAE}}^{(s)}(q),
 Q_{\mathrm{EV}}^{(s)}(q),
 p_{\mathrm{take}}^{(s)}
 \right\},
-$$
+```
 
 rather than a single class label. Direction is only one coordinate of the
 object being inferred.
@@ -1068,7 +1068,7 @@ then compares the survivors.
 
 In the live inference code, side scoring is approximately:
 
-$$
+```math
 \begin{aligned}
 \mathrm{TP}_{\mathrm{ATR}}
 &=
@@ -1104,7 +1104,7 @@ Q_{\mathrm{EV}}(0.95) - Q_{\mathrm{EV}}(0.05), \\
 \mathrm{EV}_t / u_t, & \text{if score mode is EV-over-uncertainty}.
 \end{cases}
 \end{aligned}
-$$
+```
 
 If EV quantile models are unavailable, uncertainty falls back to roughly
 $\big(\mathrm{TP}_{\mathrm{ATR}} + \mathrm{SL}_{\mathrm{ATR}}\big)/2$, which
@@ -1131,7 +1131,7 @@ probabilities.
 With hit-model search enabled, bracket choice becomes an explicit discrete
 optimization:
 
-$$
+```math
 \left(\mathrm{SL}^\star,\mathrm{TP}^\star\right)
 =
 \underset{(\mathrm{SL},\mathrm{TP}) \in \mathcal{G}}{\operatorname{argmax}}
@@ -1140,7 +1140,7 @@ p_{\mathrm{hit}}(\mathrm{SL},\mathrm{TP})\mathrm{TP}
 -\left(1-p_{\mathrm{hit}}(\mathrm{SL},\mathrm{TP})\right)\mathrm{SL}
 -c_{\mathrm{ATR}}
 \right].
-$$
+```
 
 where $\mathcal{G}$ is the ATR-grid that survives session caps and minimum
 reward-to-risk
@@ -1188,7 +1188,7 @@ problem from "directional edge."
 
 The gate is solving:
 
-$$
+```math
 \begin{aligned}
 p_{\mathrm{take}}
 &=
@@ -1202,7 +1202,7 @@ h_\psi(\mathbf{x}_t, s_t, \mathrm{EV}, \mathrm{TP}_{\mathrm{ATR}},
 p_{\mathrm{take}} \ge \tau_{\mathrm{gate}}
 \right\}.
 \end{aligned}
-$$
+```
 
 and the live signal confidence is roughly
 $\max(\mathcal{S}_t, 0)\,p_{\mathrm{take}}$. In other
@@ -1261,7 +1261,7 @@ So AetherFlow is not a pure classifier. It is a two-stage engine:
 
 In compact notation, AetherFlow behaves like:
 
-$$
+```math
 \begin{aligned}
 f_t^\star
 &=
@@ -1281,7 +1281,7 @@ h_\phi(\mathbf{x}_t, f_t^\star), \\
 p_{\mathrm{succ},t} \ge \tau_{\mathrm{live}}
 \right\}.
 \end{aligned}
-$$
+```
 
 The learned model is therefore validating a setup identity that has already
 been declared by deterministic structure.
@@ -1329,7 +1329,7 @@ It also classifies each bar into one of four named regimes.
 The manifold layer is deliberately geometric. In the current implementation the
 core state variables are approximately:
 
-$$
+```math
 \begin{aligned}
 a_t
 &=
@@ -1364,7 +1364,7 @@ R_t
 \mu_{\max}
 \right).
 \end{aligned}
-$$
+```
 
 Here $r_{i,t}$ denotes the raw local displacement samples on the manifold prior
 to aggregation, so the dispersion term is not self-referential. The terms
@@ -1485,7 +1485,7 @@ This is the language AetherFlow uses to decide which setup family is present.
 
 Several of the most important derived variables are explicitly compositional:
 
-$$
+```math
 \begin{aligned}
 \kappa_t
 &=
@@ -1538,7 +1538,7 @@ a_t^{\mathrm{pct}} u_t^{\mathrm{pct}} \left(1-\chi_t^{\mathrm{pct}}\right), \\
 }{\lambda_\beta}
 \right).
 \end{aligned}
-$$
+```
 
 Here the superscript $\mathrm{pct}$ denotes the percentile-normalized version
 of the corresponding manifold variable. The quantities
@@ -1556,7 +1556,7 @@ market narratives encoded as deterministic score functions.
 
 The family scores themselves are intentionally simple weighted composites:
 
-$$
+```math
 \begin{aligned}
 \mathcal{S}_{\mathrm{CR}}
 &=
@@ -1595,7 +1595,7 @@ $$
 +
 0.20\,|\mathrm{flow}_{\mathrm{slow},t}|.
 \end{aligned}
-$$
+```
 
 Long and short variants are then gated by directional-bias terms and
 regime-specific boolean conditions, so the learned model only sees candidates
@@ -1773,7 +1773,7 @@ setup definition, not just a generic live rule.
 
 The translation into executable geometry is explicit:
 
-$$
+```math
 \begin{aligned}
 \mathrm{SL}_f
 &=
@@ -1793,7 +1793,7 @@ H_f
 &=
 \max\!\left(6,\; h_f\right).
 \end{aligned}
-$$
+```
 
 So both exit distances and holding horizon are embedded in the setup family,
 not bolted on afterward.
