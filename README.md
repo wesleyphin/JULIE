@@ -20,6 +20,11 @@ Let:
 - $\mathcal{M}$ denote the full candidate or member inventory
 - $\mathcal{F}_t \subseteq \mathcal{M}$ denote the feasible set after hard live guards
 - $s_t \in \{\mathrm{LONG}, \mathrm{SHORT}, \varnothing\}$ denote the side decision
+- $\ell_t$ denote the session label
+- $v_t$ denote rolling volatility
+- $u_t$ denote smoothness
+- $\chi_t$ denote stress
+- $\delta_t$ denote dispersion
 - $\pi_\theta$ denote a learned or configured policy with parameters $\theta$
 - $\tau$ denote a decision threshold
 - $\mathbb{E}[R_t \mid \mathbf{x}_t]$ denote conditional expected return
@@ -681,11 +686,11 @@ environment.
 Formally, the context key is a discrete state variable:
 
 $$
-k_t = \big(q_t,\; w_t,\; d_t,\; \sigma_t\big),
+k_t = \big(q_t,\; w_t,\; \mathrm{dow}_t,\; \ell_t\big),
 $$
 
-where $q_t$ is quarter, $w_t$ is week-in-month, $d_t$ is day-of-week, and
-$\sigma_t$ is the session label.
+where $q_t$ is quarter, $w_t$ is week-in-month, $\mathrm{dow}_t$ is
+day-of-week, and $\ell_t$ is the session label.
 
 The artifact then behaves like a map from `k_t` to a rule family, parameter
 tuple, and side policy. RegimeAdaptive is therefore much closer to
@@ -744,19 +749,19 @@ $$
 \mathbb{1}\!\left\{
 \mathrm{SMA}^{(f)}_t > \mathrm{SMA}^{(s)}_t
 \;\wedge\;
-\sigma_t < \operatorname{med}(\sigma)_t
+v_t < \operatorname{med}(v)_t
 \right\}, \\
 \mathrm{TrendDown}_t
 &=
 \mathbb{1}\!\left\{
 \mathrm{SMA}^{(f)}_t < \mathrm{SMA}^{(s)}_t
 \;\wedge\;
-\sigma_t < \operatorname{med}(\sigma)_t
+v_t < \operatorname{med}(v)_t
 \right\}.
 \end{aligned}
 $$
 
-Here $\sigma_t$ comes from rolling close-to-close volatility and the decisive
+Here $v_t$ comes from rolling close-to-close volatility and the decisive
 price geometry normalized by ATR whenever ATR is available.
 
 ### 8.4 Rule families in detail
@@ -1329,17 +1334,17 @@ $$
 a_t
 &=
 \mathrm{hotspot}_t, \\
-d_t
+\delta_t
 &=
 \operatorname{clip}\!\left(
-\frac{\sqrt{\operatorname{mean}(d^2)}}{\pi}
+\frac{\sqrt{\operatorname{mean}(r_{i,t}^2)}}{\pi}
 \right), \\
-s_t
+u_t
 &=
 \operatorname{clip}\!\left(
 1 - \frac{\operatorname{mean}\!\left(|\Delta \mathrm{direction}|\right)}{\pi}
 \right), \\
-\sigma_t
+\chi_t
 &=
 \operatorname{clip}\!\left(
 0.65\,\mathrm{Var}_{\mathrm{dir},t}
@@ -1349,17 +1354,22 @@ s_t
 R_t
 &=
 \operatorname{clip}\!\left(
-0.3 B_t + 0.2 V_t + 0.4 a_t + 0.1 \sigma_t + 0.1
+0.3 B_t + 0.2 V_t + 0.4 a_t + 0.1 \chi_t + 0.1
 \right), \\
 \mu_t^{\mathrm{risk}}
 &=
 \operatorname{clip}\!\left(
-0.5 + 1.2 R_t - 0.8 \sigma_t,\;
+0.5 + 1.2 R_t - 0.8 \chi_t,\;
 \mu_{\min},\;
 \mu_{\max}
 \right).
 \end{aligned}
 $$
+
+Here $r_{i,t}$ denotes the raw local displacement samples on the manifold prior
+to aggregation, so the dispersion term is not self-referential. The terms
+$B_t$ and $V_t$ denote the signed bias and band-volatility components used by
+the manifold engine before regime classification.
 
 The named regimes are therefore thresholded summaries of a continuous manifold
 state, not hand-tagged categories.
@@ -1479,29 +1489,45 @@ $$
 \begin{aligned}
 \kappa_t
 &=
-a_t^{(\%)} s_t^{(\%)} \left(1-\sigma_t^{(\%)}\right), \\
+a_t^{\mathrm{pct}} u_t^{\mathrm{pct}} \left(1-\chi_t^{\mathrm{pct}}\right), \\
 \rho_t^{\mathrm{comp}}
 &=
-\left(1-d_t^{(\%)}\right)
+\left(1-\delta_t^{\mathrm{pct}}\right)
 \frac{
-\operatorname{sig}_{-}(z_t^{\mathrm{range}})
+\frac{1}{1+e^{z_t^{\mathrm{range}}}}
 +
-\operatorname{sig}_{-}(z_t^{\mathrm{ATR}})
+\frac{1}{1+e^{z_t^{\mathrm{ATR}}}}
 }{2}, \\
+\rho_t^{\mathrm{ext}}
+&=
+\tanh\!\left(\frac{|z_t^{\mathrm{VWAP}}|}{2}\right)
+\left(0.5 + 0.5\chi_t^{\mathrm{pct}}\right), \\
 \eta_t
 &=
 \frac{
-|\Delta_3 a_t^{(\%)}|
+|\Delta_3 a_t^{\mathrm{pct}}|
 +
-|\Delta_3 \sigma_t^{(\%)}|
+|\Delta_3 \chi_t^{\mathrm{pct}}|
 +
-|\Delta_3 d_t^{(\%)}|
+|\Delta_3 \delta_t^{\mathrm{pct}}|
 +
-|\Delta_3 R_t^{(\%)}|
+|\Delta_3 R_t^{\mathrm{pct}}|
 }{4}, \\
+\nu_t
+&=
+\operatorname{clip}\!\left(
+\frac{
+\left|a_t^{\mathrm{pct}}-0.5\right|
++
+\left|\chi_t^{\mathrm{pct}}-0.5\right|
++
+\left|\delta_t^{\mathrm{pct}}-0.5\right|
+}{1.5}
+\right), \\
 \beta_t
 &=
-\operatorname{tanh}_s\!\left(
+\tanh\!\left(
+\frac{
 \mathrm{flow}_{\mathrm{fast},t}
 +
 0.70\,\mathrm{flow}_{\mathrm{slow},t}
@@ -1509,9 +1535,16 @@ a_t^{(\%)} s_t^{(\%)} \left(1-\sigma_t^{(\%)}\right), \\
 0.35\,\mathrm{pressure}_{10,t}
 +
 0.20\,\mathrm{EMAspread}_t
+}{\lambda_\beta}
 \right).
 \end{aligned}
 $$
+
+Here the superscript $\mathrm{pct}$ denotes the percentile-normalized version
+of the corresponding manifold variable. The quantities
+$z_t^{\mathrm{range}}$, $z_t^{\mathrm{ATR}}$, and $z_t^{\mathrm{VWAP}}$ are
+the corresponding runtime z-scored inputs, and $\lambda_\beta$ is the scaling
+constant used in the directional-bias squash.
 
 This is why AetherFlow feels more like a compact feature-geometry paper than a
 conventional indicator stack.
@@ -1533,25 +1566,25 @@ $$
 +
 0.15\,|\mathrm{flow}_{\mathrm{fast},t}|
 +
-0.10\,\max(\Delta_3 a_t, 0), \\
+0.10\,\max(\Delta_3 a_t^{\mathrm{pct}}, 0), \\
 \mathcal{S}_{\mathrm{AF}}
 &=
 0.35\,\kappa_t
 +
-0.25\,a_t^{(\%)}
+0.25\,a_t^{\mathrm{pct}}
 +
-0.20\left(1-\sigma_t^{(\%)}\right)
+0.20\left(1-\chi_t^{\mathrm{pct}}\right)
 +
 0.20\,|\mathrm{flow}_{\mathrm{slow},t}|, \\
 \mathcal{S}_{\mathrm{ER}}
 &=
 0.45\,\rho_t^{\mathrm{ext}}
 +
-0.20\,\sigma_t^{(\%)}
+0.20\,\chi_t^{\mathrm{pct}}
 +
 0.20\,|\mathrm{curvature}_t|_{\mathrm{clip}}
 +
-0.15\,\max(\Delta_3 \sigma_t, 0), \\
+0.15\,\max(\Delta_3 \chi_t^{\mathrm{pct}}, 0), \\
 \mathcal{S}_{\mathrm{TB}}
 &=
 0.35\,\eta_t
