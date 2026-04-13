@@ -8,7 +8,7 @@ are never blocked by heavy strategy calculations.
 import asyncio
 import logging
 import datetime
-from typing import Optional
+from typing import Any, Callable, Optional
 
 
 async def heartbeat_task(client, interval: int = 60):
@@ -51,34 +51,63 @@ async def heartbeat_task(client, interval: int = 60):
         await asyncio.sleep(interval)
 
 
-async def position_sync_task(client, interval: int = 30):
+async def position_sync_task(
+    client,
+    interval: int = 30,
+    on_position_sync: Optional[Callable[[dict], Any]] = None,
+):
     """
     Independent position sync task that fetches broker position every 'interval' seconds.
     """
     sync_count = 0
+    last_logged_signature = None
+    last_persisted_signature = None
 
     while True:
         try:
             sync_count += 1
 
             # Fetch position from broker
-            broker_pos = await client.async_get_position()
+            broker_pos = await client.async_get_position(require_open_pnl=True)
 
             # Update shadow state
             client._local_position = broker_pos.copy()
 
-            # Log sync (only log when position exists or every 10th sync)
-            if broker_pos['side'] is not None or sync_count % 10 == 0:
-                current_time = datetime.datetime.now().strftime('%H:%M:%S')
-                side = broker_pos['side'] or 'FLAT'
-                size = broker_pos['size']
-                avg_price = broker_pos['avg_price']
+            current_time = datetime.datetime.now().strftime('%H:%M:%S')
+            side = broker_pos.get('side') or 'FLAT'
+            size = int(broker_pos.get('size', 0) or 0)
+            avg_price = float(broker_pos.get('avg_price', 0.0) or 0.0)
+            open_pnl = broker_pos.get('open_pnl')
+            open_pnl_value = round(float(open_pnl), 2) if isinstance(open_pnl, (int, float)) else None
+            state_signature = (side, size, round(avg_price, 4), open_pnl_value)
 
-                # Use logging.info so UI picks it up
+            persist_signature = (side, size, round(avg_price, 4))
+
+            # Log immediately on first sync and any broker-side position change.
+            should_log = sync_count == 1 or state_signature != last_logged_signature or sync_count % 10 == 0
+            if should_log:
                 if side == 'FLAT':
                     logging.info(f"🔄 Position Sync #{sync_count}: {current_time} | Status: {side}")
                 else:
-                    logging.info(f"🔄 Position Sync #{sync_count}: {current_time} | {side} {size} @ {avg_price:.2f}")
+                    if open_pnl_value is not None:
+                        logging.info(
+                            f"🔄 Position Sync #{sync_count}: {current_time} | "
+                            f"{side} {size} @ {avg_price:.2f} | OpenPnL: ${open_pnl_value:.2f}"
+                        )
+                    else:
+                        logging.info(f"🔄 Position Sync #{sync_count}: {current_time} | {side} {size} @ {avg_price:.2f}")
+                last_logged_signature = state_signature
+
+            callback = on_position_sync or getattr(client, "_persist_runtime_state", None)
+            should_persist = sync_count == 1 or persist_signature != last_persisted_signature
+            if callable(callback) and should_persist:
+                try:
+                    callback_result = callback(broker_pos.copy())
+                    if asyncio.iscoroutine(callback_result):
+                        await callback_result
+                    last_persisted_signature = persist_signature
+                except Exception as exc:
+                    logging.warning("Position sync persistence callback failed: %s", exc)
 
         except Exception as e:
             logging.error(f"❌ Position sync task error: {e}")

@@ -1124,6 +1124,19 @@ def _trade_point_value() -> float:
     return _coerce_float(risk_cfg.get("POINT_VALUE", 5.0), 5.0)
 
 
+def _trade_reporting_round_turn_fee_per_contract() -> float:
+    risk_cfg = CONFIG.get("RISK", {}) or {}
+    base_round_turn = float(_coerce_float(risk_cfg.get("FEES_PER_SIDE"), 0.37) or 0.37) * 2.0
+    topstep_commission = float(
+        _coerce_float(
+            risk_cfg.get("TOPSTEP_COMMISSION_ROUND_TURN_PER_CONTRACT"),
+            0.50,
+        )
+        or 0.50
+    )
+    return max(0.0, base_round_turn + topstep_commission)
+
+
 def _calculate_live_trade_close_metrics(active_trade: dict, exit_price: float) -> dict:
     entry_price = _coerce_float(active_trade.get("entry_price", 0.0), 0.0)
     trade_size = max(1, _coerce_int(active_trade.get("size", 1), 1))
@@ -1133,11 +1146,16 @@ def _calculate_live_trade_close_metrics(active_trade: dict, exit_price: float) -
         pnl_points = float(exit_price - entry_price)
     else:
         pnl_points = float(entry_price - exit_price)
-    pnl_dollars = float(pnl_points * point_value * trade_size)
+    pnl_dollars_gross = float(pnl_points * point_value * trade_size)
+    pnl_fee_dollars = float(_trade_reporting_round_turn_fee_per_contract() * float(trade_size))
+    pnl_dollars_net = float(pnl_dollars_gross - pnl_fee_dollars)
     return {
         "exit_price": float(exit_price),
         "pnl_points": float(pnl_points),
-        "pnl_dollars": float(pnl_dollars),
+        "pnl_dollars_gross": float(pnl_dollars_gross),
+        "pnl_fee_dollars": float(pnl_fee_dollars),
+        "pnl_dollars_net": float(pnl_dollars_net),
+        "pnl_dollars": float(pnl_dollars_net),
         "source": "price_snapshot",
         "exit_time": None,
     }
@@ -1163,17 +1181,39 @@ def _reconcile_live_trade_close(
     return _calculate_live_trade_close_metrics(active_trade, fallback_exit_price)
 
 
+def _infer_de3_lane_from_variant(variant_id: Optional[str]) -> str:
+    variant_text = str(variant_id or "").strip()
+    if "_Long_Mom_" in variant_text:
+        return "Long_Mom"
+    if "_Long_Rev_" in variant_text:
+        return "Long_Rev"
+    if "_Short_Mom_" in variant_text:
+        return "Short_Mom"
+    if "_Short_Rev_" in variant_text:
+        return "Short_Rev"
+    return ""
+
+
 def _is_de3_v4_trade_management_payload(payload: Optional[dict]) -> bool:
     if not isinstance(payload, dict):
         return False
     strategy_name = str(payload.get("strategy", "") or "")
+    variant_hint = str(
+        payload.get("de3_v4_selected_variant_id")
+        or payload.get("sub_strategy")
+        or payload.get("combo_key")
+        or ""
+    ).strip()
+    inferred_lane = _infer_de3_lane_from_variant(variant_hint)
     if strategy_name and not strategy_name.startswith("DynamicEngine3"):
-        return False
+        return bool(strategy_name == "RestoredLivePosition" and inferred_lane)
     if str(payload.get("de3_version", "") or "").strip().lower() == "v4":
         return True
     if payload.get("de3_v4_selected_variant_id"):
         return True
     if payload.get("de3_v4_selected_lane"):
+        return True
+    if strategy_name.startswith("DynamicEngine3") and inferred_lane:
         return True
     return False
 
@@ -1828,6 +1868,21 @@ def _resolve_live_de3_entry_trade_day_extreme_early_exit_profile(
     return result
 
 
+def round_points_to_tick(value: float) -> float:
+    value = _coerce_float(value, math.nan)
+    if not math.isfinite(value):
+        return float(value)
+    tick_size = _coerce_float(globals().get("TICK_SIZE"), 0.0)
+    if tick_size <= 0.0:
+        return float(value)
+    scaled = float(value) / float(tick_size)
+    if scaled >= 0.0:
+        rounded = math.floor(scaled + 0.5 + 1e-9)
+    else:
+        rounded = math.ceil(scaled - 0.5 - 1e-9)
+    return round(float(rounded) * float(tick_size), 10)
+
+
 def _match_de3_profile_tp_dist(profile: Optional[dict], tp_dist: float) -> bool:
     if not isinstance(profile, dict):
         return True
@@ -1942,6 +1997,337 @@ def _derive_live_stop_price(entry_price: float, sl_dist: float, side: str) -> fl
     return float("nan")
 
 
+def _derive_live_target_price(entry_price: float, tp_dist: float, side: str) -> float:
+    if not math.isfinite(entry_price) or not math.isfinite(tp_dist) or tp_dist <= 0.0:
+        return float("nan")
+    if str(side).upper() == "LONG":
+        return float(entry_price + tp_dist)
+    if str(side).upper() == "SHORT":
+        return float(entry_price - tp_dist)
+    return float("nan")
+
+
+DE3_LIVE_POSITION_SNAPSHOT_KEYS = (
+    "de3_version",
+    "de3_v4_selected_variant_id",
+    "de3_v4_selected_lane",
+    "de3_v4_selected_route_id",
+    "mfe_points",
+    "mae_points",
+    "profit_crosses",
+    "was_green",
+    "de3_break_even_armed",
+    "de3_break_even_applied",
+    "de3_break_even_move_count",
+    "de3_break_even_last_stop_price",
+    "de3_break_even_pending_stop_price",
+    "de3_break_even_pending_from_bar_index",
+    "de3_break_even_trigger_bar_index",
+    "de3_break_even_trigger_mfe_points",
+    "de3_break_even_locked_points",
+    "de3_effective_stop_price",
+    "de3_profit_milestone_profile_active",
+    "de3_profit_milestone_profile_name",
+    "de3_profit_milestone_price",
+    "de3_profit_milestone_trigger_pct",
+    "de3_profit_milestone_force_break_even",
+    "de3_profit_milestone_reached",
+    "de3_profit_milestone_reached_bar_index",
+    "de3_profit_milestone_reached_mfe_points",
+    "de3_break_even_post_profit_milestone_trail_pct",
+    "de3_entry_trade_day_high",
+    "de3_entry_trade_day_low",
+    "de3_entry_trade_day_extreme_price",
+    "de3_entry_trade_day_extreme_progress_pct",
+    "de3_entry_trade_day_extreme_target_beyond",
+    "de3_entry_trade_day_extreme_profile_active",
+    "de3_entry_trade_day_extreme_profile_name",
+    "de3_entry_trade_day_extreme_force_break_even",
+    "de3_entry_trade_day_extreme_reached",
+    "de3_entry_trade_day_extreme_reached_bar_index",
+    "de3_entry_trade_day_extreme_reached_mfe_points",
+    "de3_break_even_post_entry_trade_day_extreme_trail_pct",
+)
+
+DE3_LIVE_POSITION_RUNTIME_RESTORE_KEYS = (
+    "mfe_points",
+    "mae_points",
+    "profit_crosses",
+    "was_green",
+    "de3_break_even_armed",
+    "de3_break_even_applied",
+    "de3_break_even_move_count",
+    "de3_break_even_last_stop_price",
+    "de3_break_even_pending_stop_price",
+    "de3_break_even_pending_from_bar_index",
+    "de3_break_even_trigger_bar_index",
+    "de3_break_even_trigger_mfe_points",
+    "de3_break_even_locked_points",
+    "de3_effective_stop_price",
+    "de3_profit_milestone_reached",
+    "de3_profit_milestone_reached_bar_index",
+    "de3_profit_milestone_reached_mfe_points",
+    "de3_entry_trade_day_high",
+    "de3_entry_trade_day_low",
+    "de3_entry_trade_day_extreme_price",
+    "de3_entry_trade_day_extreme_progress_pct",
+    "de3_entry_trade_day_extreme_target_beyond",
+    "de3_entry_trade_day_extreme_reached",
+    "de3_entry_trade_day_extreme_reached_bar_index",
+    "de3_entry_trade_day_extreme_reached_mfe_points",
+)
+
+DE3_LIVE_POSITION_PROFIT_PROFILE_KEYS = (
+    "de3_profit_milestone_profile_active",
+    "de3_profit_milestone_profile_name",
+    "de3_profit_milestone_price",
+    "de3_profit_milestone_trigger_pct",
+    "de3_profit_milestone_force_break_even",
+    "de3_break_even_post_profit_milestone_trail_pct",
+)
+
+DE3_LIVE_POSITION_ENTRY_EXTREME_PROFILE_KEYS = (
+    "de3_entry_trade_day_high",
+    "de3_entry_trade_day_low",
+    "de3_entry_trade_day_extreme_price",
+    "de3_entry_trade_day_extreme_progress_pct",
+    "de3_entry_trade_day_extreme_target_beyond",
+    "de3_entry_trade_day_extreme_profile_active",
+    "de3_entry_trade_day_extreme_profile_name",
+    "de3_entry_trade_day_extreme_force_break_even",
+    "de3_break_even_post_entry_trade_day_extreme_trail_pct",
+)
+
+
+def _copy_present_keys(
+    source: Optional[dict],
+    destination: Optional[dict],
+    keys: tuple[str, ...],
+) -> None:
+    if not isinstance(source, dict) or not isinstance(destination, dict):
+        return
+    for key in keys:
+        if key in source:
+            destination[key] = source.get(key)
+
+
+def _refresh_live_de3_management_profile_flags(
+    trade: Optional[dict],
+) -> None:
+    if not isinstance(trade, dict):
+        return
+    runtime_cfg = (
+        (CONFIG.get("DE3_V4", {}) or {}).get("runtime", {})
+        if isinstance((CONFIG.get("DE3_V4", {}) or {}).get("runtime", {}), dict)
+        else {}
+    )
+    trade_management_cfg = (
+        runtime_cfg.get("trade_management", {})
+        if isinstance(runtime_cfg.get("trade_management", {}), dict)
+        else {}
+    )
+    break_even_cfg = (
+        trade_management_cfg.get("break_even", {})
+        if isinstance(trade_management_cfg.get("break_even", {}), dict)
+        else {}
+    )
+    early_exit_cfg = (
+        trade_management_cfg.get("early_exit", {})
+        if isinstance(trade_management_cfg.get("early_exit", {}), dict)
+        else {}
+    )
+    profit_milestone_cfg = (
+        trade_management_cfg.get("profit_milestone_stop", {})
+        if isinstance(trade_management_cfg.get("profit_milestone_stop", {}), dict)
+        else {}
+    )
+    de3_trade_management_enabled = bool(
+        trade_management_cfg.get("enabled", False)
+        and _is_de3_v4_trade_management_payload(trade)
+    )
+    trade["de3_trade_management_enabled"] = de3_trade_management_enabled
+    trade["de3_break_even_enabled"] = bool(
+        de3_trade_management_enabled
+        and break_even_cfg.get("enabled", False)
+    )
+    trade["de3_break_even_activate_on_next_bar"] = bool(
+        break_even_cfg.get("activate_on_next_bar", True)
+    )
+    trade["de3_break_even_trigger_pct"] = float(
+        _coerce_float(
+            break_even_cfg.get("trigger_pct"),
+            trade.get("de3_break_even_trigger_pct", 0.0),
+        )
+    )
+    trade["de3_break_even_buffer_ticks"] = int(
+        max(
+            0,
+            _coerce_int(
+                break_even_cfg.get("buffer_ticks"),
+                _coerce_int(trade.get("de3_break_even_buffer_ticks"), 0),
+            ),
+        )
+    )
+    trade["de3_break_even_trail_pct"] = float(
+        max(
+            0.0,
+            _coerce_float(
+                break_even_cfg.get("trail_pct"),
+                trade.get("de3_break_even_trail_pct", 0.0),
+            ),
+        )
+    )
+    trade["de3_early_exit_enabled"] = bool(
+        de3_trade_management_enabled
+        and early_exit_cfg.get("enabled", False)
+    ) or bool(trade.get("de3_entry_trade_day_extreme_early_exit_profile_active", False))
+    entry_price = _coerce_float(trade.get("entry_price"), math.nan)
+    tp_dist = _coerce_float(trade.get("tp_dist"), math.nan)
+    if not math.isfinite(entry_price) or not math.isfinite(tp_dist) or tp_dist <= 0.0:
+        return
+    profit_ctx = _resolve_live_de3_profit_milestone_profile(
+        trade,
+        entry_price=entry_price,
+        tp_dist=tp_dist,
+        break_even_cfg=break_even_cfg,
+        profit_milestone_cfg=profit_milestone_cfg,
+    )
+    trade["de3_profit_milestone_profile_active"] = bool(
+        profit_ctx.get("active", False)
+    )
+    trade["de3_profit_milestone_profile_name"] = str(
+        profit_ctx.get("profile_name", "") or ""
+    )
+    trade["de3_profit_milestone_price"] = profit_ctx.get("milestone_price")
+    trade["de3_profit_milestone_trigger_pct"] = float(
+        max(0.0, _coerce_float(profit_ctx.get("trigger_pct"), 0.0))
+    )
+    trade["de3_profit_milestone_force_break_even"] = bool(
+        profit_ctx.get("force_break_even_on_reach", False)
+    )
+    trade["de3_break_even_post_profit_milestone_trail_pct"] = float(
+        max(
+            0.0,
+            _coerce_float(profit_ctx.get("post_reach_trail_pct"), 0.0),
+        )
+    )
+
+
+def _merge_restored_live_trade_runtime_state(
+    trade: Optional[dict],
+    position_snapshot: Optional[dict],
+) -> None:
+    if not isinstance(trade, dict) or not isinstance(position_snapshot, dict):
+        return
+    _copy_present_keys(
+        position_snapshot,
+        trade,
+        DE3_LIVE_POSITION_RUNTIME_RESTORE_KEYS,
+    )
+    if bool(position_snapshot.get("de3_profit_milestone_profile_active", False)):
+        _copy_present_keys(
+            position_snapshot,
+            trade,
+            DE3_LIVE_POSITION_PROFIT_PROFILE_KEYS,
+        )
+    if (
+        bool(position_snapshot.get("de3_entry_trade_day_extreme_profile_active", False))
+        or position_snapshot.get("de3_entry_trade_day_extreme_price") is not None
+        or position_snapshot.get("de3_entry_trade_day_high") is not None
+        or position_snapshot.get("de3_entry_trade_day_low") is not None
+    ):
+        _copy_present_keys(
+            position_snapshot,
+            trade,
+            DE3_LIVE_POSITION_ENTRY_EXTREME_PROFILE_KEYS,
+        )
+
+
+def _refresh_live_trade_brackets_from_projectx(
+    client: Any,
+    trade: Optional[dict],
+    *,
+    reference_entry_price: Optional[float] = None,
+    max_cache_age_sec: float = 2.0,
+    force_refresh: bool = False,
+) -> dict:
+    if client is None or not isinstance(trade, dict):
+        return {}
+
+    side_name = _normalize_live_side(trade.get("side"))
+    size = max(0, _coerce_int(trade.get("size"), 0))
+    if side_name not in {"LONG", "SHORT"} or size <= 0:
+        return {}
+
+    entry_price = _coerce_float(reference_entry_price, math.nan)
+    if not math.isfinite(entry_price):
+        entry_price = _coerce_float(trade.get("broker_entry_price"), math.nan)
+    if not math.isfinite(entry_price):
+        entry_price = _coerce_float(trade.get("entry_price"), math.nan)
+
+    expected_stop_price = _coerce_float(trade.get("current_stop_price"), math.nan)
+    if not math.isfinite(expected_stop_price):
+        expected_stop_price = _derive_live_stop_price(
+            entry_price,
+            _coerce_float(trade.get("sl_dist"), math.nan),
+            side_name,
+        )
+
+    expected_target_price = _coerce_float(trade.get("current_target_price"), math.nan)
+    if not math.isfinite(expected_target_price):
+        expected_target_price = _derive_live_target_price(
+            entry_price,
+            _coerce_float(trade.get("tp_dist"), math.nan),
+            side_name,
+        )
+
+    try:
+        bracket_state = client.get_live_bracket_state(
+            side=side_name,
+            size=size,
+            reference_price=float(entry_price) if math.isfinite(entry_price) else None,
+            expected_stop_price=(
+                float(expected_stop_price) if math.isfinite(expected_stop_price) else None
+            ),
+            expected_target_price=(
+                float(expected_target_price) if math.isfinite(expected_target_price) else None
+            ),
+            prefer_stop_order_id=_coerce_int(trade.get("stop_order_id"), None),
+            prefer_target_order_id=_coerce_int(trade.get("target_order_id"), None),
+            max_cache_age_sec=max(0.0, float(max_cache_age_sec)),
+            force_refresh=force_refresh,
+        )
+    except Exception as exc:
+        logging.debug("ProjectX live bracket refresh failed: %s", exc)
+        return {}
+
+    updates: dict[str, Any] = {}
+    stop_order_id = _coerce_int(bracket_state.get("stop_order_id"), None)
+    if stop_order_id is not None and stop_order_id != _coerce_int(trade.get("stop_order_id"), None):
+        updates["stop_order_id"] = stop_order_id
+
+    target_order_id = _coerce_int(bracket_state.get("target_order_id"), None)
+    if target_order_id is not None and target_order_id != _coerce_int(trade.get("target_order_id"), None):
+        updates["target_order_id"] = target_order_id
+
+    stop_price = _coerce_float(bracket_state.get("stop_price", bracket_state.get("sl_price")), math.nan)
+    if math.isfinite(stop_price):
+        current_stop_price = _coerce_float(trade.get("current_stop_price"), math.nan)
+        if not math.isfinite(current_stop_price) or abs(current_stop_price - stop_price) > 1e-9:
+            updates["current_stop_price"] = float(stop_price)
+
+    target_price = _coerce_float(
+        bracket_state.get("target_price", bracket_state.get("tp_price")),
+        math.nan,
+    )
+    if math.isfinite(target_price):
+        current_target_price = _coerce_float(trade.get("current_target_price"), math.nan)
+        if not math.isfinite(current_target_price) or abs(current_target_price - target_price) > 1e-9:
+            updates["current_target_price"] = float(target_price)
+
+    return updates
+
+
 def _build_live_active_trade(
     signal: Optional[dict],
     order_details: Optional[dict],
@@ -1979,6 +2365,9 @@ def _build_live_active_trade(
     stop_price = _coerce_float(order_details.get("sl_price"), math.nan)
     if not math.isfinite(stop_price):
         stop_price = _derive_live_stop_price(entry_price, sl_dist, side)
+    target_price = _coerce_float(order_details.get("tp_price"), math.nan)
+    if not math.isfinite(target_price):
+        target_price = _derive_live_target_price(entry_price, tp_dist, side)
 
     runtime_cfg = (
         (CONFIG.get("DE3_V4", {}) or {}).get("runtime", {})
@@ -2073,6 +2462,7 @@ def _build_live_active_trade(
         "size": size,
         "stop_order_id": stop_order_id,
         "current_stop_price": stop_price,
+        "current_target_price": float(target_price) if math.isfinite(target_price) else None,
         "entry_mode": signal.get("entry_mode", "standard"),
         "rule_id": signal.get("rule_id") or signal.get("de3_v4_selected_route_id"),
         "early_exit_enabled": signal.get("early_exit_enabled"),
@@ -2612,9 +3002,14 @@ def _apply_live_de3_break_even_stop_update(
     if not math.isfinite(target_stop_price):
         return {"status": "failed"}
 
-    tp_dist = _coerce_float(trade.get("tp_dist"), math.nan)
-    if math.isfinite(entry_price) and math.isfinite(tp_dist) and tp_dist > 0.0:
-        take_price = entry_price + tp_dist if side_name == "LONG" else entry_price - tp_dist
+    take_price = _coerce_float(trade.get("current_target_price"), math.nan)
+    if not math.isfinite(take_price):
+        take_price = _derive_live_target_price(
+            entry_price,
+            _coerce_float(trade.get("tp_dist"), math.nan),
+            side_name,
+        )
+    if math.isfinite(entry_price) and math.isfinite(take_price):
         if side_name == "LONG":
             max_stop_price = _align_stop_price_to_tick(take_price - TICK_SIZE, side_name)
             if math.isfinite(max_stop_price):
@@ -4334,6 +4729,93 @@ class TradeFactorCsvLogger:
                 out.add(text)
         return out
 
+    @staticmethod
+    def _coerce_event_time(value: Any, fallback_tz: ZoneInfo) -> Optional[datetime.datetime]:
+        if isinstance(value, str):
+            try:
+                value = datetime.datetime.fromisoformat(value)
+            except Exception:
+                value = None
+        if isinstance(value, pd.Timestamp):
+            value = value.to_pydatetime()
+        if not isinstance(value, datetime.datetime):
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=fallback_tz)
+        return value.astimezone(fallback_tz)
+
+    def _build_synthetic_close_row(
+        self,
+        *,
+        trade: Dict[str, Any],
+        metrics: Dict[str, Any],
+        close_time: datetime.datetime,
+        close_details: Optional[Dict[str, Any]] = None,
+        de3_management: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, str]:
+        close_time_value = self._coerce_event_time(close_time, self.tz) or datetime.datetime.now(self.tz)
+        entry_time_value = self._coerce_event_time(trade.get("entry_time"), self.tz) or close_time_value
+        entry_price = float(
+            _coerce_float(
+                metrics.get("entry_price", trade.get("broker_entry_price", trade.get("entry_price", 0.0))),
+                0.0,
+            )
+        )
+        exit_price = float(_coerce_float(metrics.get("exit_price"), entry_price))
+        pnl_points = float(_coerce_float(metrics.get("pnl_points"), 0.0))
+        pnl_dollars = float(_coerce_float(metrics.get("pnl_dollars"), 0.0))
+        close_result = "win" if pnl_dollars > 0.0 else "loss" if pnl_dollars < 0.0 else "flat"
+        order_details_payload = {
+            "entry_order_id": trade.get("entry_order_id"),
+            "stop_order_id": trade.get("stop_order_id"),
+            "target_order_id": trade.get("target_order_id"),
+            "broker_entry_price": trade.get("broker_entry_price"),
+            "tracking_restored": trade.get("tracking_restored"),
+        }
+        runtime_state_payload = {
+            "synthetic_close_only": True,
+            "tracking_restored": bool(trade.get("tracking_restored", False)),
+        }
+        return {
+            "event_time": entry_time_value.isoformat(),
+            "bar_time": entry_time_value.isoformat(),
+            "source": "synthetic_close_only",
+            "strategy": str(trade.get("strategy") or ""),
+            "sub_strategy": str(trade.get("sub_strategy") or ""),
+            "side": str(trade.get("side") or ""),
+            "entry_mode": str(trade.get("entry_mode") or ""),
+            "base_session": "",
+            "current_session": "",
+            "vol_regime": str(trade.get("vol_regime") or ""),
+            "trend_day_tier": str(trade.get("trend_day_tier") or ""),
+            "trend_day_dir": str(trade.get("trend_day_dir") or ""),
+            "current_price": str(exit_price),
+            "entry_price": str(entry_price),
+            "tp_dist": str(float(_coerce_float(trade.get("tp_dist"), 0.0))),
+            "sl_dist": str(float(_coerce_float(trade.get("sl_dist"), 0.0))),
+            "size": str(int(_coerce_int(trade.get("size"), 0))),
+            "entry_order_id": str(metrics.get("entry_order_id") or trade.get("entry_order_id") or ""),
+            "stop_order_id": str(trade.get("stop_order_id") or ""),
+            "target_order_id": str(trade.get("target_order_id") or ""),
+            "signal_factors_json": self._json_text(trade),
+            "bar_factors_json": self._json_text({}),
+            "order_details_json": self._json_text(order_details_payload),
+            "strategy_results_json": self._json_text({}),
+            "runtime_state_json": self._json_text(runtime_state_payload),
+            "context_box_b64": "",
+            "context_box_json": "",
+            "close_time": close_time_value.isoformat(),
+            "close_source": str(metrics.get("source") or ""),
+            "close_order_id": str(metrics.get("order_id") or ""),
+            "close_result": close_result,
+            "exit_price": str(exit_price),
+            "pnl_points": str(pnl_points),
+            "pnl_dollars": str(pnl_dollars),
+            "de3_management_close_reason": str((de3_management or {}).get("close_reason") or ""),
+            "close_details_json": self._json_text(close_details or metrics or {}),
+            "de3_management_json": self._json_text(de3_management or {}),
+        }
+
     def annotate_trade_close(
         self,
         *,
@@ -4348,6 +4830,7 @@ class TradeFactorCsvLogger:
         if not isinstance(trade, dict):
             return False
         metrics = dict(close_metrics or {})
+        close_time_value = self._coerce_event_time(close_time, self.tz) or datetime.datetime.now(self.tz)
         target_entry_ids = {
             text
             for text in [
@@ -4400,11 +4883,91 @@ class TradeFactorCsvLogger:
                 match_index = index
                 break
         if match_index is None:
-            return False
+            target_close_order_id = str(metrics.get("order_id") or "").strip()
+            target_exit_price = round(float(_coerce_float(metrics.get("exit_price"), 0.0)), 4)
+            close_time_iso = close_time_value.astimezone(self.tz).isoformat()
+            repair_index = None
+            target_size = int(_coerce_int(trade.get("size"), 0) or 0)
+            for index in range(len(rows) - 1, -1, -1):
+                row = rows[index]
+                if str(row.get("strategy") or "").strip() != target_strategy:
+                    continue
+                if str(row.get("sub_strategy") or "").strip() != target_sub_strategy:
+                    continue
+                if str(row.get("side") or "").strip().upper() != target_side:
+                    continue
+                row_entry_price = round(float(_coerce_float(row.get("entry_price"), 0.0)), 4)
+                if abs(row_entry_price - target_entry_price) > 1e-4:
+                    continue
+                row_size = int(_coerce_int(row.get("size"), 0) or 0)
+                if target_size > 0 and row_size not in (0, target_size):
+                    continue
+                row_close_time = self._coerce_event_time(row.get("close_time"), self.tz)
+                if row_close_time is None:
+                    continue
+                if abs((row_close_time - close_time_value).total_seconds()) > 120.0:
+                    continue
+                runtime_state = self._json_dict(row.get("runtime_state_json"))
+                row_close_order_id = str(row.get("close_order_id") or "").strip()
+                if target_close_order_id and row_close_order_id and row_close_order_id != target_close_order_id:
+                    continue
+                if not (
+                    str(row.get("source") or "").strip() == "synthetic_close_only"
+                    or bool(runtime_state.get("synthetic_close_only", False))
+                    or str(row.get("close_source") or "").strip() in {"broker_flat_cleanup", "price_snapshot", "order_fill_fallback"}
+                ):
+                    continue
+                repair_index = index
+                break
+            if repair_index is not None:
+                match_index = repair_index
 
-        close_time_value = close_time
-        if close_time_value.tzinfo is None:
-            close_time_value = close_time_value.replace(tzinfo=self.tz)
+        if match_index is None:
+            target_close_order_id = str(metrics.get("order_id") or "").strip()
+            target_exit_price = round(float(_coerce_float(metrics.get("exit_price"), 0.0)), 4)
+            close_time_iso = close_time_value.astimezone(self.tz).isoformat()
+            duplicate_exists = False
+            for row in rows:
+                if target_close_order_id and str(row.get("close_order_id") or "").strip() == target_close_order_id:
+                    duplicate_exists = True
+                    break
+                if (
+                    str(row.get("strategy") or "").strip() == target_strategy
+                    and str(row.get("sub_strategy") or "").strip() == target_sub_strategy
+                    and str(row.get("side") or "").strip().upper() == target_side
+                    and str(row.get("close_time") or "").strip() == close_time_iso
+                    and abs(round(float(_coerce_float(row.get("entry_price"), 0.0)), 4) - target_entry_price) <= 1e-4
+                    and abs(round(float(_coerce_float(row.get("exit_price"), 0.0)), 4) - target_exit_price) <= 1e-4
+                ):
+                    duplicate_exists = True
+                    break
+            if duplicate_exists:
+                return True
+            synthetic_row = self._build_synthetic_close_row(
+                trade=trade,
+                metrics=metrics,
+                close_time=close_time_value,
+                close_details=close_details,
+                de3_management=de3_management,
+            )
+            rows.append(synthetic_row)
+            try:
+                with self.csv_path.open("w", newline="", encoding="utf-8") as f:
+                    writer = csv.DictWriter(f, fieldnames=self._FIELDNAMES)
+                    writer.writeheader()
+                    for current_row in rows:
+                        writer.writerow({field: current_row.get(field, "") for field in self._FIELDNAMES})
+            except Exception as exc:
+                logging.warning("Trade-factor logger synthetic close write failed (%s): %s", self.csv_path, exc)
+                return False
+            logging.warning(
+                "Trade-factor logger appended synthetic close-only row for strategy=%s entry_order_id=%s close_order_id=%s",
+                target_strategy or "Unknown",
+                str(metrics.get("entry_order_id") or trade.get("entry_order_id") or ""),
+                target_close_order_id,
+            )
+            return True
+
         row = dict(rows[match_index])
         pnl_dollars = float(_coerce_float(metrics.get("pnl_dollars"), 0.0))
         row.update(
@@ -4987,7 +5550,7 @@ async def run_bot():
     print("=" * 60)
 
     client = ProjectXClient()
-    
+
     # Step 1: Authenticate
     try:
         client.login()
@@ -5001,14 +5564,14 @@ async def run_bot():
     if account_id is None:
         print("CRITICAL: Could not retrieve account ID")
         return
-    
+
     # Step 3: Fetch Contract ID
     print("\n📋 Fetching available contracts...")
     contract_id = client.fetch_contracts()
     if contract_id is None:
         print("CRITICAL: Could not retrieve contract ID")
         return
-    
+
     print(f"\n✅ Setup complete:")
     print(f"   Account ID: {client.account_id}")
     print(f"   Contract ID: {client.contract_id}")
@@ -5226,7 +5789,7 @@ async def run_bot():
             logging.info("AetherFlowStrategy initialized for live execution")
         else:
             logging.warning("⚠️ AetherFlowStrategy enabled_live but model artifact is missing.")
-    
+
     # LOW PRIORITY / LOOSE EXECUTION - Wait for next bar
     loose_strategies = [] if filterless_only_mode else [OrbStrategy()]
     ict_cfg = CONFIG.get("ICT_MODEL", {}) or {}
@@ -5283,7 +5846,7 @@ async def run_bot():
                 filter_label,
                 strategy=strategy_label,
             )
-     
+
     # Initialize filters
     BankLevelQuarterFilter = None
     MemorySRFilter = None
@@ -5503,7 +6066,7 @@ async def run_bot():
 
     # === TRACKING VARIABLES ===
     # Position sync now handled by independent async task - removed manual tracking
-    
+
     # Track pending signals for delayed execution
     pending_loose_signals = {}
     last_processed_bar = None
@@ -5524,6 +6087,7 @@ async def run_bot():
     recent_closed_trades = []
     seen_closed_trade_keys: set[tuple[Any, ...]] = set()
     max_recent_closed_trades = 40
+    last_projectx_trade_backfill_ts: Optional[datetime.datetime] = None
 
     def tracked_live_trades() -> list[dict]:
         trades: list[dict] = []
@@ -5784,6 +6348,230 @@ async def run_bot():
             keys.add(("entry_order", entry_order_id, strategy, side, exit_price, pnl_dollars))
         return keys
 
+    def _find_projectx_backfill_match_index(closed_trade: Optional[dict]) -> Optional[int]:
+        if not isinstance(closed_trade, dict):
+            return None
+        incoming_order_id = str(closed_trade.get("order_id") or "").strip()
+        incoming_entry_order_id = str(closed_trade.get("entry_order_id") or "").strip()
+        incoming_side = str(closed_trade.get("side") or "").strip().upper()
+        incoming_size = max(0, _coerce_int(closed_trade.get("size"), 0))
+        incoming_entry_price = round(float(_coerce_float(closed_trade.get("entry_price"), 0.0) or 0.0), 4)
+        incoming_time = parse_dt(closed_trade.get("time"))
+        for index in range(len(recent_closed_trades) - 1, -1, -1):
+            row = recent_closed_trades[index]
+            row_order_id = str(row.get("order_id") or "").strip()
+            row_entry_order_id = str(row.get("entry_order_id") or "").strip()
+            if incoming_order_id and row_order_id == incoming_order_id:
+                return index
+            if incoming_entry_order_id and row_entry_order_id == incoming_entry_order_id:
+                return index
+            row_time = parse_dt(row.get("time"))
+            if not isinstance(incoming_time, datetime.datetime) or not isinstance(row_time, datetime.datetime):
+                continue
+            if abs((row_time - incoming_time).total_seconds()) > 120.0:
+                continue
+            if str(row.get("side") or "").strip().upper() != incoming_side:
+                continue
+            row_size = max(0, _coerce_int(row.get("size"), 0))
+            if incoming_size > 0 and row_size not in (0, incoming_size):
+                continue
+            row_entry_price = round(float(_coerce_float(row.get("entry_price"), 0.0) or 0.0), 4)
+            if abs(row_entry_price - incoming_entry_price) > 1e-4:
+                continue
+            row_source = str(row.get("source") or "").strip()
+            if incoming_order_id and not row_order_id:
+                return index
+            if row_source in {"broker_flat_cleanup", "price_snapshot", "projectx_api"}:
+                return index
+        return None
+
+    def _merge_recent_closed_trade_backfill(closed_trade: Optional[dict]) -> bool:
+        nonlocal recent_closed_trades
+        if not isinstance(closed_trade, dict):
+            return False
+        incoming_keys = closed_trade_keys(closed_trade)
+        duplicate_index = next(
+            (
+                index
+                for index, row in enumerate(recent_closed_trades)
+                if not closed_trade_keys(row).isdisjoint(incoming_keys)
+            ),
+            None,
+        )
+        if duplicate_index is None:
+            duplicate_index = _find_projectx_backfill_match_index(closed_trade)
+        if duplicate_index is not None:
+            existing_trade = dict(recent_closed_trades[duplicate_index])
+            merged_trade = dict(existing_trade)
+            merged_trade.update(
+                {
+                    key: value
+                    for key, value in closed_trade.items()
+                    if value not in (None, "")
+                }
+            )
+            if merged_trade == existing_trade:
+                return False
+            recent_closed_trades[duplicate_index] = merged_trade
+            recent_closed_trades.sort(key=lambda row: str(row.get("time") or ""))
+            rebuild_seen_closed_trade_keys()
+            return True
+        recent_closed_trades.append(closed_trade)
+        recent_closed_trades.sort(key=lambda row: str(row.get("time") or ""))
+        if len(recent_closed_trades) > max_recent_closed_trades:
+            recent_closed_trades = recent_closed_trades[-max_recent_closed_trades:]
+        rebuild_seen_closed_trade_keys()
+        return True
+
+    def backfill_recent_closed_trades_from_projectx(
+        current_time: datetime.datetime,
+        *,
+        force: bool = False,
+    ) -> int:
+        nonlocal last_projectx_trade_backfill_ts
+        if client is None or not hasattr(client, "reconstruct_closed_trades"):
+            return 0
+        current_time = current_time.astimezone(NY_TZ)
+        if (
+            not force
+            and isinstance(last_projectx_trade_backfill_ts, datetime.datetime)
+            and (current_time - last_projectx_trade_backfill_ts) < datetime.timedelta(seconds=45)
+        ):
+            return 0
+        session_start = trading_day_start(current_time)
+        search_start = session_start - datetime.timedelta(minutes=5)
+        search_end = current_time + datetime.timedelta(minutes=2)
+        try:
+            reconstructed = client.reconstruct_closed_trades(
+                search_start,
+                search_end,
+                include_stream_trades=True,
+            )
+        except Exception as exc:
+            logging.warning("ProjectX trade-history backfill failed: %s", exc)
+            last_projectx_trade_backfill_ts = current_time
+            return 0
+
+        updates = 0
+        for recovered in reconstructed[-max_recent_closed_trades:]:
+            if not isinstance(recovered, dict):
+                continue
+            exit_time = recovered.get("exit_time")
+            if not isinstance(exit_time, datetime.datetime):
+                continue
+            if exit_time.tzinfo is None:
+                exit_time = exit_time.replace(tzinfo=NY_TZ)
+            else:
+                exit_time = exit_time.astimezone(NY_TZ)
+            entry_time = recovered.get("entry_time")
+            if isinstance(entry_time, datetime.datetime):
+                if entry_time.tzinfo is None:
+                    entry_time = entry_time.replace(tzinfo=NY_TZ)
+                else:
+                    entry_time = entry_time.astimezone(NY_TZ)
+            match_index = _find_projectx_backfill_match_index(
+                {
+                    "time": exit_time.isoformat(),
+                    "side": recovered.get("side"),
+                    "size": recovered.get("size"),
+                    "entry_price": recovered.get("entry_price"),
+                    "order_id": recovered.get("order_id"),
+                    "entry_order_id": recovered.get("entry_order_id"),
+                    "source": recovered.get("source"),
+                }
+            )
+            existing_row = recent_closed_trades[match_index] if match_index is not None else {}
+            strategy_name = str(
+                existing_row.get("strategy")
+                or recovered.get("strategy")
+                or "ProjectXHistoryBackfill"
+            )
+            sub_strategy_name = existing_row.get("sub_strategy") or recovered.get("sub_strategy")
+            combo_key = existing_row.get("combo_key") or recovered.get("combo_key") or sub_strategy_name
+            pnl_dollars = float(_coerce_float(recovered.get("pnl_dollars"), 0.0) or 0.0)
+            pnl_points = _coerce_float(recovered.get("pnl_points"), None)
+            exit_price = _coerce_float(recovered.get("exit_price"), None)
+            entry_price = _coerce_float(recovered.get("entry_price"), None)
+            if pnl_points is None and entry_price is not None and exit_price is not None:
+                if str(recovered.get("side") or "").upper() == "LONG":
+                    pnl_points = float(exit_price - entry_price)
+                else:
+                    pnl_points = float(entry_price - exit_price)
+            closed_trade = {
+                "time": exit_time.isoformat(),
+                "strategy": strategy_name,
+                "strategy_label": str(existing_row.get("strategy_label") or strategy_name),
+                "sub_strategy": sub_strategy_name,
+                "combo_key": combo_key,
+                "side": str(recovered.get("side") or ""),
+                "size": max(1, _coerce_int(recovered.get("size"), 1)),
+                "entry_price": float(entry_price) if entry_price is not None else None,
+                "signal_entry_price": existing_row.get("signal_entry_price"),
+                "exit_price": float(exit_price) if exit_price is not None else None,
+                "pnl_points": float(pnl_points) if pnl_points is not None else None,
+                "pnl_dollars": float(pnl_dollars),
+                "result": "win" if pnl_dollars > 0.0 else "loss" if pnl_dollars < 0.0 else "flat",
+                "source": "projectx_trade_history",
+                "order_id": recovered.get("order_id"),
+                "entry_order_id": recovered.get("entry_order_id"),
+                "opened_at": entry_time.isoformat() if isinstance(entry_time, datetime.datetime) else existing_row.get("opened_at"),
+                "de3_management_close_reason": str(existing_row.get("de3_management_close_reason") or ""),
+                "de3_management": (
+                    dict(existing_row.get("de3_management"))
+                    if isinstance(existing_row.get("de3_management"), dict)
+                    else {}
+                ),
+            }
+            if not _merge_recent_closed_trade_backfill(closed_trade):
+                continue
+            updates += 1
+            if trade_factor_logger is not None:
+                try:
+                    trade_factor_logger.annotate_trade_close(
+                        trade={
+                            "strategy": strategy_name,
+                            "sub_strategy": sub_strategy_name,
+                            "combo_key": combo_key,
+                            "side": str(recovered.get("side") or ""),
+                            "size": max(1, _coerce_int(recovered.get("size"), 1)),
+                            "entry_price": float(entry_price) if entry_price is not None else None,
+                            "entry_time": entry_time,
+                            "entry_order_id": recovered.get("entry_order_id"),
+                            "entry_mode": existing_row.get("entry_mode", "projectx_backfill"),
+                            "vol_regime": existing_row.get("vol_regime"),
+                            "tracking_restored": bool(existing_row.get("source") in {"broker_flat_cleanup", "price_snapshot"}),
+                        },
+                        close_metrics={
+                            "source": "projectx_trade_history",
+                            "entry_price": float(entry_price) if entry_price is not None else None,
+                            "exit_price": float(exit_price) if exit_price is not None else None,
+                            "pnl_points": float(pnl_points) if pnl_points is not None else None,
+                            "pnl_dollars": float(pnl_dollars),
+                            "exit_time": exit_time,
+                            "order_id": recovered.get("order_id"),
+                            "entry_order_id": recovered.get("entry_order_id"),
+                        },
+                        close_time=exit_time,
+                        close_details={
+                            "source": "projectx_trade_history",
+                            "entry_order_ids": list(recovered.get("entry_order_ids") or []),
+                            "raw_close_rows": list(recovered.get("raw_close_rows") or []),
+                        },
+                        de3_management=(
+                            dict(existing_row.get("de3_management"))
+                            if isinstance(existing_row.get("de3_management"), dict)
+                            else {}
+                        ),
+                    )
+                except Exception as exc:
+                    logging.warning("ProjectX trade-factor backfill failed: %s", exc)
+
+        last_projectx_trade_backfill_ts = current_time
+        if updates:
+            logging.info("ProjectX trade-history backfill reconciled %s closed trade(s)", updates)
+            persist_runtime_state(current_time, reason="projectx_trade_backfill")
+        return updates
+
     def rebuild_seen_closed_trade_keys() -> None:
         nonlocal seen_closed_trade_keys
         seen_closed_trade_keys = set()
@@ -5820,11 +6608,22 @@ async def run_bot():
         if not math.isfinite(entry_price):
             return None
 
-        bracket_snapshot = client.get_live_bracket_snapshot(
+        bracket_snapshot = client.get_live_bracket_state(
             side=side,
             size=size,
             reference_price=float(entry_price),
+            expected_stop_price=_coerce_float(
+                position_snapshot.get("stop_price", position_snapshot.get("sl_price")),
+                None,
+            ),
+            expected_target_price=_coerce_float(
+                position_snapshot.get("target_price", position_snapshot.get("tp_price")),
+                None,
+            ),
+            prefer_stop_order_id=_coerce_int(position_snapshot.get("stop_order_id"), None),
+            prefer_target_order_id=_coerce_int(position_snapshot.get("target_order_id"), None),
             max_cache_age_sec=0.0,
+            force_refresh=True,
         )
         stop_price = _coerce_float(
             position_snapshot.get("stop_price", position_snapshot.get("sl_price")),
@@ -5852,10 +6651,18 @@ async def run_bot():
             sl_dist = max(0.0, float(stop_price - entry_price)) if math.isfinite(stop_price) else 0.0
             tp_dist = max(0.0, float(entry_price - target_price)) if math.isfinite(target_price) else 0.0
 
-        detected_exit_ids: dict[str, Optional[int]] = {}
-        if math.isfinite(stop_price) or math.isfinite(target_price):
+        detected_exit_ids: dict[str, Optional[int]] = {
+            "stop_order_id": _coerce_int(bracket_snapshot.get("stop_order_id"), None),
+            "target_order_id": _coerce_int(bracket_snapshot.get("target_order_id"), None),
+        }
+        if (
+            math.isfinite(stop_price) or math.isfinite(target_price)
+        ) and (
+            detected_exit_ids.get("stop_order_id") is None
+            or detected_exit_ids.get("target_order_id") is None
+        ):
             try:
-                detected_exit_ids = client._identify_bracket_order_ids(
+                recovered_exit_ids = client._identify_bracket_order_ids(
                     side=side,
                     size=size,
                     stop_price=float(stop_price) if math.isfinite(stop_price) else None,
@@ -5864,6 +6671,15 @@ async def run_bot():
                     prefer_target_order_id=_coerce_int(position_snapshot.get("target_order_id"), None),
                     max_attempts=1,
                 )
+                if isinstance(recovered_exit_ids, dict):
+                    detected_exit_ids["stop_order_id"] = _coerce_int(
+                        detected_exit_ids.get("stop_order_id"),
+                        _coerce_int(recovered_exit_ids.get("stop_order_id"), None),
+                    )
+                    detected_exit_ids["target_order_id"] = _coerce_int(
+                        detected_exit_ids.get("target_order_id"),
+                        _coerce_int(recovered_exit_ids.get("target_order_id"), None),
+                    )
             except Exception as exc:
                 logging.warning("Live exit-order recovery failed during tracking restore: %s", exc)
 
@@ -5891,6 +6707,31 @@ async def run_bot():
             "sl_dist": float(sl_dist),
             "size": int(size),
         }
+        restored_variant_id = str(
+            position_snapshot.get("de3_v4_selected_variant_id")
+            or position_snapshot.get("sub_strategy")
+            or position_snapshot.get("combo_key")
+            or ""
+        ).strip()
+        restored_lane = str(
+            position_snapshot.get("de3_v4_selected_lane")
+            or _infer_de3_lane_from_variant(restored_variant_id)
+            or ""
+        ).strip()
+        restored_strategy = str(signal.get("strategy", "") or "").strip()
+        if restored_lane and not restored_strategy.startswith("DynamicEngine3"):
+            signal["strategy"] = "DynamicEngine3"
+        if restored_lane:
+            signal["de3_version"] = str(position_snapshot.get("de3_version") or "v4")
+            signal["de3_v4_selected_variant_id"] = restored_variant_id
+            signal["de3_v4_selected_lane"] = restored_lane
+            restored_route_id = str(
+                position_snapshot.get("de3_v4_selected_route_id")
+                or position_snapshot.get("rule_id")
+                or ""
+            ).strip()
+            if restored_route_id:
+                signal["de3_v4_selected_route_id"] = restored_route_id
         gate_prob = _coerce_float(position_snapshot.get("gate_prob"), math.nan)
         if math.isfinite(gate_prob):
             signal["gate_prob"] = float(gate_prob)
@@ -5899,12 +6740,12 @@ async def run_bot():
             signal["gate_threshold"] = float(gate_threshold)
 
         target_order_id = _coerce_int(
-            position_snapshot.get("target_order_id"),
-            _coerce_int(detected_exit_ids.get("target_order_id"), None),
+            detected_exit_ids.get("target_order_id"),
+            _coerce_int(position_snapshot.get("target_order_id"), None),
         )
         stop_order_id = _coerce_int(
-            position_snapshot.get("stop_order_id"),
-            _coerce_int(detected_exit_ids.get("stop_order_id"), None),
+            detected_exit_ids.get("stop_order_id"),
+            _coerce_int(position_snapshot.get("stop_order_id"), None),
         )
         entry_order_id = _coerce_int(
             position_snapshot.get("entry_order_id", position_snapshot.get("order_id")),
@@ -5932,6 +6773,8 @@ async def run_bot():
         if not isinstance(restored_trade, dict):
             return None
 
+        _refresh_live_de3_management_profile_flags(restored_trade)
+        _merge_restored_live_trade_runtime_state(restored_trade, position_snapshot)
         restored_trade["entry_time"] = entry_time
         restored_trade["bars_held"] = max(
             0,
@@ -5948,6 +6791,8 @@ async def run_bot():
             restored_trade["stop_order_id"] = stop_order_id
         if math.isfinite(stop_price):
             restored_trade["current_stop_price"] = float(stop_price)
+        if math.isfinite(target_price):
+            restored_trade["current_target_price"] = float(target_price)
         return restored_trade
 
     def restore_live_trade_tracking_from_state(
@@ -6005,6 +6850,8 @@ async def run_bot():
                 restored_trades.sort(
                     key=lambda trade: trade.get("entry_time") or datetime.datetime.min.replace(tzinfo=NY_TZ)
                 )
+                for trade in restored_trades:
+                    _refresh_live_de3_management_profile_flags(trade)
                 active_trade = restored_trades[0]
                 parallel_active_trades = restored_trades[1:]
                 client._active_stop_order_id = _coerce_int(active_trade.get("stop_order_id"), None)
@@ -6225,6 +7072,9 @@ async def run_bot():
         exit_price = _coerce_float(metrics.get("exit_price", entry_price), entry_price)
         pnl_points = _coerce_float(metrics.get("pnl_points", 0.0), 0.0)
         pnl_dollars = _coerce_float(metrics.get("pnl_dollars", 0.0), 0.0)
+        pnl_dollars_gross = _coerce_float(metrics.get("pnl_dollars_gross"), pnl_dollars)
+        pnl_fee_dollars = _coerce_float(metrics.get("pnl_fee_dollars"), None)
+        pnl_dollars_net = _coerce_float(metrics.get("pnl_dollars_net"), pnl_dollars)
         trade_label, trade_sub = get_log_strategy_info(trade.get("strategy"), trade)
         if trade_sub:
             trade_label = f"{trade_label}:{trade_sub}"
@@ -6254,6 +7104,9 @@ async def run_bot():
             "exit_price": float(exit_price),
             "pnl_points": float(pnl_points),
             "pnl_dollars": float(pnl_dollars),
+            "pnl_dollars_gross": float(pnl_dollars_gross) if pnl_dollars_gross is not None else None,
+            "pnl_fee_dollars": float(pnl_fee_dollars) if pnl_fee_dollars is not None else None,
+            "pnl_dollars_net": float(pnl_dollars_net) if pnl_dollars_net is not None else None,
             "result": "win" if pnl_dollars > 0.0 else "loss" if pnl_dollars < 0.0 else "flat",
             "source": close_source,
             "order_id": metrics.get("order_id"),
@@ -6363,6 +7216,17 @@ async def run_bot():
         state_changed = False
 
         for trade in list(tracked_live_trades()):
+            bracket_updates = _refresh_live_trade_brackets_from_projectx(
+                client,
+                trade,
+                max_cache_age_sec=2.0,
+            )
+            if bracket_updates:
+                trade.update(bracket_updates)
+                if trade is active_trade:
+                    client._active_stop_order_id = _coerce_int(trade.get("stop_order_id"), None)
+                    client._active_target_order_id = _coerce_int(trade.get("target_order_id"), None)
+                state_changed = True
             tracked_trade_size = max(1, _coerce_int(trade.get("size", 1), 1))
             exit_specs = [
                 ("stop_order_id", "Trade closed (confirmed stop fill)"),
@@ -6390,11 +7254,10 @@ async def run_bot():
                     else:
                         side_name = str(trade.get("side", "") or "").upper()
                         entry_price = _coerce_float(trade.get("entry_price"), market_price)
-                        tp_dist = _coerce_float(trade.get("tp_dist"), 0.0)
-                        if side_name == "LONG":
-                            fill_price = entry_price + tp_dist
-                        else:
-                            fill_price = entry_price - tp_dist
+                        fill_price = _coerce_float(trade.get("current_target_price"), math.nan)
+                        if not math.isfinite(fill_price):
+                            tp_dist = _coerce_float(trade.get("tp_dist"), 0.0)
+                            fill_price = _derive_live_target_price(entry_price, tp_dist, side_name)
                 sibling_order_key = "target_order_id" if order_key == "stop_order_id" else "stop_order_id"
                 sibling_order_id = _coerce_int(trade.get(sibling_order_key), None)
                 if sibling_order_id is not None and sibling_order_id != exit_order_id:
@@ -6653,6 +7516,7 @@ async def run_bot():
         avg_price = _coerce_float(broker_position.get("avg_price"), math.nan)
         open_pnl_dollars = broker_open_pnl
         point_value = max(0.01, _trade_point_value())
+        live_bracket_state: dict[str, Any] = {}
 
         snapshot = {
             "source": "projectx_api",
@@ -6673,10 +7537,21 @@ async def run_bot():
             "point_value": float(point_value),
         }
 
+        signal_entry_price = float("nan")
+        tp_dist = float("nan")
+        current_stop_price = float("nan")
+        current_target_price = float("nan")
+        sl_dist = float("nan")
+        prefer_stop_order_id = None
+        prefer_target_order_id = None
         if isinstance(active_trade, dict):
             signal_entry_price = _coerce_float(active_trade.get("entry_price"), math.nan)
             tp_dist = _coerce_float(active_trade.get("tp_dist"), math.nan)
             current_stop_price = _coerce_float(active_trade.get("current_stop_price"), math.nan)
+            current_target_price = _coerce_float(active_trade.get("current_target_price"), math.nan)
+            sl_dist = _coerce_float(active_trade.get("sl_dist"), math.nan)
+            prefer_stop_order_id = _coerce_int(active_trade.get("stop_order_id"), None)
+            prefer_target_order_id = _coerce_int(active_trade.get("target_order_id"), None)
             entry_time = active_trade.get("entry_time")
             if isinstance(entry_time, datetime.datetime):
                 if entry_time.tzinfo is None:
@@ -6707,24 +7582,75 @@ async def run_bot():
                     "signal_side": active_trade.get("side"),
                 }
             )
+            if _is_de3_v4_trade_management_payload(active_trade):
+                _copy_present_keys(
+                    active_trade,
+                    snapshot,
+                    DE3_LIVE_POSITION_SNAPSHOT_KEYS,
+                )
             if not math.isfinite(_coerce_float(snapshot.get("gate_prob"), math.nan)):
                 snapshot.pop("gate_prob", None)
             if not math.isfinite(_coerce_float(snapshot.get("gate_threshold"), math.nan)):
                 snapshot.pop("gate_threshold", None)
             if not math.isfinite(avg_price) and math.isfinite(signal_entry_price):
                 snapshot["entry_price"] = float(signal_entry_price)
-            if math.isfinite(current_stop_price):
-                snapshot["stop_price"] = float(current_stop_price)
-                snapshot["sl_price"] = float(current_stop_price)
-            elif math.isfinite(signal_entry_price):
-                derived_stop = _derive_live_stop_price(signal_entry_price, _coerce_float(active_trade.get("sl_dist"), 0.0), side)
-                if math.isfinite(derived_stop):
-                    snapshot["stop_price"] = float(derived_stop)
-                    snapshot["sl_price"] = float(derived_stop)
-            if math.isfinite(signal_entry_price) and math.isfinite(tp_dist) and tp_dist > 0.0:
-                target_price = signal_entry_price + tp_dist if side == "LONG" else signal_entry_price - tp_dist
-                snapshot["target_price"] = float(target_price)
-                snapshot["tp_price"] = float(target_price)
+        bracket_reference_price = _coerce_float(snapshot.get("entry_price"), math.nan)
+        expected_stop_price = current_stop_price
+        if not math.isfinite(expected_stop_price):
+            expected_stop_price = _derive_live_stop_price(bracket_reference_price, sl_dist, side)
+        expected_target_price = current_target_price
+        if not math.isfinite(expected_target_price):
+            expected_target_price = _derive_live_target_price(bracket_reference_price, tp_dist, side)
+        try:
+            live_bracket_state = client.get_live_bracket_state(
+                side=side,
+                size=size,
+                reference_price=float(bracket_reference_price) if math.isfinite(bracket_reference_price) else None,
+                expected_stop_price=(
+                    float(expected_stop_price) if math.isfinite(expected_stop_price) else None
+                ),
+                expected_target_price=(
+                    float(expected_target_price) if math.isfinite(expected_target_price) else None
+                ),
+                prefer_stop_order_id=prefer_stop_order_id,
+                prefer_target_order_id=prefer_target_order_id,
+                max_cache_age_sec=2.0,
+            )
+        except Exception as exc:
+            logging.debug("ProjectX live bracket snapshot failed: %s", exc)
+
+        stop_order_id = _coerce_int(
+            live_bracket_state.get("stop_order_id"),
+            prefer_stop_order_id,
+        )
+        target_order_id = _coerce_int(
+            live_bracket_state.get("target_order_id"),
+            prefer_target_order_id,
+        )
+        if stop_order_id is not None:
+            snapshot["stop_order_id"] = stop_order_id
+        if target_order_id is not None:
+            snapshot["target_order_id"] = target_order_id
+
+        stop_price = _coerce_float(
+            live_bracket_state.get("stop_price", live_bracket_state.get("sl_price")),
+            current_stop_price,
+        )
+        if not math.isfinite(stop_price):
+            stop_price = _derive_live_stop_price(bracket_reference_price, sl_dist, side)
+        if math.isfinite(stop_price):
+            snapshot["stop_price"] = float(stop_price)
+            snapshot["sl_price"] = float(stop_price)
+
+        target_price = _coerce_float(
+            live_bracket_state.get("target_price", live_bracket_state.get("tp_price")),
+            current_target_price,
+        )
+        if not math.isfinite(target_price):
+            target_price = _derive_live_target_price(bracket_reference_price, tp_dist, side)
+        if math.isfinite(target_price):
+            snapshot["target_price"] = float(target_price)
+            snapshot["tp_price"] = float(target_price)
         if parallel_active_trades:
             snapshot["parallel_trade_count"] = int(
                 len([trade for trade in parallel_active_trades if isinstance(trade, dict)])
@@ -7468,8 +8394,9 @@ async def run_bot():
                             bank_filter.update(ts, row['high'], row['low'], row['close'])
 
                 restore_persisted_state(last_ts)
-                data_backfilled = True
                 client._runtime_state_persist_ready = True
+                backfill_recent_closed_trades_from_projectx(last_ts, force=True)
+                data_backfilled = True
                 event_logger.log_system_event("STARTUP", "✅ State restored. Bot is ready.", {"status": "READY"})
                 logging.info("✅ State restored from history.")
 
@@ -7577,6 +8504,7 @@ async def run_bot():
             # Only process signals on NEW bars
             # is_new_bar already computed above
             if is_new_bar:
+                backfill_recent_closed_trades_from_projectx(current_time)
                 bar_count += 1
                 logging.info(f"Bar: {current_time.strftime('%Y-%m-%d %H:%M:%S')} ET | Price: {current_price:.2f}")
                 last_processed_bar = current_time
@@ -11288,7 +12216,7 @@ async def run_bot():
                                 del pending_loose_signals[s_name]
                                 signal_executed = True
                                 break
-                        
+
                         # Check New Loose Signals
                         if not signal_executed:
                             for strat in loose_strategies:

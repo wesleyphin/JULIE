@@ -1,0 +1,195 @@
+{
+  "variants": [
+    {
+      "name": "tb_only_0550_plus_af_nyam0560_disp_bias0010",
+      "description": "Reference TB-only plus NY_AM dispersed aligned flow.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0
+    },
+    {
+      "name": "tb_only_0550_plus_af_nyam0560_disp_da002",
+      "description": "TB-only plus NY_AM dispersed aligned flow with mild positive d_alignment_3 filter.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "min_d_alignment_3": 0.02,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0
+    },
+    {
+      "name": "tb_only_0550_plus_af_nyam0560_disp_da005",
+      "description": "TB-only plus NY_AM dispersed aligned flow with stronger positive d_alignment_3 filter.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "min_d_alignment_3": 0.05,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0
+    },
+    {
+      "name": "tb_only_0555_plus_af_nyam0560_disp_bias0010",
+      "description": "Reference higher-CAGR TB-tightened additive candidate.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.555,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0
+    },
+    {
+      "name": "tb_only_0555_plus_af_nyam0560_disp_da002",
+      "description": "TB-tightened additive candidate with mild positive d_alignment_3 filter.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.555,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "min_d_alignment_3": 0.02,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0
+    },
+    {
+      "name": "tb_only_0555_plus_af_nyam0560_disp_da005",
+      "description": "TB-tightened additive candidate with stronger positive d_alignment_3 filter.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.555,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "min_d_alignment_3": 0.05,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0
+    },
+    {
+      "name": "pair_cr0580_tb0550_plus_af_nyam0560_disp_bias0010",
+      "description": "Reference selective CR/TB plus NY_AM dispersed aligned flow.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.58,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0
+    },
+    {
+      "name": "pair_cr0580_tb0550_plus_af_nyam0560_disp_da005",
+      "description": "Selective CR/TB plus NY_AM dispersed aligned flow with stronger positive d_alignment_3 filter.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.58,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "min_d_alignment_3": 0.05,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0
+    }
+  ]
+}

@@ -12,6 +12,10 @@ Generated: 2025-12-10 11:04:38
 
 from zoneinfo import ZoneInfo
 from typing import Dict
+from pathlib import Path
+import json
+
+from config import CONFIG
 import pandas as pd
 import numpy as np
 
@@ -2940,6 +2944,45 @@ SESSION_DEFAULTS = {
     "NY_PM": {"sl_mult": 1.5, "tp_mult": 2.0, "atr_med": 1.73},
 }
 
+VIXMEANREVERSION_LONG_PARAMS = {
+    "SESSION_DEFAULTS": {
+        "ASIA": {"sl_mult": 1.5, "tp_mult": 1.1, "atr_med": 0.57},
+        "LONDON": {"sl_mult": 1.6, "tp_mult": 1.2, "atr_med": 0.93},
+        "NY_AM": {"sl_mult": 1.8, "tp_mult": 1.4, "atr_med": 2.02},
+        "NY_PM": {"sl_mult": 1.7, "tp_mult": 1.3, "atr_med": 1.73},
+    }
+}
+
+CONTINUATION_PARAMS = {}
+try:
+    continuation_path_value = CONFIG.get("CONTINUATION_SLTP_FILE")
+    if continuation_path_value:
+        continuation_path = Path(continuation_path_value)
+        if not continuation_path.is_absolute():
+            continuation_path = Path(__file__).resolve().parent / continuation_path
+        if continuation_path.exists():
+            payload = json.loads(continuation_path.read_text(encoding="utf-8"))
+            session_defaults = payload.get("session_defaults")
+            if isinstance(session_defaults, dict) and session_defaults:
+                clean = {}
+                for session_name, values in session_defaults.items():
+                    if not isinstance(values, dict):
+                        continue
+                    sl_mult = values.get("sl_mult")
+                    tp_mult = values.get("tp_mult")
+                    atr_med = values.get("atr_med")
+                    if sl_mult is None or tp_mult is None:
+                        continue
+                    clean[str(session_name)] = {
+                        "sl_mult": float(sl_mult),
+                        "tp_mult": float(tp_mult),
+                        "atr_med": float(atr_med) if atr_med is not None else 1.5,
+                    }
+                if clean:
+                    CONTINUATION_PARAMS["SESSION_DEFAULTS"] = clean
+except Exception:
+    CONTINUATION_PARAMS = {}
+
 # Map strategy names to their param dicts
 STRATEGY_PARAMS = {
     "Confluence_LONG": CONFLUENCE_LONG_PARAMS,
@@ -2951,7 +2994,10 @@ STRATEGY_PARAMS = {
     "ORB_LONG": ORB_LONG_PARAMS,
     "RegimeAdaptive_LONG": REGIMEADAPTIVE_LONG_PARAMS,
     "RegimeAdaptive_SHORT": REGIMEADAPTIVE_SHORT_PARAMS,
+    "VIXMeanReversion_LONG": VIXMEANREVERSION_LONG_PARAMS,
 }
+if CONTINUATION_PARAMS:
+    STRATEGY_PARAMS["Continuation"] = CONTINUATION_PARAMS
 
 
 class DynamicSLTPEngine:
@@ -3022,9 +3068,18 @@ class DynamicSLTPEngine:
         
         if strategy_name in STRATEGY_PARAMS:
             strat_params = STRATEGY_PARAMS[strategy_name]
-            if hier_key in strat_params:
-                params = strat_params[hier_key]
-                source = 'strategy_hierarchy'
+            if isinstance(strat_params, dict):
+                if hier_key in strat_params:
+                    params = strat_params[hier_key]
+                    source = 'strategy_hierarchy'
+                else:
+                    session_defaults = strat_params.get("SESSION_DEFAULTS")
+                    if isinstance(session_defaults, dict) and session in session_defaults:
+                        params = session_defaults[session]
+                        source = 'strategy_session_default'
+                    elif "DEFAULT" in strat_params and strat_params.get("DEFAULT"):
+                        params = strat_params.get("DEFAULT")
+                        source = 'strategy_default'
         
         # Fallback to session defaults
         if params is None and session in SESSION_DEFAULTS:
@@ -3051,9 +3106,7 @@ class DynamicSLTPEngine:
         sl_dist = round(sl_dist * 4) / 4
         tp_dist = round(tp_dist * 4) / 4
 
-        # THEN enforce minimums AFTER snapping (4.0 SL, 6.0 TP for positive RR)
-        sl_dist = max(sl_dist, 4.0)  # 16 ticks minimum
-        tp_dist = max(tp_dist, 6.0)  # 24 ticks minimum (1.5:1 RR)
+        # No global minimums: distances are already snapped to tick grid above.
 
         return {
             'sl_dist': sl_dist,

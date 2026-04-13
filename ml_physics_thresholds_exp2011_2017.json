@@ -1,0 +1,812 @@
+{
+  "ASIA": {
+    "threshold": 1.0,
+    "short_threshold": 0.0,
+    "avg_pnl": 0.0,
+    "total_pnl": 0.0,
+    "trades": 0,
+    "win_rate": 0.0,
+    "long_trades": 0,
+    "short_trades": 0,
+    "score": -1000000000.0,
+    "policy": "disabled",
+    "disabled_reason": "no_threshold_within_coverage",
+    "hierarchy": {
+      "session_regime_structure": {
+        "high|a2|t1|l0": {
+          "threshold": 0.14455336563256474,
+          "short_threshold": 0.10455336563256475,
+          "trades": 2,
+          "avg_pnl": -0.02299999999999991,
+          "win_rate": 0.5,
+          "policy": "median_margin"
+        },
+        "high|a2|t1|l1": {
+          "threshold": 0.16901438782429282,
+          "short_threshold": 0.12901438782429284,
+          "trades": 2,
+          "avg_pnl": -0.02299999999999991,
+          "win_rate": 0.5,
+          "policy": "median_margin"
+        },
+        "high|a3|t1|l0": {
+          "threshold": 0.15220877272326988,
+          "short_threshold": 0.11220877272326989,
+          "trades": 2,
+          "avg_pnl": -0.02299999999999991,
+          "win_rate": 0.5,
+          "policy": "median_margin"
+        },
+        "high|a3|t1|l1": {
+          "threshold": 0.1911222567413853,
+          "short_threshold": 0.15112225674138532,
+          "trades": 2,
+          "avg_pnl": 1.852,
+          "win_rate": 1.0,
+          "policy": "median_margin"
+        },
+        "high|a3|t1|l2": {
+          "threshold": 0.194944089762383,
+          "short_threshold": 0.15494408976238302,
+          "trades": 2,
+          "avg_pnl": 1.852,
+          "win_rate": 1.0,
+          "policy": "median_margin"
+        },
+        "low|a0|t1|l0": {
+          "threshold": 0.4967836311597261,
+          "short_threshold": 0.060134387325514134,
+          "trades": 5,
+          "avg_pnl": 1.102,
+          "win_rate": 0.8,
+          "policy": "quantile_band"
+        },
+        "low|a0|t1|l1": {
+          "threshold": 0.49263336768811244,
+          "short_threshold": 0.06434385686706748,
+          "trades": 5,
+          "avg_pnl": 1.102,
+          "win_rate": 0.8,
+          "policy": "quantile_band"
+        },
+        "normal|a1|t1|l1": {
+          "threshold": 0.5181369497603013,
+          "short_threshold": 0.05965041671701108,
+          "trades": 2,
+          "avg_pnl": 1.852,
+          "win_rate": 1.0,
+          "policy": "quantile_band"
+        },
+        "normal|a1|t1|l2": {
+          "threshold": 0.4561015936819495,
+          "short_threshold": 0.08884467523150234,
+          "trades": 2,
+          "avg_pnl": -0.02299999999999991,
+          "win_rate": 0.5,
+          "policy": "quantile_band"
+        }
+      },
+      "session_regime": {
+        "high": {
+          "threshold": 0.5448222243177926,
+          "short_threshold": 0.06293375870541885,
+          "trades": 2,
+          "avg_pnl": 1.852,
+          "win_rate": 1.0,
+          "policy": "quantile_band"
+        },
+        "low": {
+          "threshold": 0.5227559654313179,
+          "short_threshold": 0.055296886000515584,
+          "trades": 10,
+          "avg_pnl": 0.3520000000000001,
+          "win_rate": 0.6,
+          "policy": "quantile_band"
+        },
+        "normal": {
+          "threshold": 0.45496394695411324,
+          "short_threshold": 0.08298259900478543,
+          "trades": 4,
+          "avg_pnl": -0.9604999999999999,
+          "win_rate": 0.25,
+          "policy": "quantile_band"
+        }
+      }
+    },
+    "trade_budget": {
+      "coverage_min": null,
+      "coverage_max": 0.08,
+      "coverage_target": 0.03,
+      "coverage_penalty": 0.18
+    },
+    "ev_models": {
+      "enabled": true,
+      "long_model": "model_asia_exp2011_2017_ev_long.joblib",
+      "short_model": "model_asia_exp2011_2017_ev_short.joblib"
+    },
+    "ev_runtime": {
+      "min_ev_points": 1.633744292301664,
+      "min_prob_edge": 0.2,
+      "max_ev_disagreement_points": 0.25,
+      "require_ev_sign_agreement": true,
+      "require_threshold_gate": false,
+      "use_model_predictions": true,
+      "require_trade_gate": true,
+      "min_trade_gate_prob": 0.72,
+      "max_trade_gate_prob": 0.9,
+      "trade_gate_policy": "soft",
+      "trade_gate_penalty_points_per_prob": 2.0,
+      "trade_gate_penalty_cap_points": 1.0,
+      "ev_uncertainty_penalty_points": 0.35,
+      "ev_first": true,
+      "apply_prob_margin_with_model_ev": false,
+      "apply_confidence_gates_with_model_ev": false,
+      "high_vol_min_ev_points": 1.7337442923016642
+    },
+    "settings": {
+      "timeframe_minutes": 5,
+      "horizon_bars": 10,
+      "label_mode": "barrier",
+      "drop_neutral": true,
+      "entry_mode": "next_open",
+      "sl_tp_conflict": "ohlc",
+      "sltp_strategy": "Generic",
+      "thr_min": 0.5,
+      "thr_max": 0.8,
+      "thr_step": 0.01,
+      "thr_score_penalty": 0.8,
+      "threshold_mode": "median_margin",
+      "margin_min": 0.02,
+      "margin_max": 0.25,
+      "margin_step": 0.02,
+      "require_both_sides": true,
+      "defer_guards": true,
+      "fixed_brackets": false,
+      "fixed_sl_atr": null,
+      "fixed_tp_atr": null,
+      "fixed_sl_grid": "",
+      "fixed_tp_grid": "",
+      "min_val_trades": 80,
+      "drop_gap_minutes": 75.0,
+      "max_rows": 0,
+      "coverage_min": null,
+      "coverage_max": 0.08,
+      "coverage_target": 0.03,
+      "coverage_penalty": 0.18,
+      "max_side_share": 0.65,
+      "ev_models_enabled": true,
+      "ev_min_train_samples": 300,
+      "gate_min_ev_points": 0.05,
+      "min_long_trades": 15,
+      "min_short_trades": 15
+    },
+    "gate_threshold": 0.86,
+    "gate": {
+      "coverage": 0.07503005445159465,
+      "precision": 0.9990574929311969,
+      "recall": 0.08227897228906311,
+      "f1": 0.15203671830177856
+    }
+  },
+  "LONDON": {
+    "threshold": 0.4836853387169971,
+    "short_threshold": 0.07800042830928693,
+    "avg_pnl": 1.4027246376811613,
+    "total_pnl": 193.57600000000025,
+    "trades": 138,
+    "win_rate": 0.6811594202898551,
+    "long_trades": 85,
+    "short_trades": 53,
+    "coverage": 0.01197812689870671,
+    "score": 1.34995853017803,
+    "policy": "quantile_band",
+    "center": null,
+    "margin": 0.01475,
+    "hierarchy": {
+      "session_regime_structure": {
+        "high|a2|t1|l0": {
+          "threshold": 0.4754435550715835,
+          "short_threshold": 0.09834934165268548,
+          "trades": 2,
+          "avg_pnl": 3.4770000000000003,
+          "win_rate": 1.0,
+          "policy": "quantile_band"
+        },
+        "high|a2|t1|l1": {
+          "threshold": 0.4890518454635752,
+          "short_threshold": 0.09524994839591863,
+          "trades": 2,
+          "avg_pnl": -0.27300000000000013,
+          "win_rate": 0.5,
+          "policy": "quantile_band"
+        },
+        "high|a2|t1|l2": {
+          "threshold": 0.49551895367371845,
+          "short_threshold": 0.09573133135025562,
+          "trades": 2,
+          "avg_pnl": 3.4770000000000003,
+          "win_rate": 1.0,
+          "policy": "quantile_band"
+        },
+        "high|a3|t1|l0": {
+          "threshold": 0.31196170616944896,
+          "short_threshold": 0.11196170616944898,
+          "trades": 2,
+          "avg_pnl": 3.4770000000000003,
+          "win_rate": 1.0,
+          "policy": "median_margin"
+        },
+        "high|a3|t1|l1": {
+          "threshold": 0.24330038350647706,
+          "short_threshold": 0.16330038350647705,
+          "trades": 5,
+          "avg_pnl": 1.6019999999999999,
+          "win_rate": 0.8,
+          "policy": "median_margin"
+        },
+        "high|a3|t1|l2": {
+          "threshold": 0.4824176539649259,
+          "short_threshold": 0.11207280927795843,
+          "trades": 2,
+          "avg_pnl": 3.4770000000000003,
+          "win_rate": 1.0,
+          "policy": "quantile_band"
+        },
+        "low|a0|t1|l0": {
+          "threshold": 0.3783726999006695,
+          "short_threshold": 0.07798474024067857,
+          "trades": 2,
+          "avg_pnl": 3.4770000000000003,
+          "win_rate": 1.0,
+          "policy": "quantile_band"
+        },
+        "low|a0|t1|l1": {
+          "threshold": 0.18488008226260574,
+          "short_threshold": 0.14488008226260576,
+          "trades": 2,
+          "avg_pnl": 2.602,
+          "win_rate": 1.0,
+          "policy": "median_margin"
+        },
+        "low|a0|t1|l2": {
+          "threshold": 0.34683463278740106,
+          "short_threshold": 0.09427611156214,
+          "trades": 2,
+          "avg_pnl": 3.4770000000000003,
+          "win_rate": 1.0,
+          "policy": "quantile_band"
+        },
+        "normal|a1|t1|l0": {
+          "threshold": 0.4773507247855988,
+          "short_threshold": 0.06653761547433702,
+          "trades": 2,
+          "avg_pnl": 3.4770000000000003,
+          "win_rate": 1.0,
+          "policy": "quantile_band"
+        },
+        "normal|a1|t1|l1": {
+          "threshold": 0.46819344819311615,
+          "short_threshold": 0.07901482686157126,
+          "trades": 2,
+          "avg_pnl": 3.4770000000000003,
+          "win_rate": 1.0,
+          "policy": "quantile_band"
+        },
+        "normal|a1|t1|l2": {
+          "threshold": 0.20123779043446846,
+          "short_threshold": 0.16123779043446848,
+          "trades": 3,
+          "avg_pnl": 0.9353333333333332,
+          "win_rate": 0.6666666666666666,
+          "policy": "median_margin"
+        }
+      },
+      "session_regime": {
+        "high": {
+          "threshold": 0.27643651221355514,
+          "short_threshold": 0.15643651221355517,
+          "trades": 13,
+          "avg_pnl": 1.0827692307692307,
+          "win_rate": 0.6923076923076923,
+          "policy": "median_margin"
+        },
+        "low": {
+          "threshold": 0.3185413483446889,
+          "short_threshold": 0.09651508869820669,
+          "trades": 4,
+          "avg_pnl": 1.3519999999999999,
+          "win_rate": 0.75,
+          "policy": "quantile_band"
+        },
+        "normal": {
+          "threshold": 0.48176040878217863,
+          "short_threshold": 0.06865486485772132,
+          "trades": 3,
+          "avg_pnl": 1.2686666666666666,
+          "win_rate": 0.6666666666666666,
+          "policy": "quantile_band"
+        }
+      }
+    },
+    "trade_budget": {
+      "coverage_min": null,
+      "coverage_max": 0.2,
+      "coverage_target": 0.08,
+      "coverage_penalty": 0.15
+    },
+    "ev_models": {
+      "enabled": true,
+      "long_model": "model_london_exp2011_2017_ev_long.joblib",
+      "short_model": "model_london_exp2011_2017_ev_short.joblib"
+    },
+    "ev_runtime": {
+      "min_ev_points": 2.891355573045448,
+      "min_prob_edge": 0.2,
+      "max_ev_disagreement_points": 0.438665088324062,
+      "require_ev_sign_agreement": true,
+      "require_threshold_gate": false,
+      "use_model_predictions": true,
+      "require_trade_gate": true,
+      "min_trade_gate_prob": 0.72,
+      "max_trade_gate_prob": 0.9,
+      "trade_gate_policy": "soft",
+      "trade_gate_penalty_points_per_prob": 2.0,
+      "trade_gate_penalty_cap_points": 1.0,
+      "ev_uncertainty_penalty_points": 0.35,
+      "ev_first": true,
+      "apply_prob_margin_with_model_ev": false,
+      "apply_confidence_gates_with_model_ev": false,
+      "high_vol_min_ev_points": 2.991355573045448
+    },
+    "settings": {
+      "timeframe_minutes": 5,
+      "horizon_bars": 4,
+      "label_mode": "barrier",
+      "drop_neutral": true,
+      "entry_mode": "next_open",
+      "sl_tp_conflict": "ohlc",
+      "sltp_strategy": "Generic",
+      "thr_min": 0.5,
+      "thr_max": 0.8,
+      "thr_step": 0.01,
+      "thr_score_penalty": 0.5,
+      "threshold_mode": "median_margin",
+      "margin_min": 0.02,
+      "margin_max": 0.25,
+      "margin_step": 0.02,
+      "require_both_sides": true,
+      "defer_guards": true,
+      "fixed_brackets": false,
+      "fixed_sl_atr": null,
+      "fixed_tp_atr": null,
+      "fixed_sl_grid": "",
+      "fixed_tp_grid": "",
+      "min_val_trades": 100,
+      "drop_gap_minutes": 75.0,
+      "max_rows": 0,
+      "coverage_min": null,
+      "coverage_max": 0.2,
+      "coverage_target": 0.08,
+      "coverage_penalty": 0.15,
+      "max_side_share": 0.7,
+      "ev_models_enabled": true,
+      "ev_min_train_samples": 300,
+      "gate_min_ev_points": 0.05,
+      "min_long_trades": 20,
+      "min_short_trades": 20
+    },
+    "gate_threshold": 0.88,
+    "gate": {
+      "coverage": 0.1750063500127,
+      "precision": 0.9989114658925979,
+      "recall": 0.206821425888363,
+      "f1": 0.3426899856849443
+    }
+  },
+  "NY_AM": {
+    "threshold": 0.5421925922084193,
+    "short_threshold": 0.10575881930913379,
+    "avg_pnl": 1.4429090909090936,
+    "total_pnl": 253.95200000000045,
+    "trades": 176,
+    "win_rate": 0.6931818181818182,
+    "long_trades": 103,
+    "short_trades": 73,
+    "coverage": 0.014698513445799232,
+    "score": 1.392583994450369,
+    "policy": "quantile_band",
+    "center": null,
+    "margin": 0.01725,
+    "hierarchy": {
+      "session_regime_structure": {
+        "high|a2|t1|l0": {
+          "threshold": 0.3746551929220503,
+          "short_threshold": 0.33465519292205026,
+          "trades": 3,
+          "avg_pnl": 0.9353333333333332,
+          "win_rate": 0.6666666666666666,
+          "policy": "median_margin"
+        },
+        "high|a2|t1|l1": {
+          "threshold": 0.5559897868857174,
+          "short_threshold": 0.10841459072996255,
+          "trades": 2,
+          "avg_pnl": 3.4770000000000003,
+          "win_rate": 1.0,
+          "policy": "quantile_band"
+        },
+        "high|a2|t1|l2": {
+          "threshold": 0.4818515145947986,
+          "short_threshold": 0.2418515145947986,
+          "trades": 2,
+          "avg_pnl": 0.10199999999999987,
+          "win_rate": 0.5,
+          "policy": "median_margin"
+        },
+        "high|a3|t1|l0": {
+          "threshold": 0.5055812811620886,
+          "short_threshold": 0.14658310294525087,
+          "trades": 3,
+          "avg_pnl": 3.185333333333334,
+          "win_rate": 1.0,
+          "policy": "quantile_band"
+        },
+        "high|a3|t1|l1": {
+          "threshold": 0.5120120685787914,
+          "short_threshold": 0.1520120685787914,
+          "trades": 3,
+          "avg_pnl": 2.602,
+          "win_rate": 1.0,
+          "policy": "median_margin"
+        },
+        "high|a3|t1|l2": {
+          "threshold": 0.41838092449217174,
+          "short_threshold": 0.2583809244921717,
+          "trades": 3,
+          "avg_pnl": 0.9353333333333332,
+          "win_rate": 0.6666666666666666,
+          "policy": "median_margin"
+        },
+        "low|a0|t1|l1": {
+          "threshold": 0.23900206546346478,
+          "short_threshold": 0.1990020654634648,
+          "trades": 2,
+          "avg_pnl": 2.602,
+          "win_rate": 1.0,
+          "policy": "median_margin"
+        },
+        "normal|a1|t1|l0": {
+          "threshold": 0.4878932516182081,
+          "short_threshold": 0.10549982353371534,
+          "trades": 2,
+          "avg_pnl": 3.4770000000000003,
+          "win_rate": 1.0,
+          "policy": "quantile_band"
+        },
+        "normal|a1|t1|l1": {
+          "threshold": 0.45569602262444653,
+          "short_threshold": 0.11859818596225372,
+          "trades": 2,
+          "avg_pnl": 3.4770000000000003,
+          "win_rate": 1.0,
+          "policy": "quantile_band"
+        },
+        "normal|a1|t1|l2": {
+          "threshold": 0.2945241698572415,
+          "short_threshold": 0.25452416985724147,
+          "trades": 3,
+          "avg_pnl": 2.602,
+          "win_rate": 1.0,
+          "policy": "median_margin"
+        }
+      },
+      "session_regime": {
+        "high": {
+          "threshold": 0.5318642414806992,
+          "short_threshold": 0.13220943784243236,
+          "trades": 13,
+          "avg_pnl": 1.852,
+          "win_rate": 0.8461538461538461,
+          "policy": "quantile_band"
+        },
+        "low": {
+          "threshold": 0.4863000141749438,
+          "short_threshold": 0.10001779257619711,
+          "trades": 2,
+          "avg_pnl": 3.4770000000000003,
+          "win_rate": 1.0,
+          "policy": "quantile_band"
+        },
+        "normal": {
+          "threshold": 0.5310989688797852,
+          "short_threshold": 0.10025221538229186,
+          "trades": 3,
+          "avg_pnl": 3.185333333333334,
+          "win_rate": 1.0,
+          "policy": "quantile_band"
+        }
+      }
+    },
+    "trade_budget": {
+      "coverage_min": null,
+      "coverage_max": 0.25,
+      "coverage_target": 0.12,
+      "coverage_penalty": 0.12
+    },
+    "ev_models": {
+      "enabled": true,
+      "long_model": "model_ny_am_exp2011_2017_ev_long.joblib",
+      "short_model": "model_ny_am_exp2011_2017_ev_short.joblib"
+    },
+    "ev_runtime": {
+      "min_ev_points": 1.9419371032237513,
+      "min_prob_edge": 0.2,
+      "max_ev_disagreement_points": 0.42481723379723674,
+      "require_ev_sign_agreement": true,
+      "require_threshold_gate": false,
+      "use_model_predictions": true,
+      "require_trade_gate": true,
+      "min_trade_gate_prob": 0.72,
+      "max_trade_gate_prob": 0.9,
+      "trade_gate_policy": "soft",
+      "trade_gate_penalty_points_per_prob": 2.0,
+      "trade_gate_penalty_cap_points": 1.0,
+      "ev_uncertainty_penalty_points": 0.35,
+      "ev_first": true,
+      "apply_prob_margin_with_model_ev": false,
+      "apply_confidence_gates_with_model_ev": false,
+      "high_vol_min_ev_points": 2.041937103223751
+    },
+    "settings": {
+      "timeframe_minutes": 5,
+      "horizon_bars": 5,
+      "label_mode": "barrier",
+      "drop_neutral": true,
+      "entry_mode": "next_open",
+      "sl_tp_conflict": "ohlc",
+      "sltp_strategy": "Generic",
+      "thr_min": 0.5,
+      "thr_max": 0.8,
+      "thr_step": 0.01,
+      "thr_score_penalty": 0.5,
+      "threshold_mode": "median_margin",
+      "margin_min": 0.02,
+      "margin_max": 0.25,
+      "margin_step": 0.02,
+      "require_both_sides": true,
+      "defer_guards": true,
+      "fixed_brackets": false,
+      "fixed_sl_atr": null,
+      "fixed_tp_atr": null,
+      "fixed_sl_grid": "",
+      "fixed_tp_grid": "",
+      "min_val_trades": 100,
+      "drop_gap_minutes": 75.0,
+      "max_rows": 0,
+      "coverage_min": null,
+      "coverage_max": 0.25,
+      "coverage_target": 0.12,
+      "coverage_penalty": 0.12,
+      "max_side_share": 0.7,
+      "ev_models_enabled": true,
+      "ev_min_train_samples": 300,
+      "gate_min_ev_points": 0.05,
+      "min_long_trades": 20,
+      "min_short_trades": 20
+    },
+    "gate_threshold": 0.9,
+    "gate": {
+      "coverage": 0.22502178908168924,
+      "precision": 1.0,
+      "recall": 0.22816742990278782,
+      "f1": 0.37155753254399165
+    }
+  },
+  "NY_PM": {
+    "threshold": 0.5331469094408904,
+    "short_threshold": 0.0771718388301166,
+    "avg_pnl": 1.4346530612244834,
+    "total_pnl": 351.4899999999984,
+    "trades": 245,
+    "win_rate": 0.6938775510204082,
+    "long_trades": 155,
+    "short_trades": 90,
+    "coverage": 0.017581628991747398,
+    "score": 1.387290777718002,
+    "policy": "quantile_band",
+    "center": null,
+    "margin": 0.022250000000000002,
+    "hierarchy": {
+      "session_regime_structure": {
+        "high|a2|t1|l0": {
+          "threshold": 0.541854712428275,
+          "short_threshold": 0.08052768325839363,
+          "trades": 2,
+          "avg_pnl": 0.10199999999999987,
+          "win_rate": 0.5,
+          "policy": "quantile_band"
+        },
+        "high|a2|t1|l1": {
+          "threshold": 0.5682507789802551,
+          "short_threshold": 0.08825077898025518,
+          "trades": 2,
+          "avg_pnl": 0.10199999999999987,
+          "win_rate": 0.5,
+          "policy": "median_margin"
+        },
+        "high|a2|t1|l2": {
+          "threshold": 0.4519989683260599,
+          "short_threshold": 0.2119989683260599,
+          "trades": 2,
+          "avg_pnl": 3.4770000000000003,
+          "win_rate": 1.0,
+          "policy": "median_margin"
+        },
+        "high|a3|t1|l0": {
+          "threshold": 0.34007866349943355,
+          "short_threshold": 0.2600786634994336,
+          "trades": 2,
+          "avg_pnl": 3.4770000000000003,
+          "win_rate": 1.0,
+          "policy": "median_margin"
+        },
+        "high|a3|t1|l2": {
+          "threshold": 0.48094243805379255,
+          "short_threshold": 0.08094243805379261,
+          "trades": 2,
+          "avg_pnl": 3.4770000000000003,
+          "win_rate": 1.0,
+          "policy": "median_margin"
+        },
+        "low|a0|t1|l0": {
+          "threshold": 0.4387733897819425,
+          "short_threshold": 0.07877338978194254,
+          "trades": 2,
+          "avg_pnl": -0.27300000000000013,
+          "win_rate": 0.5,
+          "policy": "median_margin"
+        },
+        "low|a0|t1|l1": {
+          "threshold": 0.4894549611711942,
+          "short_threshold": 0.09764528700976881,
+          "trades": 2,
+          "avg_pnl": 0.10199999999999987,
+          "win_rate": 0.5,
+          "policy": "quantile_band"
+        },
+        "low|a0|t1|l2": {
+          "threshold": 0.28319525229188275,
+          "short_threshold": 0.24319525229188274,
+          "trades": 2,
+          "avg_pnl": 2.602,
+          "win_rate": 1.0,
+          "policy": "median_margin"
+        },
+        "normal|a1|t1|l0": {
+          "threshold": 0.5107404065300724,
+          "short_threshold": 0.07074040653007233,
+          "trades": 2,
+          "avg_pnl": 3.4770000000000003,
+          "win_rate": 1.0,
+          "policy": "median_margin"
+        },
+        "normal|a1|t1|l1": {
+          "threshold": 0.5240137446753302,
+          "short_threshold": 0.07231581562822771,
+          "trades": 2,
+          "avg_pnl": 3.4770000000000003,
+          "win_rate": 1.0,
+          "policy": "quantile_band"
+        },
+        "normal|a1|t1|l2": {
+          "threshold": 0.453828041842984,
+          "short_threshold": 0.13382804184298394,
+          "trades": 2,
+          "avg_pnl": 2.602,
+          "win_rate": 1.0,
+          "policy": "median_margin"
+        }
+      },
+      "session_regime": {
+        "high": {
+          "threshold": 0.4524083215739714,
+          "short_threshold": 0.17240832157397143,
+          "trades": 8,
+          "avg_pnl": 2.82075,
+          "win_rate": 1.0,
+          "policy": "median_margin"
+        },
+        "low": {
+          "threshold": 0.507120696000524,
+          "short_threshold": 0.07702416010298976,
+          "trades": 2,
+          "avg_pnl": 3.4770000000000003,
+          "win_rate": 1.0,
+          "policy": "quantile_band"
+        },
+        "normal": {
+          "threshold": 0.3269231855036055,
+          "short_threshold": 0.2469231855036055,
+          "trades": 7,
+          "avg_pnl": 0.459142857142857,
+          "win_rate": 0.5714285714285714,
+          "policy": "median_margin"
+        }
+      }
+    },
+    "trade_budget": {
+      "coverage_min": null,
+      "coverage_max": 0.12,
+      "coverage_target": 0.05,
+      "coverage_penalty": 0.18
+    },
+    "ev_models": {
+      "enabled": true,
+      "long_model": "model_ny_pm_exp2011_2017_ev_long.joblib",
+      "short_model": "model_ny_pm_exp2011_2017_ev_short.joblib"
+    },
+    "ev_runtime": {
+      "min_ev_points": 2.273871739728237,
+      "min_prob_edge": 0.2,
+      "max_ev_disagreement_points": 1.0734583707821412,
+      "require_ev_sign_agreement": true,
+      "require_threshold_gate": false,
+      "use_model_predictions": true,
+      "require_trade_gate": true,
+      "min_trade_gate_prob": 0.72,
+      "max_trade_gate_prob": 0.9,
+      "trade_gate_policy": "soft",
+      "trade_gate_penalty_points_per_prob": 2.0,
+      "trade_gate_penalty_cap_points": 1.0,
+      "ev_uncertainty_penalty_points": 0.35,
+      "ev_first": true,
+      "apply_prob_margin_with_model_ev": false,
+      "apply_confidence_gates_with_model_ev": false,
+      "high_vol_min_ev_points": 2.373871739728237
+    },
+    "settings": {
+      "timeframe_minutes": 5,
+      "horizon_bars": 6,
+      "label_mode": "barrier",
+      "drop_neutral": true,
+      "entry_mode": "next_open",
+      "sl_tp_conflict": "ohlc",
+      "sltp_strategy": "Generic",
+      "thr_min": 0.5,
+      "thr_max": 0.82,
+      "thr_step": 0.01,
+      "thr_score_penalty": 0.65,
+      "threshold_mode": "median_margin",
+      "margin_min": 0.02,
+      "margin_max": 0.25,
+      "margin_step": 0.02,
+      "require_both_sides": true,
+      "defer_guards": true,
+      "fixed_brackets": false,
+      "fixed_sl_atr": null,
+      "fixed_tp_atr": null,
+      "fixed_sl_grid": "",
+      "fixed_tp_grid": "",
+      "min_val_trades": 120,
+      "drop_gap_minutes": 75.0,
+      "max_rows": 0,
+      "coverage_min": null,
+      "coverage_max": 0.12,
+      "coverage_target": 0.05,
+      "coverage_penalty": 0.18,
+      "max_side_share": 0.65,
+      "ev_models_enabled": true,
+      "ev_min_train_samples": 300,
+      "gate_min_ev_points": 0.05,
+      "min_long_trades": 24,
+      "min_short_trades": 24
+    },
+    "gate_threshold": 0.88,
+    "gate": {
+      "coverage": 0.10011468663563382,
+      "precision": 0.9993261455525606,
+      "recall": 0.10085690968443961,
+      "f1": 0.18322213985668398
+    }
+  }
+}

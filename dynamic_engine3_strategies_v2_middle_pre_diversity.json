@@ -1,0 +1,5234 @@
+{
+  "version": "v2",
+  "generated_at": "2026-03-03T07:49:15.881875-05:00",
+  "source_csv": "es_master.parquet",
+  "symbol_mode": "AUTO_BY_DAY",
+  "symbol_map_size": 4674,
+  "date_range": {
+    "start": "2011-01-02T18:00:00-05:00",
+    "end": "2024-12-31T16:59:00-05:00"
+  },
+  "settings": {
+    "thresholds": [
+      2.0,
+      3.0,
+      4.0,
+      5.0,
+      6.0,
+      7.0,
+      8.0,
+      9.0,
+      10.0,
+      12.0,
+      15.0
+    ],
+    "sl_list": [
+      3.0,
+      4.0,
+      5.0,
+      6.0,
+      8.0,
+      10.0,
+      12.0,
+      15.0
+    ],
+    "rr_list": [
+      1.0,
+      1.25,
+      1.5,
+      2.0,
+      2.5
+    ],
+    "min_tp": 4.0,
+    "max_tp": 30.0,
+    "min_trades": 90,
+    "min_win_rate": 0.0,
+    "min_avg_pnl": 0.0,
+    "recent_start": "2024-01-01",
+    "recent_end": "2024-12-31",
+    "recent_mode": "validation_only",
+    "folds": null,
+    "min_fold_trades": null,
+    "min_fold_win_rate": null,
+    "min_fold_avg_pnl": null,
+    "min_positive_folds": null,
+    "min_positive_ratio": null,
+    "loro": false,
+    "min_regime_trades": null,
+    "min_regime_avg_pnl": null,
+    "min_positive_regimes": null,
+    "max_per_bucket": 4,
+    "max_horizon": 180,
+    "limit_to_session": true,
+    "exit_at_horizon": "close",
+    "assume_sl_first": false,
+    "trade_resolution": "1m",
+    "workers": 1,
+    "acceleration": "cpu",
+    "mode": "fixed_split",
+    "execution": {
+      "enforce_no_new_entries_window": true,
+      "no_new_entries_start_hour_et": 16,
+      "no_new_entries_end_hour_et": 18,
+      "force_flat_at_hour_enabled": true,
+      "force_flat_hour_et": 16
+    },
+    "plateau": {
+      "enabled": true,
+      "min_neighbors": 4,
+      "neighbor_def": "adjacent_grid",
+      "min_plateau_score": 0.0
+    },
+    "scoring": {
+      "lambda_std": 0.95,
+      "gamma_dd": 0.5,
+      "min_oos_trades": 90,
+      "min_profitable_blocks": 3,
+      "min_train_trades": 55
+    }
+  },
+  "split": {
+    "mode": "fixed_split",
+    "train_end": "2023-12-31T23:59:59.999999-05:00",
+    "valid_start": "2024-01-01T00:00:00-05:00",
+    "valid_end": "2024-12-31T23:59:59.999999-05:00",
+    "purge_bars": 200
+  },
+  "strategies": [
+    {
+      "TF": "15min",
+      "Session": "00-03",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4909560723514212,
+      "Trades": 1161,
+      "Avg_PnL": 0.5055986218776917,
+      "Score": -1.1352790414511467,
+      "Recent": {
+        "trades": 113,
+        "wins": 54,
+        "win_rate": 0.4778761061946903,
+        "avg_pnl": 0.033185840707964605,
+        "profit_factor": 1.0128095644748079
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.38725081135357076,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 1161,
+        "wins": 570,
+        "win_rate": 0.4909560723514212,
+        "avg_pnl": 0.5055986218776917,
+        "profit_factor": 1.1850421625029552,
+        "total_pnl": 587.0,
+        "score_train": 0.4272036133217856
+      },
+      "OOS": {
+        "trades": 113,
+        "wins": 54,
+        "win_rate": 0.4778761061946903,
+        "avg_pnl": 0.033185840707964605,
+        "profit_factor": 1.0128095644748079,
+        "total_pnl": 3.75,
+        "stability_score": -1.1352790414511467,
+        "mean_oos_avg_pnl": 0.6001553152323976,
+        "std_oos_avg_pnl": 1.0172279579719736,
+        "max_oos_drawdown_norm": 1.5381355932203389,
+        "sharpe_like": 0.05303134845218729
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 5,
+            "wins": 3,
+            "win_rate": 0.6,
+            "avg_pnl": 0.85,
+            "total_pnl": 4.25,
+            "profit_factor": 2.2142857142857144
+          },
+          {
+            "block": "2024Q2",
+            "trades": 14,
+            "wins": 7,
+            "win_rate": 0.5,
+            "avg_pnl": 2.0,
+            "total_pnl": 28.0,
+            "profit_factor": 2.75
+          },
+          {
+            "block": "2024Q3",
+            "trades": 53,
+            "wins": 26,
+            "win_rate": 0.49056603773584906,
+            "avg_pnl": -0.839622641509434,
+            "total_pnl": -44.5,
+            "profit_factor": 0.7438848920863309
+          },
+          {
+            "block": "2024Q4",
+            "trades": 41,
+            "wins": 18,
+            "win_rate": 0.43902439024390244,
+            "avg_pnl": 0.3902439024390244,
+            "total_pnl": 16.0,
+            "profit_factor": 1.1608040201005025
+          }
+        ],
+        "mean_avg_pnl": 0.6001553152323976,
+        "std_avg_pnl": 1.0172279579719736,
+        "positive_blocks": 3,
+        "max_drawdown": 90.75,
+        "max_drawdown_norm": 1.5381355932203389,
+        "sharpe_like": 0.05303134845218729
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "00-03",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.48698035632708997,
+      "Trades": 2189,
+      "Avg_PnL": 0.3201233439926907,
+      "Score": -1.1906525702494606,
+      "Recent": {
+        "trades": 258,
+        "wins": 121,
+        "win_rate": 0.4689922480620155,
+        "avg_pnl": 0.1501937984496124,
+        "profit_factor": 1.0708733424782808
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.26994402779426263,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 2189,
+        "wins": 1066,
+        "win_rate": 0.48698035632708997,
+        "avg_pnl": 0.3201233439926907,
+        "profit_factor": 1.1251954084595113,
+        "total_pnl": 700.75,
+        "score_train": 0.27150766327628445
+      },
+      "OOS": {
+        "trades": 258,
+        "wins": 121,
+        "win_rate": 0.4689922480620155,
+        "avg_pnl": 0.1501937984496124,
+        "profit_factor": 1.0708733424782808,
+        "total_pnl": 38.75,
+        "stability_score": -1.1906525702494606,
+        "mean_oos_avg_pnl": 0.1326585588142382,
+        "std_oos_avg_pnl": 0.7309024818675379,
+        "max_oos_drawdown_norm": 1.2579075425790753,
+        "sharpe_like": 0.4148125116661199
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 34,
+            "wins": 12,
+            "win_rate": 0.35294117647058826,
+            "avg_pnl": -0.7720588235294118,
+            "total_pnl": -26.25,
+            "profit_factor": 0.5116279069767442
+          },
+          {
+            "block": "2024Q2",
+            "trades": 45,
+            "wins": 24,
+            "win_rate": 0.5333333333333333,
+            "avg_pnl": 1.2555555555555555,
+            "total_pnl": 56.5,
+            "profit_factor": 2.195767195767196
+          },
+          {
+            "block": "2024Q3",
+            "trades": 106,
+            "wins": 56,
+            "win_rate": 0.5283018867924528,
+            "avg_pnl": 0.15330188679245282,
+            "total_pnl": 16.25,
+            "profit_factor": 1.060747663551402
+          },
+          {
+            "block": "2024Q4",
+            "trades": 73,
+            "wins": 29,
+            "win_rate": 0.3972602739726027,
+            "avg_pnl": -0.10616438356164383,
+            "total_pnl": -7.75,
+            "profit_factor": 0.9565217391304348
+          }
+        ],
+        "mean_avg_pnl": 0.1326585588142382,
+        "std_avg_pnl": 0.7309024818675379,
+        "positive_blocks": 2,
+        "max_drawdown": 129.25,
+        "max_drawdown_norm": 1.2579075425790753,
+        "sharpe_like": 0.4148125116661199
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Long_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4864677307425399,
+      "Trades": 1441,
+      "Avg_PnL": 0.25728660652324775,
+      "Score": -0.7575116043640615,
+      "Recent": {
+        "trades": 176,
+        "wins": 94,
+        "win_rate": 0.5340909090909091,
+        "avg_pnl": 0.48579545454545453,
+        "profit_factor": 1.1858695652173914
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.19019414489898417,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 1441,
+        "wins": 701,
+        "win_rate": 0.4864677307425399,
+        "avg_pnl": 0.25728660652324775,
+        "profit_factor": 1.079051172707889,
+        "total_pnl": 370.75,
+        "score_train": 0.22034439554976182
+      },
+      "OOS": {
+        "trades": 176,
+        "wins": 94,
+        "win_rate": 0.5340909090909091,
+        "avg_pnl": 0.48579545454545453,
+        "profit_factor": 1.1858695652173914,
+        "total_pnl": 85.5,
+        "stability_score": -0.7575116043640615,
+        "mean_oos_avg_pnl": 0.29960664335664333,
+        "std_oos_avg_pnl": 0.7928386095718463,
+        "max_oos_drawdown_norm": 0.6078431372549019,
+        "sharpe_like": 0.9179713625893351
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 22,
+            "wins": 13,
+            "win_rate": 0.5909090909090909,
+            "avg_pnl": 0.9772727272727273,
+            "total_pnl": 21.5,
+            "profit_factor": 1.5088757396449703
+          },
+          {
+            "block": "2024Q2",
+            "trades": 24,
+            "wins": 12,
+            "win_rate": 0.5,
+            "avg_pnl": -0.8958333333333334,
+            "total_pnl": -21.5,
+            "profit_factor": 0.6277056277056277
+          },
+          {
+            "block": "2024Q3",
+            "trades": 78,
+            "wins": 42,
+            "win_rate": 0.5384615384615384,
+            "avg_pnl": 1.0544871794871795,
+            "total_pnl": 82.25,
+            "profit_factor": 1.3696629213483147
+          },
+          {
+            "block": "2024Q4",
+            "trades": 52,
+            "wins": 27,
+            "win_rate": 0.5192307692307693,
+            "avg_pnl": 0.0625,
+            "total_pnl": 3.25,
+            "profit_factor": 1.0236363636363637
+          }
+        ],
+        "mean_avg_pnl": 0.29960664335664333,
+        "std_avg_pnl": 0.7928386095718463,
+        "positive_blocks": 3,
+        "max_drawdown": 77.5,
+        "max_drawdown_norm": 0.6078431372549019,
+        "sharpe_like": 0.9179713625893351
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.48572628043660787,
+      "Trades": 2382,
+      "Avg_PnL": 0.16981528127623846,
+      "Score": -1.0633042996978408,
+      "Recent": {
+        "trades": 310,
+        "wins": 154,
+        "win_rate": 0.4967741935483871,
+        "avg_pnl": 0.15483870967741936,
+        "profit_factor": 1.0593508500772797
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.10882357962399652,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 2382,
+        "wins": 1157,
+        "win_rate": 0.48572628043660787,
+        "avg_pnl": 0.16981528127623846,
+        "profit_factor": 1.0570521861777151,
+        "total_pnl": 404.5,
+        "score_train": 0.15320731769417778
+      },
+      "OOS": {
+        "trades": 310,
+        "wins": 154,
+        "win_rate": 0.4967741935483871,
+        "avg_pnl": 0.15483870967741936,
+        "profit_factor": 1.0593508500772797,
+        "total_pnl": 48.0,
+        "stability_score": -1.0633042996978408,
+        "mean_oos_avg_pnl": -0.0422050364758698,
+        "std_oos_avg_pnl": 0.5843428718424487,
+        "max_oos_drawdown_norm": 0.9319470699432892,
+        "sharpe_like": 0.40417283464963233
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 54,
+            "wins": 21,
+            "win_rate": 0.3888888888888889,
+            "avg_pnl": -0.7361111111111112,
+            "total_pnl": -39.75,
+            "profit_factor": 0.7367549668874173
+          },
+          {
+            "block": "2024Q2",
+            "trades": 55,
+            "wins": 28,
+            "win_rate": 0.509090909090909,
+            "avg_pnl": -0.35454545454545455,
+            "total_pnl": -19.5,
+            "profit_factor": 0.8550185873605948
+          },
+          {
+            "block": "2024Q3",
+            "trades": 120,
+            "wins": 63,
+            "win_rate": 0.525,
+            "avg_pnl": 0.8354166666666667,
+            "total_pnl": 100.25,
+            "profit_factor": 1.3195219123505977
+          },
+          {
+            "block": "2024Q4",
+            "trades": 81,
+            "wins": 42,
+            "win_rate": 0.5185185185185185,
+            "avg_pnl": 0.08641975308641975,
+            "total_pnl": 7.0,
+            "profit_factor": 1.0334128878281623
+          }
+        ],
+        "mean_avg_pnl": -0.0422050364758698,
+        "std_avg_pnl": 0.5843428718424487,
+        "positive_blocks": 2,
+        "max_drawdown": 123.25,
+        "max_drawdown_norm": 0.9319470699432892,
+        "sharpe_like": 0.40417283464963233
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.5168195718654435,
+      "Trades": 981,
+      "Avg_PnL": 0.5015290519877675,
+      "Score": 1.5177504372638813,
+      "Recent": {
+        "trades": 102,
+        "wins": 61,
+        "win_rate": 0.5980392156862745,
+        "avg_pnl": 1.9754901960784315,
+        "profit_factor": 1.7654320987654322
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.4030107139516175,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 981,
+        "wins": 507,
+        "win_rate": 0.5168195718654435,
+        "avg_pnl": 0.5015290519877675,
+        "profit_factor": 1.1343528126706717,
+        "total_pnl": 492.0,
+        "score_train": 0.5486034769857218
+      },
+      "OOS": {
+        "trades": 102,
+        "wins": 61,
+        "win_rate": 0.5980392156862745,
+        "avg_pnl": 1.9754901960784315,
+        "profit_factor": 1.7654320987654322,
+        "total_pnl": 201.5,
+        "stability_score": 1.5177504372638813,
+        "mean_oos_avg_pnl": 1.840075433825434,
+        "std_oos_avg_pnl": 0.2745738180402807,
+        "max_oos_drawdown_norm": 0.12295973884657237,
+        "sharpe_like": 2.4573739535042822
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 12,
+            "wins": 7,
+            "win_rate": 0.5833333333333334,
+            "avg_pnl": 1.4166666666666667,
+            "total_pnl": 17.0,
+            "profit_factor": 3.72
+          },
+          {
+            "block": "2024Q2",
+            "trades": 11,
+            "wins": 6,
+            "win_rate": 0.5454545454545454,
+            "avg_pnl": 1.9090909090909092,
+            "total_pnl": 21.0,
+            "profit_factor": 2.076923076923077
+          },
+          {
+            "block": "2024Q3",
+            "trades": 52,
+            "wins": 33,
+            "win_rate": 0.6346153846153846,
+            "avg_pnl": 2.1826923076923075,
+            "total_pnl": 113.5,
+            "profit_factor": 1.7229299363057324
+          },
+          {
+            "block": "2024Q4",
+            "trades": 27,
+            "wins": 15,
+            "win_rate": 0.5555555555555556,
+            "avg_pnl": 1.8518518518518519,
+            "total_pnl": 50.0,
+            "profit_factor": 1.6211180124223603
+          }
+        ],
+        "mean_avg_pnl": 1.840075433825434,
+        "std_avg_pnl": 0.2745738180402807,
+        "positive_blocks": 4,
+        "max_drawdown": 28.25,
+        "max_drawdown_norm": 0.12295973884657237,
+        "sharpe_like": 2.4573739535042822
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.510989010989011,
+      "Trades": 1456,
+      "Avg_PnL": 0.3135302197802198,
+      "Score": 0.013777520518998998,
+      "Recent": {
+        "trades": 180,
+        "wins": 105,
+        "win_rate": 0.5833333333333334,
+        "avg_pnl": 1.2875,
+        "profit_factor": 1.4878947368421052
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.28611626927599154,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 1456,
+        "wins": 744,
+        "win_rate": 0.510989010989011,
+        "avg_pnl": 0.3135302197802198,
+        "profit_factor": 1.0877209838585704,
+        "total_pnl": 456.5,
+        "score_train": 0.3831883071770656
+      },
+      "OOS": {
+        "trades": 180,
+        "wins": 105,
+        "win_rate": 0.5833333333333334,
+        "avg_pnl": 1.2875,
+        "profit_factor": 1.4878947368421052,
+        "total_pnl": 231.75,
+        "stability_score": 0.013777520518998998,
+        "mean_oos_avg_pnl": 0.9454950142450143,
+        "std_oos_avg_pnl": 0.8347598332127392,
+        "max_oos_drawdown_norm": 0.2773913043478261,
+        "sharpe_like": 2.2508557833229923
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 27,
+            "wins": 14,
+            "win_rate": 0.5185185185185185,
+            "avg_pnl": 0.7685185185185185,
+            "total_pnl": 20.75,
+            "profit_factor": 1.664
+          },
+          {
+            "block": "2024Q2",
+            "trades": 26,
+            "wins": 12,
+            "win_rate": 0.46153846153846156,
+            "avg_pnl": -0.23076923076923078,
+            "total_pnl": -6.0,
+            "profit_factor": 0.9245283018867925
+          },
+          {
+            "block": "2024Q3",
+            "trades": 75,
+            "wins": 49,
+            "win_rate": 0.6533333333333333,
+            "avg_pnl": 2.1,
+            "total_pnl": 157.5,
+            "profit_factor": 1.7216494845360826
+          },
+          {
+            "block": "2024Q4",
+            "trades": 52,
+            "wins": 30,
+            "win_rate": 0.5769230769230769,
+            "avg_pnl": 1.1442307692307692,
+            "total_pnl": 59.5,
+            "profit_factor": 1.4075342465753424
+          }
+        ],
+        "mean_avg_pnl": 0.9454950142450143,
+        "std_avg_pnl": 0.8347598332127392,
+        "positive_blocks": 3,
+        "max_drawdown": 79.75,
+        "max_drawdown_norm": 0.2773913043478261,
+        "sharpe_like": 2.2508557833229923
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.519469405220368,
+      "Trades": 2337,
+      "Avg_PnL": 0.24657680787334188,
+      "Score": -0.5698758608544676,
+      "Recent": {
+        "trades": 293,
+        "wins": 157,
+        "win_rate": 0.5358361774744027,
+        "avg_pnl": 0.7636518771331058,
+        "profit_factor": 1.2818897637795275
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.3418000217767396,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 2337,
+        "wins": 1214,
+        "win_rate": 0.519469405220368,
+        "avg_pnl": 0.24657680787334188,
+        "profit_factor": 1.077190984896688,
+        "total_pnl": 576.25,
+        "score_train": 0.37766989010284807
+      },
+      "OOS": {
+        "trades": 293,
+        "wins": 157,
+        "win_rate": 0.5358361774744027,
+        "avg_pnl": 0.7636518771331058,
+        "profit_factor": 1.2818897637795275,
+        "total_pnl": 223.75,
+        "stability_score": -0.5698758608544676,
+        "mean_oos_avg_pnl": 0.46463575797291395,
+        "std_oos_avg_pnl": 0.8858894233270683,
+        "max_oos_drawdown_norm": 0.3858333333333333,
+        "sharpe_like": 1.7652512259298834
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 50,
+            "wins": 23,
+            "win_rate": 0.46,
+            "avg_pnl": -0.445,
+            "total_pnl": -22.25,
+            "profit_factor": 0.8013392857142857
+          },
+          {
+            "block": "2024Q2",
+            "trades": 50,
+            "wins": 22,
+            "win_rate": 0.44,
+            "avg_pnl": -0.335,
+            "total_pnl": -16.75,
+            "profit_factor": 0.8852739726027398
+          },
+          {
+            "block": "2024Q3",
+            "trades": 109,
+            "wins": 64,
+            "win_rate": 0.5871559633027523,
+            "avg_pnl": 1.6444954128440368,
+            "total_pnl": 179.25,
+            "profit_factor": 1.5805668016194332
+          },
+          {
+            "block": "2024Q4",
+            "trades": 84,
+            "wins": 48,
+            "win_rate": 0.5714285714285714,
+            "avg_pnl": 0.9940476190476191,
+            "total_pnl": 83.5,
+            "profit_factor": 1.36784140969163
+          }
+        ],
+        "mean_avg_pnl": 0.46463575797291395,
+        "std_avg_pnl": 0.8858894233270683,
+        "positive_blocks": 2,
+        "max_drawdown": 115.75,
+        "max_drawdown_norm": 0.3858333333333333,
+        "sharpe_like": 1.7652512259298834
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.5183374083129584,
+      "Trades": 4090,
+      "Avg_PnL": 0.21809290953545232,
+      "Score": -0.8676355961132507,
+      "Recent": {
+        "trades": 510,
+        "wins": 266,
+        "win_rate": 0.5215686274509804,
+        "avg_pnl": 0.32401960784313727,
+        "profit_factor": 1.1215967623252392
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.3330927489366012,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 4090,
+        "wins": 2120,
+        "win_rate": 0.5183374083129584,
+        "avg_pnl": 0.21809290953545232,
+        "profit_factor": 1.0788490862080395,
+        "total_pnl": 892.0,
+        "score_train": 0.3522369868604125
+      },
+      "OOS": {
+        "trades": 510,
+        "wins": 266,
+        "win_rate": 0.5215686274509804,
+        "avg_pnl": 0.32401960784313727,
+        "profit_factor": 1.1215967623252392,
+        "total_pnl": 165.25,
+        "stability_score": -0.8676355961132507,
+        "mean_oos_avg_pnl": 0.1946899551066218,
+        "std_oos_avg_pnl": 0.7863311015107195,
+        "max_oos_drawdown_norm": 0.630622009569378,
+        "sharpe_like": 1.0487726975517349
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 108,
+            "wins": 53,
+            "win_rate": 0.49074074074074076,
+            "avg_pnl": -0.2222222222222222,
+            "total_pnl": -24.0,
+            "profit_factor": 0.8980891719745223
+          },
+          {
+            "block": "2024Q2",
+            "trades": 110,
+            "wins": 51,
+            "win_rate": 0.4636363636363636,
+            "avg_pnl": -0.5363636363636364,
+            "total_pnl": -59.0,
+            "profit_factor": 0.8018471872376155
+          },
+          {
+            "block": "2024Q3",
+            "trades": 162,
+            "wins": 95,
+            "win_rate": 0.5864197530864198,
+            "avg_pnl": 1.5123456790123457,
+            "total_pnl": 245.0,
+            "profit_factor": 1.5635422656699252
+          },
+          {
+            "block": "2024Q4",
+            "trades": 130,
+            "wins": 67,
+            "win_rate": 0.5153846153846153,
+            "avg_pnl": 0.025,
+            "total_pnl": 3.25,
+            "profit_factor": 1.008312020460358
+          }
+        ],
+        "mean_avg_pnl": 0.1946899551066218,
+        "std_avg_pnl": 0.7863311015107195,
+        "positive_blocks": 2,
+        "max_drawdown": 164.75,
+        "max_drawdown_norm": 0.630622009569378,
+        "sharpe_like": 1.0487726975517349
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.5014436958614052,
+      "Trades": 2078,
+      "Avg_PnL": 0.28873917228103946,
+      "Score": 0.031090840143369353,
+      "Recent": {
+        "trades": 301,
+        "wins": 153,
+        "win_rate": 0.5083056478405316,
+        "avg_pnl": 0.6901993355481728,
+        "profit_factor": 1.2417102966841187
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.28721897967859666,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 2078,
+        "wins": 1042,
+        "win_rate": 0.5014436958614052,
+        "avg_pnl": 0.28873917228103946,
+        "profit_factor": 1.087070091423596,
+        "total_pnl": 600.0,
+        "score_train": 0.31804290904611343
+      },
+      "OOS": {
+        "trades": 301,
+        "wins": 153,
+        "win_rate": 0.5083056478405316,
+        "avg_pnl": 0.6901993355481728,
+        "profit_factor": 1.2417102966841187,
+        "total_pnl": 207.75,
+        "stability_score": 0.031090840143369353,
+        "mean_oos_avg_pnl": 0.6559294170822034,
+        "std_oos_avg_pnl": 0.5037651523114142,
+        "max_oos_drawdown_norm": 0.2925233644859813,
+        "sharpe_like": 1.546376991808249
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 63,
+            "wins": 29,
+            "win_rate": 0.4603174603174603,
+            "avg_pnl": 0.10714285714285714,
+            "total_pnl": 6.75,
+            "profit_factor": 1.045
+          },
+          {
+            "block": "2024Q2",
+            "trades": 71,
+            "wins": 39,
+            "win_rate": 0.5492957746478874,
+            "avg_pnl": 1.278169014084507,
+            "total_pnl": 90.75,
+            "profit_factor": 1.4509316770186336
+          },
+          {
+            "block": "2024Q3",
+            "trades": 92,
+            "wins": 51,
+            "win_rate": 0.5543478260869565,
+            "avg_pnl": 1.0217391304347827,
+            "total_pnl": 94.0,
+            "profit_factor": 1.3159663865546218
+          },
+          {
+            "block": "2024Q4",
+            "trades": 75,
+            "wins": 34,
+            "win_rate": 0.4533333333333333,
+            "avg_pnl": 0.21666666666666667,
+            "total_pnl": 16.25,
+            "profit_factor": 1.077105575326216
+          }
+        ],
+        "mean_avg_pnl": 0.6559294170822034,
+        "std_avg_pnl": 0.5037651523114142,
+        "positive_blocks": 4,
+        "max_drawdown": 78.25,
+        "max_drawdown_norm": 0.2925233644859813,
+        "sharpe_like": 1.546376991808249
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4943760042849491,
+      "Trades": 3734,
+      "Avg_PnL": 0.13624799143010177,
+      "Score": -0.3778022381980918,
+      "Recent": {
+        "trades": 499,
+        "wins": 255,
+        "win_rate": 0.5110220440881763,
+        "avg_pnl": 0.624248496993988,
+        "profit_factor": 1.2151243093922652
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.15528785705932246,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 3734,
+        "wins": 1846,
+        "win_rate": 0.4943760042849491,
+        "avg_pnl": 0.13624799143010177,
+        "profit_factor": 1.0452644690600115,
+        "total_pnl": 508.75,
+        "score_train": 0.17178006233181786
+      },
+      "OOS": {
+        "trades": 499,
+        "wins": 255,
+        "win_rate": 0.5110220440881763,
+        "avg_pnl": 0.624248496993988,
+        "profit_factor": 1.2151243093922652,
+        "total_pnl": 311.5,
+        "stability_score": -0.3778022381980918,
+        "mean_oos_avg_pnl": 0.5960727546810537,
+        "std_oos_avg_pnl": 0.828657692068478,
+        "max_oos_drawdown_norm": 0.37330037082818296,
+        "sharpe_like": 1.8017622328183645
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 115,
+            "wins": 51,
+            "win_rate": 0.4434782608695652,
+            "avg_pnl": -0.4608695652173913,
+            "total_pnl": -53.0,
+            "profit_factor": 0.8527777777777777
+          },
+          {
+            "block": "2024Q2",
+            "trades": 122,
+            "wins": 67,
+            "win_rate": 0.5491803278688525,
+            "avg_pnl": 1.625,
+            "total_pnl": 198.25,
+            "profit_factor": 1.6114109483423285
+          },
+          {
+            "block": "2024Q3",
+            "trades": 137,
+            "wins": 79,
+            "win_rate": 0.5766423357664233,
+            "avg_pnl": 1.1441605839416058,
+            "total_pnl": 156.75,
+            "profit_factor": 1.3933500627352573
+          },
+          {
+            "block": "2024Q4",
+            "trades": 125,
+            "wins": 58,
+            "win_rate": 0.464,
+            "avg_pnl": 0.076,
+            "total_pnl": 9.5,
+            "profit_factor": 1.0260095824777549
+          }
+        ],
+        "mean_avg_pnl": 0.5960727546810537,
+        "std_avg_pnl": 0.828657692068478,
+        "positive_blocks": 3,
+        "max_drawdown": 151.0,
+        "max_drawdown_norm": 0.37330037082818296,
+        "sharpe_like": 1.8017622328183645
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Long_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4957983193277311,
+      "Trades": 833,
+      "Avg_PnL": 0.29081632653061223,
+      "Score": -0.6887113025423629,
+      "Recent": {
+        "trades": 110,
+        "wins": 56,
+        "win_rate": 0.509090909090909,
+        "avg_pnl": 0.6659090909090909,
+        "profit_factor": 1.2374392220421393
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.2528468775564233,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 833,
+        "wins": 413,
+        "win_rate": 0.4957983193277311,
+        "avg_pnl": 0.29081632653061223,
+        "profit_factor": 1.0781136638452238,
+        "total_pnl": 242.25,
+        "score_train": 0.29037439159460643
+      },
+      "OOS": {
+        "trades": 110,
+        "wins": 56,
+        "win_rate": 0.509090909090909,
+        "avg_pnl": 0.6659090909090909,
+        "profit_factor": 1.2374392220421393,
+        "total_pnl": 73.25,
+        "stability_score": -0.6887113025423629,
+        "mean_oos_avg_pnl": 0.8630427170868348,
+        "std_oos_avg_pnl": 1.1974746182932818,
+        "max_oos_drawdown_norm": 0.8283062645011601,
+        "sharpe_like": 0.9020785699037003
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 21,
+            "wins": 10,
+            "win_rate": 0.47619047619047616,
+            "avg_pnl": -0.2976190476190476,
+            "total_pnl": -6.25,
+            "profit_factor": 0.8743718592964824
+          },
+          {
+            "block": "2024Q2",
+            "trades": 17,
+            "wins": 11,
+            "win_rate": 0.6470588235294118,
+            "avg_pnl": 2.8676470588235294,
+            "total_pnl": 48.75,
+            "profit_factor": 3.5657894736842106
+          },
+          {
+            "block": "2024Q3",
+            "trades": 42,
+            "wins": 21,
+            "win_rate": 0.5,
+            "avg_pnl": 0.35714285714285715,
+            "total_pnl": 15.0,
+            "profit_factor": 1.0963081861958266
+          },
+          {
+            "block": "2024Q4",
+            "trades": 30,
+            "wins": 14,
+            "win_rate": 0.4666666666666667,
+            "avg_pnl": 0.525,
+            "total_pnl": 15.75,
+            "profit_factor": 1.1875
+          }
+        ],
+        "mean_avg_pnl": 0.8630427170868348,
+        "std_avg_pnl": 1.1974746182932818,
+        "positive_blocks": 3,
+        "max_drawdown": 89.25,
+        "max_drawdown_norm": 0.8283062645011601,
+        "sharpe_like": 0.9020785699037003
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.48183716075156574,
+      "Trades": 2395,
+      "Avg_PnL": 0.15772442588726512,
+      "Score": 0.4434839274568819,
+      "Recent": {
+        "trades": 383,
+        "wins": 195,
+        "win_rate": 0.5091383812010444,
+        "avg_pnl": 0.9843342036553525,
+        "profit_factor": 1.2573818057689026
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.06774565177000197,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 2395,
+        "wins": 1154,
+        "win_rate": 0.48183716075156574,
+        "avg_pnl": 0.15772442588726512,
+        "profit_factor": 1.037204835889986,
+        "total_pnl": 377.75,
+        "score_train": 0.12331338546791287
+      },
+      "OOS": {
+        "trades": 383,
+        "wins": 195,
+        "win_rate": 0.5091383812010444,
+        "avg_pnl": 0.9843342036553525,
+        "profit_factor": 1.2573818057689026,
+        "total_pnl": 377.0,
+        "stability_score": 0.4434839274568819,
+        "mean_oos_avg_pnl": 0.9711206896551723,
+        "std_oos_avg_pnl": 0.4454655976356274,
+        "max_oos_drawdown_norm": 0.2088888888888889,
+        "sharpe_like": 2.029026304452129
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 70,
+            "wins": 37,
+            "win_rate": 0.5285714285714286,
+            "avg_pnl": 1.0857142857142856,
+            "total_pnl": 76.0,
+            "profit_factor": 1.3258306538049303
+          },
+          {
+            "block": "2024Q2",
+            "trades": 85,
+            "wins": 41,
+            "win_rate": 0.4823529411764706,
+            "avg_pnl": 0.55,
+            "total_pnl": 46.75,
+            "profit_factor": 1.1478260869565218
+          },
+          {
+            "block": "2024Q3",
+            "trades": 116,
+            "wins": 57,
+            "win_rate": 0.49137931034482757,
+            "avg_pnl": 0.5969827586206896,
+            "total_pnl": 69.25,
+            "profit_factor": 1.1331090821720327
+          },
+          {
+            "block": "2024Q4",
+            "trades": 112,
+            "wins": 60,
+            "win_rate": 0.5357142857142857,
+            "avg_pnl": 1.6517857142857142,
+            "total_pnl": 185.0,
+            "profit_factor": 1.4683544303797469
+          }
+        ],
+        "mean_avg_pnl": 0.9711206896551723,
+        "std_avg_pnl": 0.4454655976356274,
+        "positive_blocks": 4,
+        "max_drawdown": 94.0,
+        "max_drawdown_norm": 0.2088888888888889,
+        "sharpe_like": 2.029026304452129
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Mom",
+      "Thresh": 6.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4907146876758582,
+      "Trades": 1777,
+      "Avg_PnL": 0.3394766460326393,
+      "Score": 0.09147541266425477,
+      "Recent": {
+        "trades": 288,
+        "wins": 144,
+        "win_rate": 0.5,
+        "avg_pnl": 0.8758680555555556,
+        "profit_factor": 1.2193001521408389
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.2774862603309959,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 1777,
+        "wins": 872,
+        "win_rate": 0.4907146876758582,
+        "avg_pnl": 0.3394766460326393,
+        "profit_factor": 1.0782222510373445,
+        "total_pnl": 603.25,
+        "score_train": 0.2990293157058728
+      },
+      "OOS": {
+        "trades": 288,
+        "wins": 144,
+        "win_rate": 0.5,
+        "avg_pnl": 0.8758680555555556,
+        "profit_factor": 1.2193001521408389,
+        "total_pnl": 252.25,
+        "stability_score": 0.09147541266425477,
+        "mean_oos_avg_pnl": 0.7766360996066035,
+        "std_oos_avg_pnl": 0.572348439428776,
+        "max_oos_drawdown_norm": 0.2828593389700231,
+        "sharpe_like": 1.537723893243499
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 42,
+            "wins": 19,
+            "win_rate": 0.4523809523809524,
+            "avg_pnl": 0.15476190476190477,
+            "total_pnl": 6.5,
+            "profit_factor": 1.0383480825958702
+          },
+          {
+            "block": "2024Q2",
+            "trades": 61,
+            "wins": 30,
+            "win_rate": 0.4918032786885246,
+            "avg_pnl": 0.6680327868852459,
+            "total_pnl": 40.75,
+            "profit_factor": 1.1871412169919633
+          },
+          {
+            "block": "2024Q3",
+            "trades": 98,
+            "wins": 47,
+            "win_rate": 0.47959183673469385,
+            "avg_pnl": 0.5739795918367347,
+            "total_pnl": 56.25,
+            "profit_factor": 1.1232876712328768
+          },
+          {
+            "block": "2024Q4",
+            "trades": 87,
+            "wins": 48,
+            "win_rate": 0.5517241379310345,
+            "avg_pnl": 1.7097701149425288,
+            "total_pnl": 148.75,
+            "profit_factor": 1.4849225753871231
+          }
+        ],
+        "mean_avg_pnl": 0.7766360996066035,
+        "std_avg_pnl": 0.572348439428776,
+        "positive_blocks": 4,
+        "max_drawdown": 92.0,
+        "max_drawdown_norm": 0.2828593389700231,
+        "sharpe_like": 1.537723893243499
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.484053651266766,
+      "Trades": 3355,
+      "Avg_PnL": 0.05715350223546945,
+      "Score": -0.1296984382290626,
+      "Recent": {
+        "trades": 512,
+        "wins": 249,
+        "win_rate": 0.486328125,
+        "avg_pnl": 0.455078125,
+        "profit_factor": 1.1138529196188616
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.014648345967372634,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 3355,
+        "wins": 1624,
+        "win_rate": 0.484053651266766,
+        "avg_pnl": 0.05715350223546945,
+        "profit_factor": 1.01405019234292,
+        "total_pnl": 191.75,
+        "score_train": 0.06168072713295075
+      },
+      "OOS": {
+        "trades": 512,
+        "wins": 249,
+        "win_rate": 0.486328125,
+        "avg_pnl": 0.455078125,
+        "profit_factor": 1.1138529196188616,
+        "total_pnl": 233.0,
+        "stability_score": -0.1296984382290626,
+        "mean_oos_avg_pnl": 0.4313802846817523,
+        "std_oos_avg_pnl": 0.3882440920713442,
+        "max_oos_drawdown_norm": 0.38449367088607594,
+        "sharpe_like": 1.1005195182701422
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 107,
+            "wins": 52,
+            "win_rate": 0.48598130841121495,
+            "avg_pnl": 0.17990654205607476,
+            "total_pnl": 19.25,
+            "profit_factor": 1.048888888888889
+          },
+          {
+            "block": "2024Q2",
+            "trades": 121,
+            "wins": 57,
+            "win_rate": 0.47107438016528924,
+            "avg_pnl": 0.2727272727272727,
+            "total_pnl": 33.0,
+            "profit_factor": 1.0713899405083829
+          },
+          {
+            "block": "2024Q3",
+            "trades": 142,
+            "wins": 66,
+            "win_rate": 0.4647887323943662,
+            "avg_pnl": 0.17253521126760563,
+            "total_pnl": 24.5,
+            "profit_factor": 1.0372057706909643
+          },
+          {
+            "block": "2024Q4",
+            "trades": 142,
+            "wins": 74,
+            "win_rate": 0.5211267605633803,
+            "avg_pnl": 1.1003521126760563,
+            "total_pnl": 156.25,
+            "profit_factor": 1.293703007518797
+          }
+        ],
+        "mean_avg_pnl": 0.4313802846817523,
+        "std_avg_pnl": 0.3882440920713442,
+        "positive_blocks": 4,
+        "max_drawdown": 121.5,
+        "max_drawdown_norm": 0.38449367088607594,
+        "sharpe_like": 1.1005195182701422
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.49533098153143806,
+      "Trades": 4819,
+      "Avg_PnL": 0.17508819257107283,
+      "Score": -0.33409216555084875,
+      "Recent": {
+        "trades": 699,
+        "wins": 353,
+        "win_rate": 0.5050071530758226,
+        "avg_pnl": 0.4957081545064378,
+        "profit_factor": 1.1261031753252662
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.14023590328100743,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 4819,
+        "wins": 2387,
+        "win_rate": 0.49533098153143806,
+        "avg_pnl": 0.17508819257107283,
+        "profit_factor": 1.047175745376777,
+        "total_pnl": 843.75,
+        "score_train": 0.203934216994619
+      },
+      "OOS": {
+        "trades": 699,
+        "wins": 353,
+        "win_rate": 0.5050071530758226,
+        "avg_pnl": 0.4957081545064378,
+        "profit_factor": 1.1261031753252662,
+        "total_pnl": 346.5,
+        "stability_score": -0.33409216555084875,
+        "mean_oos_avg_pnl": 0.4567131899915876,
+        "std_oos_avg_pnl": 0.5875699438626681,
+        "max_oos_drawdown_norm": 0.46522781774580335,
+        "sharpe_like": 1.412902181533269
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 145,
+            "wins": 74,
+            "win_rate": 0.5103448275862069,
+            "avg_pnl": 0.24310344827586206,
+            "total_pnl": 35.25,
+            "profit_factor": 1.069219440353461
+          },
+          {
+            "block": "2024Q2",
+            "trades": 170,
+            "wins": 78,
+            "win_rate": 0.4588235294117647,
+            "avg_pnl": -0.38088235294117645,
+            "total_pnl": -64.75,
+            "profit_factor": 0.90828611898017
+          },
+          {
+            "block": "2024Q3",
+            "trades": 195,
+            "wins": 99,
+            "win_rate": 0.5076923076923077,
+            "avg_pnl": 0.7807692307692308,
+            "total_pnl": 152.25,
+            "profit_factor": 1.1826634673065386
+          },
+          {
+            "block": "2024Q4",
+            "trades": 189,
+            "wins": 102,
+            "win_rate": 0.5396825396825397,
+            "avg_pnl": 1.183862433862434,
+            "total_pnl": 223.75,
+            "profit_factor": 1.3201001430615165
+          }
+        ],
+        "mean_avg_pnl": 0.4567131899915876,
+        "std_avg_pnl": 0.5875699438626681,
+        "positive_blocks": 3,
+        "max_drawdown": 194.0,
+        "max_drawdown_norm": 0.46522781774580335,
+        "sharpe_like": 1.412902181533269
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.49651907546644386,
+      "Trades": 7182,
+      "Avg_PnL": 0.10272208298524088,
+      "Score": -0.8895174905709733,
+      "Recent": {
+        "trades": 849,
+        "wins": 413,
+        "win_rate": 0.48645465253239106,
+        "avg_pnl": 0.19493521790341578,
+        "profit_factor": 1.0465050930804356
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.15740985822286974,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 7182,
+        "wins": 3566,
+        "win_rate": 0.49651907546644386,
+        "avg_pnl": 0.10272208298524088,
+        "profit_factor": 1.0290902280098184,
+        "total_pnl": 737.75,
+        "score_train": 0.15740985822286974
+      },
+      "OOS": {
+        "trades": 849,
+        "wins": 413,
+        "win_rate": 0.48645465253239106,
+        "avg_pnl": 0.19493521790341578,
+        "profit_factor": 1.0465050930804356,
+        "total_pnl": 165.5,
+        "stability_score": -0.8895174905709733,
+        "mean_oos_avg_pnl": 0.2600594572806448,
+        "std_oos_avg_pnl": 0.6916253604374073,
+        "max_oos_drawdown_norm": 0.9850657108721624,
+        "sharpe_like": 0.6032993770441458
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 181,
+            "wins": 104,
+            "win_rate": 0.574585635359116,
+            "avg_pnl": 1.3066298342541436,
+            "total_pnl": 236.5,
+            "profit_factor": 1.4412313432835822
+          },
+          {
+            "block": "2024Q2",
+            "trades": 215,
+            "wins": 102,
+            "win_rate": 0.4744186046511628,
+            "avg_pnl": 0.3941860465116279,
+            "total_pnl": 84.75,
+            "profit_factor": 1.0976945244956773
+          },
+          {
+            "block": "2024Q3",
+            "trades": 240,
+            "wins": 108,
+            "win_rate": 0.45,
+            "avg_pnl": -0.5572916666666666,
+            "total_pnl": -133.75,
+            "profit_factor": 0.8868682596743498
+          },
+          {
+            "block": "2024Q4",
+            "trades": 213,
+            "wins": 99,
+            "win_rate": 0.4647887323943662,
+            "avg_pnl": -0.10328638497652583,
+            "total_pnl": -22.0,
+            "profit_factor": 0.9773895169578622
+          }
+        ],
+        "mean_avg_pnl": 0.2600594572806448,
+        "std_avg_pnl": 0.6916253604374073,
+        "positive_blocks": 2,
+        "max_drawdown": 412.25,
+        "max_drawdown_norm": 0.9850657108721624,
+        "sharpe_like": 0.6032993770441458
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4915113871635611,
+      "Trades": 4830,
+      "Avg_PnL": 0.16014492753623188,
+      "Score": -0.8989537921998746,
+      "Recent": {
+        "trades": 662,
+        "wins": 322,
+        "win_rate": 0.486404833836858,
+        "avg_pnl": 0.25755287009063443,
+        "profit_factor": 1.0609363831308076
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.17383404909662264,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 4830,
+        "wins": 2374,
+        "win_rate": 0.4915113871635611,
+        "avg_pnl": 0.16014492753623188,
+        "profit_factor": 1.0417566400345497,
+        "total_pnl": 773.5,
+        "score_train": 0.17383404909662264
+      },
+      "OOS": {
+        "trades": 662,
+        "wins": 322,
+        "win_rate": 0.486404833836858,
+        "avg_pnl": 0.25755287009063443,
+        "profit_factor": 1.0609363831308076,
+        "total_pnl": 170.5,
+        "stability_score": -0.8989537921998746,
+        "mean_oos_avg_pnl": 0.3926996886783759,
+        "std_oos_avg_pnl": 0.895279910253352,
+        "max_oos_drawdown_norm": 0.8822751322751323,
+        "sharpe_like": 0.6965527644822839
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 126,
+            "wins": 74,
+            "win_rate": 0.5873015873015873,
+            "avg_pnl": 1.6369047619047619,
+            "total_pnl": 206.25,
+            "profit_factor": 1.5619891008174387
+          },
+          {
+            "block": "2024Q2",
+            "trades": 171,
+            "wins": 85,
+            "win_rate": 0.49707602339181284,
+            "avg_pnl": 0.7017543859649122,
+            "total_pnl": 120.0,
+            "profit_factor": 1.1803155522163786
+          },
+          {
+            "block": "2024Q3",
+            "trades": 201,
+            "wins": 89,
+            "win_rate": 0.4427860696517413,
+            "avg_pnl": -0.8059701492537313,
+            "total_pnl": -162.0,
+            "profit_factor": 0.8404333907904457
+          },
+          {
+            "block": "2024Q4",
+            "trades": 164,
+            "wins": 74,
+            "win_rate": 0.45121951219512196,
+            "avg_pnl": 0.038109756097560975,
+            "total_pnl": 6.25,
+            "profit_factor": 1.0083305564811729
+          }
+        ],
+        "mean_avg_pnl": 0.3926996886783759,
+        "std_avg_pnl": 0.895279910253352,
+        "positive_blocks": 3,
+        "max_drawdown": 333.5,
+        "max_drawdown_norm": 0.8822751322751323,
+        "sharpe_like": 0.6965527644822839
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4792654028436019,
+      "Trades": 3376,
+      "Avg_PnL": 0.02258590047393365,
+      "Score": -1.404946162212327,
+      "Recent": {
+        "trades": 509,
+        "wins": 243,
+        "win_rate": 0.4774066797642436,
+        "avg_pnl": 0.07269155206286837,
+        "profit_factor": 1.016608685893839
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.012679762280019866,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 3376,
+        "wins": 1618,
+        "win_rate": 0.4792654028436019,
+        "avg_pnl": 0.02258590047393365,
+        "profit_factor": 1.0054261773025672,
+        "total_pnl": 76.25,
+        "score_train": 0.012679762280019866
+      },
+      "OOS": {
+        "trades": 509,
+        "wins": 243,
+        "win_rate": 0.4774066797642436,
+        "avg_pnl": 0.07269155206286837,
+        "profit_factor": 1.016608685893839,
+        "total_pnl": 37.0,
+        "stability_score": -1.404946162212327,
+        "mean_oos_avg_pnl": 0.2904245358882456,
+        "std_oos_avg_pnl": 1.1665745464287884,
+        "max_oos_drawdown_norm": 1.1742497579864473,
+        "sharpe_like": 0.17060782656498666
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 93,
+            "wins": 57,
+            "win_rate": 0.6129032258064516,
+            "avg_pnl": 2.161290322580645,
+            "total_pnl": 201.0,
+            "profit_factor": 1.8080402010050252
+          },
+          {
+            "block": "2024Q2",
+            "trades": 124,
+            "wins": 59,
+            "win_rate": 0.47580645161290325,
+            "avg_pnl": 0.07056451612903226,
+            "total_pnl": 8.75,
+            "profit_factor": 1.0169491525423728
+          },
+          {
+            "block": "2024Q3",
+            "trades": 162,
+            "wins": 69,
+            "win_rate": 0.42592592592592593,
+            "avg_pnl": -1.0509259259259258,
+            "total_pnl": -170.25,
+            "profit_factor": 0.8026658939437844
+          },
+          {
+            "block": "2024Q4",
+            "trades": 130,
+            "wins": 58,
+            "win_rate": 0.4461538461538462,
+            "avg_pnl": -0.019230769230769232,
+            "total_pnl": -2.5,
+            "profit_factor": 0.9958333333333333
+          }
+        ],
+        "mean_avg_pnl": 0.2904245358882456,
+        "std_avg_pnl": 1.1665745464287884,
+        "positive_blocks": 2,
+        "max_drawdown": 303.25,
+        "max_drawdown_norm": 1.1742497579864473,
+        "sharpe_like": 0.17060782656498666
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.49823529411764705,
+      "Trades": 1700,
+      "Avg_PnL": 0.2514705882352941,
+      "Score": -0.39530325392113264,
+      "Recent": {
+        "trades": 321,
+        "wins": 151,
+        "win_rate": 0.470404984423676,
+        "avg_pnl": 0.3987538940809969,
+        "profit_factor": 1.0977099236641221
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.10497086790342124,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 1700,
+        "wins": 847,
+        "win_rate": 0.49823529411764705,
+        "avg_pnl": 0.2514705882352941,
+        "profit_factor": 1.0607546365380516,
+        "total_pnl": 427.5,
+        "score_train": 0.2732813460067463
+      },
+      "OOS": {
+        "trades": 321,
+        "wins": 151,
+        "win_rate": 0.470404984423676,
+        "avg_pnl": 0.3987538940809969,
+        "profit_factor": 1.0977099236641221,
+        "total_pnl": 128.0,
+        "stability_score": -0.39530325392113264,
+        "mean_oos_avg_pnl": 0.44957722897898517,
+        "std_oos_avg_pnl": 0.5850636763029953,
+        "max_oos_drawdown_norm": 0.5781399808245445,
+        "sharpe_like": 0.7548016197877636
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 51,
+            "wins": 26,
+            "win_rate": 0.5098039215686274,
+            "avg_pnl": 0.8186274509803921,
+            "total_pnl": 41.75,
+            "profit_factor": 1.2238605898123325
+          },
+          {
+            "block": "2024Q2",
+            "trades": 76,
+            "wins": 40,
+            "win_rate": 0.5263157894736842,
+            "avg_pnl": 1.1019736842105263,
+            "total_pnl": 83.75,
+            "profit_factor": 1.283657917019475
+          },
+          {
+            "block": "2024Q3",
+            "trades": 116,
+            "wins": 50,
+            "win_rate": 0.43103448275862066,
+            "avg_pnl": 0.3168103448275862,
+            "total_pnl": 36.75,
+            "profit_factor": 1.0724137931034483
+          },
+          {
+            "block": "2024Q4",
+            "trades": 78,
+            "wins": 35,
+            "win_rate": 0.44871794871794873,
+            "avg_pnl": -0.4391025641025641,
+            "total_pnl": -34.25,
+            "profit_factor": 0.8932190179267342
+          }
+        ],
+        "mean_avg_pnl": 0.44957722897898517,
+        "std_avg_pnl": 0.5850636763029953,
+        "positive_blocks": 3,
+        "max_drawdown": 150.75,
+        "max_drawdown_norm": 0.5781399808245445,
+        "sharpe_like": 0.7548016197877636
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4986301369863014,
+      "Trades": 3650,
+      "Avg_PnL": 0.23075342465753423,
+      "Score": -0.7923887668916454,
+      "Recent": {
+        "trades": 637,
+        "wins": 308,
+        "win_rate": 0.4835164835164835,
+        "avg_pnl": 0.29631083202511777,
+        "profit_factor": 1.0746490013842198
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.19983146222323755,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 3650,
+        "wins": 1820,
+        "win_rate": 0.4986301369863014,
+        "avg_pnl": 0.23075342465753423,
+        "profit_factor": 1.0641628735216258,
+        "total_pnl": 842.25,
+        "score_train": 0.2610943695439434
+      },
+      "OOS": {
+        "trades": 637,
+        "wins": 308,
+        "win_rate": 0.4835164835164835,
+        "avg_pnl": 0.29631083202511777,
+        "profit_factor": 1.0746490013842198,
+        "total_pnl": 188.75,
+        "stability_score": -0.7923887668916454,
+        "mean_oos_avg_pnl": 0.2709708478965929,
+        "std_oos_avg_pnl": 0.7754840722056263,
+        "max_oos_drawdown_norm": 0.6532994923857868,
+        "sharpe_like": 0.8172679909583995
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 134,
+            "wins": 74,
+            "win_rate": 0.5522388059701493,
+            "avg_pnl": 1.0149253731343284,
+            "total_pnl": 136.0,
+            "profit_factor": 1.292315959161741
+          },
+          {
+            "block": "2024Q2",
+            "trades": 158,
+            "wins": 77,
+            "win_rate": 0.4873417721518987,
+            "avg_pnl": 0.45569620253164556,
+            "total_pnl": 72.0,
+            "profit_factor": 1.1152460984393757
+          },
+          {
+            "block": "2024Q3",
+            "trades": 201,
+            "wins": 95,
+            "win_rate": 0.472636815920398,
+            "avg_pnl": 0.6393034825870647,
+            "total_pnl": 128.5,
+            "profit_factor": 1.1542617046818728
+          },
+          {
+            "block": "2024Q4",
+            "trades": 144,
+            "wins": 62,
+            "win_rate": 0.4305555555555556,
+            "avg_pnl": -1.0260416666666667,
+            "total_pnl": -147.75,
+            "profit_factor": 0.7559867877786953
+          }
+        ],
+        "mean_avg_pnl": 0.2709708478965929,
+        "std_avg_pnl": 0.7754840722056263,
+        "positive_blocks": 3,
+        "max_drawdown": 321.75,
+        "max_drawdown_norm": 0.6532994923857868,
+        "sharpe_like": 0.8172679909583995
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4963084495488105,
+      "Trades": 2438,
+      "Avg_PnL": 0.25656275635767023,
+      "Score": -0.8264157852604368,
+      "Recent": {
+        "trades": 459,
+        "wins": 218,
+        "win_rate": 0.4749455337690632,
+        "avg_pnl": 0.2706971677559913,
+        "profit_factor": 1.0670805776757997
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.18237381021512816,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 2438,
+        "wins": 1210,
+        "win_rate": 0.4963084495488105,
+        "avg_pnl": 0.25656275635767023,
+        "profit_factor": 1.0663203096008058,
+        "total_pnl": 625.5,
+        "score_train": 0.26776820815450214
+      },
+      "OOS": {
+        "trades": 459,
+        "wins": 218,
+        "win_rate": 0.4749455337690632,
+        "avg_pnl": 0.2706971677559913,
+        "profit_factor": 1.0670805776757997,
+        "total_pnl": 124.25,
+        "stability_score": -0.8264157852604368,
+        "mean_oos_avg_pnl": 0.28459842130775664,
+        "std_oos_avg_pnl": 0.7892702229188552,
+        "max_oos_drawdown_norm": 0.7224149895905622,
+        "sharpe_like": 0.6242502685469508
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 85,
+            "wins": 47,
+            "win_rate": 0.5529411764705883,
+            "avg_pnl": 1.1823529411764706,
+            "total_pnl": 100.5,
+            "profit_factor": 1.340966921119593
+          },
+          {
+            "block": "2024Q2",
+            "trades": 113,
+            "wins": 56,
+            "win_rate": 0.49557522123893805,
+            "avg_pnl": 0.3805309734513274,
+            "total_pnl": 43.0,
+            "profit_factor": 1.0946094609460946
+          },
+          {
+            "block": "2024Q3",
+            "trades": 154,
+            "wins": 70,
+            "win_rate": 0.45454545454545453,
+            "avg_pnl": 0.5568181818181818,
+            "total_pnl": 85.75,
+            "profit_factor": 1.1337231968810917
+          },
+          {
+            "block": "2024Q4",
+            "trades": 107,
+            "wins": 45,
+            "win_rate": 0.4205607476635514,
+            "avg_pnl": -0.9813084112149533,
+            "total_pnl": -105.0,
+            "profit_factor": 0.7726042230644288
+          }
+        ],
+        "mean_avg_pnl": 0.28459842130775664,
+        "std_avg_pnl": 0.7892702229188552,
+        "positive_blocks": 3,
+        "max_drawdown": 260.25,
+        "max_drawdown_norm": 0.7224149895905622,
+        "sharpe_like": 0.6242502685469508
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.5006934812760055,
+      "Trades": 5768,
+      "Avg_PnL": 0.2239511095700416,
+      "Score": -1.101257394465345,
+      "Recent": {
+        "trades": 882,
+        "wins": 429,
+        "win_rate": 0.48639455782312924,
+        "avg_pnl": 0.1712018140589569,
+        "profit_factor": 1.0431860431860431
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.22740484536950162,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 5768,
+        "wins": 2888,
+        "win_rate": 0.5006934812760055,
+        "avg_pnl": 0.2239511095700416,
+        "profit_factor": 1.0688731305483725,
+        "total_pnl": 1291.75,
+        "score_train": 0.2671204961338941
+      },
+      "OOS": {
+        "trades": 882,
+        "wins": 429,
+        "win_rate": 0.48639455782312924,
+        "avg_pnl": 0.1712018140589569,
+        "profit_factor": 1.0431860431860431,
+        "total_pnl": 151.0,
+        "stability_score": -1.101257394465345,
+        "mean_oos_avg_pnl": 0.14272900734712263,
+        "std_oos_avg_pnl": 0.8873562082320543,
+        "max_oos_drawdown_norm": 0.8019960079840319,
+        "sharpe_like": 0.5628360302309686
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 199,
+            "wins": 113,
+            "win_rate": 0.5678391959798995,
+            "avg_pnl": 1.0615577889447236,
+            "total_pnl": 211.25,
+            "profit_factor": 1.3125
+          },
+          {
+            "block": "2024Q2",
+            "trades": 209,
+            "wins": 99,
+            "win_rate": 0.47368421052631576,
+            "avg_pnl": 0.04784688995215311,
+            "total_pnl": 10.0,
+            "profit_factor": 1.0117027501462843
+          },
+          {
+            "block": "2024Q3",
+            "trades": 266,
+            "wins": 129,
+            "win_rate": 0.4849624060150376,
+            "avg_pnl": 0.7199248120300752,
+            "total_pnl": 191.5,
+            "profit_factor": 1.1764976958525346
+          },
+          {
+            "block": "2024Q4",
+            "trades": 208,
+            "wins": 88,
+            "win_rate": 0.4230769230769231,
+            "avg_pnl": -1.2584134615384615,
+            "total_pnl": -261.75,
+            "profit_factor": 0.702894438138479
+          }
+        ],
+        "mean_avg_pnl": 0.14272900734712263,
+        "std_avg_pnl": 0.8873562082320543,
+        "positive_blocks": 3,
+        "max_drawdown": 502.25,
+        "max_drawdown_norm": 0.8019960079840319,
+        "sharpe_like": 0.5628360302309686
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4942032892963063,
+      "Trades": 3709,
+      "Avg_PnL": 0.22472364518738205,
+      "Score": 0.17278109121112925,
+      "Recent": {
+        "trades": 559,
+        "wins": 306,
+        "win_rate": 0.5474060822898033,
+        "avg_pnl": 0.8671735241502684,
+        "profit_factor": 1.2245252431681335
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.23296493085525777,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 3709,
+        "wins": 1833,
+        "win_rate": 0.4942032892963063,
+        "avg_pnl": 0.22472364518738205,
+        "profit_factor": 1.0584840458189346,
+        "total_pnl": 833.5,
+        "score_train": 0.2341714026945924
+      },
+      "OOS": {
+        "trades": 559,
+        "wins": 306,
+        "win_rate": 0.5474060822898033,
+        "avg_pnl": 0.8671735241502684,
+        "profit_factor": 1.2245252431681335,
+        "total_pnl": 484.75,
+        "stability_score": 0.17278109121112925,
+        "mean_oos_avg_pnl": 0.8978317107667781,
+        "std_oos_avg_pnl": 0.6088390276300656,
+        "max_oos_drawdown_norm": 0.2933070866141732,
+        "sharpe_like": 2.1757348951133895
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 110,
+            "wins": 66,
+            "win_rate": 0.6,
+            "avg_pnl": 1.6977272727272728,
+            "total_pnl": 186.75,
+            "profit_factor": 1.498997995991984
+          },
+          {
+            "block": "2024Q2",
+            "trades": 128,
+            "wins": 67,
+            "win_rate": 0.5234375,
+            "avg_pnl": 0.390625,
+            "total_pnl": 50.0,
+            "profit_factor": 1.100502512562814
+          },
+          {
+            "block": "2024Q3",
+            "trades": 167,
+            "wins": 92,
+            "win_rate": 0.5508982035928144,
+            "avg_pnl": 1.2724550898203593,
+            "total_pnl": 212.5,
+            "profit_factor": 1.322335987864998
+          },
+          {
+            "block": "2024Q4",
+            "trades": 154,
+            "wins": 81,
+            "win_rate": 0.525974025974026,
+            "avg_pnl": 0.2305194805194805,
+            "total_pnl": 35.5,
+            "profit_factor": 1.0565286624203822
+          }
+        ],
+        "mean_avg_pnl": 0.8978317107667781,
+        "std_avg_pnl": 0.6088390276300656,
+        "positive_blocks": 4,
+        "max_drawdown": 149.0,
+        "max_drawdown_norm": 0.2933070866141732,
+        "sharpe_like": 2.1757348951133895
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4829192546583851,
+      "Trades": 2576,
+      "Avg_PnL": 0.125097049689441,
+      "Score": -0.12017554293285576,
+      "Recent": {
+        "trades": 412,
+        "wins": 216,
+        "win_rate": 0.5242718446601942,
+        "avg_pnl": 0.495752427184466,
+        "profit_factor": 1.1201470588235294
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.10516348675848135,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 2576,
+        "wins": 1244,
+        "win_rate": 0.4829192546583851,
+        "avg_pnl": 0.125097049689441,
+        "profit_factor": 1.0299927868394723,
+        "total_pnl": 322.25,
+        "score_train": 0.10516348675848135
+      },
+      "OOS": {
+        "trades": 412,
+        "wins": 216,
+        "win_rate": 0.5242718446601942,
+        "avg_pnl": 0.495752427184466,
+        "profit_factor": 1.1201470588235294,
+        "total_pnl": 204.25,
+        "stability_score": -0.12017554293285576,
+        "mean_oos_avg_pnl": 0.5170966167458877,
+        "std_oos_avg_pnl": 0.28879901366686006,
+        "max_oos_drawdown_norm": 0.7258261933904528,
+        "sharpe_like": 1.0557609901099148
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 85,
+            "wins": 47,
+            "win_rate": 0.5529411764705883,
+            "avg_pnl": 0.9647058823529412,
+            "total_pnl": 82.0,
+            "profit_factor": 1.2482967448902347
+          },
+          {
+            "block": "2024Q2",
+            "trades": 94,
+            "wins": 46,
+            "win_rate": 0.48936170212765956,
+            "avg_pnl": 0.18351063829787234,
+            "total_pnl": 17.25,
+            "profit_factor": 1.0446313065976713
+          },
+          {
+            "block": "2024Q3",
+            "trades": 129,
+            "wins": 68,
+            "win_rate": 0.5271317829457365,
+            "avg_pnl": 0.37209302325581395,
+            "total_pnl": 48.0,
+            "profit_factor": 1.0846560846560847
+          },
+          {
+            "block": "2024Q4",
+            "trades": 104,
+            "wins": 55,
+            "win_rate": 0.5288461538461539,
+            "avg_pnl": 0.5480769230769231,
+            "total_pnl": 57.0,
+            "profit_factor": 1.1369369369369369
+          }
+        ],
+        "mean_avg_pnl": 0.5170966167458877,
+        "std_avg_pnl": 0.28879901366686006,
+        "positive_blocks": 4,
+        "max_drawdown": 148.25,
+        "max_drawdown_norm": 0.7258261933904528,
+        "sharpe_like": 1.0557609901099148
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.503133704735376,
+      "Trades": 5744,
+      "Avg_PnL": 0.21748781337047354,
+      "Score": -0.2416601011258185,
+      "Recent": {
+        "trades": 773,
+        "wins": 412,
+        "win_rate": 0.5329883570504528,
+        "avg_pnl": 0.6736739974126779,
+        "profit_factor": 1.1744556113902846
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.2667249961027191,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 5744,
+        "wins": 2890,
+        "win_rate": 0.503133704735376,
+        "avg_pnl": 0.21748781337047354,
+        "profit_factor": 1.0630281778966222,
+        "total_pnl": 1249.25,
+        "score_train": 0.2742128108258737
+      },
+      "OOS": {
+        "trades": 773,
+        "wins": 412,
+        "win_rate": 0.5329883570504528,
+        "avg_pnl": 0.6736739974126779,
+        "profit_factor": 1.1744556113902846,
+        "total_pnl": 520.75,
+        "stability_score": -0.2416601011258185,
+        "mean_oos_avg_pnl": 0.7247896212061233,
+        "std_oos_avg_pnl": 0.827752606914979,
+        "max_oos_drawdown_norm": 0.3601694915254237,
+        "sharpe_like": 2.0172274565825297
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 166,
+            "wins": 99,
+            "win_rate": 0.5963855421686747,
+            "avg_pnl": 1.911144578313253,
+            "total_pnl": 317.25,
+            "profit_factor": 1.5815765352887259
+          },
+          {
+            "block": "2024Q2",
+            "trades": 179,
+            "wins": 95,
+            "win_rate": 0.5307262569832403,
+            "avg_pnl": 0.3393854748603352,
+            "total_pnl": 60.75,
+            "profit_factor": 1.0892070484581498
+          },
+          {
+            "block": "2024Q3",
+            "trades": 217,
+            "wins": 115,
+            "win_rate": 0.5299539170506913,
+            "avg_pnl": 0.9815668202764977,
+            "total_pnl": 213.0,
+            "profit_factor": 1.246670526925304
+          },
+          {
+            "block": "2024Q4",
+            "trades": 211,
+            "wins": 103,
+            "win_rate": 0.4881516587677725,
+            "avg_pnl": -0.33293838862559244,
+            "total_pnl": -70.25,
+            "profit_factor": 0.9215083798882682
+          }
+        ],
+        "mean_avg_pnl": 0.7247896212061233,
+        "std_avg_pnl": 0.827752606914979,
+        "positive_blocks": 3,
+        "max_drawdown": 233.75,
+        "max_drawdown_norm": 0.3601694915254237,
+        "sharpe_like": 2.0172274565825297
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Short_Mom",
+      "Thresh": 7.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.46319018404907975,
+      "Trades": 978,
+      "Avg_PnL": 0.12653374233128833,
+      "Score": -2.1558872927048673,
+      "Recent": {
+        "trades": 189,
+        "wins": 81,
+        "win_rate": 0.42857142857142855,
+        "avg_pnl": 0.10978835978835978,
+        "profit_factor": 1.0251438957891548
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.007235383250794522,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 978,
+        "wins": 453,
+        "win_rate": 0.46319018404907975,
+        "avg_pnl": 0.12653374233128833,
+        "profit_factor": 1.0271084337349397,
+        "total_pnl": 123.75,
+        "score_train": 0.007235383250794522
+      },
+      "OOS": {
+        "trades": 189,
+        "wins": 81,
+        "win_rate": 0.42857142857142855,
+        "avg_pnl": 0.10978835978835978,
+        "profit_factor": 1.0251438957891548,
+        "total_pnl": 20.75,
+        "stability_score": -2.1558872927048673,
+        "mean_oos_avg_pnl": -0.3366891891891892,
+        "std_oos_avg_pnl": 1.4699782056021156,
+        "max_oos_drawdown_norm": 0.845437616387337,
+        "sharpe_like": 0.15654177373534628
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 25,
+            "wins": 8,
+            "win_rate": 0.32,
+            "avg_pnl": -1.88,
+            "total_pnl": -47.0,
+            "profit_factor": 0.624
+          },
+          {
+            "block": "2024Q2",
+            "trades": 50,
+            "wins": 24,
+            "win_rate": 0.48,
+            "avg_pnl": 1.265,
+            "total_pnl": 63.25,
+            "profit_factor": 1.33377308707124
+          },
+          {
+            "block": "2024Q3",
+            "trades": 74,
+            "wins": 36,
+            "win_rate": 0.4864864864864865,
+            "avg_pnl": 0.9932432432432432,
+            "total_pnl": 73.5,
+            "profit_factor": 1.2558746736292428
+          },
+          {
+            "block": "2024Q4",
+            "trades": 40,
+            "wins": 13,
+            "win_rate": 0.325,
+            "avg_pnl": -1.725,
+            "total_pnl": -69.0,
+            "profit_factor": 0.6912751677852349
+          }
+        ],
+        "mean_avg_pnl": -0.3366891891891892,
+        "std_avg_pnl": 1.4699782056021156,
+        "positive_blocks": 2,
+        "max_drawdown": 113.5,
+        "max_drawdown_norm": 0.845437616387337,
+        "sharpe_like": 0.15654177373534628
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4745098039215686,
+      "Trades": 765,
+      "Avg_PnL": 0.2552287581699346,
+      "Score": -2.053462839613499,
+      "Recent": {
+        "trades": 113,
+        "wins": 58,
+        "win_rate": 0.5132743362831859,
+        "avg_pnl": 0.1836283185840708,
+        "profit_factor": 1.045755237045204
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.1579599498773202,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 765,
+        "wins": 363,
+        "win_rate": 0.4745098039215686,
+        "avg_pnl": 0.2552287581699346,
+        "profit_factor": 1.0675079955052296,
+        "total_pnl": 195.25,
+        "score_train": 0.1579599498773202
+      },
+      "OOS": {
+        "trades": 113,
+        "wins": 58,
+        "win_rate": 0.5132743362831859,
+        "avg_pnl": 0.1836283185840708,
+        "profit_factor": 1.045755237045204,
+        "total_pnl": 20.75,
+        "stability_score": -2.053462839613499,
+        "mean_oos_avg_pnl": 0.3434679350627627,
+        "std_oos_avg_pnl": 2.053484300022199,
+        "max_oos_drawdown_norm": 0.8922413793103449,
+        "sharpe_like": 0.21436651373345195
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 26,
+            "wins": 17,
+            "win_rate": 0.6538461538461539,
+            "avg_pnl": 3.644230769230769,
+            "total_pnl": 94.75,
+            "profit_factor": 2.516
+          },
+          {
+            "block": "2024Q2",
+            "trades": 29,
+            "wins": 17,
+            "win_rate": 0.5862068965517241,
+            "avg_pnl": 0.3448275862068966,
+            "total_pnl": 10.0,
+            "profit_factor": 1.1044386422976502
+          },
+          {
+            "block": "2024Q3",
+            "trades": 37,
+            "wins": 14,
+            "win_rate": 0.3783783783783784,
+            "avg_pnl": -1.8175675675675675,
+            "total_pnl": -67.25,
+            "profit_factor": 0.6831566548881036
+          },
+          {
+            "block": "2024Q4",
+            "trades": 21,
+            "wins": 10,
+            "win_rate": 0.47619047619047616,
+            "avg_pnl": -0.7976190476190477,
+            "total_pnl": -16.75,
+            "profit_factor": 0.7981927710843374
+          }
+        ],
+        "mean_avg_pnl": 0.3434679350627627,
+        "std_avg_pnl": 2.053484300022199,
+        "positive_blocks": 2,
+        "max_drawdown": 103.5,
+        "max_drawdown_norm": 0.8922413793103449,
+        "sharpe_like": 0.21436651373345195
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Short_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.48792270531400966,
+      "Trades": 1035,
+      "Avg_PnL": 0.06256038647342996,
+      "Score": -1.9748130550428888,
+      "Recent": {
+        "trades": 151,
+        "wins": 66,
+        "win_rate": 0.4370860927152318,
+        "avg_pnl": 0.48509933774834435,
+        "profit_factor": 1.126949740034662
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.0851317733776055,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 1035,
+        "wins": 505,
+        "win_rate": 0.48792270531400966,
+        "avg_pnl": 0.06256038647342996,
+        "profit_factor": 1.017259762761562,
+        "total_pnl": 64.75,
+        "score_train": 0.0851317733776055
+      },
+      "OOS": {
+        "trades": 151,
+        "wins": 66,
+        "win_rate": 0.4370860927152318,
+        "avg_pnl": 0.48509933774834435,
+        "profit_factor": 1.126949740034662,
+        "total_pnl": 73.25,
+        "stability_score": -1.9748130550428888,
+        "mean_oos_avg_pnl": 0.4757354132354132,
+        "std_oos_avg_pnl": 1.9565905564892374,
+        "max_oos_drawdown_norm": 1.183574879227053,
+        "sharpe_like": 0.6552556233841059
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 39,
+            "wins": 12,
+            "win_rate": 0.3076923076923077,
+            "avg_pnl": -2.467948717948718,
+            "total_pnl": -96.25,
+            "profit_factor": 0.4797297297297297
+          },
+          {
+            "block": "2024Q2",
+            "trades": 37,
+            "wins": 14,
+            "win_rate": 0.3783783783783784,
+            "avg_pnl": 0.0472972972972973,
+            "total_pnl": 1.75,
+            "profit_factor": 1.012704174228675
+          },
+          {
+            "block": "2024Q3",
+            "trades": 42,
+            "wins": 24,
+            "win_rate": 0.5714285714285714,
+            "avg_pnl": 2.7857142857142856,
+            "total_pnl": 117.0,
+            "profit_factor": 1.7609756097560976
+          },
+          {
+            "block": "2024Q4",
+            "trades": 33,
+            "wins": 16,
+            "win_rate": 0.48484848484848486,
+            "avg_pnl": 1.5378787878787878,
+            "total_pnl": 50.75,
+            "profit_factor": 1.5049751243781095
+          }
+        ],
+        "mean_avg_pnl": 0.4757354132354132,
+        "std_avg_pnl": 1.9565905564892374,
+        "positive_blocks": 3,
+        "max_drawdown": 122.5,
+        "max_drawdown_norm": 1.183574879227053,
+        "sharpe_like": 0.6552556233841059
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.5140898705255141,
+      "Trades": 2626,
+      "Avg_PnL": 0.31464204112718963,
+      "Score": -0.3320597681179568,
+      "Recent": {
+        "trades": 369,
+        "wins": 204,
+        "win_rate": 0.5528455284552846,
+        "avg_pnl": 0.6002710027100271,
+        "profit_factor": 1.266706803130644
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.402698636183868,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 2626,
+        "wins": 1350,
+        "win_rate": 0.5140898705255141,
+        "avg_pnl": 0.31464204112718963,
+        "profit_factor": 1.1199985476726455,
+        "total_pnl": 826.25,
+        "score_train": 0.402698636183868
+      },
+      "OOS": {
+        "trades": 369,
+        "wins": 204,
+        "win_rate": 0.5528455284552846,
+        "avg_pnl": 0.6002710027100271,
+        "profit_factor": 1.266706803130644,
+        "total_pnl": 221.5,
+        "stability_score": -0.3320597681179568,
+        "mean_oos_avg_pnl": 0.4498294616519174,
+        "std_oos_avg_pnl": 0.6281975259309832,
+        "max_oos_drawdown_norm": 0.37020316027088035,
+        "sharpe_like": 1.7856131250092413
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 68,
+            "wins": 41,
+            "win_rate": 0.6029411764705882,
+            "avg_pnl": 0.23161764705882354,
+            "total_pnl": 15.75,
+            "profit_factor": 1.1640625
+          },
+          {
+            "block": "2024Q2",
+            "trades": 68,
+            "wins": 31,
+            "win_rate": 0.45588235294117646,
+            "avg_pnl": -0.48161764705882354,
+            "total_pnl": -32.75,
+            "profit_factor": 0.809593023255814
+          },
+          {
+            "block": "2024Q3",
+            "trades": 120,
+            "wins": 68,
+            "win_rate": 0.5666666666666667,
+            "avg_pnl": 0.9895833333333334,
+            "total_pnl": 118.75,
+            "profit_factor": 1.3555389221556886
+          },
+          {
+            "block": "2024Q4",
+            "trades": 113,
+            "wins": 64,
+            "win_rate": 0.5663716814159292,
+            "avg_pnl": 1.0597345132743363,
+            "total_pnl": 119.75,
+            "profit_factor": 1.5240700218818382
+          }
+        ],
+        "mean_avg_pnl": 0.4498294616519174,
+        "std_avg_pnl": 0.6281975259309832,
+        "positive_blocks": 3,
+        "max_drawdown": 82.0,
+        "max_drawdown_norm": 0.37020316027088035,
+        "sharpe_like": 1.7856131250092413
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.516260162601626,
+      "Trades": 1476,
+      "Avg_PnL": 0.26355013550135503,
+      "Score": -1.478708320449518,
+      "Recent": {
+        "trades": 204,
+        "wins": 108,
+        "win_rate": 0.5294117647058824,
+        "avg_pnl": 0.4424019607843137,
+        "profit_factor": 1.160088691796009
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.3744937258679206,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 1476,
+        "wins": 762,
+        "win_rate": 0.516260162601626,
+        "avg_pnl": 0.26355013550135503,
+        "profit_factor": 1.0870781800884213,
+        "total_pnl": 389.0,
+        "score_train": 0.3744937258679206
+      },
+      "OOS": {
+        "trades": 204,
+        "wins": 108,
+        "win_rate": 0.5294117647058824,
+        "avg_pnl": 0.4424019607843137,
+        "profit_factor": 1.160088691796009,
+        "total_pnl": 90.25,
+        "stability_score": -1.478708320449518,
+        "mean_oos_avg_pnl": 0.005993355267994993,
+        "std_oos_avg_pnl": 1.1123408804024557,
+        "max_oos_drawdown_norm": 0.8559556786703602,
+        "sharpe_like": 0.870701007190713
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 28,
+            "wins": 13,
+            "win_rate": 0.4642857142857143,
+            "avg_pnl": -0.3392857142857143,
+            "total_pnl": -9.5,
+            "profit_factor": 0.8347826086956521
+          },
+          {
+            "block": "2024Q2",
+            "trades": 29,
+            "wins": 11,
+            "win_rate": 0.3793103448275862,
+            "avg_pnl": -1.6637931034482758,
+            "total_pnl": -48.25,
+            "profit_factor": 0.4921052631578947
+          },
+          {
+            "block": "2024Q3",
+            "trades": 80,
+            "wins": 45,
+            "win_rate": 0.5625,
+            "avg_pnl": 0.9375,
+            "total_pnl": 75.0,
+            "profit_factor": 1.2859866539561486
+          },
+          {
+            "block": "2024Q4",
+            "trades": 67,
+            "wins": 39,
+            "win_rate": 0.582089552238806,
+            "avg_pnl": 1.0895522388059702,
+            "total_pnl": 73.0,
+            "profit_factor": 1.4899328859060403
+          }
+        ],
+        "mean_avg_pnl": 0.005993355267994993,
+        "std_avg_pnl": 1.1123408804024557,
+        "positive_blocks": 2,
+        "max_drawdown": 77.25,
+        "max_drawdown_norm": 0.8559556786703602,
+        "sharpe_like": 0.870701007190713
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.5236051502145923,
+      "Trades": 932,
+      "Avg_PnL": 0.4407188841201717,
+      "Score": -2.5109404711683396,
+      "Recent": {
+        "trades": 112,
+        "wins": 62,
+        "win_rate": 0.5535714285714286,
+        "avg_pnl": 0.9553571428571429,
+        "profit_factor": 1.3351605324980422
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.5400138681842649,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 932,
+        "wins": 488,
+        "win_rate": 0.5236051502145923,
+        "avg_pnl": 0.4407188841201717,
+        "profit_factor": 1.134848982271832,
+        "total_pnl": 410.75,
+        "score_train": 0.5400138681842649
+      },
+      "OOS": {
+        "trades": 112,
+        "wins": 62,
+        "win_rate": 0.5535714285714286,
+        "avg_pnl": 0.9553571428571429,
+        "profit_factor": 1.3351605324980422,
+        "total_pnl": 107.0,
+        "stability_score": -2.5109404711683396,
+        "mean_oos_avg_pnl": -0.23808056564608193,
+        "std_oos_avg_pnl": 2.0899755031075413,
+        "max_oos_drawdown_norm": 0.5747663551401869,
+        "sharpe_like": 1.2974557169087249
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 8,
+            "wins": 3,
+            "win_rate": 0.375,
+            "avg_pnl": -2.59375,
+            "total_pnl": -20.75,
+            "profit_factor": 0.25225225225225223
+          },
+          {
+            "block": "2024Q2",
+            "trades": 16,
+            "wins": 6,
+            "win_rate": 0.375,
+            "avg_pnl": -2.03125,
+            "total_pnl": -32.5,
+            "profit_factor": 0.4672131147540984
+          },
+          {
+            "block": "2024Q3",
+            "trades": 47,
+            "wins": 26,
+            "win_rate": 0.5531914893617021,
+            "avg_pnl": 1.6117021276595744,
+            "total_pnl": 75.75,
+            "profit_factor": 1.5075376884422111
+          },
+          {
+            "block": "2024Q4",
+            "trades": 41,
+            "wins": 27,
+            "win_rate": 0.6585365853658537,
+            "avg_pnl": 2.0609756097560976,
+            "total_pnl": 84.5,
+            "profit_factor": 2.04
+          }
+        ],
+        "mean_avg_pnl": -0.23808056564608193,
+        "std_avg_pnl": 2.0899755031075413,
+        "positive_blocks": 2,
+        "max_drawdown": 61.5,
+        "max_drawdown_norm": 0.5747663551401869,
+        "sharpe_like": 1.2974557169087249
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.47937219730941705,
+      "Trades": 2230,
+      "Avg_PnL": 0.02858744394618834,
+      "Score": -0.8912828089369478,
+      "Recent": {
+        "trades": 251,
+        "wins": 126,
+        "win_rate": 0.50199203187251,
+        "avg_pnl": 0.49302788844621515,
+        "profit_factor": 1.239825581395349
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.018113314801873018,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 2230,
+        "wins": 1069,
+        "win_rate": 0.47937219730941705,
+        "avg_pnl": 0.02858744394618834,
+        "profit_factor": 1.0124111749245595,
+        "total_pnl": 63.75,
+        "score_train": 0.018113314801873018
+      },
+      "OOS": {
+        "trades": 251,
+        "wins": 126,
+        "win_rate": 0.50199203187251,
+        "avg_pnl": 0.49302788844621515,
+        "profit_factor": 1.239825581395349,
+        "total_pnl": 123.75,
+        "stability_score": -0.8912828089369478,
+        "mean_oos_avg_pnl": 0.2181372549019608,
+        "std_oos_avg_pnl": 0.8306116639874328,
+        "max_oos_drawdown_norm": 0.6406779661016949,
+        "sharpe_like": 1.2946019548111043
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 17,
+            "wins": 6,
+            "win_rate": 0.35294117647058826,
+            "avg_pnl": -1.0441176470588236,
+            "total_pnl": -17.75,
+            "profit_factor": 0.3425925925925926
+          },
+          {
+            "block": "2024Q2",
+            "trades": 52,
+            "wins": 29,
+            "win_rate": 0.5576923076923077,
+            "avg_pnl": 1.1057692307692308,
+            "total_pnl": 57.5,
+            "profit_factor": 1.8243727598566308
+          },
+          {
+            "block": "2024Q3",
+            "trades": 104,
+            "wins": 56,
+            "win_rate": 0.5384615384615384,
+            "avg_pnl": 0.7980769230769231,
+            "total_pnl": 83.0,
+            "profit_factor": 1.3524416135881103
+          },
+          {
+            "block": "2024Q4",
+            "trades": 78,
+            "wins": 35,
+            "win_rate": 0.44871794871794873,
+            "avg_pnl": 0.01282051282051282,
+            "total_pnl": 1.0,
+            "profit_factor": 1.0054421768707482
+          }
+        ],
+        "mean_avg_pnl": 0.2181372549019608,
+        "std_avg_pnl": 0.8306116639874328,
+        "positive_blocks": 3,
+        "max_drawdown": 94.5,
+        "max_drawdown_norm": 0.6406779661016949,
+        "sharpe_like": 1.2946019548111043
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.5270457697642164,
+      "Trades": 2163,
+      "Avg_PnL": 0.17972723069810448,
+      "Score": 0.29482531025625003,
+      "Recent": {
+        "trades": 206,
+        "wins": 118,
+        "win_rate": 0.5728155339805825,
+        "avg_pnl": 0.691747572815534,
+        "profit_factor": 1.3874915023793337
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.33375951102009965,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 2163,
+        "wins": 1140,
+        "win_rate": 0.5270457697642164,
+        "avg_pnl": 0.17972723069810448,
+        "profit_factor": 1.0748567852500843,
+        "total_pnl": 388.75,
+        "score_train": 0.3685235888347633
+      },
+      "OOS": {
+        "trades": 206,
+        "wins": 118,
+        "win_rate": 0.5728155339805825,
+        "avg_pnl": 0.691747572815534,
+        "profit_factor": 1.3874915023793337,
+        "total_pnl": 142.5,
+        "stability_score": 0.29482531025625003,
+        "mean_oos_avg_pnl": 0.7651724577505828,
+        "std_oos_avg_pnl": 0.2636335363539133,
+        "max_oos_drawdown_norm": 0.4397905759162304,
+        "sharpe_like": 1.7698721451474033
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 26,
+            "wins": 16,
+            "win_rate": 0.6153846153846154,
+            "avg_pnl": 1.2211538461538463,
+            "total_pnl": 31.75,
+            "profit_factor": 2.175925925925926
+          },
+          {
+            "block": "2024Q2",
+            "trades": 32,
+            "wins": 19,
+            "win_rate": 0.59375,
+            "avg_pnl": 0.6171875,
+            "total_pnl": 19.75,
+            "profit_factor": 1.2981132075471697
+          },
+          {
+            "block": "2024Q3",
+            "trades": 88,
+            "wins": 49,
+            "win_rate": 0.5568181818181818,
+            "avg_pnl": 0.6306818181818182,
+            "total_pnl": 55.5,
+            "profit_factor": 1.2761194029850746
+          },
+          {
+            "block": "2024Q4",
+            "trades": 60,
+            "wins": 34,
+            "win_rate": 0.5666666666666667,
+            "avg_pnl": 0.5916666666666667,
+            "total_pnl": 35.5,
+            "profit_factor": 1.4829931972789117
+          }
+        ],
+        "mean_avg_pnl": 0.7651724577505828,
+        "std_avg_pnl": 0.2636335363539133,
+        "positive_blocks": 4,
+        "max_drawdown": 63.0,
+        "max_drawdown_norm": 0.4397905759162304,
+        "sharpe_like": 1.7698721451474033
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.5252100840336135,
+      "Trades": 1190,
+      "Avg_PnL": 0.146218487394958,
+      "Score": 0.22841702579500545,
+      "Recent": {
+        "trades": 95,
+        "wins": 58,
+        "win_rate": 0.6105263157894737,
+        "avg_pnl": 1.3789473684210527,
+        "profit_factor": 1.6822916666666667
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.2933892596033596,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 1190,
+        "wins": 625,
+        "win_rate": 0.5252100840336135,
+        "avg_pnl": 0.146218487394958,
+        "profit_factor": 1.051685727016189,
+        "total_pnl": 174.0,
+        "score_train": 0.3335719340461568
+      },
+      "OOS": {
+        "trades": 95,
+        "wins": 58,
+        "win_rate": 0.6105263157894737,
+        "avg_pnl": 1.3789473684210527,
+        "profit_factor": 1.6822916666666667,
+        "total_pnl": 131.0,
+        "stability_score": 0.22841702579500545,
+        "mean_oos_avg_pnl": 1.1522462466611403,
+        "std_oos_avg_pnl": 0.794039679413059,
+        "max_oos_drawdown_norm": 0.3389830508474576,
+        "sharpe_like": 2.034928802482424
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 12,
+            "wins": 8,
+            "win_rate": 0.6666666666666666,
+            "avg_pnl": 1.2916666666666667,
+            "total_pnl": 15.5,
+            "profit_factor": 1.96875
+          },
+          {
+            "block": "2024Q2",
+            "trades": 14,
+            "wins": 6,
+            "win_rate": 0.42857142857142855,
+            "avg_pnl": -0.17857142857142858,
+            "total_pnl": -2.5,
+            "profit_factor": 0.9541284403669725
+          },
+          {
+            "block": "2024Q3",
+            "trades": 47,
+            "wins": 30,
+            "win_rate": 0.6382978723404256,
+            "avg_pnl": 1.6436170212765957,
+            "total_pnl": 77.25,
+            "profit_factor": 1.7573529411764706
+          },
+          {
+            "block": "2024Q4",
+            "trades": 22,
+            "wins": 14,
+            "win_rate": 0.6363636363636364,
+            "avg_pnl": 1.8522727272727273,
+            "total_pnl": 40.75,
+            "profit_factor": 3.08974358974359
+          }
+        ],
+        "mean_avg_pnl": 1.1522462466611403,
+        "std_avg_pnl": 0.794039679413059,
+        "positive_blocks": 3,
+        "max_drawdown": 45.0,
+        "max_drawdown_norm": 0.3389830508474576,
+        "sharpe_like": 2.034928802482424
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4995869475423379,
+      "Trades": 4842,
+      "Avg_PnL": 0.28345724907063197,
+      "Score": -1.2523900602626683,
+      "Recent": {
+        "trades": 613,
+        "wins": 310,
+        "win_rate": 0.5057096247960848,
+        "avg_pnl": 0.20717781402936378,
+        "profit_factor": 1.0771333130883693
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.3053988461286409,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 4842,
+        "wins": 2419,
+        "win_rate": 0.4995869475423379,
+        "avg_pnl": 0.28345724907063197,
+        "profit_factor": 1.0904403406750902,
+        "total_pnl": 1372.5,
+        "score_train": 0.3053988461286409
+      },
+      "OOS": {
+        "trades": 613,
+        "wins": 310,
+        "win_rate": 0.5057096247960848,
+        "avg_pnl": 0.20717781402936378,
+        "profit_factor": 1.0771333130883693,
+        "total_pnl": 127.0,
+        "stability_score": -1.2523900602626683,
+        "mean_oos_avg_pnl": -0.04737291614168512,
+        "std_oos_avg_pnl": 0.7421233096010348,
+        "max_oos_drawdown_norm": 1.0,
+        "sharpe_like": 0.7361429719208664
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 84,
+            "wins": 39,
+            "win_rate": 0.4642857142857143,
+            "avg_pnl": -0.6934523809523809,
+            "total_pnl": -58.25,
+            "profit_factor": 0.7141104294478527
+          },
+          {
+            "block": "2024Q2",
+            "trades": 122,
+            "wins": 55,
+            "win_rate": 0.45081967213114754,
+            "avg_pnl": -0.8073770491803278,
+            "total_pnl": -98.5,
+            "profit_factor": 0.7136627906976745
+          },
+          {
+            "block": "2024Q3",
+            "trades": 229,
+            "wins": 125,
+            "win_rate": 0.5458515283842795,
+            "avg_pnl": 0.9868995633187773,
+            "total_pnl": 226.0,
+            "profit_factor": 1.3450381679389314
+          },
+          {
+            "block": "2024Q4",
+            "trades": 178,
+            "wins": 91,
+            "win_rate": 0.5112359550561798,
+            "avg_pnl": 0.324438202247191,
+            "total_pnl": 57.75,
+            "profit_factor": 1.1301408450704225
+          }
+        ],
+        "mean_avg_pnl": -0.04737291614168512,
+        "std_avg_pnl": 0.7421233096010348,
+        "positive_blocks": 2,
+        "max_drawdown": 236.25,
+        "max_drawdown_norm": 1.0,
+        "sharpe_like": 0.7361429719208664
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Long_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4912442396313364,
+      "Trades": 1085,
+      "Avg_PnL": 0.432258064516129,
+      "Score": -2.5077025694537793,
+      "Recent": {
+        "trades": 118,
+        "wins": 59,
+        "win_rate": 0.5,
+        "avg_pnl": 0.15677966101694915,
+        "profit_factor": 1.0419977298524403
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.3697399810358896,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 1085,
+        "wins": 533,
+        "win_rate": 0.4912442396313364,
+        "avg_pnl": 0.432258064516129,
+        "profit_factor": 1.1093813771791732,
+        "total_pnl": 469.0,
+        "score_train": 0.3697399810358896
+      },
+      "OOS": {
+        "trades": 118,
+        "wins": 59,
+        "win_rate": 0.5,
+        "avg_pnl": 0.15677966101694915,
+        "profit_factor": 1.0419977298524403,
+        "total_pnl": 18.5,
+        "stability_score": -2.5077025694537793,
+        "mean_oos_avg_pnl": -0.5766143361533347,
+        "std_oos_avg_pnl": 1.5010160868218656,
+        "max_oos_drawdown_norm": 1.0102459016393444,
+        "sharpe_like": 0.19521084903998887
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 6,
+            "wins": 3,
+            "win_rate": 0.5,
+            "avg_pnl": -3.0833333333333335,
+            "total_pnl": -18.5,
+            "profit_factor": 0.1590909090909091
+          },
+          {
+            "block": "2024Q2",
+            "trades": 14,
+            "wins": 7,
+            "win_rate": 0.5,
+            "avg_pnl": -0.2857142857142857,
+            "total_pnl": -4.0,
+            "profit_factor": 0.9191919191919192
+          },
+          {
+            "block": "2024Q3",
+            "trades": 67,
+            "wins": 31,
+            "win_rate": 0.4626865671641791,
+            "avg_pnl": 0.22388059701492538,
+            "total_pnl": 15.0,
+            "profit_factor": 1.0552486187845305
+          },
+          {
+            "block": "2024Q4",
+            "trades": 31,
+            "wins": 18,
+            "win_rate": 0.5806451612903226,
+            "avg_pnl": 0.8387096774193549,
+            "total_pnl": 26.0,
+            "profit_factor": 1.2666666666666666
+          }
+        ],
+        "mean_avg_pnl": -0.5766143361533347,
+        "std_avg_pnl": 1.5010160868218656,
+        "positive_blocks": 2,
+        "max_drawdown": 123.25,
+        "max_drawdown_norm": 1.0102459016393444,
+        "sharpe_like": 0.19521084903998887
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.49839080459770113,
+      "Trades": 2175,
+      "Avg_PnL": 0.3732183908045977,
+      "Score": -2.5294558362723705,
+      "Recent": {
+        "trades": 270,
+        "wins": 142,
+        "win_rate": 0.5259259259259259,
+        "avg_pnl": 0.2675925925925926,
+        "profit_factor": 1.0868128567137278
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.36254204919498156,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 2175,
+        "wins": 1084,
+        "win_rate": 0.49839080459770113,
+        "avg_pnl": 0.3732183908045977,
+        "profit_factor": 1.1048975899722169,
+        "total_pnl": 811.75,
+        "score_train": 0.3636966555489457
+      },
+      "OOS": {
+        "trades": 270,
+        "wins": 142,
+        "win_rate": 0.5259259259259259,
+        "avg_pnl": 0.2675925925925926,
+        "profit_factor": 1.0868128567137278,
+        "total_pnl": 72.25,
+        "stability_score": -2.5294558362723705,
+        "mean_oos_avg_pnl": -0.4305930149837712,
+        "std_oos_avg_pnl": 1.6830134960932623,
+        "max_oos_drawdown_norm": 1.0,
+        "sharpe_like": 0.5713564252140553
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 27,
+            "wins": 8,
+            "win_rate": 0.2962962962962963,
+            "avg_pnl": -3.2685185185185186,
+            "total_pnl": -88.25,
+            "profit_factor": 0.20674157303370785
+          },
+          {
+            "block": "2024Q2",
+            "trades": 49,
+            "wins": 25,
+            "win_rate": 0.5102040816326531,
+            "avg_pnl": -0.09183673469387756,
+            "total_pnl": -4.5,
+            "profit_factor": 0.9657142857142857
+          },
+          {
+            "block": "2024Q3",
+            "trades": 119,
+            "wins": 65,
+            "win_rate": 0.5462184873949579,
+            "avg_pnl": 0.957983193277311,
+            "total_pnl": 114.0,
+            "profit_factor": 1.2908163265306123
+          },
+          {
+            "block": "2024Q4",
+            "trades": 75,
+            "wins": 44,
+            "win_rate": 0.5866666666666667,
+            "avg_pnl": 0.68,
+            "total_pnl": 51.0,
+            "profit_factor": 1.2579013906447534
+          }
+        ],
+        "mean_avg_pnl": -0.4305930149837712,
+        "std_avg_pnl": 1.6830134960932623,
+        "positive_blocks": 2,
+        "max_drawdown": 179.75,
+        "max_drawdown_norm": 1.0,
+        "sharpe_like": 0.5713564252140553
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.521483965625655,
+      "Trades": 4771,
+      "Avg_PnL": 0.37020540767134774,
+      "Score": -0.5419590714384188,
+      "Recent": {
+        "trades": 610,
+        "wins": 323,
+        "win_rate": 0.5295081967213114,
+        "avg_pnl": 0.3413934426229508,
+        "profit_factor": 1.1151029432085118
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.4779685241476447,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 4771,
+        "wins": 2488,
+        "win_rate": 0.521483965625655,
+        "avg_pnl": 0.37020540767134774,
+        "profit_factor": 1.1140491064942613,
+        "total_pnl": 1766.25,
+        "score_train": 0.4779685241476447
+      },
+      "OOS": {
+        "trades": 610,
+        "wins": 323,
+        "win_rate": 0.5295081967213114,
+        "avg_pnl": 0.3413934426229508,
+        "profit_factor": 1.1151029432085118,
+        "total_pnl": 208.25,
+        "stability_score": -0.5419590714384188,
+        "mean_oos_avg_pnl": 0.17454520750305635,
+        "std_oos_avg_pnl": 0.5282944979080226,
+        "max_oos_drawdown_norm": 0.42924901185770753,
+        "sharpe_like": 1.1200451391613702
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 86,
+            "wins": 41,
+            "win_rate": 0.47674418604651164,
+            "avg_pnl": -0.438953488372093,
+            "total_pnl": -37.75,
+            "profit_factor": 0.8187274909963985
+          },
+          {
+            "block": "2024Q2",
+            "trades": 120,
+            "wins": 57,
+            "win_rate": 0.475,
+            "avg_pnl": 0.027083333333333334,
+            "total_pnl": 3.25,
+            "profit_factor": 1.010408326661329
+          },
+          {
+            "block": "2024Q3",
+            "trades": 222,
+            "wins": 126,
+            "win_rate": 0.5675675675675675,
+            "avg_pnl": 1.018018018018018,
+            "total_pnl": 226.0,
+            "profit_factor": 1.3175272216368106
+          },
+          {
+            "block": "2024Q4",
+            "trades": 182,
+            "wins": 99,
+            "win_rate": 0.5439560439560439,
+            "avg_pnl": 0.09203296703296704,
+            "total_pnl": 16.75,
+            "profit_factor": 1.0290294627383016
+          }
+        ],
+        "mean_avg_pnl": 0.17454520750305635,
+        "std_avg_pnl": 0.5282944979080226,
+        "positive_blocks": 3,
+        "max_drawdown": 135.75,
+        "max_drawdown_norm": 0.42924901185770753,
+        "sharpe_like": 1.1200451391613702
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.5123287671232877,
+      "Trades": 2190,
+      "Avg_PnL": 0.4141552511415525,
+      "Score": -0.8335884859293108,
+      "Recent": {
+        "trades": 272,
+        "wins": 141,
+        "win_rate": 0.5183823529411765,
+        "avg_pnl": 0.47150735294117646,
+        "profit_factor": 1.137718120805369
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.4626936488679265,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 2190,
+        "wins": 1122,
+        "win_rate": 0.5123287671232877,
+        "avg_pnl": 0.4141552511415525,
+        "profit_factor": 1.1114113745240142,
+        "total_pnl": 907.0,
+        "score_train": 0.4626936488679265
+      },
+      "OOS": {
+        "trades": 272,
+        "wins": 141,
+        "win_rate": 0.5183823529411765,
+        "avg_pnl": 0.47150735294117646,
+        "profit_factor": 1.137718120805369,
+        "total_pnl": 128.25,
+        "stability_score": -0.8335884859293108,
+        "mean_oos_avg_pnl": 0.15072497316156735,
+        "std_oos_avg_pnl": 0.7615198882878809,
+        "max_oos_drawdown_norm": 0.5217391304347826,
+        "sharpe_like": 0.9240356813226707
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 20,
+            "wins": 9,
+            "win_rate": 0.45,
+            "avg_pnl": -0.4125,
+            "total_pnl": -8.25,
+            "profit_factor": 0.8125
+          },
+          {
+            "block": "2024Q2",
+            "trades": 46,
+            "wins": 21,
+            "win_rate": 0.45652173913043476,
+            "avg_pnl": 0.18478260869565216,
+            "total_pnl": 8.5,
+            "profit_factor": 1.0702479338842976
+          },
+          {
+            "block": "2024Q3",
+            "trades": 125,
+            "wins": 70,
+            "win_rate": 0.56,
+            "avg_pnl": 1.38,
+            "total_pnl": 172.5,
+            "profit_factor": 1.3885135135135136
+          },
+          {
+            "block": "2024Q4",
+            "trades": 81,
+            "wins": 41,
+            "win_rate": 0.5061728395061729,
+            "avg_pnl": -0.5493827160493827,
+            "total_pnl": -44.5,
+            "profit_factor": 0.8619084561675717
+          }
+        ],
+        "mean_avg_pnl": 0.15072497316156735,
+        "std_avg_pnl": 0.7615198882878809,
+        "positive_blocks": 2,
+        "max_drawdown": 117.0,
+        "max_drawdown_norm": 0.5217391304347826,
+        "sharpe_like": 0.9240356813226707
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4960698689956332,
+      "Trades": 1145,
+      "Avg_PnL": 0.38668122270742356,
+      "Score": -2.796014147873173,
+      "Recent": {
+        "trades": 127,
+        "wins": 68,
+        "win_rate": 0.5354330708661418,
+        "avg_pnl": 0.9153543307086615,
+        "profit_factor": 1.263157894736842
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.36061316563274104,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 1145,
+        "wins": 568,
+        "win_rate": 0.4960698689956332,
+        "avg_pnl": 0.38668122270742356,
+        "profit_factor": 1.0958696475937855,
+        "total_pnl": 442.75,
+        "score_train": 0.36061316563274104
+      },
+      "OOS": {
+        "trades": 127,
+        "wins": 68,
+        "win_rate": 0.5354330708661418,
+        "avg_pnl": 0.9153543307086615,
+        "profit_factor": 1.263157894736842,
+        "total_pnl": 116.25,
+        "stability_score": -2.796014147873173,
+        "mean_oos_avg_pnl": -0.3935817365995635,
+        "std_oos_avg_pnl": 2.374329987311278,
+        "max_oos_drawdown_norm": 0.2936378466557912,
+        "sharpe_like": 1.1688936514034076
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 7,
+            "wins": 1,
+            "win_rate": 0.14285714285714285,
+            "avg_pnl": -4.428571428571429,
+            "total_pnl": -31.0,
+            "profit_factor": 0.046153846153846156
+          },
+          {
+            "block": "2024Q2",
+            "trades": 19,
+            "wins": 8,
+            "win_rate": 0.42105263157894735,
+            "avg_pnl": 0.3026315789473684,
+            "total_pnl": 5.75,
+            "profit_factor": 1.1204188481675392
+          },
+          {
+            "block": "2024Q3",
+            "trades": 70,
+            "wins": 40,
+            "win_rate": 0.5714285714285714,
+            "avg_pnl": 1.6,
+            "total_pnl": 112.0,
+            "profit_factor": 1.4258555133079849
+          },
+          {
+            "block": "2024Q4",
+            "trades": 31,
+            "wins": 19,
+            "win_rate": 0.6129032258064516,
+            "avg_pnl": 0.9516129032258065,
+            "total_pnl": 29.5,
+            "profit_factor": 1.299492385786802
+          }
+        ],
+        "mean_avg_pnl": -0.3935817365995635,
+        "std_avg_pnl": 2.374329987311278,
+        "positive_blocks": 3,
+        "max_drawdown": 45.0,
+        "max_drawdown_norm": 0.2936378466557912,
+        "sharpe_like": 1.1688936514034076
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4857006673021926,
+      "Trades": 4196,
+      "Avg_PnL": 0.2130600571973308,
+      "Score": -0.03825694572663013,
+      "Recent": {
+        "trades": 632,
+        "wins": 334,
+        "win_rate": 0.5284810126582279,
+        "avg_pnl": 0.7598892405063291,
+        "profit_factor": 1.2610054347826087
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.18338691792231016,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 4196,
+        "wins": 2038,
+        "win_rate": 0.4857006673021926,
+        "avg_pnl": 0.2130600571973308,
+        "profit_factor": 1.0634076280653226,
+        "total_pnl": 894.0,
+        "score_train": 0.1839861393556267
+      },
+      "OOS": {
+        "trades": 632,
+        "wins": 334,
+        "win_rate": 0.5284810126582279,
+        "avg_pnl": 0.7598892405063291,
+        "profit_factor": 1.2610054347826087,
+        "total_pnl": 480.25,
+        "stability_score": -0.03825694572663013,
+        "mean_oos_avg_pnl": 0.6832005818249629,
+        "std_oos_avg_pnl": 0.6125952800851414,
+        "max_oos_drawdown_norm": 0.27898402294141744,
+        "sharpe_like": 2.431022388727241
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 125,
+            "wins": 60,
+            "win_rate": 0.48,
+            "avg_pnl": -0.156,
+            "total_pnl": -19.5,
+            "profit_factor": 0.944954128440367
+          },
+          {
+            "block": "2024Q2",
+            "trades": 151,
+            "wins": 86,
+            "win_rate": 0.5695364238410596,
+            "avg_pnl": 1.2152317880794703,
+            "total_pnl": 183.5,
+            "profit_factor": 1.4544891640866873
+          },
+          {
+            "block": "2024Q3",
+            "trades": 197,
+            "wins": 111,
+            "win_rate": 0.5634517766497462,
+            "avg_pnl": 1.3197969543147208,
+            "total_pnl": 260.0,
+            "profit_factor": 1.4281597365170853
+          },
+          {
+            "block": "2024Q4",
+            "trades": 159,
+            "wins": 77,
+            "win_rate": 0.48427672955974843,
+            "avg_pnl": 0.35377358490566035,
+            "total_pnl": 56.25,
+            "profit_factor": 1.1184834123222749
+          }
+        ],
+        "mean_avg_pnl": 0.6832005818249629,
+        "std_avg_pnl": 0.6125952800851414,
+        "positive_blocks": 3,
+        "max_drawdown": 170.25,
+        "max_drawdown_norm": 0.27898402294141744,
+        "sharpe_like": 2.431022388727241
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.48886532343584305,
+      "Trades": 1886,
+      "Avg_PnL": 0.3209172852598091,
+      "Score": -1.1925137932349181,
+      "Recent": {
+        "trades": 276,
+        "wins": 143,
+        "win_rate": 0.5181159420289855,
+        "avg_pnl": 0.33695652173913043,
+        "profit_factor": 1.1055019852524106
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.277774915027821,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 1886,
+        "wins": 922,
+        "win_rate": 0.48886532343584305,
+        "avg_pnl": 0.3209172852598091,
+        "profit_factor": 1.0880619816673942,
+        "total_pnl": 605.25,
+        "score_train": 0.277774915027821
+      },
+      "OOS": {
+        "trades": 276,
+        "wins": 143,
+        "win_rate": 0.5181159420289855,
+        "avg_pnl": 0.33695652173913043,
+        "profit_factor": 1.1055019852524106,
+        "total_pnl": 93.0,
+        "stability_score": -1.1925137932349181,
+        "mean_oos_avg_pnl": 0.22265911172161174,
+        "std_oos_avg_pnl": 0.9808636173994049,
+        "max_oos_drawdown_norm": 0.9667049368541906,
+        "sharpe_like": 0.697563563162913
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 42,
+            "wins": 21,
+            "win_rate": 0.5,
+            "avg_pnl": -1.0476190476190477,
+            "total_pnl": -44.0,
+            "profit_factor": 0.6728624535315985
+          },
+          {
+            "block": "2024Q2",
+            "trades": 60,
+            "wins": 35,
+            "win_rate": 0.5833333333333334,
+            "avg_pnl": 1.625,
+            "total_pnl": 97.5,
+            "profit_factor": 1.7386363636363635
+          },
+          {
+            "block": "2024Q3",
+            "trades": 104,
+            "wins": 55,
+            "win_rate": 0.5288461538461539,
+            "avg_pnl": 0.5168269230769231,
+            "total_pnl": 53.75,
+            "profit_factor": 1.1427622841965472
+          },
+          {
+            "block": "2024Q4",
+            "trades": 70,
+            "wins": 32,
+            "win_rate": 0.45714285714285713,
+            "avg_pnl": -0.20357142857142857,
+            "total_pnl": -14.25,
+            "profit_factor": 0.940251572327044
+          }
+        ],
+        "mean_avg_pnl": 0.22265911172161174,
+        "std_avg_pnl": 0.9808636173994049,
+        "positive_blocks": 2,
+        "max_drawdown": 210.5,
+        "max_drawdown_norm": 0.9667049368541906,
+        "sharpe_like": 0.697563563162913
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.487501307394624,
+      "Trades": 9561,
+      "Avg_PnL": 0.20714360422549943,
+      "Score": -1.4079003575676143,
+      "Recent": {
+        "trades": 1421,
+        "wins": 686,
+        "win_rate": 0.4827586206896552,
+        "avg_pnl": 0.09553131597466573,
+        "profit_factor": 1.02297148658939
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.11977371888700941,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 9561,
+        "wins": 4661,
+        "win_rate": 0.487501307394624,
+        "avg_pnl": 0.20714360422549943,
+        "profit_factor": 1.0535751722832005,
+        "total_pnl": 1980.5,
+        "score_train": 0.18786457715928961
+      },
+      "OOS": {
+        "trades": 1421,
+        "wins": 686,
+        "win_rate": 0.4827586206896552,
+        "avg_pnl": 0.09553131597466573,
+        "profit_factor": 1.02297148658939,
+        "total_pnl": 135.75,
+        "stability_score": -1.4079003575676143,
+        "mean_oos_avg_pnl": 0.15687691642382026,
+        "std_oos_avg_pnl": 0.6653778366467129,
+        "max_oos_drawdown_norm": 1.8653366583541147,
+        "sharpe_like": 0.3863116854737365
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 262,
+            "wins": 141,
+            "win_rate": 0.5381679389312977,
+            "avg_pnl": 0.6965648854961832,
+            "total_pnl": 182.5,
+            "profit_factor": 1.2255871446229913
+          },
+          {
+            "block": "2024Q2",
+            "trades": 335,
+            "wins": 151,
+            "win_rate": 0.4507462686567164,
+            "avg_pnl": -0.4955223880597015,
+            "total_pnl": -166.0,
+            "profit_factor": 0.8819975119957348
+          },
+          {
+            "block": "2024Q3",
+            "trades": 451,
+            "wins": 196,
+            "win_rate": 0.43458980044345896,
+            "avg_pnl": -0.5105321507760532,
+            "total_pnl": -230.25,
+            "profit_factor": 0.8958969142082062
+          },
+          {
+            "block": "2024Q4",
+            "trades": 373,
+            "wins": 198,
+            "win_rate": 0.5308310991957105,
+            "avg_pnl": 0.9369973190348525,
+            "total_pnl": 349.5,
+            "profit_factor": 1.23582995951417
+          }
+        ],
+        "mean_avg_pnl": 0.15687691642382026,
+        "std_avg_pnl": 0.6653778366467129,
+        "positive_blocks": 2,
+        "max_drawdown": 561.0,
+        "max_drawdown_norm": 1.8653366583541147,
+        "sharpe_like": 0.3863116854737365
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 7.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4725028058361392,
+      "Trades": 891,
+      "Avg_PnL": 0.24607182940516273,
+      "Score": 0.3610116154399642,
+      "Recent": {
+        "trades": 167,
+        "wins": 89,
+        "win_rate": 0.5329341317365269,
+        "avg_pnl": 1.4625748502994012,
+        "profit_factor": 1.3325391422736554
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.13971044929394721,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 891,
+        "wins": 421,
+        "win_rate": 0.4725028058361392,
+        "avg_pnl": 0.24607182940516273,
+        "profit_factor": 1.0494613952963736,
+        "total_pnl": 219.25,
+        "score_train": 0.13971044929394721
+      },
+      "OOS": {
+        "trades": 167,
+        "wins": 89,
+        "win_rate": 0.5329341317365269,
+        "avg_pnl": 1.4625748502994012,
+        "profit_factor": 1.3325391422736554,
+        "total_pnl": 244.25,
+        "stability_score": 0.3610116154399642,
+        "mean_oos_avg_pnl": 2.2285685483870967,
+        "std_oos_avg_pnl": 1.763688371383876,
+        "max_oos_drawdown_norm": 0.3841059602649007,
+        "sharpe_like": 1.7862903451243415
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 10,
+            "wins": 7,
+            "win_rate": 0.7,
+            "avg_pnl": 5.0,
+            "total_pnl": 50.0,
+            "profit_factor": 2.9607843137254903
+          },
+          {
+            "block": "2024Q2",
+            "trades": 31,
+            "wins": 16,
+            "win_rate": 0.5161290322580645,
+            "avg_pnl": 0.8467741935483871,
+            "total_pnl": 26.25,
+            "profit_factor": 1.1984877126654063
+          },
+          {
+            "block": "2024Q3",
+            "trades": 76,
+            "wins": 37,
+            "win_rate": 0.4868421052631579,
+            "avg_pnl": 0.5625,
+            "total_pnl": 42.75,
+            "profit_factor": 1.1152291105121295
+          },
+          {
+            "block": "2024Q4",
+            "trades": 50,
+            "wins": 29,
+            "win_rate": 0.58,
+            "avg_pnl": 2.505,
+            "total_pnl": 125.25,
+            "profit_factor": 1.608748481166464
+          }
+        ],
+        "mean_avg_pnl": 2.2285685483870967,
+        "std_avg_pnl": 1.763688371383876,
+        "positive_blocks": 4,
+        "max_drawdown": 101.5,
+        "max_drawdown_norm": 0.3841059602649007,
+        "sharpe_like": 1.7862903451243415
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 6.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4697318007662835,
+      "Trades": 1305,
+      "Avg_PnL": 0.18045977011494252,
+      "Score": -0.1732377342737474,
+      "Recent": {
+        "trades": 230,
+        "wins": 119,
+        "win_rate": 0.5173913043478261,
+        "avg_pnl": 1.267391304347826,
+        "profit_factor": 1.2857843137254903
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.07868120037740743,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 1305,
+        "wins": 613,
+        "win_rate": 0.4697318007662835,
+        "avg_pnl": 0.18045977011494252,
+        "profit_factor": 1.037003574655301,
+        "total_pnl": 235.5,
+        "score_train": 0.07868120037740743
+      },
+      "OOS": {
+        "trades": 230,
+        "wins": 119,
+        "win_rate": 0.5173913043478261,
+        "avg_pnl": 1.267391304347826,
+        "profit_factor": 1.2857843137254903,
+        "total_pnl": 291.5,
+        "stability_score": -0.1732377342737474,
+        "mean_oos_avg_pnl": 1.6694495506535947,
+        "std_oos_avg_pnl": 1.7398735803155092,
+        "max_oos_drawdown_norm": 0.3796147672552167,
+        "sharpe_like": 1.8286267601533819
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 18,
+            "wins": 11,
+            "win_rate": 0.6111111111111112,
+            "avg_pnl": 3.5972222222222223,
+            "total_pnl": 64.75,
+            "profit_factor": 2.269607843137255
+          },
+          {
+            "block": "2024Q2",
+            "trades": 48,
+            "wins": 22,
+            "win_rate": 0.4583333333333333,
+            "avg_pnl": -0.4114583333333333,
+            "total_pnl": -19.75,
+            "profit_factor": 0.9157782515991472
+          },
+          {
+            "block": "2024Q3",
+            "trades": 96,
+            "wins": 45,
+            "win_rate": 0.46875,
+            "avg_pnl": 0.3229166666666667,
+            "total_pnl": 31.0,
+            "profit_factor": 1.064215432418436
+          },
+          {
+            "block": "2024Q4",
+            "trades": 68,
+            "wins": 41,
+            "win_rate": 0.6029411764705882,
+            "avg_pnl": 3.1691176470588234,
+            "total_pnl": 215.5,
+            "profit_factor": 1.856007944389275
+          }
+        ],
+        "mean_avg_pnl": 1.6694495506535947,
+        "std_avg_pnl": 1.7398735803155092,
+        "positive_blocks": 3,
+        "max_drawdown": 118.25,
+        "max_drawdown_norm": 0.3796147672552167,
+        "sharpe_like": 1.8286267601533819
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.486859773642816,
+      "Trades": 5213,
+      "Avg_PnL": 0.20189909840782658,
+      "Score": -0.3626933793202124,
+      "Recent": {
+        "trades": 855,
+        "wins": 420,
+        "win_rate": 0.49122807017543857,
+        "avg_pnl": 0.5587719298245614,
+        "profit_factor": 1.1285829632620106
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.15606771414391551,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 5213,
+        "wins": 2538,
+        "win_rate": 0.486859773642816,
+        "avg_pnl": 0.20189909840782658,
+        "profit_factor": 1.0465769792450326,
+        "total_pnl": 1052.5,
+        "score_train": 0.18028593502406193
+      },
+      "OOS": {
+        "trades": 855,
+        "wins": 420,
+        "win_rate": 0.49122807017543857,
+        "avg_pnl": 0.5587719298245614,
+        "profit_factor": 1.1285829632620106,
+        "total_pnl": 477.75,
+        "stability_score": -0.3626933793202124,
+        "mean_oos_avg_pnl": 0.8135584587130503,
+        "std_oos_avg_pnl": 0.9809741322864048,
+        "max_oos_drawdown_norm": 0.4886528247223563,
+        "sharpe_like": 1.6477666585738504
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 127,
+            "wins": 74,
+            "win_rate": 0.5826771653543307,
+            "avg_pnl": 2.2755905511811023,
+            "total_pnl": 289.0,
+            "profit_factor": 1.7229518449030645
+          },
+          {
+            "block": "2024Q2",
+            "trades": 224,
+            "wins": 109,
+            "win_rate": 0.48660714285714285,
+            "avg_pnl": 0.14620535714285715,
+            "total_pnl": 32.75,
+            "profit_factor": 1.034555526246373
+          },
+          {
+            "block": "2024Q3",
+            "trades": 291,
+            "wins": 129,
+            "win_rate": 0.44329896907216493,
+            "avg_pnl": -0.27319587628865977,
+            "total_pnl": -79.5,
+            "profit_factor": 0.945853907713264
+          },
+          {
+            "block": "2024Q4",
+            "trades": 213,
+            "wins": 108,
+            "win_rate": 0.5070422535211268,
+            "avg_pnl": 1.1056338028169015,
+            "total_pnl": 235.5,
+            "profit_factor": 1.261739372047791
+          }
+        ],
+        "mean_avg_pnl": 0.8135584587130503,
+        "std_avg_pnl": 0.9809741322864048,
+        "positive_blocks": 3,
+        "max_drawdown": 253.0,
+        "max_drawdown_norm": 0.4886528247223563,
+        "sharpe_like": 1.6477666585738504
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4808171400099651,
+      "Trades": 2007,
+      "Avg_PnL": 0.33570004982561036,
+      "Score": -0.403390486235778,
+      "Recent": {
+        "trades": 351,
+        "wins": 177,
+        "win_rate": 0.5042735042735043,
+        "avg_pnl": 0.8511396011396012,
+        "profit_factor": 1.1906813467368758
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.24625857074864832,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 2007,
+        "wins": 965,
+        "win_rate": 0.4808171400099651,
+        "avg_pnl": 0.33570004982561036,
+        "profit_factor": 1.0718283582089552,
+        "total_pnl": 673.75,
+        "score_train": 0.24625857074864832
+      },
+      "OOS": {
+        "trades": 351,
+        "wins": 177,
+        "win_rate": 0.5042735042735043,
+        "avg_pnl": 0.8511396011396012,
+        "profit_factor": 1.1906813467368758,
+        "total_pnl": 298.75,
+        "stability_score": -0.403390486235778,
+        "mean_oos_avg_pnl": 1.098235264500537,
+        "std_oos_avg_pnl": 1.296488182684214,
+        "max_oos_drawdown_norm": 0.5399239543726235,
+        "sharpe_like": 1.5521593936536844
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 40,
+            "wins": 24,
+            "win_rate": 0.6,
+            "avg_pnl": 2.7625,
+            "total_pnl": 110.5,
+            "profit_factor": 1.9324894514767932
+          },
+          {
+            "block": "2024Q2",
+            "trades": 80,
+            "wins": 36,
+            "win_rate": 0.45,
+            "avg_pnl": -0.653125,
+            "total_pnl": -52.25,
+            "profit_factor": 0.8623188405797102
+          },
+          {
+            "block": "2024Q3",
+            "trades": 133,
+            "wins": 63,
+            "win_rate": 0.47368421052631576,
+            "avg_pnl": 0.4774436090225564,
+            "total_pnl": 63.5,
+            "profit_factor": 1.0957406709385602
+          },
+          {
+            "block": "2024Q4",
+            "trades": 98,
+            "wins": 54,
+            "win_rate": 0.5510204081632653,
+            "avg_pnl": 1.8061224489795917,
+            "total_pnl": 177.0,
+            "profit_factor": 1.436498150431566
+          }
+        ],
+        "mean_avg_pnl": 1.098235264500537,
+        "std_avg_pnl": 1.296488182684214,
+        "positive_blocks": 3,
+        "max_drawdown": 177.5,
+        "max_drawdown_norm": 0.5399239543726235,
+        "sharpe_like": 1.5521593936536844
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Short_Rev",
+      "Thresh": 6.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.46332046332046334,
+      "Trades": 1295,
+      "Avg_PnL": 0.2111969111969112,
+      "Score": -0.7648723309070247,
+      "Recent": {
+        "trades": 191,
+        "wins": 93,
+        "win_rate": 0.4869109947643979,
+        "avg_pnl": 0.7068062827225131,
+        "profit_factor": 1.1595273264401773
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.05641110966381484,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 1295,
+        "wins": 600,
+        "win_rate": 0.46332046332046334,
+        "avg_pnl": 0.2111969111969112,
+        "profit_factor": 1.043400642678621,
+        "total_pnl": 273.5,
+        "score_train": 0.06878021870801664
+      },
+      "OOS": {
+        "trades": 191,
+        "wins": 93,
+        "win_rate": 0.4869109947643979,
+        "avg_pnl": 0.7068062827225131,
+        "profit_factor": 1.1595273264401773,
+        "total_pnl": 135.0,
+        "stability_score": -0.7648723309070247,
+        "mean_oos_avg_pnl": 0.48924278846153846,
+        "std_oos_avg_pnl": 0.9941827227495513,
+        "max_oos_drawdown_norm": 0.619283065512979,
+        "sharpe_like": 0.9605997176635788
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 16,
+            "wins": 7,
+            "win_rate": 0.4375,
+            "avg_pnl": -0.03125,
+            "total_pnl": -0.5,
+            "profit_factor": 0.9934640522875817
+          },
+          {
+            "block": "2024Q2",
+            "trades": 32,
+            "wins": 16,
+            "win_rate": 0.5,
+            "avg_pnl": 0.609375,
+            "total_pnl": 19.5,
+            "profit_factor": 1.1529411764705881
+          },
+          {
+            "block": "2024Q3",
+            "trades": 78,
+            "wins": 42,
+            "win_rate": 0.5384615384615384,
+            "avg_pnl": 2.0288461538461537,
+            "total_pnl": 158.25,
+            "profit_factor": 1.5275
+          },
+          {
+            "block": "2024Q4",
+            "trades": 65,
+            "wins": 28,
+            "win_rate": 0.4307692307692308,
+            "avg_pnl": -0.65,
+            "total_pnl": -42.25,
+            "profit_factor": 0.8765522279035792
+          }
+        ],
+        "mean_avg_pnl": 0.48924278846153846,
+        "std_avg_pnl": 0.9941827227495513,
+        "positive_blocks": 2,
+        "max_drawdown": 125.25,
+        "max_drawdown_norm": 0.619283065512979,
+        "sharpe_like": 0.9605997176635788
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4965258476931629,
+      "Trades": 7196,
+      "Avg_PnL": 0.18948026681489716,
+      "Score": -1.3225699699202544,
+      "Recent": {
+        "trades": 1233,
+        "wins": 603,
+        "win_rate": 0.48905109489051096,
+        "avg_pnl": 0.04399837793998378,
+        "profit_factor": 1.0108321269904657
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.22026359239166762,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 7196,
+        "wins": 3573,
+        "win_rate": 0.4965258476931629,
+        "avg_pnl": 0.18948026681489716,
+        "profit_factor": 1.0499816715542523,
+        "total_pnl": 1363.5,
+        "score_train": 0.22026359239166762
+      },
+      "OOS": {
+        "trades": 1233,
+        "wins": 603,
+        "win_rate": 0.48905109489051096,
+        "avg_pnl": 0.04399837793998378,
+        "profit_factor": 1.0108321269904657,
+        "total_pnl": 54.25,
+        "stability_score": -1.3225699699202544,
+        "mean_oos_avg_pnl": 0.13407545446340277,
+        "std_oos_avg_pnl": 0.9196437913003841,
+        "max_oos_drawdown_norm": 1.1659676452965848,
+        "sharpe_like": 0.16914317333607667
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 236,
+            "wins": 143,
+            "win_rate": 0.6059322033898306,
+            "avg_pnl": 1.6334745762711864,
+            "total_pnl": 385.5,
+            "profit_factor": 1.5421940928270041
+          },
+          {
+            "block": "2024Q2",
+            "trades": 298,
+            "wins": 138,
+            "win_rate": 0.46308724832214765,
+            "avg_pnl": -0.4110738255033557,
+            "total_pnl": -122.5,
+            "profit_factor": 0.9009100101112234
+          },
+          {
+            "block": "2024Q3",
+            "trades": 385,
+            "wins": 183,
+            "win_rate": 0.4753246753246753,
+            "avg_pnl": 0.09415584415584416,
+            "total_pnl": 36.25,
+            "profit_factor": 1.021484664394725
+          },
+          {
+            "block": "2024Q4",
+            "trades": 314,
+            "wins": 139,
+            "win_rate": 0.4426751592356688,
+            "avg_pnl": -0.7802547770700637,
+            "total_pnl": -245.0,
+            "profit_factor": 0.821656050955414
+          }
+        ],
+        "mean_avg_pnl": 0.13407545446340277,
+        "std_avg_pnl": 0.9196437913003841,
+        "positive_blocks": 2,
+        "max_drawdown": 486.5,
+        "max_drawdown_norm": 1.1659676452965848,
+        "sharpe_like": 0.16914317333607667
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.5010314949800577,
+      "Trades": 7271,
+      "Avg_PnL": 0.3351327190207674,
+      "Score": -1.1533369945705871,
+      "Recent": {
+        "trades": 1271,
+        "wins": 629,
+        "win_rate": 0.4948859166011015,
+        "avg_pnl": 0.04386309992132179,
+        "profit_factor": 1.0108299742605993
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.3186727144259667,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 7271,
+        "wins": 3643,
+        "win_rate": 0.5010314949800577,
+        "avg_pnl": 0.3351327190207674,
+        "profit_factor": 1.0872347471203674,
+        "total_pnl": 2436.75,
+        "score_train": 0.3484738529268625
+      },
+      "OOS": {
+        "trades": 1271,
+        "wins": 629,
+        "win_rate": 0.4948859166011015,
+        "avg_pnl": 0.04386309992132179,
+        "profit_factor": 1.0108299742605993,
+        "total_pnl": 55.75,
+        "stability_score": -1.1533369945705871,
+        "mean_oos_avg_pnl": 0.14519659689131215,
+        "std_oos_avg_pnl": 0.7590754640278196,
+        "max_oos_drawdown_norm": 1.1548238012709418,
+        "sharpe_like": 0.17221931581262315
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 231,
+            "wins": 129,
+            "win_rate": 0.5584415584415584,
+            "avg_pnl": 1.4047619047619047,
+            "total_pnl": 324.5,
+            "profit_factor": 1.427959116386416
+          },
+          {
+            "block": "2024Q2",
+            "trades": 331,
+            "wins": 152,
+            "win_rate": 0.459214501510574,
+            "avg_pnl": -0.6102719033232629,
+            "total_pnl": -202.0,
+            "profit_factor": 0.8562533357053905
+          },
+          {
+            "block": "2024Q3",
+            "trades": 399,
+            "wins": 196,
+            "win_rate": 0.49122807017543857,
+            "avg_pnl": -0.005639097744360902,
+            "total_pnl": -2.25,
+            "profit_factor": 0.9987009237875288
+          },
+          {
+            "block": "2024Q4",
+            "trades": 310,
+            "wins": 152,
+            "win_rate": 0.49032258064516127,
+            "avg_pnl": -0.20806451612903226,
+            "total_pnl": -64.5,
+            "profit_factor": 0.9484927131163905
+          }
+        ],
+        "mean_avg_pnl": 0.14519659689131215,
+        "std_avg_pnl": 0.7590754640278196,
+        "positive_blocks": 1,
+        "max_drawdown": 499.75,
+        "max_drawdown_norm": 1.1548238012709418,
+        "sharpe_like": 0.17221931581262315
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Short_Rev",
+      "Thresh": 6.0,
+      "Best_SL": 8.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.4409030544488712,
+      "Trades": 753,
+      "Avg_PnL": 0.5421646746347941,
+      "Score": 0.07709455771461737,
+      "Recent": {
+        "trades": 122,
+        "wins": 62,
+        "win_rate": 0.5081967213114754,
+        "avg_pnl": 1.735655737704918,
+        "profit_factor": 1.5044669446098868
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.1757049969953455,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 753,
+        "wins": 332,
+        "win_rate": 0.4409030544488712,
+        "avg_pnl": 0.5421646746347941,
+        "profit_factor": 1.1341273100616016,
+        "total_pnl": 408.25,
+        "score_train": 0.19744327549487195
+      },
+      "OOS": {
+        "trades": 122,
+        "wins": 62,
+        "win_rate": 0.5081967213114754,
+        "avg_pnl": 1.735655737704918,
+        "profit_factor": 1.5044669446098868,
+        "total_pnl": 211.75,
+        "stability_score": 0.07709455771461737,
+        "mean_oos_avg_pnl": 1.8476952371105595,
+        "std_oos_avg_pnl": 1.7009256897060454,
+        "max_oos_drawdown_norm": 0.3094425483503982,
+        "sharpe_like": 2.090825278767821
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 9,
+            "wins": 4,
+            "win_rate": 0.4444444444444444,
+            "avg_pnl": 0.5555555555555556,
+            "total_pnl": 5.0,
+            "profit_factor": 1.1550387596899225
+          },
+          {
+            "block": "2024Q2",
+            "trades": 30,
+            "wins": 19,
+            "win_rate": 0.6333333333333333,
+            "avg_pnl": 4.233333333333333,
+            "total_pnl": 127.0,
+            "profit_factor": 2.5440729483282674
+          },
+          {
+            "block": "2024Q3",
+            "trades": 52,
+            "wins": 20,
+            "win_rate": 0.38461538461538464,
+            "avg_pnl": -0.04326923076923077,
+            "total_pnl": -2.25,
+            "profit_factor": 0.9898074745186863
+          },
+          {
+            "block": "2024Q4",
+            "trades": 31,
+            "wins": 19,
+            "win_rate": 0.6129032258064516,
+            "avg_pnl": 2.6451612903225805,
+            "total_pnl": 82.0,
+            "profit_factor": 1.970414201183432
+          }
+        ],
+        "mean_avg_pnl": 1.8476952371105595,
+        "std_avg_pnl": 1.7009256897060454,
+        "positive_blocks": 3,
+        "max_drawdown": 68.0,
+        "max_drawdown_norm": 0.3094425483503982,
+        "sharpe_like": 2.090825278767821
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.46140939597315433,
+      "Trades": 1192,
+      "Avg_PnL": 0.31187080536912754,
+      "Score": -0.6654298969292991,
+      "Recent": {
+        "trades": 220,
+        "wins": 112,
+        "win_rate": 0.509090909090909,
+        "avg_pnl": 1.1318181818181818,
+        "profit_factor": 1.2846527579308373
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.10009764353528004,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 1192,
+        "wins": 550,
+        "win_rate": 0.46140939597315433,
+        "avg_pnl": 0.31187080536912754,
+        "profit_factor": 1.0697205551387847,
+        "total_pnl": 371.75,
+        "score_train": 0.1323285991380394
+      },
+      "OOS": {
+        "trades": 220,
+        "wins": 112,
+        "win_rate": 0.509090909090909,
+        "avg_pnl": 1.1318181818181818,
+        "profit_factor": 1.2846527579308373,
+        "total_pnl": 249.0,
+        "stability_score": -0.6654298969292991,
+        "mean_oos_avg_pnl": 0.9909454205069125,
+        "std_oos_avg_pnl": 1.552026853143584,
+        "max_oos_drawdown_norm": 0.3638996138996139,
+        "sharpe_like": 1.7063631507741075
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 28,
+            "wins": 10,
+            "win_rate": 0.35714285714285715,
+            "avg_pnl": -1.3482142857142858,
+            "total_pnl": -37.75,
+            "profit_factor": 0.7224264705882353
+          },
+          {
+            "block": "2024Q2",
+            "trades": 48,
+            "wins": 29,
+            "win_rate": 0.6041666666666666,
+            "avg_pnl": 2.6614583333333335,
+            "total_pnl": 127.75,
+            "profit_factor": 1.700960219478738
+          },
+          {
+            "block": "2024Q3",
+            "trades": 93,
+            "wins": 43,
+            "win_rate": 0.46236559139784944,
+            "avg_pnl": 0.5672043010752689,
+            "total_pnl": 52.75,
+            "profit_factor": 1.1284236153377967
+          },
+          {
+            "block": "2024Q4",
+            "trades": 51,
+            "wins": 30,
+            "win_rate": 0.5882352941176471,
+            "avg_pnl": 2.0833333333333335,
+            "total_pnl": 106.25,
+            "profit_factor": 1.7289879931389365
+          }
+        ],
+        "mean_avg_pnl": 0.9909454205069125,
+        "std_avg_pnl": 1.552026853143584,
+        "positive_blocks": 3,
+        "max_drawdown": 94.25,
+        "max_drawdown_norm": 0.3638996138996139,
+        "sharpe_like": 1.7063631507741075
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "15-18",
+      "Type": "Long_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.470404984423676,
+      "Trades": 642,
+      "Avg_PnL": 0.3590342679127726,
+      "Score": -1.1090064608550019,
+      "Recent": {
+        "trades": 105,
+        "wins": 45,
+        "win_rate": 0.42857142857142855,
+        "avg_pnl": 0.1357142857142857,
+        "profit_factor": 1.0350553505535056
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.03284514854494336,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 642,
+        "wins": 302,
+        "win_rate": 0.470404984423676,
+        "avg_pnl": 0.3590342679127726,
+        "profit_factor": 1.0903832957553181,
+        "total_pnl": 230.5,
+        "score_train": 0.2123872392328527
+      },
+      "OOS": {
+        "trades": 105,
+        "wins": 45,
+        "win_rate": 0.42857142857142855,
+        "avg_pnl": 0.1357142857142857,
+        "profit_factor": 1.0350553505535056,
+        "total_pnl": 14.25,
+        "stability_score": -1.1090064608550019,
+        "mean_oos_avg_pnl": 0.4817740683229814,
+        "std_oos_avg_pnl": 0.7247982178481696,
+        "max_oos_drawdown_norm": 1.8044444444444445,
+        "sharpe_like": 0.15636812223295846
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 10,
+            "wins": 6,
+            "win_rate": 0.6,
+            "avg_pnl": 1.2,
+            "total_pnl": 12.0,
+            "profit_factor": 1.4705882352941178
+          },
+          {
+            "block": "2024Q2",
+            "trades": 28,
+            "wins": 12,
+            "win_rate": 0.42857142857142855,
+            "avg_pnl": 0.7410714285714286,
+            "total_pnl": 20.75,
+            "profit_factor": 1.2024390243902439
+          },
+          {
+            "block": "2024Q3",
+            "trades": 46,
+            "wins": 19,
+            "win_rate": 0.41304347826086957,
+            "avg_pnl": -0.7282608695652174,
+            "total_pnl": -33.5,
+            "profit_factor": 0.8367844092570037
+          },
+          {
+            "block": "2024Q4",
+            "trades": 21,
+            "wins": 8,
+            "win_rate": 0.38095238095238093,
+            "avg_pnl": 0.7142857142857143,
+            "total_pnl": 15.0,
+            "profit_factor": 1.204778156996587
+          }
+        ],
+        "mean_avg_pnl": 0.4817740683229814,
+        "std_avg_pnl": 0.7247982178481696,
+        "positive_blocks": 3,
+        "max_drawdown": 101.5,
+        "max_drawdown_norm": 1.8044444444444445,
+        "sharpe_like": 0.15636812223295846
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.5095519277526919,
+      "Trades": 2879,
+      "Avg_PnL": 0.28160819729072595,
+      "Score": 0.09051334786092047,
+      "Recent": {
+        "trades": 369,
+        "wins": 217,
+        "win_rate": 0.5880758807588076,
+        "avg_pnl": 0.9566395663956639,
+        "profit_factor": 1.391135734072022
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.31811327228715375,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 2879,
+        "wins": 1467,
+        "win_rate": 0.5095519277526919,
+        "avg_pnl": 0.28160819729072595,
+        "profit_factor": 1.0914809590973202,
+        "total_pnl": 810.75,
+        "score_train": 0.3540334727766995
+      },
+      "OOS": {
+        "trades": 369,
+        "wins": 217,
+        "win_rate": 0.5880758807588076,
+        "avg_pnl": 0.9566395663956639,
+        "profit_factor": 1.391135734072022,
+        "total_pnl": 353.0,
+        "stability_score": 0.09051334786092047,
+        "mean_oos_avg_pnl": 0.7365031581321904,
+        "std_oos_avg_pnl": 0.5062901536477062,
+        "max_oos_drawdown_norm": 0.330028328611898,
+        "sharpe_like": 2.579285211429007
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 39,
+            "wins": 19,
+            "win_rate": 0.48717948717948717,
+            "avg_pnl": 0.17307692307692307,
+            "total_pnl": 6.75,
+            "profit_factor": 1.0954063604240283
+          },
+          {
+            "block": "2024Q2",
+            "trades": 62,
+            "wins": 37,
+            "win_rate": 0.5967741935483871,
+            "avg_pnl": 0.31451612903225806,
+            "total_pnl": 19.5,
+            "profit_factor": 1.1439114391143912
+          },
+          {
+            "block": "2024Q3",
+            "trades": 143,
+            "wins": 81,
+            "win_rate": 0.5664335664335665,
+            "avg_pnl": 1.0804195804195804,
+            "total_pnl": 154.5,
+            "profit_factor": 1.3477771525042206
+          },
+          {
+            "block": "2024Q4",
+            "trades": 125,
+            "wins": 80,
+            "win_rate": 0.64,
+            "avg_pnl": 1.378,
+            "total_pnl": 172.25,
+            "profit_factor": 1.683531746031746
+          }
+        ],
+        "mean_avg_pnl": 0.7365031581321904,
+        "std_avg_pnl": 0.5062901536477062,
+        "positive_blocks": 4,
+        "max_drawdown": 116.5,
+        "max_drawdown_norm": 0.330028328611898,
+        "sharpe_like": 2.579285211429007
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4969558599695586,
+      "Trades": 1314,
+      "Avg_PnL": 0.24181887366818874,
+      "Score": -1.9950197650836756,
+      "Recent": {
+        "trades": 148,
+        "wins": 82,
+        "win_rate": 0.5540540540540541,
+        "avg_pnl": 0.9425675675675675,
+        "profit_factor": 1.316505955757232
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.15883525173622604,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 1314,
+        "wins": 653,
+        "win_rate": 0.4969558599695586,
+        "avg_pnl": 0.24181887366818874,
+        "profit_factor": 1.0666876541266592,
+        "total_pnl": 317.75,
+        "score_train": 0.260721276828191
+      },
+      "OOS": {
+        "trades": 148,
+        "wins": 82,
+        "win_rate": 0.5540540540540541,
+        "avg_pnl": 0.9425675675675675,
+        "profit_factor": 1.316505955757232,
+        "total_pnl": 139.5,
+        "stability_score": -1.9950197650836756,
+        "mean_oos_avg_pnl": 0.41322584630590564,
+        "std_oos_avg_pnl": 2.1501623300422303,
+        "max_oos_drawdown_norm": 0.7311827956989247,
+        "sharpe_like": 1.4431368551450268
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 5,
+            "wins": 1,
+            "win_rate": 0.2,
+            "avg_pnl": -2.95,
+            "total_pnl": -14.75,
+            "profit_factor": 0.313953488372093
+          },
+          {
+            "block": "2024Q2",
+            "trades": 15,
+            "wins": 10,
+            "win_rate": 0.6666666666666666,
+            "avg_pnl": 2.6,
+            "total_pnl": 39.0,
+            "profit_factor": 2.392857142857143
+          },
+          {
+            "block": "2024Q3",
+            "trades": 71,
+            "wins": 35,
+            "win_rate": 0.49295774647887325,
+            "avg_pnl": 0.07746478873239436,
+            "total_pnl": 5.5,
+            "profit_factor": 1.0205415499533146
+          },
+          {
+            "block": "2024Q4",
+            "trades": 57,
+            "wins": 36,
+            "win_rate": 0.631578947368421,
+            "avg_pnl": 1.9254385964912282,
+            "total_pnl": 109.75,
+            "profit_factor": 1.888663967611336
+          }
+        ],
+        "mean_avg_pnl": 0.41322584630590564,
+        "std_avg_pnl": 2.1501623300422303,
+        "positive_blocks": 3,
+        "max_drawdown": 102.0,
+        "max_drawdown_norm": 0.7311827956989247,
+        "sharpe_like": 1.4431368551450268
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4942857142857143,
+      "Trades": 2100,
+      "Avg_PnL": 0.1707142857142857,
+      "Score": -0.6041772536398051,
+      "Recent": {
+        "trades": 202,
+        "wins": 113,
+        "win_rate": 0.5594059405940595,
+        "avg_pnl": 0.8811881188118812,
+        "profit_factor": 1.3852813852813852
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.15652268810350117,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 2100,
+        "wins": 1038,
+        "win_rate": 0.4942857142857143,
+        "avg_pnl": 0.1707142857142857,
+        "profit_factor": 1.0603764052039915,
+        "total_pnl": 358.5,
+        "score_train": 0.1969662119489705
+      },
+      "OOS": {
+        "trades": 202,
+        "wins": 113,
+        "win_rate": 0.5594059405940595,
+        "avg_pnl": 0.8811881188118812,
+        "profit_factor": 1.3852813852813852,
+        "total_pnl": 178.0,
+        "stability_score": -0.6041772536398051,
+        "mean_oos_avg_pnl": 0.48722337235865215,
+        "std_oos_avg_pnl": 0.982065315420456,
+        "max_oos_drawdown_norm": 0.3168771526980482,
+        "sharpe_like": 1.8295160036474893
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 8,
+            "wins": 3,
+            "win_rate": 0.375,
+            "avg_pnl": -0.75,
+            "total_pnl": -6.0,
+            "profit_factor": 0.35135135135135137
+          },
+          {
+            "block": "2024Q2",
+            "trades": 40,
+            "wins": 25,
+            "win_rate": 0.625,
+            "avg_pnl": 1.6375,
+            "total_pnl": 65.5,
+            "profit_factor": 1.9257950530035335
+          },
+          {
+            "block": "2024Q3",
+            "trades": 103,
+            "wins": 57,
+            "win_rate": 0.5533980582524272,
+            "avg_pnl": 1.2378640776699028,
+            "total_pnl": 127.5,
+            "profit_factor": 1.505952380952381
+          },
+          {
+            "block": "2024Q4",
+            "trades": 51,
+            "wins": 28,
+            "win_rate": 0.5490196078431373,
+            "avg_pnl": -0.17647058823529413,
+            "total_pnl": -9.0,
+            "profit_factor": 0.9307692307692308
+          }
+        ],
+        "mean_avg_pnl": 0.48722337235865215,
+        "std_avg_pnl": 0.982065315420456,
+        "positive_blocks": 2,
+        "max_drawdown": 69.0,
+        "max_drawdown_norm": 0.3168771526980482,
+        "sharpe_like": 1.8295160036474893
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.5137145513714552,
+      "Trades": 2151,
+      "Avg_PnL": 0.16736401673640167,
+      "Score": 0.72299336486215,
+      "Recent": {
+        "trades": 198,
+        "wins": 127,
+        "win_rate": 0.6414141414141414,
+        "avg_pnl": 2.2866161616161618,
+        "profit_factor": 2.361654135338346
+      },
+      "Selected_by": "plateau",
+      "plateau_cluster_score": 0.23020701360774243,
+      "plateau_neighbors": 4,
+      "Train": {
+        "trades": 2151,
+        "wins": 1105,
+        "win_rate": 0.5137145513714552,
+        "avg_pnl": 0.16736401673640167,
+        "profit_factor": 1.0573796620975455,
+        "total_pnl": 360.0,
+        "score_train": 0.2914655347825115
+      },
+      "OOS": {
+        "trades": 198,
+        "wins": 127,
+        "win_rate": 0.6414141414141414,
+        "avg_pnl": 2.2866161616161618,
+        "profit_factor": 2.361654135338346,
+        "total_pnl": 452.75,
+        "stability_score": 0.72299336486215,
+        "mean_oos_avg_pnl": 1.7358116857854253,
+        "std_oos_avg_pnl": 0.9880876108565476,
+        "max_oos_drawdown_norm": 0.14827018121911037,
+        "sharpe_like": 4.836772592985763
+      },
+      "oos_blocks_stats": {
+        "blocks": [
+          {
+            "block": "2024Q1",
+            "trades": 12,
+            "wins": 7,
+            "win_rate": 0.5833333333333334,
+            "avg_pnl": 1.1875,
+            "total_pnl": 14.25,
+            "profit_factor": 3.1923076923076925
+          },
+          {
+            "block": "2024Q2",
+            "trades": 34,
+            "wins": 18,
+            "win_rate": 0.5294117647058824,
+            "avg_pnl": 0.5073529411764706,
+            "total_pnl": 17.25,
+            "profit_factor": 1.1474358974358974
+          },
+          {
+            "block": "2024Q3",
+            "trades": 98,
+            "wins": 67,
+            "win_rate": 0.6836734693877551,
+            "avg_pnl": 3.13265306122449,
+            "total_pnl": 307.0,
+            "profit_factor": 2.843843843843844
+          },
+          {
+            "block": "2024Q4",
+            "trades": 54,
+            "wins": 35,
+            "win_rate": 0.6481481481481481,
+            "avg_pnl": 2.115740740740741,
+            "total_pnl": 114.25,
+            "profit_factor": 3.6882352941176473
+          }
+        ],
+        "mean_avg_pnl": 1.7358116857854253,
+        "std_avg_pnl": 0.9880876108565476,
+        "positive_blocks": 4,
+        "max_drawdown": 67.5,
+        "max_drawdown_norm": 0.14827018121911037,
+        "sharpe_like": 4.836772592985763
+      }
+    }
+  ],
+  "summary": {
+    "total_candidates": 64,
+    "total_strategies": 57,
+    "elapsed_seconds": 96.53423142433167
+  }
+}

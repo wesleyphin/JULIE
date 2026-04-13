@@ -1,0 +1,172 @@
+{
+  "variants": [
+    {
+      "name": "tb_only_0550",
+      "description": "Reference TB-only corrected 2026-fold book.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "tb_only_0550_plus_er_nyam0560",
+      "description": "Add selective NY_AM exhaustion reversal on top of the TB-only corrected book.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "exhaustion_reversal": {
+          "threshold": 0.56,
+          "allowed_session_ids": [2],
+          "allowed_regimes": ["CHOP_SPIRAL", "DISPERSED"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "tb_only_0550_plus_er_nyam0550",
+      "description": "Slightly looser NY_AM exhaustion reversal add-on.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "exhaustion_reversal": {
+          "threshold": 0.55,
+          "allowed_session_ids": [2],
+          "allowed_regimes": ["CHOP_SPIRAL", "DISPERSED"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "tb_only_0550_plus_af_nyam0560_disp",
+      "description": "Add selective NY_AM dispersed aligned flow on top of the TB-only corrected book.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0
+    },
+    {
+      "name": "tb_only_0550_plus_af_nyam0550_disp",
+      "description": "Looser NY_AM dispersed aligned flow add-on.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.55,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0
+    },
+    {
+      "name": "tb_only_0550_plus_af_er_best",
+      "description": "Combine the tighter NY_AM aligned flow and exhaustion reversal add-ons.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "exhaustion_reversal": {
+          "threshold": 0.56,
+          "allowed_session_ids": [2],
+          "allowed_regimes": ["CHOP_SPIRAL", "DISPERSED"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0
+    },
+    {
+      "name": "pair_cr0580_tb0550",
+      "description": "Reference selective-CR corrected 2026-fold book.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.58,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "pair_cr0580_tb0550_plus_af_nyam0560_disp",
+      "description": "Selective CR book plus NY_AM dispersed aligned flow.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.58,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0
+    }
+  ]
+}

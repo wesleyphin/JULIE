@@ -1,21 +1,50 @@
 import asyncio
-import yfinance as yf
-import pandas as pd
 import logging
 from datetime import datetime, timedelta
+
+import pandas as pd
+
+try:
+    import yfinance as yf
+except Exception:  # pragma: no cover - optional runtime dependency
+    yf = None
 
 class YahooVIXClient:
     """
     A virtual client that mimics ProjectXClient but fetches VIX data from Yahoo Finance.
     Used because Topstep/Rithmic often excludes CBOE data.
     """
+    _dependency_warned = False
+
     def __init__(self, contract_root="^VIX", target_symbol="^VIX"):
         self.contract_root = contract_root
-        self.target_symbol = target_symbol
+        self.target_symbol = self._normalize_symbol(target_symbol)
         self.account_id = "VIRTUAL_YAHOO_ACC"
         self.contract_id = "VIRTUAL_VIX_ID"
 
+    @staticmethod
+    def _normalize_symbol(value):
+        if isinstance(value, (list, tuple, set)):
+            for item in value:
+                text = str(item or "").strip()
+                if text:
+                    return text
+            return "^VIX"
+        text = str(value or "").strip()
+        return text or "^VIX"
+
+    @classmethod
+    def _warn_dependency_once(cls) -> None:
+        if cls._dependency_warned:
+            return
+        cls._dependency_warned = True
+        logging.warning("YahooVIXClient unavailable: optional dependency 'yfinance' is not installed.")
+
     def login(self):
+        if yf is None:
+            self._warn_dependency_once()
+            logging.info("YahooVIXClient: continuing without live Yahoo VIX data.")
+            return True
         logging.info("YahooVIXClient: Virtual login successful.")
         return True
 
@@ -31,6 +60,9 @@ class YahooVIXClient:
         Fetches 1-minute VIX data from Yahoo Finance and normalizes it
         to match the ProjectXClient DataFrame format.
         """
+        if yf is None:
+            self._warn_dependency_once()
+            return pd.DataFrame()
         try:
             # Yahoo requires a period string (e.g., "5d") or start/end dates.
             # 1m data is valid for 7 days max in yfinance.

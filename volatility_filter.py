@@ -426,6 +426,8 @@ class HierarchicalVolatilityFilter:
         self._mode_override = None
         self._include_quarter_override = None
         self._thresholds_source = "builtin"
+        self._regime_cache_key = None
+        self._regime_cache_value = None
         self._load_thresholds_from_file()
     
     @staticmethod
@@ -487,10 +489,20 @@ class HierarchicalVolatilityFilter:
             min_scale, max_scale = 0.5, 2.0
         if len(df) < max(default_window, session_window) + 2:
             return 1.0
-        returns = df["close"].pct_change()
+        # Bound compute cost: scale only depends on recent ratio history.
+        # Need enough closes for:
+        # - rolling std warmup (max window)
+        # - ratio lookback sample size
+        max_window = max(default_window, session_window)
+        tail_closes_needed = max_window + lookback + 2
+        closes = df["close"]
+        if len(closes) > tail_closes_needed:
+            closes = closes.iloc[-tail_closes_needed:]
+        returns = closes.pct_change()
         std_default = returns.rolling(default_window).std()
         std_session = returns.rolling(session_window).std()
-        ratio = (std_session / std_default).replace([np.inf, -np.inf], np.nan).dropna()
+        ratio = std_session / std_default
+        ratio = ratio.replace([np.inf, -np.inf], np.nan).dropna()
         if ratio.empty:
             return 1.0
         recent = ratio.iloc[-lookback:] if len(ratio) > lookback else ratio
@@ -641,8 +653,14 @@ class HierarchicalVolatilityFilter:
         window = self._std_window_for_session(session)
         if len(df) < window + 1:
             return 0.0
-        returns = df['close'].pct_change()
-        std = returns.rolling(window).std().iloc[-1]
+        # Exact last rolling-std value only depends on the latest (window + 1) closes.
+        # This avoids recomputing pct_change/rolling over the full history every call.
+        close_tail = df["close"].iloc[-(window + 1):]
+        returns = close_tail.pct_change()
+        window_returns = returns.iloc[-window:]
+        if window_returns.isna().sum() > 0:
+            return 0.0
+        std = window_returns.std()
         return std if not np.isnan(std) else 0.0
     
     def get_regime(self, df: pd.DataFrame, ts=None) -> Tuple[str, float, str]:
@@ -651,8 +669,25 @@ class HierarchicalVolatilityFilter:
         
         Returns: (regime, current_std, hierarchy_key)
         """
+        if df is None or df.empty:
+            return VolRegime.NORMAL, 0.0, "EMPTY"
+
         if ts is None:
             ts = df.index[-1]
+
+        try:
+            ts_key = ts.value
+        except Exception:
+            ts_key = str(ts)
+        try:
+            close_last = float(df["close"].iloc[-1])
+        except Exception:
+            close_last = float("nan")
+
+        cache_key = (int(len(df)), ts_key, close_last)
+        if self._regime_cache_key == cache_key and self._regime_cache_value is not None:
+            return self._regime_cache_value
+
         session = self.get_session(ts.hour)
         thresholds, key = self.get_thresholds(ts)
         scale = 1.0
@@ -682,7 +717,10 @@ class HierarchicalVolatilityFilter:
             regime = VolRegime.NORMAL
         
         self._last_regime = regime
-        return regime, current_std, key
+        result = (regime, current_std, key)
+        self._regime_cache_key = cache_key
+        self._regime_cache_value = result
+        return result
     
     def should_skip_trade(self, df: pd.DataFrame, ts=None) -> Tuple[bool, str]:
         """Check if trade should be skipped due to ultra-low volatility."""

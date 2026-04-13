@@ -1,0 +1,22 @@
+{
+  "merge_families": {
+    "15min|06-09|long|Long_Rev|T2": {
+      "copy_options_from_overlay": true,
+      "context_overrides": {
+        "exact": [
+          "normal|neutral|low|late"
+        ],
+        "regime_conf": [
+          "normal|neutral|mid",
+          "high|expanding|mid"
+        ]
+      }
+    }
+  },
+  "metadata_updates": {
+    "bracket_menu_candidate": "dynamic_engine3_v4_bundle_bracketmenu_0609only_20260408",
+    "bracket_menu_base_bundle": "artifacts/de3_v4_live/dynamic_engine3_v4_bundle_context_consistent_20260408.json",
+    "bracket_menu_overlay_bundle": "artifacts/de3_v4_live/dynamic_engine3_v4_bundle_bracketmenu_conservative_20260408.json",
+    "bracket_menu_spec": "configs/de3_bracketmenu_0609only_20260408.json"
+  }
+}

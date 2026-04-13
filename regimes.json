@@ -1,0 +1,16 @@
+{
+  "source_csv": "es_master.csv",
+  "regimes": [
+    {"name": "2011_2014_post_gfc_qe", "start": "2011-01-01", "end": "2014-12-31"},
+    {"name": "2015_2016_chop_transition", "start": "2015-01-01", "end": "2016-12-31"},
+    {"name": "2017_2019_lowvol_policyvol", "start": "2017-01-01", "end": "2019-12-31"},
+    {"name": "2020_2021_crisis_liquidity", "start": "2020-01-01", "end": "2021-12-31"},
+    {"name": "2022_2026_rates_ai", "start": "2022-01-01", "end": "2026-12-31"}
+  ],
+  "structure_regimes": {
+    "atr_state": ["compressed", "normal", "expanded", "panic"],
+    "vwap_behavior": ["mean_reverting", "trend_hold", "no_reclaim"],
+    "trend_persistence": ["chop", "impulse", "grind"],
+    "liquidity_state": ["thin", "normal", "heavy"]
+  }
+}

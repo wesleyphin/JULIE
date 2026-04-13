@@ -1,0 +1,148 @@
+{
+  "ASIA": {
+    "threshold": 0.4712596574274328,
+    "short_threshold": 0.45986966806685803,
+    "avg_pnl": 0.0016305418719205485,
+    "total_pnl": 1.985999999999228,
+    "trades": 1218,
+    "win_rate": 0.506568144499179,
+    "long_trades": 607,
+    "short_trades": 611,
+    "coverage": 0.03242552511780209,
+    "score": -0.021728782851733942,
+    "policy": "quantile_band",
+    "center": null,
+    "margin": 0.06875,
+    "hierarchy": {
+      "session_regime_structure": {
+        "low|a0|t0|l0": {
+          "threshold": 0.4751873713572695,
+          "short_threshold": 0.45869018112255205,
+          "trades": 2,
+          "avg_pnl": -0.02299999999999991,
+          "win_rate": 0.5,
+          "policy": "quantile_band"
+        },
+        "low|a0|t0|l1": {
+          "threshold": 0.474845659209984,
+          "short_threshold": 0.45676572645540175,
+          "trades": 2,
+          "avg_pnl": -1.898,
+          "win_rate": 0.0,
+          "policy": "quantile_band"
+        },
+        "low|a0|t0|l2": {
+          "threshold": 0.471786379512919,
+          "short_threshold": 0.45940929012843634,
+          "trades": 2,
+          "avg_pnl": 1.852,
+          "win_rate": 1.0,
+          "policy": "quantile_band"
+        },
+        "low|a0|t1|l0": {
+          "threshold": 0.47187585823353534,
+          "short_threshold": 0.4605892866872513,
+          "trades": 4,
+          "avg_pnl": -0.9604999999999999,
+          "win_rate": 0.25,
+          "policy": "quantile_band"
+        },
+        "normal|a1|t1|l1": {
+          "threshold": 0.47073696064268683,
+          "short_threshold": 0.45792880244248285,
+          "trades": 2,
+          "avg_pnl": -0.02299999999999991,
+          "win_rate": 0.5,
+          "policy": "quantile_band"
+        }
+      },
+      "session_regime": {
+        "high": {
+          "threshold": 0.4701932714480864,
+          "short_threshold": 0.45543046714139857,
+          "trades": 2,
+          "avg_pnl": -0.02299999999999991,
+          "win_rate": 0.5,
+          "policy": "quantile_band"
+        },
+        "low": {
+          "threshold": 0.4716954807261677,
+          "short_threshold": 0.4605254866806672,
+          "trades": 24,
+          "avg_pnl": 0.7582500000000002,
+          "win_rate": 0.7083333333333334,
+          "policy": "quantile_band"
+        }
+      }
+    },
+    "trade_budget": {
+      "coverage_min": null,
+      "coverage_max": 0.08,
+      "coverage_target": 0.03,
+      "coverage_penalty": 0.18
+    },
+    "ev_models": {
+      "enabled": true,
+      "long_model": "asia_retrain\\model_asia_ev_long.joblib",
+      "short_model": "asia_retrain\\model_asia_ev_short.joblib"
+    },
+    "ev_runtime": {
+      "min_ev_points": 0.35485069073045367,
+      "min_prob_edge": 0.07627386231555519,
+      "max_ev_disagreement_points": 0.297441748873113,
+      "require_ev_sign_agreement": true,
+      "require_threshold_gate": true,
+      "use_model_predictions": true,
+      "require_trade_gate": true,
+      "min_trade_gate_prob": 0.8,
+      "max_trade_gate_prob": 0.92,
+      "apply_prob_margin_with_model_ev": false,
+      "apply_confidence_gates_with_model_ev": false,
+      "high_vol_min_ev_points": 0.4548506907304537
+    },
+    "settings": {
+      "timeframe_minutes": 5,
+      "horizon_bars": 10,
+      "label_mode": "barrier",
+      "drop_neutral": true,
+      "entry_mode": "next_open",
+      "sl_tp_conflict": "ohlc",
+      "sltp_strategy": "Generic",
+      "thr_min": 0.5,
+      "thr_max": 0.8,
+      "thr_step": 0.01,
+      "thr_score_penalty": 0.8,
+      "threshold_mode": "median_margin",
+      "margin_min": 0.02,
+      "margin_max": 0.25,
+      "margin_step": 0.02,
+      "require_both_sides": true,
+      "defer_guards": false,
+      "fixed_brackets": false,
+      "fixed_sl_atr": null,
+      "fixed_tp_atr": null,
+      "fixed_sl_grid": "",
+      "fixed_tp_grid": "",
+      "min_val_trades": 80,
+      "drop_gap_minutes": 75.0,
+      "max_rows": 0,
+      "coverage_min": null,
+      "coverage_max": 0.08,
+      "coverage_target": 0.03,
+      "coverage_penalty": 0.18,
+      "max_side_share": 0.65,
+      "ev_models_enabled": true,
+      "ev_min_train_samples": 300,
+      "gate_min_ev_points": 0.1,
+      "min_long_trades": 15,
+      "min_short_trades": 15
+    },
+    "gate_threshold": 0.9943354040891746,
+    "gate": {
+      "coverage": 0.07500696481539142,
+      "precision": 0.9986890976622241,
+      "recall": 0.08216346413100138,
+      "f1": 0.15183524331506396
+    }
+  }
+}

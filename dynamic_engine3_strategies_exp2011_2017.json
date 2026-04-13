@@ -1,0 +1,5925 @@
+{
+  "generated_at": "2026-02-10T06:50:54.936883-05:00",
+  "source_csv": "es_master.parquet",
+  "symbol_mode": "AUTO_BY_DAY",
+  "symbol_map_size": 2160,
+  "date_range": {
+    "start": "2011-01-02T18:00:00-05:00",
+    "end": "2017-12-29T16:59:00-05:00"
+  },
+  "settings": {
+    "thresholds": [
+      2.0,
+      3.0,
+      4.0,
+      5.0,
+      6.0,
+      7.0,
+      8.0,
+      9.0,
+      10.0,
+      12.0,
+      15.0
+    ],
+    "sl_list": [
+      3.0,
+      4.0,
+      5.0,
+      6.0,
+      8.0,
+      10.0,
+      12.0,
+      15.0
+    ],
+    "rr_list": [
+      1.0,
+      1.25,
+      1.5,
+      2.0,
+      2.5,
+      3.0
+    ],
+    "min_tp": 4.0,
+    "max_tp": 30.0,
+    "min_trades": 30,
+    "min_win_rate": 0.45,
+    "min_avg_pnl": 0.05,
+    "recent_start": "2011-01-01",
+    "recent_end": "2017-12-31",
+    "recent_mode": "intersect",
+    "folds": 4,
+    "min_fold_trades": 10,
+    "min_fold_win_rate": 0.45,
+    "min_fold_avg_pnl": 0.0,
+    "min_positive_folds": 2,
+    "min_positive_ratio": 0.5,
+    "loro": false,
+    "min_regime_trades": 10,
+    "min_regime_avg_pnl": 0.0,
+    "min_positive_regimes": 2,
+    "max_per_bucket": 6,
+    "max_horizon": 180,
+    "limit_to_session": true,
+    "exit_at_horizon": "close",
+    "assume_sl_first": false,
+    "trade_resolution": "1m"
+  },
+  "strategies": [
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.5697211155378487,
+      "Trades": 251,
+      "Avg_PnL": 0.6962151394422311,
+      "Score": 0.97069772599463,
+      "Recent": {
+        "trades": 251,
+        "wins": 143,
+        "win_rate": 0.5697211155378487,
+        "avg_pnl": 0.6962151394422311,
+        "profit_factor": 1.3474155069582505
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 15.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.5737051792828686,
+      "Trades": 251,
+      "Avg_PnL": 0.6573705179282868,
+      "Score": 0.9602642063325646,
+      "Recent": {
+        "trades": 251,
+        "wins": 144,
+        "win_rate": 0.5737051792828686,
+        "avg_pnl": 0.6573705179282868,
+        "profit_factor": 1.3157894736842106
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.5737051792828686,
+      "Trades": 251,
+      "Avg_PnL": 0.5916334661354582,
+      "Score": 0.912791026563119,
+      "Recent": {
+        "trades": 251,
+        "wins": 144,
+        "win_rate": 0.5737051792828686,
+        "avg_pnl": 0.5916334661354582,
+        "profit_factor": 1.3012170385395538
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.5657370517928287,
+      "Trades": 251,
+      "Avg_PnL": 0.6454183266932271,
+      "Score": 0.9120570350178236,
+      "Recent": {
+        "trades": 251,
+        "wins": 142,
+        "win_rate": 0.5657370517928287,
+        "avg_pnl": 0.6454183266932271,
+        "profit_factor": 1.3157894736842106
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 12.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.5697211155378487,
+      "Trades": 251,
+      "Avg_PnL": 0.598605577689243,
+      "Score": 0.8964267987942816,
+      "Recent": {
+        "trades": 251,
+        "wins": 143,
+        "win_rate": 0.5697211155378487,
+        "avg_pnl": 0.598605577689243,
+        "profit_factor": 1.287973167225683
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 12.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.5657370517928287,
+      "Trades": 251,
+      "Avg_PnL": 0.5627490039840638,
+      "Score": 0.8490732619871805,
+      "Recent": {
+        "trades": 251,
+        "wins": 142,
+        "win_rate": 0.5657370517928287,
+        "avg_pnl": 0.5627490039840638,
+        "profit_factor": 1.2646370023419204
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 12.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.5348837209302325,
+      "Trades": 43,
+      "Avg_PnL": 1.6511627906976745,
+      "Score": 1.4836160167861512,
+      "Recent": {
+        "trades": 43,
+        "wins": 23,
+        "win_rate": 0.5348837209302325,
+        "avg_pnl": 1.6511627906976745,
+        "profit_factor": 1.5338345864661653
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 12.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.5581395348837209,
+      "Trades": 43,
+      "Avg_PnL": 1.3662790697674418,
+      "Score": 1.3915164637094999,
+      "Recent": {
+        "trades": 43,
+        "wins": 24,
+        "win_rate": 0.5581395348837209,
+        "avg_pnl": 1.3662790697674418,
+        "profit_factor": 1.444234404536862
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 12.0,
+      "Best_TP": 18.0,
+      "Opt_WR": 0.5348837209302325,
+      "Trades": 43,
+      "Avg_PnL": 1.3895348837209303,
+      "Score": 1.2920178352858889,
+      "Recent": {
+        "trades": 43,
+        "wins": 23,
+        "win_rate": 0.5348837209302325,
+        "avg_pnl": 1.3895348837209303,
+        "profit_factor": 1.449248120300752
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 8.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.5116279069767442,
+      "Trades": 43,
+      "Avg_PnL": 1.5465116279069768,
+      "Score": 1.2911720577203125,
+      "Recent": {
+        "trades": 43,
+        "wins": 22,
+        "win_rate": 0.5116279069767442,
+        "avg_pnl": 1.5465116279069768,
+        "profit_factor": 1.5047438330170777
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 8.0,
+      "Best_TP": 20.0,
+      "Opt_WR": 0.5116279069767442,
+      "Trades": 43,
+      "Avg_PnL": 1.5174418604651163,
+      "Score": 1.2698744539075948,
+      "Recent": {
+        "trades": 43,
+        "wins": 22,
+        "win_rate": 0.5116279069767442,
+        "avg_pnl": 1.5174418604651163,
+        "profit_factor": 1.4952561669829223
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5348837209302325,
+      "Trades": 43,
+      "Avg_PnL": 1.3313953488372092,
+      "Score": 1.249440461619164,
+      "Recent": {
+        "trades": 43,
+        "wins": 23,
+        "win_rate": 0.5348837209302325,
+        "avg_pnl": 1.3313953488372092,
+        "profit_factor": 1.4304511278195489
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 10.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5256410256410257,
+      "Trades": 78,
+      "Avg_PnL": 2.717948717948718,
+      "Score": 2.2026336375488915,
+      "Recent": {
+        "trades": 78,
+        "wins": 41,
+        "win_rate": 0.5256410256410257,
+        "avg_pnl": 2.717948717948718,
+        "profit_factor": 1.7186440677966102
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5384615384615384,
+      "Trades": 78,
+      "Avg_PnL": 2.4198717948717947,
+      "Score": 2.0452023237179486,
+      "Recent": {
+        "trades": 78,
+        "wins": 42,
+        "win_rate": 0.5384615384615384,
+        "avg_pnl": 2.4198717948717947,
+        "profit_factor": 1.58984375
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 10.0,
+      "Best_TP": 25.0,
+      "Opt_WR": 0.5256410256410257,
+      "Trades": 78,
+      "Avg_PnL": 2.391025641025641,
+      "Score": 1.9651434159061276,
+      "Recent": {
+        "trades": 78,
+        "wins": 41,
+        "win_rate": 0.5256410256410257,
+        "avg_pnl": 2.391025641025641,
+        "profit_factor": 1.6322033898305084
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 15.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5512820512820513,
+      "Trades": 78,
+      "Avg_PnL": 2.1634615384615383,
+      "Score": 1.9195697954271962,
+      "Recent": {
+        "trades": 78,
+        "wins": 43,
+        "win_rate": 0.5512820512820513,
+        "avg_pnl": 2.1634615384615383,
+        "profit_factor": 1.4873646209386282
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 10.0,
+      "Best_TP": 20.0,
+      "Opt_WR": 0.5256410256410257,
+      "Trades": 78,
+      "Avg_PnL": 2.3076923076923075,
+      "Score": 1.904606692742286,
+      "Recent": {
+        "trades": 78,
+        "wins": 41,
+        "win_rate": 0.5256410256410257,
+        "avg_pnl": 2.3076923076923075,
+        "profit_factor": 1.6101694915254237
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 12.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.5384615384615384,
+      "Trades": 78,
+      "Avg_PnL": 1.9775641025641026,
+      "Score": 1.724805689102564,
+      "Recent": {
+        "trades": 78,
+        "wins": 42,
+        "win_rate": 0.5384615384615384,
+        "avg_pnl": 1.9775641025641026,
+        "profit_factor": 1.48203125
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Short_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.5641025641025641,
+      "Trades": 78,
+      "Avg_PnL": 0.532051282051282,
+      "Score": 0.8244477691821145,
+      "Recent": {
+        "trades": 78,
+        "wins": 44,
+        "win_rate": 0.5641025641025641,
+        "avg_pnl": 0.532051282051282,
+        "profit_factor": 1.3149905123339658
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Short_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.55,
+      "Trades": 220,
+      "Avg_PnL": 0.4238636363636364,
+      "Score": 0.6716878006454364,
+      "Recent": {
+        "trades": 220,
+        "wins": 121,
+        "win_rate": 0.55,
+        "avg_pnl": 0.4238636363636364,
+        "profit_factor": 1.2498325519089082
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Short_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5363636363636364,
+      "Trades": 220,
+      "Avg_PnL": 0.39886363636363636,
+      "Score": 0.5797427272727274,
+      "Recent": {
+        "trades": 220,
+        "wins": 118,
+        "win_rate": 0.5363636363636364,
+        "avg_pnl": 0.39886363636363636,
+        "profit_factor": 1.1872
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Short_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 4.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5,
+      "Trades": 78,
+      "Avg_PnL": 0.5064102564102564,
+      "Score": 0.4805168335234232,
+      "Recent": {
+        "trades": 78,
+        "wins": 39,
+        "win_rate": 0.5,
+        "avg_pnl": 0.5064102564102564,
+        "profit_factor": 1.2602965403624382
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Short_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5256410256410257,
+      "Trades": 78,
+      "Avg_PnL": 0.3141025641025641,
+      "Score": 0.461938309215537,
+      "Recent": {
+        "trades": 78,
+        "wins": 41,
+        "win_rate": 0.5256410256410257,
+        "avg_pnl": 0.3141025641025641,
+        "profit_factor": 1.1386138613861385
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Short_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 4.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.4818181818181818,
+      "Trades": 220,
+      "Avg_PnL": 0.3465909090909091,
+      "Score": 0.2694267999577412,
+      "Recent": {
+        "trades": 220,
+        "wins": 106,
+        "win_rate": 0.4818181818181818,
+        "avg_pnl": 0.3465909090909091,
+        "profit_factor": 1.1772225450319582
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 6.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.5230263157894737,
+      "Trades": 304,
+      "Avg_PnL": 0.2730263157894737,
+      "Score": 0.4189314362108479,
+      "Recent": {
+        "trades": 304,
+        "wins": 159,
+        "win_rate": 0.5230263157894737,
+        "avg_pnl": 0.2730263157894737,
+        "profit_factor": 1.1268143621084799
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5197368421052632,
+      "Trades": 304,
+      "Avg_PnL": 0.16365131578947367,
+      "Score": 0.3215664914115834,
+      "Recent": {
+        "trades": 304,
+        "wins": 158,
+        "win_rate": 0.5197368421052632,
+        "avg_pnl": 0.16365131578947367,
+        "profit_factor": 1.0832635983263599
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.5197368421052632,
+      "Trades": 304,
+      "Avg_PnL": 0.15871710526315788,
+      "Score": 0.3190739609188998,
+      "Recent": {
+        "trades": 304,
+        "wins": 158,
+        "win_rate": 0.5197368421052632,
+        "avg_pnl": 0.15871710526315788,
+        "profit_factor": 1.0928777670837344
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 5.0,
+      "Best_TP": 6.25,
+      "Opt_WR": 0.4901315789473684,
+      "Trades": 304,
+      "Avg_PnL": 0.2524671052631579,
+      "Score": 0.2395916278643926,
+      "Recent": {
+        "trades": 304,
+        "wins": 149,
+        "win_rate": 0.4901315789473684,
+        "avg_pnl": 0.2524671052631579,
+        "profit_factor": 1.1220675944333995
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Short_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5142017629774731,
+      "Trades": 1021,
+      "Avg_PnL": 0.089128305582762,
+      "Score": 0.23800972583102226,
+      "Recent": {
+        "trades": 1021,
+        "wins": 525,
+        "win_rate": 0.5142017629774731,
+        "avg_pnl": 0.089128305582762,
+        "profit_factor": 1.0461109703572333
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 8.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.506578947368421,
+      "Trades": 304,
+      "Avg_PnL": 0.13240131578947367,
+      "Score": 0.2308114302524602,
+      "Recent": {
+        "trades": 304,
+        "wins": 154,
+        "win_rate": 0.506578947368421,
+        "avg_pnl": 0.13240131578947367,
+        "profit_factor": 1.0523577235772357
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Long_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 12.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.5229357798165137,
+      "Trades": 109,
+      "Avg_PnL": 0.5871559633027523,
+      "Score": 0.6462173436430919,
+      "Recent": {
+        "trades": 109,
+        "wins": 57,
+        "win_rate": 0.5229357798165137,
+        "avg_pnl": 0.5871559633027523,
+        "profit_factor": 1.2052927024859663
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Long_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 15.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.5321100917431193,
+      "Trades": 109,
+      "Avg_PnL": 0.5045871559633027,
+      "Score": 0.6306326335340801,
+      "Recent": {
+        "trades": 109,
+        "wins": 58,
+        "win_rate": 0.5321100917431193,
+        "avg_pnl": 0.5045871559633027,
+        "profit_factor": 1.1687116564417177
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Long_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 10.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.5045871559633027,
+      "Trades": 109,
+      "Avg_PnL": 0.3738532110091743,
+      "Score": 0.39731785242565937,
+      "Recent": {
+        "trades": 109,
+        "wins": 55,
+        "win_rate": 0.5045871559633027,
+        "avg_pnl": 0.3738532110091743,
+        "profit_factor": 1.1268482490272373
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 12.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.5,
+      "Trades": 304,
+      "Avg_PnL": 0.3314144736842105,
+      "Score": 0.3443407291885091,
+      "Recent": {
+        "trades": 304,
+        "wins": 152,
+        "win_rate": 0.5,
+        "avg_pnl": 0.3314144736842105,
+        "profit_factor": 1.1235059760956174
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 12.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.4967105263157895,
+      "Trades": 304,
+      "Avg_PnL": 0.3215460526315789,
+      "Score": 0.3205665132181232,
+      "Recent": {
+        "trades": 304,
+        "wins": 151,
+        "win_rate": 0.4967105263157895,
+        "avg_pnl": 0.3215460526315789,
+        "profit_factor": 1.119316447970705
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 12.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.4901315789473684,
+      "Trades": 304,
+      "Avg_PnL": 0.3412828947368421,
+      "Score": 0.3020333714434914,
+      "Recent": {
+        "trades": 304,
+        "wins": 149,
+        "win_rate": 0.4901315789473684,
+        "avg_pnl": 0.3412828947368421,
+        "profit_factor": 1.124774503908599
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 15.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5315645013723697,
+      "Trades": 1093,
+      "Avg_PnL": 0.41514181152790486,
+      "Score": 0.5644327135340634,
+      "Recent": {
+        "trades": 1093,
+        "wins": 581,
+        "win_rate": 0.5315645013723697,
+        "avg_pnl": 0.41514181152790486,
+        "profit_factor": 1.1601093860268172
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5279048490393413,
+      "Trades": 1093,
+      "Avg_PnL": 0.429551692589204,
+      "Score": 0.5570685987703702,
+      "Recent": {
+        "trades": 1093,
+        "wins": 577,
+        "win_rate": 0.5279048490393413,
+        "avg_pnl": 0.429551692589204,
+        "profit_factor": 1.1685816876122082
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 12.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.5279048490393413,
+      "Trades": 1093,
+      "Avg_PnL": 0.3872369624885636,
+      "Score": 0.5257876054737101,
+      "Recent": {
+        "trades": 1093,
+        "wins": 577,
+        "win_rate": 0.5279048490393413,
+        "avg_pnl": 0.3872369624885636,
+        "profit_factor": 1.1519748653500899
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 15.0,
+      "Best_TP": 22.5,
+      "Opt_WR": 0.5315645013723697,
+      "Trades": 1093,
+      "Avg_PnL": 0.3570448307410796,
+      "Score": 0.5215241777242878,
+      "Recent": {
+        "trades": 1093,
+        "wins": 581,
+        "win_rate": 0.5315645013723697,
+        "avg_pnl": 0.3570448307410796,
+        "profit_factor": 1.1377028934368383
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 12.0,
+      "Best_TP": 18.0,
+      "Opt_WR": 0.5279048490393413,
+      "Trades": 1093,
+      "Avg_PnL": 0.37991765782250686,
+      "Score": 0.520376839065639,
+      "Recent": {
+        "trades": 1093,
+        "wins": 577,
+        "win_rate": 0.5279048490393413,
+        "avg_pnl": 0.37991765782250686,
+        "profit_factor": 1.1491023339317774
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 15.0,
+      "Best_TP": 18.75,
+      "Opt_WR": 0.5315645013723697,
+      "Trades": 1093,
+      "Avg_PnL": 0.35155535224153706,
+      "Score": 0.5174698278839941,
+      "Recent": {
+        "trades": 1093,
+        "wins": 581,
+        "win_rate": 0.5315645013723697,
+        "avg_pnl": 0.35155535224153706,
+        "profit_factor": 1.1355857445306987
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 3.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.5573770491803278,
+      "Trades": 61,
+      "Avg_PnL": 1.3565573770491803,
+      "Score": 1.4482997341603896,
+      "Recent": {
+        "trades": 61,
+        "wins": 34,
+        "win_rate": 0.5573770491803278,
+        "avg_pnl": 1.3565573770491803,
+        "profit_factor": 2.1182432432432434
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 5.0,
+      "Best_TP": 6.25,
+      "Opt_WR": 0.5901639344262295,
+      "Trades": 61,
+      "Avg_PnL": 1.1598360655737705,
+      "Score": 1.4347150961498354,
+      "Recent": {
+        "trades": 61,
+        "wins": 36,
+        "win_rate": 0.5901639344262295,
+        "avg_pnl": 1.1598360655737705,
+        "profit_factor": 1.7201017811704835
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 3.0,
+      "Best_TP": 4.5,
+      "Opt_WR": 0.5737704918032787,
+      "Trades": 61,
+      "Avg_PnL": 0.9590163934426229,
+      "Score": 1.2225583006234126,
+      "Recent": {
+        "trades": 61,
+        "wins": 35,
+        "win_rate": 0.5737704918032787,
+        "avg_pnl": 0.9590163934426229,
+        "profit_factor": 1.823943661971831
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 4.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.5573770491803278,
+      "Trades": 61,
+      "Avg_PnL": 1.0778688524590163,
+      "Score": 1.2136461898756978,
+      "Recent": {
+        "trades": 61,
+        "wins": 34,
+        "win_rate": 0.5573770491803278,
+        "avg_pnl": 1.0778688524590163,
+        "profit_factor": 1.7225274725274726
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 6.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.5901639344262295,
+      "Trades": 61,
+      "Avg_PnL": 0.8401639344262295,
+      "Score": 1.1846933548009364,
+      "Recent": {
+        "trades": 61,
+        "wins": 36,
+        "win_rate": 0.5901639344262295,
+        "avg_pnl": 0.8401639344262295,
+        "profit_factor": 1.4575892857142858
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.5901639344262295,
+      "Trades": 61,
+      "Avg_PnL": 0.7581967213114754,
+      "Score": 1.1372802686154453,
+      "Recent": {
+        "trades": 61,
+        "wins": 36,
+        "win_rate": 0.5901639344262295,
+        "avg_pnl": 0.7581967213114754,
+        "profit_factor": 1.5572289156626506
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "15-18",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 10.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5609756097560976,
+      "Trades": 41,
+      "Avg_PnL": 3.5548780487804876,
+      "Score": 3.048759349593496,
+      "Recent": {
+        "trades": 41,
+        "wins": 23,
+        "win_rate": 0.5609756097560976,
+        "avg_pnl": 3.5548780487804876,
+        "profit_factor": 2.554666666666667
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "15-18",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5609756097560976,
+      "Trades": 41,
+      "Avg_PnL": 3.5060975609756095,
+      "Score": 3.0092768897662867,
+      "Recent": {
+        "trades": 41,
+        "wins": 23,
+        "win_rate": 0.5609756097560976,
+        "avg_pnl": 3.5060975609756095,
+        "profit_factor": 2.5013054830287205
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "15-18",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 15.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5609756097560976,
+      "Trades": 41,
+      "Avg_PnL": 3.3109756097560976,
+      "Score": 2.853404349103732,
+      "Recent": {
+        "trades": 41,
+        "wins": 23,
+        "win_rate": 0.5609756097560976,
+        "avg_pnl": 3.3109756097560976,
+        "profit_factor": 2.3084337349397592
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "15-18",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 8.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.5609756097560976,
+      "Trades": 41,
+      "Avg_PnL": 3.2621951219512195,
+      "Score": 2.8505358462675536,
+      "Recent": {
+        "trades": 41,
+        "wins": 23,
+        "win_rate": 0.5609756097560976,
+        "avg_pnl": 3.2621951219512195,
+        "profit_factor": 2.621212121212121
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "15-18",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 10.0,
+      "Best_TP": 25.0,
+      "Opt_WR": 0.5609756097560976,
+      "Trades": 41,
+      "Avg_PnL": 3.067073170731707,
+      "Score": 2.685962601626016,
+      "Recent": {
+        "trades": 41,
+        "wins": 23,
+        "win_rate": 0.5609756097560976,
+        "avg_pnl": 3.067073170731707,
+        "profit_factor": 2.3413333333333335
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "15-18",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 12.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.5609756097560976,
+      "Trades": 41,
+      "Avg_PnL": 2.9390243902439024,
+      "Score": 2.588043685919888,
+      "Recent": {
+        "trades": 41,
+        "wins": 23,
+        "win_rate": 0.5609756097560976,
+        "avg_pnl": 2.9390243902439024,
+        "profit_factor": 2.258485639686684
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "15-18",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 4.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.47085201793721976,
+      "Trades": 223,
+      "Avg_PnL": 0.14013452914798205,
+      "Score": 0.060191250685297515,
+      "Recent": {
+        "trades": 223,
+        "wins": 105,
+        "win_rate": 0.47085201793721976,
+        "avg_pnl": 0.14013452914798205,
+        "profit_factor": 1.078369905956113
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "15-18",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 3.0,
+      "Best_TP": 4.5,
+      "Opt_WR": 0.46554149085794655,
+      "Trades": 711,
+      "Avg_PnL": 0.07981715893108299,
+      "Score": -0.010783583874948197,
+      "Recent": {
+        "trades": 711,
+        "wins": 331,
+        "win_rate": 0.46554149085794655,
+        "avg_pnl": 0.07981715893108299,
+        "profit_factor": 1.0563695058356097
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "15-18",
+      "Type": "Long_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 4.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.46835443037974683,
+      "Trades": 711,
+      "Avg_PnL": 0.05168776371308017,
+      "Score": -0.01900608258173743,
+      "Recent": {
+        "trades": 711,
+        "wins": 333,
+        "win_rate": 0.46835443037974683,
+        "avg_pnl": 0.05168776371308017,
+        "profit_factor": 1.0304033092037228
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "15-18",
+      "Type": "Short_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 10.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.5853658536585366,
+      "Trades": 41,
+      "Avg_PnL": 1.2682926829268293,
+      "Score": 1.4643949118917026,
+      "Recent": {
+        "trades": 41,
+        "wins": 24,
+        "win_rate": 0.5853658536585366,
+        "avg_pnl": 1.2682926829268293,
+        "profit_factor": 1.4976076555023923
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "15-18",
+      "Type": "Short_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 15.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5357142857142857,
+      "Trades": 84,
+      "Avg_PnL": 1.0178571428571428,
+      "Score": 1.0318342414438957,
+      "Recent": {
+        "trades": 84,
+        "wins": 45,
+        "win_rate": 0.5357142857142857,
+        "avg_pnl": 1.0178571428571428,
+        "profit_factor": 1.4076281287246721
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "15-18",
+      "Type": "Short_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 15.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.5357142857142857,
+      "Trades": 84,
+      "Avg_PnL": 0.9940476190476191,
+      "Score": 1.014214058686645,
+      "Recent": {
+        "trades": 84,
+        "wins": 45,
+        "win_rate": 0.5357142857142857,
+        "avg_pnl": 0.9940476190476191,
+        "profit_factor": 1.3980929678188319
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "15-18",
+      "Type": "Short_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 15.0,
+      "Best_TP": 22.5,
+      "Opt_WR": 0.5357142857142857,
+      "Trades": 84,
+      "Avg_PnL": 0.9880952380952381,
+      "Score": 1.0098090129973323,
+      "Recent": {
+        "trades": 84,
+        "wins": 45,
+        "win_rate": 0.5357142857142857,
+        "avg_pnl": 0.9880952380952381,
+        "profit_factor": 1.3957091775923718
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "15-18",
+      "Type": "Short_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 15.0,
+      "Best_TP": 18.75,
+      "Opt_WR": 0.5357142857142857,
+      "Trades": 84,
+      "Avg_PnL": 0.9196428571428571,
+      "Score": 0.9591509875702365,
+      "Recent": {
+        "trades": 84,
+        "wins": 45,
+        "win_rate": 0.5357142857142857,
+        "avg_pnl": 0.9196428571428571,
+        "profit_factor": 1.368295589988081
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "15-18",
+      "Type": "Short_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5238095238095238,
+      "Trades": 84,
+      "Avg_PnL": 0.9702380952380952,
+      "Score": 0.9380189255189255,
+      "Recent": {
+        "trades": 84,
+        "wins": 44,
+        "win_rate": 0.5238095238095238,
+        "avg_pnl": 0.9702380952380952,
+        "profit_factor": 1.398046398046398
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 8.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.5185185185185185,
+      "Trades": 216,
+      "Avg_PnL": 0.48842592592592593,
+      "Score": 0.5625306078503751,
+      "Recent": {
+        "trades": 216,
+        "wins": 112,
+        "win_rate": 0.5185185185185185,
+        "avg_pnl": 0.48842592592592593,
+        "profit_factor": 1.2803986710963455
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5231481481481481,
+      "Trades": 216,
+      "Avg_PnL": 0.38078703703703703,
+      "Score": 0.5065721094710947,
+      "Recent": {
+        "trades": 216,
+        "wins": 113,
+        "win_rate": 0.5231481481481481,
+        "avg_pnl": 0.38078703703703703,
+        "profit_factor": 1.2428044280442805
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 8.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.5092592592592593,
+      "Trades": 216,
+      "Avg_PnL": 0.4224537037037037,
+      "Score": 0.4657614490710621,
+      "Recent": {
+        "trades": 216,
+        "wins": 110,
+        "win_rate": 0.5092592592592593,
+        "avg_pnl": 0.4224537037037037,
+        "profit_factor": 1.2374756018217306
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 8.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.5092592592592593,
+      "Trades": 216,
+      "Avg_PnL": 0.3587962962962963,
+      "Score": 0.4176228644063714,
+      "Recent": {
+        "trades": 216,
+        "wins": 110,
+        "win_rate": 0.5092592592592593,
+        "avg_pnl": 0.3587962962962963,
+        "profit_factor": 1.2016916070266754
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 12.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.5092592592592593,
+      "Trades": 216,
+      "Avg_PnL": 0.32523148148148145,
+      "Score": 0.39129331174172344,
+      "Recent": {
+        "trades": 216,
+        "wins": 110,
+        "win_rate": 0.5092592592592593,
+        "avg_pnl": 0.32523148148148145,
+        "profit_factor": 1.173349784083899
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.5092592592592593,
+      "Trades": 216,
+      "Avg_PnL": 0.3125,
+      "Score": 0.38185825146441604,
+      "Recent": {
+        "trades": 216,
+        "wins": 110,
+        "win_rate": 0.5092592592592593,
+        "avg_pnl": 0.3125,
+        "profit_factor": 1.1681195516811955
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 15.0,
+      "Best_TP": 18.75,
+      "Opt_WR": 0.5205479452054794,
+      "Trades": 146,
+      "Avg_PnL": 0.8407534246575342,
+      "Score": 0.8267696540179674,
+      "Recent": {
+        "trades": 146,
+        "wins": 76,
+        "win_rate": 0.5205479452054794,
+        "avg_pnl": 0.8407534246575342,
+        "profit_factor": 1.3550253073029646
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 12.0,
+      "Best_TP": 18.0,
+      "Opt_WR": 0.5205479452054794,
+      "Trades": 146,
+      "Avg_PnL": 0.8184931506849316,
+      "Score": 0.8100240119666193,
+      "Recent": {
+        "trades": 146,
+        "wins": 76,
+        "win_rate": 0.5205479452054794,
+        "avg_pnl": 0.8184931506849316,
+        "profit_factor": 1.3433908045977012
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 15.0,
+      "Best_TP": 22.5,
+      "Opt_WR": 0.5205479452054794,
+      "Trades": 146,
+      "Avg_PnL": 0.7688356164383562,
+      "Score": 0.7733903119087946,
+      "Recent": {
+        "trades": 146,
+        "wins": 76,
+        "win_rate": 0.5205479452054794,
+        "avg_pnl": 0.7688356164383562,
+        "profit_factor": 1.324656543745481
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 12.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.5205479452054794,
+      "Trades": 146,
+      "Avg_PnL": 0.7311643835616438,
+      "Score": 0.7452300818768696,
+      "Recent": {
+        "trades": 146,
+        "wins": 76,
+        "win_rate": 0.5205479452054794,
+        "avg_pnl": 0.7311643835616438,
+        "profit_factor": 1.3067528735632183
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 15.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5205479452054794,
+      "Trades": 146,
+      "Avg_PnL": 0.6712328767123288,
+      "Score": 0.7009469190463453,
+      "Recent": {
+        "trades": 146,
+        "wins": 76,
+        "win_rate": 0.5205479452054794,
+        "avg_pnl": 0.6712328767123288,
+        "profit_factor": 1.2834417932031814
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5205479452054794,
+      "Trades": 146,
+      "Avg_PnL": 0.6558219178082192,
+      "Score": 0.6893294363092424,
+      "Recent": {
+        "trades": 146,
+        "wins": 76,
+        "win_rate": 0.5205479452054794,
+        "avg_pnl": 0.6558219178082192,
+        "profit_factor": 1.2751436781609196
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 6.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.6404494382022472,
+      "Trades": 89,
+      "Avg_PnL": 1.6685393258426966,
+      "Score": 2.0592801913649916,
+      "Recent": {
+        "trades": 89,
+        "wins": 57,
+        "win_rate": 0.6404494382022472,
+        "avg_pnl": 1.6685393258426966,
+        "profit_factor": 1.8905547226386807
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 5.0,
+      "Best_TP": 6.25,
+      "Opt_WR": 0.5955056179775281,
+      "Trades": 89,
+      "Avg_PnL": 1.5617977528089888,
+      "Score": 1.7552849970970936,
+      "Recent": {
+        "trades": 89,
+        "wins": 53,
+        "win_rate": 0.5955056179775281,
+        "avg_pnl": 1.5617977528089888,
+        "profit_factor": 1.844984802431611
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 6.0,
+      "Best_TP": 7.5,
+      "Opt_WR": 0.5730337078651685,
+      "Trades": 89,
+      "Avg_PnL": 1.5056179775280898,
+      "Score": 1.5851923689715843,
+      "Recent": {
+        "trades": 89,
+        "wins": 51,
+        "win_rate": 0.5730337078651685,
+        "avg_pnl": 1.5056179775280898,
+        "profit_factor": 1.660912453760789
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 12.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.5842696629213483,
+      "Trades": 89,
+      "Avg_PnL": 1.3286516853932584,
+      "Score": 1.4923568753344032,
+      "Recent": {
+        "trades": 89,
+        "wins": 52,
+        "win_rate": 0.5842696629213483,
+        "avg_pnl": 1.3286516853932584,
+        "profit_factor": 1.4095238095238096
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.6067415730337079,
+      "Trades": 89,
+      "Avg_PnL": 1.0870786516853932,
+      "Score": 1.4553212285583461,
+      "Recent": {
+        "trades": 89,
+        "wins": 54,
+        "win_rate": 0.6067415730337079,
+        "avg_pnl": 1.0870786516853932,
+        "profit_factor": 1.6065830721003134
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "09-12",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 5.0,
+      "Best_TP": 7.5,
+      "Opt_WR": 0.5393258426966292,
+      "Trades": 89,
+      "Avg_PnL": 1.446629213483146,
+      "Score": 1.3772116154279446,
+      "Recent": {
+        "trades": 89,
+        "wins": 48,
+        "win_rate": 0.5393258426966292,
+        "avg_pnl": 1.446629213483146,
+        "profit_factor": 1.6794195250659631
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Short_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 8.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.47333333333333333,
+      "Trades": 150,
+      "Avg_PnL": 0.2916666666666667,
+      "Score": 0.18274619922850008,
+      "Recent": {
+        "trades": 150,
+        "wins": 71,
+        "win_rate": 0.47333333333333333,
+        "avg_pnl": 0.2916666666666667,
+        "profit_factor": 1.1191286589516678
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Short_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 8.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.4866666666666667,
+      "Trades": 150,
+      "Avg_PnL": 0.19166666666666668,
+      "Score": 0.17560429880197334,
+      "Recent": {
+        "trades": 150,
+        "wins": 73,
+        "win_rate": 0.4866666666666667,
+        "avg_pnl": 0.19166666666666668,
+        "profit_factor": 1.0810429880197323
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Short_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 15.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.47333333333333333,
+      "Trades": 150,
+      "Avg_PnL": 0.25166666666666665,
+      "Score": 0.15228264497288269,
+      "Recent": {
+        "trades": 150,
+        "wins": 71,
+        "win_rate": 0.47333333333333333,
+        "avg_pnl": 0.25166666666666665,
+        "profit_factor": 1.0944931163954943
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Short_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.48,
+      "Trades": 150,
+      "Avg_PnL": 0.16833333333333333,
+      "Score": 0.12437478411053532,
+      "Recent": {
+        "trades": 150,
+        "wins": 72,
+        "win_rate": 0.48,
+        "avg_pnl": 0.16833333333333333,
+        "profit_factor": 1.0654145077720207
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Short_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.49333333333333335,
+      "Trades": 150,
+      "Avg_PnL": 0.06833333333333333,
+      "Score": 0.11840848427073408,
+      "Recent": {
+        "trades": 150,
+        "wins": 74,
+        "win_rate": 0.49333333333333335,
+        "avg_pnl": 0.06833333333333333,
+        "profit_factor": 1.0390848427073403
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Short_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 4.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.4666666666666667,
+      "Trades": 150,
+      "Avg_PnL": 0.24166666666666667,
+      "Score": 0.1156938125568699,
+      "Recent": {
+        "trades": 150,
+        "wins": 70,
+        "win_rate": 0.4666666666666667,
+        "avg_pnl": 0.24166666666666667,
+        "profit_factor": 1.1319381255686989
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Short_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 3.0,
+      "Best_TP": 4.5,
+      "Opt_WR": 0.5357142857142857,
+      "Trades": 56,
+      "Avg_PnL": 0.8571428571428571,
+      "Score": 0.9441004388103363,
+      "Recent": {
+        "trades": 56,
+        "wins": 30,
+        "win_rate": 0.5357142857142857,
+        "avg_pnl": 0.8571428571428571,
+        "profit_factor": 1.6552901023890785
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Short_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5535714285714286,
+      "Trades": 56,
+      "Avg_PnL": 0.6875,
+      "Score": 0.8877036340852131,
+      "Recent": {
+        "trades": 56,
+        "wins": 31,
+        "win_rate": 0.5535714285714286,
+        "avg_pnl": 0.6875,
+        "profit_factor": 1.3859649122807018
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Short_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 4.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5357142857142857,
+      "Trades": 56,
+      "Avg_PnL": 0.6696428571428571,
+      "Score": 0.7864859194330471,
+      "Recent": {
+        "trades": 56,
+        "wins": 30,
+        "win_rate": 0.5357142857142857,
+        "avg_pnl": 0.6696428571428571,
+        "profit_factor": 1.391644908616188
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Short_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.5535714285714286,
+      "Trades": 56,
+      "Avg_PnL": 0.44642857142857145,
+      "Score": 0.7076050992604128,
+      "Recent": {
+        "trades": 56,
+        "wins": 31,
+        "win_rate": 0.5535714285714286,
+        "avg_pnl": 0.44642857142857145,
+        "profit_factor": 1.2724795640326976
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Short_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 5.0,
+      "Best_TP": 6.25,
+      "Opt_WR": 0.5,
+      "Trades": 56,
+      "Avg_PnL": 0.41517857142857145,
+      "Score": 0.41088643790849677,
+      "Recent": {
+        "trades": 56,
+        "wins": 28,
+        "win_rate": 0.5,
+        "avg_pnl": 0.41517857142857145,
+        "profit_factor": 1.2026143790849673
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Short_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 4.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.4642857142857143,
+      "Trades": 56,
+      "Avg_PnL": 0.33035714285714285,
+      "Score": 0.16923338127197193,
+      "Recent": {
+        "trades": 56,
+        "wins": 26,
+        "win_rate": 0.4642857142857143,
+        "avg_pnl": 0.33035714285714285,
+        "profit_factor": 1.1655480984340045
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 8.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.49122807017543857,
+      "Trades": 171,
+      "Avg_PnL": 0.30116959064327486,
+      "Score": 0.2800800834357655,
+      "Recent": {
+        "trades": 171,
+        "wins": 84,
+        "win_rate": 0.49122807017543857,
+        "avg_pnl": 0.30116959064327486,
+        "profit_factor": 1.1312101910828025
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.4853801169590643,
+      "Trades": 171,
+      "Avg_PnL": 0.3172514619883041,
+      "Score": 0.26224066686684094,
+      "Recent": {
+        "trades": 171,
+        "wins": 83,
+        "win_rate": 0.4853801169590643,
+        "avg_pnl": 0.3172514619883041,
+        "profit_factor": 1.132640586797066
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 8.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.4950166112956811,
+      "Trades": 602,
+      "Avg_PnL": 0.23048172757475083,
+      "Score": 0.2471886010543049,
+      "Recent": {
+        "trades": 602,
+        "wins": 298,
+        "win_rate": 0.4950166112956811,
+        "avg_pnl": 0.23048172757475083,
+        "profit_factor": 1.1076833527357393
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 6.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.5,
+      "Trades": 602,
+      "Avg_PnL": 0.18397009966777408,
+      "Score": 0.23807407606202852,
+      "Recent": {
+        "trades": 602,
+        "wins": 301,
+        "win_rate": 0.5,
+        "avg_pnl": 0.18397009966777408,
+        "profit_factor": 1.0929500629458666
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.5029239766081871,
+      "Trades": 171,
+      "Avg_PnL": 0.15935672514619884,
+      "Score": 0.23573099415204662,
+      "Recent": {
+        "trades": 171,
+        "wins": 86,
+        "win_rate": 0.5029239766081871,
+        "avg_pnl": 0.15935672514619884,
+        "profit_factor": 1.0956140350877193
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "03-06",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 8.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.47953216374269003,
+      "Trades": 171,
+      "Avg_PnL": 0.3157894736842105,
+      "Score": 0.23223881034249141,
+      "Recent": {
+        "trades": 171,
+        "wins": 82,
+        "win_rate": 0.47953216374269003,
+        "avg_pnl": 0.3157894736842105,
+        "profit_factor": 1.1352536005009393
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Short_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 15.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.7333333333333333,
+      "Trades": 30,
+      "Avg_PnL": 12.916666666666666,
+      "Score": 10.508333333333333,
+      "Recent": {
+        "trades": 30,
+        "wins": 22,
+        "win_rate": 0.7333333333333333,
+        "avg_pnl": 12.916666666666666,
+        "profit_factor": 9.908045977011493
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Short_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 15.0,
+      "Best_TP": 22.5,
+      "Opt_WR": 0.7333333333333333,
+      "Trades": 30,
+      "Avg_PnL": 10.6,
+      "Score": 8.886666666666667,
+      "Recent": {
+        "trades": 30,
+        "wins": 22,
+        "win_rate": 0.7333333333333333,
+        "avg_pnl": 10.6,
+        "profit_factor": 8.310344827586206
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Short_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 15.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.6530612244897959,
+      "Trades": 49,
+      "Avg_PnL": 10.178571428571429,
+      "Score": 8.19030612244898,
+      "Recent": {
+        "trades": 49,
+        "wins": 32,
+        "win_rate": 0.6530612244897959,
+        "avg_pnl": 10.178571428571429,
+        "profit_factor": 7.627906976744186
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Short_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 10.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.6333333333333333,
+      "Trades": 30,
+      "Avg_PnL": 10.208333333333334,
+      "Score": 8.1125,
+      "Recent": {
+        "trades": 30,
+        "wins": 19,
+        "win_rate": 0.6333333333333333,
+        "avg_pnl": 10.208333333333334,
+        "profit_factor": 5.454545454545454
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Short_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.6333333333333333,
+      "Trades": 30,
+      "Avg_PnL": 9.95,
+      "Score": 7.931666666666666,
+      "Recent": {
+        "trades": 30,
+        "wins": 19,
+        "win_rate": 0.6333333333333333,
+        "avg_pnl": 9.95,
+        "profit_factor": 4.901960784313726
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Short_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 15.0,
+      "Best_TP": 18.75,
+      "Opt_WR": 0.7333333333333333,
+      "Trades": 30,
+      "Avg_PnL": 9.066666666666666,
+      "Score": 7.813333333333332,
+      "Recent": {
+        "trades": 30,
+        "wins": 22,
+        "win_rate": 0.7333333333333333,
+        "avg_pnl": 9.066666666666666,
+        "profit_factor": 7.252873563218391
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "00-03",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 15.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.6455696202531646,
+      "Trades": 79,
+      "Avg_PnL": 5.39873417721519,
+      "Score": 4.806962025316456,
+      "Recent": {
+        "trades": 79,
+        "wins": 51,
+        "win_rate": 0.6455696202531646,
+        "avg_pnl": 5.39873417721519,
+        "profit_factor": 3.916239316239316
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "00-03",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.6455696202531646,
+      "Trades": 79,
+      "Avg_PnL": 5.3544303797468356,
+      "Score": 4.775949367088607,
+      "Recent": {
+        "trades": 79,
+        "wins": 51,
+        "win_rate": 0.6455696202531646,
+        "avg_pnl": 5.3544303797468356,
+        "profit_factor": 3.8247078464106843
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "00-03",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 12.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.6455696202531646,
+      "Trades": 79,
+      "Avg_PnL": 4.420886075949367,
+      "Score": 4.12246835443038,
+      "Recent": {
+        "trades": 79,
+        "wins": 51,
+        "win_rate": 0.6455696202531646,
+        "avg_pnl": 4.420886075949367,
+        "profit_factor": 3.332220367278798
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "00-03",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.620253164556962,
+      "Trades": 79,
+      "Avg_PnL": 4.408227848101266,
+      "Score": 3.9870253164556955,
+      "Recent": {
+        "trades": 79,
+        "wins": 49,
+        "win_rate": 0.620253164556962,
+        "avg_pnl": 4.408227848101266,
+        "profit_factor": 3.117021276595745
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "00-03",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 15.0,
+      "Best_TP": 22.5,
+      "Opt_WR": 0.6455696202531646,
+      "Trades": 79,
+      "Avg_PnL": 4.218354430379747,
+      "Score": 3.980696202531645,
+      "Recent": {
+        "trades": 79,
+        "wins": 51,
+        "win_rate": 0.6455696202531646,
+        "avg_pnl": 4.218354430379747,
+        "profit_factor": 3.2786324786324785
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "00-03",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 8.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.620253164556962,
+      "Trades": 79,
+      "Avg_PnL": 3.920886075949367,
+      "Score": 3.6458860759493668,
+      "Recent": {
+        "trades": 79,
+        "wins": 49,
+        "win_rate": 0.620253164556962,
+        "avg_pnl": 3.920886075949367,
+        "profit_factor": 3.192920353982301
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.6438356164383562,
+      "Trades": 73,
+      "Avg_PnL": 0.8801369863013698,
+      "Score": 1.5122200803871708,
+      "Recent": {
+        "trades": 73,
+        "wins": 47,
+        "win_rate": 0.6438356164383562,
+        "avg_pnl": 0.8801369863013698,
+        "profit_factor": 1.7694610778443114
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 15.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.5342465753424658,
+      "Trades": 73,
+      "Avg_PnL": 0.934931506849315,
+      "Score": 0.9796375006768099,
+      "Recent": {
+        "trades": 73,
+        "wins": 39,
+        "win_rate": 0.5342465753424658,
+        "avg_pnl": 0.934931506849315,
+        "profit_factor": 1.5395256916996047
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 3.0,
+      "Best_TP": 4.5,
+      "Opt_WR": 0.547945205479452,
+      "Trades": 73,
+      "Avg_PnL": 0.7226027397260274,
+      "Score": 0.907063980190902,
+      "Recent": {
+        "trades": 73,
+        "wins": 40,
+        "win_rate": 0.547945205479452,
+        "avg_pnl": 0.7226027397260274,
+        "profit_factor": 1.6151603498542273
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 6.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.5753424657534246,
+      "Trades": 73,
+      "Avg_PnL": 0.5616438356164384,
+      "Score": 0.9027287451615558,
+      "Recent": {
+        "trades": 73,
+        "wins": 42,
+        "win_rate": 0.5753424657534246,
+        "avg_pnl": 0.5616438356164384,
+        "profit_factor": 1.3286573146292586
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 4.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5616438356164384,
+      "Trades": 73,
+      "Avg_PnL": 0.6198630136986302,
+      "Score": 0.8859489535307971,
+      "Recent": {
+        "trades": 73,
+        "wins": 41,
+        "win_rate": 0.5616438356164384,
+        "avg_pnl": 0.6198630136986302,
+        "profit_factor": 1.4382566585956416
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "18-21",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 3.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.5205479452054794,
+      "Trades": 73,
+      "Avg_PnL": 0.8356164383561644,
+      "Score": 0.8541562465006903,
+      "Recent": {
+        "trades": 73,
+        "wins": 38,
+        "win_rate": 0.5205479452054794,
+        "avg_pnl": 0.8356164383561644,
+        "profit_factor": 1.664850136239782
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "00-03",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 15.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.6875,
+      "Trades": 48,
+      "Avg_PnL": 5.109375,
+      "Score": 4.8140624999999995,
+      "Recent": {
+        "trades": 48,
+        "wins": 33,
+        "win_rate": 0.6875,
+        "avg_pnl": 5.109375,
+        "profit_factor": 3.8434782608695652
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "00-03",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.6666666666666666,
+      "Trades": 48,
+      "Avg_PnL": 4.947916666666667,
+      "Score": 4.596875,
+      "Recent": {
+        "trades": 48,
+        "wins": 32,
+        "win_rate": 0.6666666666666666,
+        "avg_pnl": 4.947916666666667,
+        "profit_factor": 3.5745257452574526
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "00-03",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 15.0,
+      "Best_TP": 18.75,
+      "Opt_WR": 0.6875,
+      "Trades": 48,
+      "Avg_PnL": 4.635416666666667,
+      "Score": 4.482291666666666,
+      "Recent": {
+        "trades": 48,
+        "wins": 33,
+        "win_rate": 0.6875,
+        "avg_pnl": 4.635416666666667,
+        "profit_factor": 3.579710144927536
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "00-03",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.6458333333333334,
+      "Trades": 48,
+      "Avg_PnL": 4.760416666666667,
+      "Score": 4.361458333333333,
+      "Recent": {
+        "trades": 48,
+        "wins": 31,
+        "win_rate": 0.6458333333333334,
+        "avg_pnl": 4.760416666666667,
+        "profit_factor": 3.308080808080808
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "00-03",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 15.0,
+      "Best_TP": 22.5,
+      "Opt_WR": 0.6875,
+      "Trades": 48,
+      "Avg_PnL": 4.328125,
+      "Score": 4.2671874999999995,
+      "Recent": {
+        "trades": 48,
+        "wins": 33,
+        "win_rate": 0.6875,
+        "avg_pnl": 4.328125,
+        "profit_factor": 3.408695652173913
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "00-03",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 12.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.6666666666666666,
+      "Trades": 48,
+      "Avg_PnL": 4.322916666666667,
+      "Score": 4.159375,
+      "Recent": {
+        "trades": 48,
+        "wins": 32,
+        "win_rate": 0.6666666666666666,
+        "avg_pnl": 4.322916666666667,
+        "profit_factor": 3.2493224932249323
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.5625,
+      "Trades": 176,
+      "Avg_PnL": 0.40482954545454547,
+      "Score": 0.7254143605746586,
+      "Recent": {
+        "trades": 176,
+        "wins": 99,
+        "win_rate": 0.5625,
+        "avg_pnl": 0.40482954545454547,
+        "profit_factor": 1.2953367875647668
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5454545454545454,
+      "Trades": 176,
+      "Avg_PnL": 0.2869318181818182,
+      "Score": 0.54600110619469,
+      "Recent": {
+        "trades": 176,
+        "wins": 96,
+        "win_rate": 0.5454545454545454,
+        "avg_pnl": 0.2869318181818182,
+        "profit_factor": 1.1787610619469027
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 5.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.5056818181818182,
+      "Trades": 176,
+      "Avg_PnL": 0.5284090909090909,
+      "Score": 0.5290646853146855,
+      "Recent": {
+        "trades": 176,
+        "wins": 89,
+        "win_rate": 0.5056818181818182,
+        "avg_pnl": 0.5284090909090909,
+        "profit_factor": 1.3076923076923077
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 12.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.5511363636363636,
+      "Trades": 176,
+      "Avg_PnL": 0.18607954545454544,
+      "Score": 0.49417131521055946,
+      "Recent": {
+        "trades": 176,
+        "wins": 97,
+        "win_rate": 0.5511363636363636,
+        "avg_pnl": 0.18607954545454544,
+        "profit_factor": 1.082338152105594
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 8.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.5340909090909091,
+      "Trades": 176,
+      "Avg_PnL": 0.2897727272727273,
+      "Score": 0.4876313645946463,
+      "Recent": {
+        "trades": 176,
+        "wins": 94,
+        "win_rate": 0.5340909090909091,
+        "avg_pnl": 0.2897727272727273,
+        "profit_factor": 1.1433591004919186
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 4.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5284090909090909,
+      "Trades": 176,
+      "Avg_PnL": 0.3053977272727273,
+      "Score": 0.4760877656156286,
+      "Recent": {
+        "trades": 176,
+        "wins": 93,
+        "win_rate": 0.5284090909090909,
+        "avg_pnl": 0.3053977272727273,
+        "profit_factor": 1.2026390197926484
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Short_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 6.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.5462962962962963,
+      "Trades": 108,
+      "Avg_PnL": 0.7870370370370371,
+      "Score": 0.9209561602418744,
+      "Recent": {
+        "trades": 108,
+        "wins": 59,
+        "win_rate": 0.5462962962962963,
+        "avg_pnl": 0.7870370370370371,
+        "profit_factor": 1.3854875283446713
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Short_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 8.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.5185185185185185,
+      "Trades": 108,
+      "Avg_PnL": 0.7800925925925926,
+      "Score": 0.7699480295058287,
+      "Recent": {
+        "trades": 108,
+        "wins": 56,
+        "win_rate": 0.5185185185185185,
+        "avg_pnl": 0.7800925925925926,
+        "profit_factor": 1.3129062209842155
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Short_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.4806451612903226,
+      "Trades": 310,
+      "Avg_PnL": 0.9217741935483871,
+      "Score": 0.6808473453349172,
+      "Recent": {
+        "trades": 310,
+        "wins": 149,
+        "win_rate": 0.4806451612903226,
+        "avg_pnl": 0.9217741935483871,
+        "profit_factor": 1.3237960339943342
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Short_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 8.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.5161290322580645,
+      "Trades": 310,
+      "Avg_PnL": 0.6685483870967742,
+      "Score": 0.6764105335985471,
+      "Recent": {
+        "trades": 310,
+        "wins": 160,
+        "win_rate": 0.5161290322580645,
+        "avg_pnl": 0.6685483870967742,
+        "profit_factor": 1.2778150134048258
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Short_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5370370370370371,
+      "Trades": 108,
+      "Avg_PnL": 0.5185185185185185,
+      "Score": 0.6745321293024475,
+      "Recent": {
+        "trades": 108,
+        "wins": 58,
+        "win_rate": 0.5370370370370371,
+        "avg_pnl": 0.5185185185185185,
+        "profit_factor": 1.2638398115429919
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "12-15",
+      "Type": "Short_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.4838709677419355,
+      "Trades": 310,
+      "Avg_PnL": 0.825,
+      "Score": 0.6248362391473141,
+      "Recent": {
+        "trades": 310,
+        "wins": 150,
+        "win_rate": 0.4838709677419355,
+        "avg_pnl": 0.825,
+        "profit_factor": 1.2798140043763677
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5208333333333334,
+      "Trades": 48,
+      "Avg_PnL": 2.609375,
+      "Score": 2.1206753067025734,
+      "Recent": {
+        "trades": 48,
+        "wins": 25,
+        "win_rate": 0.5208333333333334,
+        "avg_pnl": 2.609375,
+        "profit_factor": 1.8994614003590664
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5208333333333334,
+      "Trades": 48,
+      "Avg_PnL": 2.5208333333333335,
+      "Score": 2.0530705574912895,
+      "Recent": {
+        "trades": 48,
+        "wins": 25,
+        "win_rate": 0.5208333333333334,
+        "avg_pnl": 2.5208333333333335,
+        "profit_factor": 1.843205574912892
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 8.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.5208333333333334,
+      "Trades": 48,
+      "Avg_PnL": 2.4739583333333335,
+      "Score": 2.0353098849372384,
+      "Recent": {
+        "trades": 48,
+        "wins": 25,
+        "win_rate": 0.5208333333333334,
+        "avg_pnl": 2.4739583333333335,
+        "profit_factor": 1.993723849372385
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 15.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5208333333333334,
+      "Trades": 48,
+      "Avg_PnL": 2.4166666666666665,
+      "Score": 1.9739478114478115,
+      "Recent": {
+        "trades": 48,
+        "wins": 25,
+        "win_rate": 0.5208333333333334,
+        "avg_pnl": 2.4166666666666665,
+        "profit_factor": 1.7811447811447811
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 25.0,
+      "Opt_WR": 0.5208333333333334,
+      "Trades": 48,
+      "Avg_PnL": 2.1666666666666665,
+      "Score": 1.7955191502094552,
+      "Recent": {
+        "trades": 48,
+        "wins": 25,
+        "win_rate": 0.5208333333333334,
+        "avg_pnl": 2.1666666666666665,
+        "profit_factor": 1.7468581687612208
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "21-24",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 8.0,
+      "Best_TP": 20.0,
+      "Opt_WR": 0.5208333333333334,
+      "Trades": 48,
+      "Avg_PnL": 2.0052083333333335,
+      "Score": 1.6883564330543932,
+      "Recent": {
+        "trades": 48,
+        "wins": 25,
+        "win_rate": 0.5208333333333334,
+        "avg_pnl": 2.0052083333333335,
+        "profit_factor": 1.8054393305439331
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 4.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.5666666666666667,
+      "Trades": 30,
+      "Avg_PnL": 2.55,
+      "Score": 2.418333333333333,
+      "Recent": {
+        "trades": 30,
+        "wins": 17,
+        "win_rate": 0.5666666666666667,
+        "avg_pnl": 2.55,
+        "profit_factor": 3.3181818181818183
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 8.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.5666666666666667,
+      "Trades": 30,
+      "Avg_PnL": 2.525,
+      "Score": 2.400833333333333,
+      "Recent": {
+        "trades": 30,
+        "wins": 17,
+        "win_rate": 0.5666666666666667,
+        "avg_pnl": 2.525,
+        "profit_factor": 3.2444444444444445
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 10.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.5666666666666667,
+      "Trades": 30,
+      "Avg_PnL": 2.3916666666666666,
+      "Score": 2.297566225165563,
+      "Recent": {
+        "trades": 30,
+        "wins": 17,
+        "win_rate": 0.5666666666666667,
+        "avg_pnl": 2.3916666666666666,
+        "profit_factor": 2.9006622516556293
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 5.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.5666666666666667,
+      "Trades": 30,
+      "Avg_PnL": 2.35,
+      "Score": 2.259102564102564,
+      "Recent": {
+        "trades": 30,
+        "wins": 17,
+        "win_rate": 0.5666666666666667,
+        "avg_pnl": 2.35,
+        "profit_factor": 2.8076923076923075
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 4.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.5666666666666667,
+      "Trades": 30,
+      "Avg_PnL": 2.1666666666666665,
+      "Score": 2.1469696969696965,
+      "Recent": {
+        "trades": 30,
+        "wins": 17,
+        "win_rate": 0.5666666666666667,
+        "avg_pnl": 2.1666666666666665,
+        "profit_factor": 2.9696969696969697
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "06-09",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 8.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.5666666666666667,
+      "Trades": 30,
+      "Avg_PnL": 2.1416666666666666,
+      "Score": 2.12287037037037,
+      "Recent": {
+        "trades": 30,
+        "wins": 17,
+        "win_rate": 0.5666666666666667,
+        "avg_pnl": 2.1416666666666666,
+        "profit_factor": 2.903703703703704
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "00-03",
+      "Type": "Short_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5428571428571428,
+      "Trades": 35,
+      "Avg_PnL": 0.7142857142857143,
+      "Score": 0.8517388978063133,
+      "Recent": {
+        "trades": 35,
+        "wins": 19,
+        "win_rate": 0.5428571428571428,
+        "avg_pnl": 0.7142857142857143,
+        "profit_factor": 1.3745318352059925
+      }
+    },
+    {
+      "TF": "5min",
+      "Session": "00-03",
+      "Type": "Short_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 5.0,
+      "Best_TP": 6.25,
+      "Opt_WR": 0.4857142857142857,
+      "Trades": 35,
+      "Avg_PnL": 0.4357142857142857,
+      "Score": 0.35344113541181943,
+      "Recent": {
+        "trades": 35,
+        "wins": 17,
+        "win_rate": 0.4857142857142857,
+        "avg_pnl": 0.4357142857142857,
+        "profit_factor": 1.1986970684039089
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 5.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.543859649122807,
+      "Trades": 57,
+      "Avg_PnL": 0.7105263157894737,
+      "Score": 0.8574727120067172,
+      "Recent": {
+        "trades": 57,
+        "wins": 31,
+        "win_rate": 0.543859649122807,
+        "avg_pnl": 0.7105263157894737,
+        "profit_factor": 1.4080604534005037
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 5.0,
+      "Best_TP": 7.5,
+      "Opt_WR": 0.543859649122807,
+      "Trades": 57,
+      "Avg_PnL": 0.42105263157894735,
+      "Score": 0.6382164479208097,
+      "Recent": {
+        "trades": 57,
+        "wins": 31,
+        "win_rate": 0.543859649122807,
+        "avg_pnl": 0.42105263157894735,
+        "profit_factor": 1.2418136020151134
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 8.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.543859649122807,
+      "Trades": 57,
+      "Avg_PnL": 0.4166666666666667,
+      "Score": 0.6306744558491666,
+      "Recent": {
+        "trades": 57,
+        "wins": 31,
+        "win_rate": 0.543859649122807,
+        "avg_pnl": 0.4166666666666667,
+        "profit_factor": 1.1970954356846473
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.5614035087719298,
+      "Trades": 57,
+      "Avg_PnL": 0.24561403508771928,
+      "Score": 0.5963928512870961,
+      "Recent": {
+        "trades": 57,
+        "wins": 32,
+        "win_rate": 0.5614035087719298,
+        "avg_pnl": 0.24561403508771928,
+        "profit_factor": 1.1744548286604362
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 4.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.5087719298245614,
+      "Trades": 57,
+      "Avg_PnL": 0.5789473684210527,
+      "Score": 0.5848951647411211,
+      "Recent": {
+        "trades": 57,
+        "wins": 29,
+        "win_rate": 0.5087719298245614,
+        "avg_pnl": 0.5789473684210527,
+        "profit_factor": 1.3577235772357723
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5614035087719298,
+      "Trades": 57,
+      "Avg_PnL": 0.22807017543859648,
+      "Score": 0.5804597701149423,
+      "Recent": {
+        "trades": 57,
+        "wins": 32,
+        "win_rate": 0.5614035087719298,
+        "avg_pnl": 0.22807017543859648,
+        "profit_factor": 1.1379310344827587
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Short_Rev",
+      "Thresh": 9.0,
+      "Best_SL": 6.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.5416666666666666,
+      "Trades": 48,
+      "Avg_PnL": 0.6822916666666666,
+      "Score": 0.8135164473684208,
+      "Recent": {
+        "trades": 48,
+        "wins": 26,
+        "win_rate": 0.5416666666666666,
+        "avg_pnl": 0.6822916666666666,
+        "profit_factor": 1.2757894736842106
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Short_Rev",
+      "Thresh": 7.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.4583333333333333,
+      "Trades": 96,
+      "Avg_PnL": 0.5989583333333334,
+      "Score": 0.3295609817813764,
+      "Recent": {
+        "trades": 96,
+        "wins": 44,
+        "win_rate": 0.4583333333333333,
+        "avg_pnl": 0.5989583333333334,
+        "profit_factor": 1.1862348178137652
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Short_Rev",
+      "Thresh": 6.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5099337748344371,
+      "Trades": 151,
+      "Avg_PnL": 0.17052980132450332,
+      "Score": 0.27675509090458145,
+      "Recent": {
+        "trades": 151,
+        "wins": 77,
+        "win_rate": 0.5099337748344371,
+        "avg_pnl": 0.17052980132450332,
+        "profit_factor": 1.0771535580524345
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Short_Rev",
+      "Thresh": 7.0,
+      "Best_SL": 12.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.46875,
+      "Trades": 96,
+      "Avg_PnL": 0.4375,
+      "Score": 0.2631352619233776,
+      "Recent": {
+        "trades": 96,
+        "wins": 45,
+        "win_rate": 0.46875,
+        "avg_pnl": 0.4375,
+        "profit_factor": 1.1313526192337764
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 6.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.4981684981684982,
+      "Trades": 273,
+      "Avg_PnL": 0.20604395604395603,
+      "Score": 0.2440195821408545,
+      "Recent": {
+        "trades": 273,
+        "wins": 136,
+        "win_rate": 0.4981684981684982,
+        "avg_pnl": 0.20604395604395603,
+        "profit_factor": 1.0894632206759443
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Short_Rev",
+      "Thresh": 7.0,
+      "Best_SL": 15.0,
+      "Best_TP": 18.75,
+      "Opt_WR": 0.4583333333333333,
+      "Trades": 96,
+      "Avg_PnL": 0.4505208333333333,
+      "Score": 0.21861090194109759,
+      "Recent": {
+        "trades": 96,
+        "wins": 44,
+        "win_rate": 0.4583333333333333,
+        "avg_pnl": 0.4505208333333333,
+        "profit_factor": 1.1157965194109773
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 7.0,
+      "Best_SL": 8.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.4953271028037383,
+      "Trades": 107,
+      "Avg_PnL": 1.3060747663551402,
+      "Score": 1.0308735443156445,
+      "Recent": {
+        "trades": 107,
+        "wins": 53,
+        "win_rate": 0.4953271028037383,
+        "avg_pnl": 1.3060747663551402,
+        "profit_factor": 1.399856938483548
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 7.0,
+      "Best_SL": 8.0,
+      "Best_TP": 16.0,
+      "Opt_WR": 0.5046728971962616,
+      "Trades": 107,
+      "Avg_PnL": 1.1542056074766356,
+      "Score": 0.9674723936454069,
+      "Recent": {
+        "trades": 107,
+        "wins": 54,
+        "win_rate": 0.5046728971962616,
+        "avg_pnl": 1.1542056074766356,
+        "profit_factor": 1.361639824304539
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 7.0,
+      "Best_SL": 10.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.4953271028037383,
+      "Trades": 107,
+      "Avg_PnL": 1.1331775700934579,
+      "Score": 0.9010094598406952,
+      "Recent": {
+        "trades": 107,
+        "wins": 53,
+        "win_rate": 0.4953271028037383,
+        "avg_pnl": 1.1331775700934579,
+        "profit_factor": 1.3114964675658318
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 7.0,
+      "Best_SL": 8.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.514018691588785,
+      "Trades": 107,
+      "Avg_PnL": 0.9883177570093458,
+      "Score": 0.8931566559450016,
+      "Recent": {
+        "trades": 107,
+        "wins": 55,
+        "win_rate": 0.514018691588785,
+        "avg_pnl": 0.9883177570093458,
+        "profit_factor": 1.312407680945347
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 7.0,
+      "Best_SL": 8.0,
+      "Best_TP": 20.0,
+      "Opt_WR": 0.4953271028037383,
+      "Trades": 107,
+      "Avg_PnL": 1.105140186915888,
+      "Score": 0.8840676935007286,
+      "Recent": {
+        "trades": 107,
+        "wins": 53,
+        "win_rate": 0.4953271028037383,
+        "avg_pnl": 1.105140186915888,
+        "profit_factor": 1.338340486409156
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Rev",
+      "Thresh": 7.0,
+      "Best_SL": 10.0,
+      "Best_TP": 25.0,
+      "Opt_WR": 0.4953271028037383,
+      "Trades": 107,
+      "Avg_PnL": 1.0070093457943925,
+      "Score": 0.8092234947388639,
+      "Recent": {
+        "trades": 107,
+        "wins": 53,
+        "win_rate": 0.4953271028037383,
+        "avg_pnl": 1.0070093457943925,
+        "profit_factor": 1.2768143866409762
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Short_Mom",
+      "Thresh": 7.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5233644859813084,
+      "Trades": 107,
+      "Avg_PnL": 0.32710280373831774,
+      "Score": 0.4605623250128157,
+      "Recent": {
+        "trades": 107,
+        "wins": 56,
+        "win_rate": 0.5233644859813084,
+        "avg_pnl": 0.32710280373831774,
+        "profit_factor": 1.1476793248945147
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Short_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 8.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.5089430894308943,
+      "Trades": 615,
+      "Avg_PnL": 0.3434959349593496,
+      "Score": 0.3988092424528895,
+      "Recent": {
+        "trades": 615,
+        "wins": 313,
+        "win_rate": 0.5089430894308943,
+        "avg_pnl": 0.3434959349593496,
+        "profit_factor": 1.136466408268734
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Short_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 6.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.5154471544715448,
+      "Trades": 615,
+      "Avg_PnL": 0.2784552845528455,
+      "Score": 0.3846385247614097,
+      "Recent": {
+        "trades": 615,
+        "wins": 317,
+        "win_rate": 0.5154471544715448,
+        "avg_pnl": 0.2784552845528455,
+        "profit_factor": 1.1248405321669401
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Short_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5170731707317073,
+      "Trades": 615,
+      "Avg_PnL": 0.17073170731707318,
+      "Score": 0.31325125452211466,
+      "Recent": {
+        "trades": 615,
+        "wins": 318,
+        "win_rate": 0.5170731707317073,
+        "avg_pnl": 0.17073170731707318,
+        "profit_factor": 1.0837320574162679
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Short_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 8.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.49105691056910566,
+      "Trades": 615,
+      "Avg_PnL": 0.3203252032520325,
+      "Score": 0.29193729761327875,
+      "Recent": {
+        "trades": 615,
+        "wins": 302,
+        "win_rate": 0.49105691056910566,
+        "avg_pnl": 0.3203252032520325,
+        "profit_factor": 1.1242510249132767
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Short_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 8.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.48292682926829267,
+      "Trades": 615,
+      "Avg_PnL": 0.37073170731707317,
+      "Score": 0.28849047483868984,
+      "Recent": {
+        "trades": 615,
+        "wins": 297,
+        "win_rate": 0.48292682926829267,
+        "avg_pnl": 0.37073170731707317,
+        "profit_factor": 1.1434413337527525
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 8.0,
+      "Best_TP": 16.0,
+      "Opt_WR": 0.5844155844155844,
+      "Trades": 154,
+      "Avg_PnL": 1.2353896103896105,
+      "Score": 1.463256271840609,
+      "Recent": {
+        "trades": 154,
+        "wins": 90,
+        "win_rate": 0.5844155844155844,
+        "avg_pnl": 1.2353896103896105,
+        "profit_factor": 1.7640562248995983
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.5909090909090909,
+      "Trades": 154,
+      "Avg_PnL": 1.1866883116883118,
+      "Score": 1.4551125499739268,
+      "Recent": {
+        "trades": 154,
+        "wins": 91,
+        "win_rate": 0.5909090909090909,
+        "avg_pnl": 1.1866883116883118,
+        "profit_factor": 1.6988527724665392
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 12.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.5909090909090909,
+      "Trades": 154,
+      "Avg_PnL": 1.0503246753246753,
+      "Score": 1.347029364440869,
+      "Recent": {
+        "trades": 154,
+        "wins": 91,
+        "win_rate": 0.5909090909090909,
+        "avg_pnl": 1.0503246753246753,
+        "profit_factor": 1.572566371681416
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 6.0,
+      "Best_TP": 18.0,
+      "Opt_WR": 0.564935064935065,
+      "Trades": 154,
+      "Avg_PnL": 1.1834415584415585,
+      "Score": 1.3286284570351927,
+      "Recent": {
+        "trades": 154,
+        "wins": 87,
+        "win_rate": 0.564935064935065,
+        "avg_pnl": 1.1834415584415585,
+        "profit_factor": 1.755440414507772
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 12.5,
+      "Opt_WR": 0.5909090909090909,
+      "Trades": 154,
+      "Avg_PnL": 1.0194805194805194,
+      "Score": 1.3282200590996003,
+      "Recent": {
+        "trades": 154,
+        "wins": 91,
+        "win_rate": 0.5909090909090909,
+        "avg_pnl": 1.0194805194805194,
+        "profit_factor": 1.6003824091778203
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 8.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.5974025974025974,
+      "Trades": 154,
+      "Avg_PnL": 0.9594155844155844,
+      "Score": 1.3220159132712779,
+      "Recent": {
+        "trades": 154,
+        "wins": 92,
+        "win_rate": 0.5974025974025974,
+        "avg_pnl": 0.9594155844155844,
+        "profit_factor": 1.6341201716738198
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Short_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 15.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.4696485623003195,
+      "Trades": 939,
+      "Avg_PnL": 0.17305644302449413,
+      "Score": 0.07935929782749233,
+      "Recent": {
+        "trades": 939,
+        "wins": 441,
+        "win_rate": 0.4696485623003195,
+        "avg_pnl": 0.17305644302449413,
+        "profit_factor": 1.0997697620874904
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Short_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 15.0,
+      "Best_TP": 22.5,
+      "Opt_WR": 0.4696485623003195,
+      "Trades": 939,
+      "Avg_PnL": 0.1584132055378062,
+      "Score": 0.06826482590760895,
+      "Recent": {
+        "trades": 939,
+        "wins": 441,
+        "win_rate": 0.4696485623003195,
+        "avg_pnl": 0.1584132055378062,
+        "profit_factor": 1.091327705295472
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Short_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 8.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.4749733759318424,
+      "Trades": 939,
+      "Avg_PnL": 0.11368477103301385,
+      "Score": 0.06103877766547752,
+      "Recent": {
+        "trades": 939,
+        "wins": 446,
+        "win_rate": 0.4749733759318424,
+        "avg_pnl": 0.11368477103301385,
+        "profit_factor": 1.065925582831558
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Short_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.4696485623003195,
+      "Trades": 939,
+      "Avg_PnL": 0.1424387646432375,
+      "Score": 0.05601932835065701,
+      "Recent": {
+        "trades": 939,
+        "wins": 441,
+        "win_rate": 0.4696485623003195,
+        "avg_pnl": 0.1424387646432375,
+        "profit_factor": 1.0806938159879336
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Short_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 15.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.47071352502662406,
+      "Trades": 939,
+      "Avg_PnL": 0.12939297124600638,
+      "Score": 0.05160584996846973,
+      "Recent": {
+        "trades": 939,
+        "wins": 442,
+        "win_rate": 0.47071352502662406,
+        "avg_pnl": 0.12939297124600638,
+        "profit_factor": 1.0746314496314497
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Short_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 12.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.4696485623003195,
+      "Trades": 939,
+      "Avg_PnL": 0.1307241746538871,
+      "Score": 0.04715546528269697,
+      "Recent": {
+        "trades": 939,
+        "wins": 441,
+        "win_rate": 0.4696485623003195,
+        "avg_pnl": 0.1307241746538871,
+        "profit_factor": 1.0740573152337858
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 6.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.5555555555555556,
+      "Trades": 144,
+      "Avg_PnL": 0.5138888888888888,
+      "Score": 0.7629952627045651,
+      "Recent": {
+        "trades": 144,
+        "wins": 80,
+        "win_rate": 0.5555555555555556,
+        "avg_pnl": 0.5138888888888888,
+        "profit_factor": 1.2549526270456504
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.5555555555555556,
+      "Trades": 144,
+      "Avg_PnL": 0.375,
+      "Score": 0.6641188373804269,
+      "Recent": {
+        "trades": 144,
+        "wins": 80,
+        "win_rate": 0.5555555555555556,
+        "avg_pnl": 0.375,
+        "profit_factor": 1.2384105960264902
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 4.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.5069444444444444,
+      "Trades": 144,
+      "Avg_PnL": 0.6232638888888888,
+      "Score": 0.6066928291362932,
+      "Recent": {
+        "trades": 144,
+        "wins": 73,
+        "win_rate": 0.5069444444444444,
+        "avg_pnl": 0.6232638888888888,
+        "profit_factor": 1.356858846918489
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 8.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.5277777777777778,
+      "Trades": 144,
+      "Avg_PnL": 0.4704861111111111,
+      "Score": 0.5879096314451707,
+      "Recent": {
+        "trades": 144,
+        "wins": 76,
+        "win_rate": 0.5277777777777778,
+        "avg_pnl": 0.4704861111111111,
+        "profit_factor": 1.19680464778504
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 6.0,
+      "Best_TP": 7.5,
+      "Opt_WR": 0.5277777777777778,
+      "Trades": 144,
+      "Avg_PnL": 0.4618055555555556,
+      "Score": 0.5836564156112459,
+      "Recent": {
+        "trades": 144,
+        "wins": 76,
+        "win_rate": 0.5277777777777778,
+        "avg_pnl": 0.4618055555555556,
+        "profit_factor": 1.2150363783346807
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 10.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.5277777777777778,
+      "Trades": 144,
+      "Avg_PnL": 0.4479166666666667,
+      "Score": 0.5709917066346923,
+      "Recent": {
+        "trades": 144,
+        "wins": 76,
+        "win_rate": 0.5277777777777778,
+        "avg_pnl": 0.4479166666666667,
+        "profit_factor": 1.185611510791367
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.5164319248826291,
+      "Trades": 639,
+      "Avg_PnL": 0.07668231611893583,
+      "Score": 0.24047300728580467,
+      "Recent": {
+        "trades": 639,
+        "wins": 330,
+        "win_rate": 0.5164319248826291,
+        "avg_pnl": 0.07668231611893583,
+        "profit_factor": 1.0463576158940397
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Short_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.5068399452804377,
+      "Trades": 1462,
+      "Avg_PnL": 0.060191518467852256,
+      "Score": 0.1802258724787344,
+      "Recent": {
+        "trades": 1462,
+        "wins": 741,
+        "win_rate": 0.5068399452804377,
+        "avg_pnl": 0.060191518467852256,
+        "profit_factor": 1.038920831490491
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Mom",
+      "Thresh": 6.0,
+      "Best_SL": 10.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.5542168674698795,
+      "Trades": 83,
+      "Avg_PnL": 1.3313253012048192,
+      "Score": 1.3595337873232056,
+      "Recent": {
+        "trades": 83,
+        "wins": 46,
+        "win_rate": 0.5542168674698795,
+        "avg_pnl": 1.3313253012048192,
+        "profit_factor": 1.565217391304348
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Mom",
+      "Thresh": 6.0,
+      "Best_SL": 8.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.5421686746987951,
+      "Trades": 83,
+      "Avg_PnL": 1.322289156626506,
+      "Score": 1.2953719576291742,
+      "Recent": {
+        "trades": 83,
+        "wins": 45,
+        "win_rate": 0.5421686746987951,
+        "avg_pnl": 1.322289156626506,
+        "profit_factor": 1.589261744966443
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 10.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.5379310344827586,
+      "Trades": 145,
+      "Avg_PnL": 1.0793103448275863,
+      "Score": 1.0907660044704521,
+      "Recent": {
+        "trades": 145,
+        "wins": 78,
+        "win_rate": 0.5379310344827586,
+        "avg_pnl": 1.0793103448275863,
+        "profit_factor": 1.4559359067734887
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Mom",
+      "Thresh": 6.0,
+      "Best_SL": 8.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.5421686746987951,
+      "Trades": 83,
+      "Avg_PnL": 0.9939759036144579,
+      "Score": 1.0509218080375191,
+      "Recent": {
+        "trades": 83,
+        "wins": 45,
+        "win_rate": 0.5421686746987951,
+        "avg_pnl": 0.9939759036144579,
+        "profit_factor": 1.4429530201342282
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 12.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.5379310344827586,
+      "Trades": 145,
+      "Avg_PnL": 0.996551724137931,
+      "Score": 1.0286453907716626,
+      "Recent": {
+        "trades": 145,
+        "wins": 78,
+        "win_rate": 0.5379310344827586,
+        "avg_pnl": 0.996551724137931,
+        "profit_factor": 1.4140401146131805
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Mom",
+      "Thresh": 6.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5542168674698795,
+      "Trades": 83,
+      "Avg_PnL": 0.8192771084337349,
+      "Score": 0.992297611498626,
+      "Recent": {
+        "trades": 83,
+        "wins": 46,
+        "win_rate": 0.5542168674698795,
+        "avg_pnl": 0.8192771084337349,
+        "profit_factor": 1.4771929824561403
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Rev",
+      "Thresh": 6.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5454545454545454,
+      "Trades": 88,
+      "Avg_PnL": 1.8238636363636365,
+      "Score": 1.6646005021890289,
+      "Recent": {
+        "trades": 88,
+        "wins": 48,
+        "win_rate": 0.5454545454545454,
+        "avg_pnl": 1.8238636363636365,
+        "profit_factor": 1.6062322946175638
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Rev",
+      "Thresh": 6.0,
+      "Best_SL": 15.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5568181818181818,
+      "Trades": 88,
+      "Avg_PnL": 1.6392045454545454,
+      "Score": 1.5826412653997903,
+      "Recent": {
+        "trades": 88,
+        "wins": 49,
+        "win_rate": 0.5568181818181818,
+        "avg_pnl": 1.6392045454545454,
+        "profit_factor": 1.5110717449069972
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Rev",
+      "Thresh": 6.0,
+      "Best_SL": 12.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.5454545454545454,
+      "Trades": 88,
+      "Avg_PnL": 1.6079545454545454,
+      "Score": 1.5062875568718341,
+      "Recent": {
+        "trades": 88,
+        "wins": 48,
+        "win_rate": 0.5454545454545454,
+        "avg_pnl": 1.6079545454545454,
+        "profit_factor": 1.534466477809254
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Rev",
+      "Thresh": 6.0,
+      "Best_SL": 15.0,
+      "Best_TP": 22.5,
+      "Opt_WR": 0.5568181818181818,
+      "Trades": 88,
+      "Avg_PnL": 1.3693181818181819,
+      "Score": 1.3853062847250177,
+      "Recent": {
+        "trades": 88,
+        "wins": 49,
+        "win_rate": 0.5568181818181818,
+        "avg_pnl": 1.3693181818181819,
+        "profit_factor": 1.4269264836138176
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Rev",
+      "Thresh": 6.0,
+      "Best_SL": 12.0,
+      "Best_TP": 18.0,
+      "Opt_WR": 0.5454545454545454,
+      "Trades": 88,
+      "Avg_PnL": 1.4204545454545454,
+      "Score": 1.3688052622542703,
+      "Recent": {
+        "trades": 88,
+        "wins": 48,
+        "win_rate": 0.5454545454545454,
+        "avg_pnl": 1.4204545454545454,
+        "profit_factor": 1.4721435316336167
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Long_Rev",
+      "Thresh": 6.0,
+      "Best_SL": 15.0,
+      "Best_TP": 18.75,
+      "Opt_WR": 0.5568181818181818,
+      "Trades": 88,
+      "Avg_PnL": 1.2102272727272727,
+      "Score": 1.2689825066430467,
+      "Recent": {
+        "trades": 88,
+        "wins": 49,
+        "win_rate": 0.5568181818181818,
+        "avg_pnl": 1.2102272727272727,
+        "profit_factor": 1.3773250664304695
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Short_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 8.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.5393258426966292,
+      "Trades": 178,
+      "Avg_PnL": 0.8398876404494382,
+      "Score": 0.9185085402191042,
+      "Recent": {
+        "trades": 178,
+        "wins": 96,
+        "win_rate": 0.5393258426966292,
+        "avg_pnl": 0.8398876404494382,
+        "profit_factor": 1.339579784213515
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Short_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 8.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.5224719101123596,
+      "Trades": 178,
+      "Avg_PnL": 0.8778089887640449,
+      "Score": 0.8618594749836249,
+      "Recent": {
+        "trades": 178,
+        "wins": 93,
+        "win_rate": 0.5224719101123596,
+        "avg_pnl": 0.8778089887640449,
+        "profit_factor": 1.3503363228699552
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Short_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 8.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.4943820224719101,
+      "Trades": 178,
+      "Avg_PnL": 0.9143258426966292,
+      "Score": 0.7459329803150759,
+      "Recent": {
+        "trades": 178,
+        "wins": 88,
+        "win_rate": 0.4943820224719101,
+        "avg_pnl": 0.9143258426966292,
+        "profit_factor": 1.3399477806788511
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Short_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 8.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.5112359550561798,
+      "Trades": 178,
+      "Avg_PnL": 0.7626404494382022,
+      "Score": 0.7194430411335777,
+      "Recent": {
+        "trades": 178,
+        "wins": 91,
+        "win_rate": 0.5112359550561798,
+        "avg_pnl": 0.7626404494382022,
+        "profit_factor": 1.2941495124593716
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Short_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 8.0,
+      "Best_TP": 20.0,
+      "Opt_WR": 0.4943820224719101,
+      "Trades": 178,
+      "Avg_PnL": 0.8707865168539326,
+      "Score": 0.7138366532695748,
+      "Recent": {
+        "trades": 178,
+        "wins": 88,
+        "win_rate": 0.4943820224719101,
+        "avg_pnl": 0.8707865168539326,
+        "profit_factor": 1.3237597911227155
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "12-15",
+      "Type": "Short_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 6.0,
+      "Best_TP": 9.0,
+      "Opt_WR": 0.4943820224719101,
+      "Trades": 178,
+      "Avg_PnL": 0.7879213483146067,
+      "Score": 0.656474479369887,
+      "Recent": {
+        "trades": 178,
+        "wins": 88,
+        "win_rate": 0.4943820224719101,
+        "avg_pnl": 0.7879213483146067,
+        "profit_factor": 1.3301942319011184
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Short_Rev",
+      "Thresh": 6.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5869565217391305,
+      "Trades": 46,
+      "Avg_PnL": 0.44021739130434784,
+      "Score": 0.8671138870863078,
+      "Recent": {
+        "trades": 46,
+        "wins": 27,
+        "win_rate": 0.5869565217391305,
+        "avg_pnl": 0.44021739130434784,
+        "profit_factor": 1.2417910447761193
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Short_Rev",
+      "Thresh": 6.0,
+      "Best_SL": 5.0,
+      "Best_TP": 6.25,
+      "Opt_WR": 0.5217391304347826,
+      "Trades": 46,
+      "Avg_PnL": 0.2554347826086957,
+      "Score": 0.39993386243386236,
+      "Recent": {
+        "trades": 46,
+        "wins": 24,
+        "win_rate": 0.5217391304347826,
+        "avg_pnl": 0.2554347826086957,
+        "profit_factor": 1.1243386243386244
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Short_Rev",
+      "Thresh": 6.0,
+      "Best_SL": 6.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.5434782608695652,
+      "Trades": 46,
+      "Avg_PnL": 0.09782608695652174,
+      "Score": 0.39013496806099307,
+      "Recent": {
+        "trades": 46,
+        "wins": 25,
+        "win_rate": 0.5434782608695652,
+        "avg_pnl": 0.09782608695652174,
+        "profit_factor": 1.042654028436019
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Short_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.4968944099378882,
+      "Trades": 161,
+      "Avg_PnL": 0.17391304347826086,
+      "Score": 0.21570270554795237,
+      "Recent": {
+        "trades": 161,
+        "wins": 80,
+        "win_rate": 0.4968944099378882,
+        "avg_pnl": 0.17391304347826086,
+        "profit_factor": 1.0949152542372882
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Short_Rev",
+      "Thresh": 6.0,
+      "Best_SL": 6.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.5,
+      "Trades": 46,
+      "Avg_PnL": 0.10869565217391304,
+      "Score": 0.18042535131566534,
+      "Recent": {
+        "trades": 46,
+        "wins": 23,
+        "win_rate": 0.5,
+        "avg_pnl": 0.10869565217391304,
+        "profit_factor": 1.0433839479392624
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Short_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.502127659574468,
+      "Trades": 940,
+      "Avg_PnL": 0.05452127659574468,
+      "Score": 0.1527101859623936,
+      "Recent": {
+        "trades": 940,
+        "wins": 472,
+        "win_rate": 0.502127659574468,
+        "avg_pnl": 0.05452127659574468,
+        "profit_factor": 1.039069944730322
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.5066666666666667,
+      "Trades": 75,
+      "Avg_PnL": 0.3233333333333333,
+      "Score": 0.37979114799446767,
+      "Recent": {
+        "trades": 75,
+        "wins": 38,
+        "win_rate": 0.5066666666666667,
+        "avg_pnl": 0.3233333333333333,
+        "profit_factor": 1.2012448132780082
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 8.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.4666666666666667,
+      "Trades": 75,
+      "Avg_PnL": 0.5433333333333333,
+      "Score": 0.3373930131004367,
+      "Recent": {
+        "trades": 75,
+        "wins": 35,
+        "win_rate": 0.4666666666666667,
+        "avg_pnl": 0.5433333333333333,
+        "profit_factor": 1.2372634643377
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 15.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.4796747967479675,
+      "Trades": 369,
+      "Avg_PnL": 0.1673441734417344,
+      "Score": 0.12366941158681971,
+      "Recent": {
+        "trades": 369,
+        "wins": 177,
+        "win_rate": 0.4796747967479675,
+        "avg_pnl": 0.1673441734417344,
+        "profit_factor": 1.0815450643776825
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 12.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.47696476964769646,
+      "Trades": 369,
+      "Avg_PnL": 0.1842818428184282,
+      "Score": 0.12280396515986287,
+      "Recent": {
+        "trades": 369,
+        "wins": 176,
+        "win_rate": 0.47696476964769646,
+        "avg_pnl": 0.1842818428184282,
+        "profit_factor": 1.0898282694848085
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 12.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.47696476964769646,
+      "Trades": 369,
+      "Avg_PnL": 0.1632791327913279,
+      "Score": 0.10707829006955846,
+      "Recent": {
+        "trades": 369,
+        "wins": 176,
+        "win_rate": 0.47696476964769646,
+        "avg_pnl": 0.1632791327913279,
+        "profit_factor": 1.0795904887714662
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "03-06",
+      "Type": "Long_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.4906832298136646,
+      "Trades": 161,
+      "Avg_PnL": 0.06987577639751552,
+      "Score": 0.10652304156801898,
+      "Recent": {
+        "trades": 161,
+        "wins": 79,
+        "win_rate": 0.4906832298136646,
+        "avg_pnl": 0.06987577639751552,
+        "profit_factor": 1.0419384902143523
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 8.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.55,
+      "Trades": 260,
+      "Avg_PnL": 0.4673076923076923,
+      "Score": 0.7022706641184904,
+      "Recent": {
+        "trades": 260,
+        "wins": 143,
+        "win_rate": 0.55,
+        "avg_pnl": 0.4673076923076923,
+        "profit_factor": 1.2515527950310559
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 8.0,
+      "Best_TP": 20.0,
+      "Opt_WR": 0.5307692307692308,
+      "Trades": 260,
+      "Avg_PnL": 0.5913461538461539,
+      "Score": 0.6980691114646063,
+      "Recent": {
+        "trades": 260,
+        "wins": 138,
+        "win_rate": 0.5307692307692308,
+        "avg_pnl": 0.5913461538461539,
+        "profit_factor": 1.3028064992614476
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 8.0,
+      "Best_TP": 16.0,
+      "Opt_WR": 0.5307692307692308,
+      "Trades": 260,
+      "Avg_PnL": 0.5807692307692308,
+      "Score": 0.6901236601901299,
+      "Recent": {
+        "trades": 260,
+        "wins": 138,
+        "win_rate": 0.5307692307692308,
+        "avg_pnl": 0.5807692307692308,
+        "profit_factor": 1.2973904480551453
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 8.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.5384615384615384,
+      "Trades": 260,
+      "Avg_PnL": 0.5259615384615385,
+      "Score": 0.6878855788500077,
+      "Recent": {
+        "trades": 260,
+        "wins": 140,
+        "win_rate": 0.5384615384615384,
+        "avg_pnl": 0.5259615384615385,
+        "profit_factor": 1.2740480961923848
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 8.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.5307692307692308,
+      "Trades": 260,
+      "Avg_PnL": 0.5682692307692307,
+      "Score": 0.6807335814112032,
+      "Recent": {
+        "trades": 260,
+        "wins": 138,
+        "win_rate": 0.5307692307692308,
+        "avg_pnl": 0.5682692307692307,
+        "profit_factor": 1.2909896602658788
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 8.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.5346153846153846,
+      "Trades": 260,
+      "Avg_PnL": 0.5048076923076923,
+      "Score": 0.6523298816568046,
+      "Recent": {
+        "trades": 260,
+        "wins": 139,
+        "win_rate": 0.5346153846153846,
+        "avg_pnl": 0.5048076923076923,
+        "profit_factor": 1.2588757396449703
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Short_Mom",
+      "Thresh": 6.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5526315789473685,
+      "Trades": 38,
+      "Avg_PnL": 0.8947368421052632,
+      "Score": 1.0187840290381127,
+      "Recent": {
+        "trades": 38,
+        "wins": 21,
+        "win_rate": 0.5526315789473685,
+        "avg_pnl": 0.8947368421052632,
+        "profit_factor": 1.293103448275862
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Short_Mom",
+      "Thresh": 6.0,
+      "Best_SL": 6.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.5789473684210527,
+      "Trades": 38,
+      "Avg_PnL": 0.6513157894736842,
+      "Score": 0.981403236351749,
+      "Recent": {
+        "trades": 38,
+        "wins": 22,
+        "win_rate": 0.5789473684210527,
+        "avg_pnl": 0.6513157894736842,
+        "profit_factor": 1.3074534161490683
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Short_Mom",
+      "Thresh": 6.0,
+      "Best_SL": 6.0,
+      "Best_TP": 7.5,
+      "Opt_WR": 0.5526315789473685,
+      "Trades": 38,
+      "Avg_PnL": 0.618421052631579,
+      "Score": 0.8232202616367512,
+      "Recent": {
+        "trades": 38,
+        "wins": 21,
+        "win_rate": 0.5526315789473685,
+        "avg_pnl": 0.618421052631579,
+        "profit_factor": 1.2716763005780347
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Short_Mom",
+      "Thresh": 6.0,
+      "Best_SL": 12.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.5526315789473685,
+      "Trades": 38,
+      "Avg_PnL": 0.5789473684210527,
+      "Score": 0.7873865698729585,
+      "Recent": {
+        "trades": 38,
+        "wins": 21,
+        "win_rate": 0.5526315789473685,
+        "avg_pnl": 0.5789473684210527,
+        "profit_factor": 1.1896551724137931
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Short_Mom",
+      "Thresh": 6.0,
+      "Best_SL": 5.0,
+      "Best_TP": 7.5,
+      "Opt_WR": 0.5263157894736842,
+      "Trades": 38,
+      "Avg_PnL": 0.4934210526315789,
+      "Score": 0.5993617439120187,
+      "Recent": {
+        "trades": 38,
+        "wins": 20,
+        "win_rate": 0.5263157894736842,
+        "avg_pnl": 0.4934210526315789,
+        "profit_factor": 1.2238805970149254
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Short_Mom",
+      "Thresh": 6.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5526315789473685,
+      "Trades": 38,
+      "Avg_PnL": 0.2631578947368421,
+      "Score": 0.5600668337510446,
+      "Recent": {
+        "trades": 38,
+        "wins": 21,
+        "win_rate": 0.5526315789473685,
+        "avg_pnl": 0.2631578947368421,
+        "profit_factor": 1.126984126984127
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Long_Mom",
+      "Thresh": 7.0,
+      "Best_SL": 8.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.5961538461538461,
+      "Trades": 52,
+      "Avg_PnL": 1.7163461538461537,
+      "Score": 1.8712389698829845,
+      "Recent": {
+        "trades": 52,
+        "wins": 31,
+        "win_rate": 0.5961538461538461,
+        "avg_pnl": 1.7163461538461537,
+        "profit_factor": 1.8902743142144638
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Long_Mom",
+      "Thresh": 7.0,
+      "Best_SL": 6.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.5961538461538461,
+      "Trades": 52,
+      "Avg_PnL": 0.9134615384615384,
+      "Score": 1.2675738538269707,
+      "Recent": {
+        "trades": 52,
+        "wins": 31,
+        "win_rate": 0.5961538461538461,
+        "avg_pnl": 0.9134615384615384,
+        "profit_factor": 1.4738154613466334
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Long_Mom",
+      "Thresh": 8.0,
+      "Best_SL": 6.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.5806451612903226,
+      "Trades": 31,
+      "Avg_PnL": 0.8790322580645161,
+      "Score": 1.1659396914446003,
+      "Recent": {
+        "trades": 31,
+        "wins": 18,
+        "win_rate": 0.5806451612903226,
+        "avg_pnl": 0.8790322580645161,
+        "profit_factor": 1.4739130434782608
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Long_Mom",
+      "Thresh": 7.0,
+      "Best_SL": 4.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.5,
+      "Trades": 52,
+      "Avg_PnL": 1.3028846153846154,
+      "Score": 1.0852624740124739,
+      "Recent": {
+        "trades": 52,
+        "wins": 26,
+        "win_rate": 0.5,
+        "avg_pnl": 1.3028846153846154,
+        "profit_factor": 1.7324324324324325
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Long_Mom",
+      "Thresh": 7.0,
+      "Best_SL": 5.0,
+      "Best_TP": 6.25,
+      "Opt_WR": 0.5576923076923077,
+      "Trades": 52,
+      "Avg_PnL": 0.8894230769230769,
+      "Score": 1.0588613098787518,
+      "Recent": {
+        "trades": 52,
+        "wins": 29,
+        "win_rate": 0.5576923076923077,
+        "avg_pnl": 0.8894230769230769,
+        "profit_factor": 1.4780361757105944
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Long_Mom",
+      "Thresh": 7.0,
+      "Best_SL": 4.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.5384615384615384,
+      "Trades": 52,
+      "Avg_PnL": 0.9807692307692307,
+      "Score": 1.0384952766531712,
+      "Recent": {
+        "trades": 52,
+        "wins": 28,
+        "win_rate": 0.5384615384615384,
+        "avg_pnl": 0.9807692307692307,
+        "profit_factor": 1.5964912280701755
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Short_Mom",
+      "Thresh": 8.0,
+      "Best_SL": 10.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.696969696969697,
+      "Trades": 33,
+      "Avg_PnL": 2.727272727272727,
+      "Score": 3.189591567852437,
+      "Recent": {
+        "trades": 33,
+        "wins": 23,
+        "win_rate": 0.696969696969697,
+        "avg_pnl": 2.727272727272727,
+        "profit_factor": 2.9565217391304346
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Short_Mom",
+      "Thresh": 8.0,
+      "Best_SL": 8.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.696969696969697,
+      "Trades": 33,
+      "Avg_PnL": 2.621212121212121,
+      "Score": 3.0944444444444446,
+      "Recent": {
+        "trades": 33,
+        "wins": 23,
+        "win_rate": 0.696969696969697,
+        "avg_pnl": 2.621212121212121,
+        "profit_factor": 2.7474747474747474
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Short_Mom",
+      "Thresh": 8.0,
+      "Best_SL": 10.0,
+      "Best_TP": 25.0,
+      "Opt_WR": 0.6363636363636364,
+      "Trades": 33,
+      "Avg_PnL": 2.8636363636363638,
+      "Score": 2.9295454545454542,
+      "Recent": {
+        "trades": 33,
+        "wins": 21,
+        "win_rate": 0.6363636363636364,
+        "avg_pnl": 2.8636363636363638,
+        "profit_factor": 2.4318181818181817
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Short_Mom",
+      "Thresh": 7.0,
+      "Best_SL": 10.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.66,
+      "Trades": 50,
+      "Avg_PnL": 2.61,
+      "Score": 2.912106382978723,
+      "Recent": {
+        "trades": 50,
+        "wins": 33,
+        "win_rate": 0.66,
+        "avg_pnl": 2.61,
+        "profit_factor": 2.851063829787234
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Short_Mom",
+      "Thresh": 8.0,
+      "Best_SL": 8.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.6363636363636364,
+      "Trades": 33,
+      "Avg_PnL": 2.8181818181818183,
+      "Score": 2.8965301873698817,
+      "Recent": {
+        "trades": 33,
+        "wins": 21,
+        "win_rate": 0.6363636363636364,
+        "avg_pnl": 2.8181818181818183,
+        "profit_factor": 2.4198473282442747
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Short_Mom",
+      "Thresh": 8.0,
+      "Best_SL": 10.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.6363636363636364,
+      "Trades": 33,
+      "Avg_PnL": 2.6893939393939394,
+      "Score": 2.7988636363636363,
+      "Recent": {
+        "trades": 33,
+        "wins": 21,
+        "win_rate": 0.6363636363636364,
+        "avg_pnl": 2.6893939393939394,
+        "profit_factor": 2.3446969696969697
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Mom",
+      "Thresh": 9.0,
+      "Best_SL": 12.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.5208333333333334,
+      "Trades": 48,
+      "Avg_PnL": 1.3229166666666667,
+      "Score": 1.1641655525846704,
+      "Recent": {
+        "trades": 48,
+        "wins": 25,
+        "win_rate": 0.5208333333333334,
+        "avg_pnl": 1.3229166666666667,
+        "profit_factor": 1.339572192513369
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Mom",
+      "Thresh": 9.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5208333333333334,
+      "Trades": 48,
+      "Avg_PnL": 1.2239583333333333,
+      "Score": 1.0923546122994654,
+      "Recent": {
+        "trades": 48,
+        "wins": 25,
+        "win_rate": 0.5208333333333334,
+        "avg_pnl": 1.2239583333333333,
+        "profit_factor": 1.3141711229946524
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Mom",
+      "Thresh": 9.0,
+      "Best_SL": 10.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5,
+      "Trades": 48,
+      "Avg_PnL": 1.3229166666666667,
+      "Score": 1.0615165270018623,
+      "Recent": {
+        "trades": 48,
+        "wins": 24,
+        "win_rate": 0.5,
+        "avg_pnl": 1.3229166666666667,
+        "profit_factor": 1.3547486033519553
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Mom",
+      "Thresh": 9.0,
+      "Best_SL": 12.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.5416666666666666,
+      "Trades": 48,
+      "Avg_PnL": 1.015625,
+      "Score": 1.0453403520499107,
+      "Recent": {
+        "trades": 48,
+        "wins": 26,
+        "win_rate": 0.5416666666666666,
+        "avg_pnl": 1.015625,
+        "profit_factor": 1.2606951871657754
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Mom",
+      "Thresh": 9.0,
+      "Best_SL": 10.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.5208333333333334,
+      "Trades": 48,
+      "Avg_PnL": 1.1145833333333333,
+      "Score": 1.0142632681564248,
+      "Recent": {
+        "trades": 48,
+        "wins": 25,
+        "win_rate": 0.5208333333333334,
+        "avg_pnl": 1.1145833333333333,
+        "profit_factor": 1.2988826815642458
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "09-12",
+      "Type": "Long_Mom",
+      "Thresh": 9.0,
+      "Best_SL": 10.0,
+      "Best_TP": 25.0,
+      "Opt_WR": 0.5,
+      "Trades": 48,
+      "Avg_PnL": 1.2552083333333333,
+      "Score": 1.0123050512104281,
+      "Recent": {
+        "trades": 48,
+        "wins": 24,
+        "win_rate": 0.5,
+        "avg_pnl": 1.2552083333333333,
+        "profit_factor": 1.3365921787709498
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "00-03",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.6136363636363636,
+      "Trades": 88,
+      "Avg_PnL": 2.2926136363636362,
+      "Score": 2.4107246742165684,
+      "Recent": {
+        "trades": 88,
+        "wins": 54,
+        "win_rate": 0.6136363636363636,
+        "avg_pnl": 2.2926136363636362,
+        "profit_factor": 2.3771331058020477
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "00-03",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 15.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.6136363636363636,
+      "Trades": 88,
+      "Avg_PnL": 2.147727272727273,
+      "Score": 2.290272227772228,
+      "Recent": {
+        "trades": 88,
+        "wins": 54,
+        "win_rate": 0.6136363636363636,
+        "avg_pnl": 2.147727272727273,
+        "profit_factor": 2.1868131868131866
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "00-03",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.6022727272727273,
+      "Trades": 88,
+      "Avg_PnL": 2.1761363636363638,
+      "Score": 2.2586073109738156,
+      "Recent": {
+        "trades": 88,
+        "wins": 53,
+        "win_rate": 0.6022727272727273,
+        "avg_pnl": 2.1761363636363638,
+        "profit_factor": 2.2394822006472492
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "00-03",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 12.0,
+      "Best_TP": 18.0,
+      "Opt_WR": 0.6136363636363636,
+      "Trades": 88,
+      "Avg_PnL": 2.03125,
+      "Score": 2.2120704700589515,
+      "Recent": {
+        "trades": 88,
+        "wins": 54,
+        "win_rate": 0.6136363636363636,
+        "avg_pnl": 2.03125,
+        "profit_factor": 2.220136518771331
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "00-03",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 12.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.6136363636363636,
+      "Trades": 88,
+      "Avg_PnL": 2.0198863636363638,
+      "Score": 2.2034333307477505,
+      "Recent": {
+        "trades": 88,
+        "wins": 54,
+        "win_rate": 0.6136363636363636,
+        "avg_pnl": 2.0198863636363638,
+        "profit_factor": 2.2133105802047783
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "00-03",
+      "Type": "Long_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 25.0,
+      "Opt_WR": 0.6022727272727273,
+      "Trades": 88,
+      "Avg_PnL": 1.9488636363636365,
+      "Score": 2.086571418064137,
+      "Recent": {
+        "trades": 88,
+        "wins": 53,
+        "win_rate": 0.6022727272727273,
+        "avg_pnl": 1.9488636363636365,
+        "profit_factor": 2.1100323624595467
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 4.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.4927536231884058,
+      "Trades": 138,
+      "Avg_PnL": 0.39311594202898553,
+      "Score": 0.36300692502972476,
+      "Recent": {
+        "trades": 138,
+        "wins": 68,
+        "win_rate": 0.4927536231884058,
+        "avg_pnl": 0.39311594202898553,
+        "profit_factor": 1.2405764966740576
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 3.0,
+      "Best_TP": 4.5,
+      "Opt_WR": 0.4782608695652174,
+      "Trades": 138,
+      "Avg_PnL": 0.4329710144927536,
+      "Score": 0.3254230190099756,
+      "Recent": {
+        "trades": 138,
+        "wins": 66,
+        "win_rate": 0.4782608695652174,
+        "avg_pnl": 0.4329710144927536,
+        "profit_factor": 1.3103896103896104
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.5,
+      "Trades": 138,
+      "Avg_PnL": 0.25,
+      "Score": 0.2887862137862138,
+      "Recent": {
+        "trades": 138,
+        "wins": 69,
+        "win_rate": 0.5,
+        "avg_pnl": 0.25,
+        "profit_factor": 1.1378621378621379
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.5,
+      "Trades": 138,
+      "Avg_PnL": 0.15942028985507245,
+      "Score": 0.221437603345978,
+      "Recent": {
+        "trades": 138,
+        "wins": 69,
+        "win_rate": 0.5,
+        "avg_pnl": 0.15942028985507245,
+        "profit_factor": 1.0984340044742729
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Short_Rev",
+      "Thresh": 5.0,
+      "Best_SL": 4.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.45652173913043476,
+      "Trades": 138,
+      "Avg_PnL": 0.32065217391304346,
+      "Score": 0.1250896573098378,
+      "Recent": {
+        "trades": 138,
+        "wins": 63,
+        "win_rate": 0.45652173913043476,
+        "avg_pnl": 0.32065217391304346,
+        "profit_factor": 1.180244399185336
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "15-18",
+      "Type": "Short_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.48695652173913045,
+      "Trades": 230,
+      "Avg_PnL": 0.10326086956521739,
+      "Score": 0.11369466610030653,
+      "Recent": {
+        "trades": 230,
+        "wins": 112,
+        "win_rate": 0.48695652173913045,
+        "avg_pnl": 0.10326086956521739,
+        "profit_factor": 1.0662944870900208
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Short_Mom",
+      "Thresh": 6.0,
+      "Best_SL": 10.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5882352941176471,
+      "Trades": 34,
+      "Avg_PnL": 8.367647058823529,
+      "Score": 6.598529411764705,
+      "Recent": {
+        "trades": 34,
+        "wins": 20,
+        "win_rate": 0.5882352941176471,
+        "avg_pnl": 8.367647058823529,
+        "profit_factor": 5.53386454183267
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Short_Mom",
+      "Thresh": 6.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5882352941176471,
+      "Trades": 34,
+      "Avg_PnL": 8.25,
+      "Score": 6.516176470588235,
+      "Recent": {
+        "trades": 34,
+        "wins": 20,
+        "win_rate": 0.5882352941176471,
+        "avg_pnl": 8.25,
+        "profit_factor": 5.202247191011236
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Short_Mom",
+      "Thresh": 6.0,
+      "Best_SL": 15.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5882352941176471,
+      "Trades": 34,
+      "Avg_PnL": 7.985294117647059,
+      "Score": 6.330882352941177,
+      "Recent": {
+        "trades": 34,
+        "wins": 20,
+        "win_rate": 0.5882352941176471,
+        "avg_pnl": 7.985294117647059,
+        "profit_factor": 4.584158415841584
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Short_Mom",
+      "Thresh": 6.0,
+      "Best_SL": 10.0,
+      "Best_TP": 25.0,
+      "Opt_WR": 0.5882352941176471,
+      "Trades": 34,
+      "Avg_PnL": 7.463235294117647,
+      "Score": 5.965441176470588,
+      "Recent": {
+        "trades": 34,
+        "wins": 20,
+        "win_rate": 0.5882352941176471,
+        "avg_pnl": 7.463235294117647,
+        "profit_factor": 5.043824701195219
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Short_Mom",
+      "Thresh": 6.0,
+      "Best_SL": 12.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.5882352941176471,
+      "Trades": 34,
+      "Avg_PnL": 7.080882352941177,
+      "Score": 5.697794117647058,
+      "Recent": {
+        "trades": 34,
+        "wins": 20,
+        "win_rate": 0.5882352941176471,
+        "avg_pnl": 7.080882352941177,
+        "profit_factor": 4.606741573033708
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Short_Mom",
+      "Thresh": 6.0,
+      "Best_SL": 15.0,
+      "Best_TP": 22.5,
+      "Opt_WR": 0.5882352941176471,
+      "Trades": 34,
+      "Avg_PnL": 6.419117647058823,
+      "Score": 5.234558823529412,
+      "Recent": {
+        "trades": 34,
+        "wins": 20,
+        "win_rate": 0.5882352941176471,
+        "avg_pnl": 6.419117647058823,
+        "profit_factor": 3.881188118811881
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "00-03",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 12.0,
+      "Best_TP": 18.0,
+      "Opt_WR": 0.6923076923076923,
+      "Trades": 39,
+      "Avg_PnL": 4.173076923076923,
+      "Score": 4.1826923076923075,
+      "Recent": {
+        "trades": 39,
+        "wins": 27,
+        "win_rate": 0.6923076923076923,
+        "avg_pnl": 4.173076923076923,
+        "profit_factor": 3.177257525083612
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "00-03",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 12.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.6923076923076923,
+      "Trades": 39,
+      "Avg_PnL": 4.121794871794871,
+      "Score": 4.146794871794871,
+      "Recent": {
+        "trades": 39,
+        "wins": 27,
+        "win_rate": 0.6923076923076923,
+        "avg_pnl": 4.121794871794871,
+        "profit_factor": 3.150501672240803
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "00-03",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 15.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.6923076923076923,
+      "Trades": 39,
+      "Avg_PnL": 3.826923076923077,
+      "Score": 3.913428093645485,
+      "Recent": {
+        "trades": 39,
+        "wins": 27,
+        "win_rate": 0.6923076923076923,
+        "avg_pnl": 3.826923076923077,
+        "profit_factor": 2.7304347826086954
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "00-03",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 12.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.6923076923076923,
+      "Trades": 39,
+      "Avg_PnL": 3.673076923076923,
+      "Score": 3.8243311036789294,
+      "Recent": {
+        "trades": 39,
+        "wins": 27,
+        "win_rate": 0.6923076923076923,
+        "avg_pnl": 3.673076923076923,
+        "profit_factor": 2.9163879598662206
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "00-03",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 10.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.6410256410256411,
+      "Trades": 39,
+      "Avg_PnL": 3.519230769230769,
+      "Score": 3.4305366462446107,
+      "Recent": {
+        "trades": 39,
+        "wins": 25,
+        "win_rate": 0.6410256410256411,
+        "avg_pnl": 3.519230769230769,
+        "profit_factor": 2.6194690265486726
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "00-03",
+      "Type": "Long_Mom",
+      "Thresh": 5.0,
+      "Best_SL": 8.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.6410256410256411,
+      "Trades": 39,
+      "Avg_PnL": 3.41025641025641,
+      "Score": 3.3690518783542043,
+      "Recent": {
+        "trades": 39,
+        "wins": 25,
+        "win_rate": 0.6410256410256411,
+        "avg_pnl": 3.41025641025641,
+        "profit_factor": 2.7674418604651163
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 15.0,
+      "Best_TP": 22.5,
+      "Opt_WR": 0.48563218390804597,
+      "Trades": 348,
+      "Avg_PnL": 0.4920977011494253,
+      "Score": 0.4087389571555813,
+      "Recent": {
+        "trades": 348,
+        "wins": 169,
+        "win_rate": 0.48563218390804597,
+        "avg_pnl": 0.4920977011494253,
+        "profit_factor": 1.3610964681075381
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 15.0,
+      "Best_TP": 18.75,
+      "Opt_WR": 0.48563218390804597,
+      "Trades": 348,
+      "Avg_PnL": 0.47126436781609193,
+      "Score": 0.39262689424923797,
+      "Recent": {
+        "trades": 348,
+        "wins": 169,
+        "win_rate": 0.48563218390804597,
+        "avg_pnl": 0.47126436781609193,
+        "profit_factor": 1.3458091723774381
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 20.0,
+      "Opt_WR": 0.4827586206896552,
+      "Trades": 348,
+      "Avg_PnL": 0.48419540229885055,
+      "Score": 0.3885428499883959,
+      "Recent": {
+        "trades": 348,
+        "wins": 168,
+        "win_rate": 0.4827586206896552,
+        "avg_pnl": 0.48419540229885055,
+        "profit_factor": 1.3581296493092454
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 12.0,
+      "Best_TP": 18.0,
+      "Opt_WR": 0.4827586206896552,
+      "Trades": 348,
+      "Avg_PnL": 0.4834770114942529,
+      "Score": 0.38796785058081695,
+      "Recent": {
+        "trades": 348,
+        "wins": 168,
+        "win_rate": 0.4827586206896552,
+        "avg_pnl": 0.4834770114942529,
+        "profit_factor": 1.35740839086564
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 15.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.48563218390804597,
+      "Trades": 348,
+      "Avg_PnL": 0.46264367816091956,
+      "Score": 0.3859598337362683,
+      "Recent": {
+        "trades": 348,
+        "wins": 169,
+        "win_rate": 0.48563218390804597,
+        "avg_pnl": 0.46264367816091956,
+        "profit_factor": 1.3394833948339484
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Long_Mom",
+      "Thresh": 2.0,
+      "Best_SL": 12.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.4827586206896552,
+      "Trades": 348,
+      "Avg_PnL": 0.4755747126436782,
+      "Score": 0.3818520671952925,
+      "Recent": {
+        "trades": 348,
+        "wins": 168,
+        "win_rate": 0.4827586206896552,
+        "avg_pnl": 0.4755747126436782,
+        "profit_factor": 1.3515666489644185
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.49295774647887325,
+      "Trades": 71,
+      "Avg_PnL": 0.14788732394366197,
+      "Score": 0.17792084313662299,
+      "Recent": {
+        "trades": 71,
+        "wins": 35,
+        "win_rate": 0.49295774647887325,
+        "avg_pnl": 0.14788732394366197,
+        "profit_factor": 1.0961098398169336
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Long_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 5.0,
+      "Best_TP": 5.0,
+      "Opt_WR": 0.49295774647887325,
+      "Trades": 71,
+      "Avg_PnL": 0.07042253521126761,
+      "Score": 0.11796800218788464,
+      "Recent": {
+        "trades": 71,
+        "wins": 35,
+        "win_rate": 0.49295774647887325,
+        "avg_pnl": 0.07042253521126761,
+        "profit_factor": 1.0388349514563107
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Short_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 6.0,
+      "Best_TP": 6.0,
+      "Opt_WR": 0.5263157894736842,
+      "Trades": 38,
+      "Avg_PnL": 0.7302631578947368,
+      "Score": 0.7908151059466848,
+      "Recent": {
+        "trades": 38,
+        "wins": 20,
+        "win_rate": 0.5263157894736842,
+        "avg_pnl": 0.7302631578947368,
+        "profit_factor": 1.4805194805194806
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Short_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 8.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.5,
+      "Trades": 38,
+      "Avg_PnL": 0.7763157894736842,
+      "Score": 0.6861746758199847,
+      "Recent": {
+        "trades": 38,
+        "wins": 19,
+        "win_rate": 0.5,
+        "avg_pnl": 0.7763157894736842,
+        "profit_factor": 1.4275362318840579
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Short_Rev",
+      "Thresh": 4.0,
+      "Best_SL": 6.0,
+      "Best_TP": 9.0,
+      "Opt_WR": 0.47368421052631576,
+      "Trades": 38,
+      "Avg_PnL": 0.8618421052631579,
+      "Score": 0.6215204122473482,
+      "Recent": {
+        "trades": 38,
+        "wins": 18,
+        "win_rate": 0.47368421052631576,
+        "avg_pnl": 0.8618421052631579,
+        "profit_factor": 1.4980988593155893
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Short_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 10.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5050167224080268,
+      "Trades": 299,
+      "Avg_PnL": 0.5593645484949833,
+      "Score": 0.5516833219164282,
+      "Recent": {
+        "trades": 299,
+        "wins": 151,
+        "win_rate": 0.5050167224080268,
+        "avg_pnl": 0.5593645484949833,
+        "profit_factor": 1.3504452592980618
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Short_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 8.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.5050167224080268,
+      "Trades": 299,
+      "Avg_PnL": 0.5476588628762542,
+      "Score": 0.5443155718037855,
+      "Recent": {
+        "trades": 299,
+        "wins": 151,
+        "win_rate": 0.5050167224080268,
+        "avg_pnl": 0.5476588628762542,
+        "profit_factor": 1.3587075575027383
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Short_Rev",
+      "Thresh": 2.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.5050167224080268,
+      "Trades": 299,
+      "Avg_PnL": 0.5376254180602007,
+      "Score": 0.5346513788424809,
+      "Recent": {
+        "trades": 299,
+        "wins": 151,
+        "win_rate": 0.5050167224080268,
+        "avg_pnl": 0.5376254180602007,
+        "profit_factor": 1.3322997416020672
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Long_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 12.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.46825396825396826,
+      "Trades": 126,
+      "Avg_PnL": 0.6091269841269841,
+      "Score": 0.39700863455643565,
+      "Recent": {
+        "trades": 126,
+        "wins": 59,
+        "win_rate": 0.46825396825396826,
+        "avg_pnl": 0.6091269841269841,
+        "profit_factor": 1.2934990439770555
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Long_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 15.0,
+      "Best_TP": 30.0,
+      "Opt_WR": 0.46825396825396826,
+      "Trades": 126,
+      "Avg_PnL": 0.5615079365079365,
+      "Score": 0.36077399495623796,
+      "Recent": {
+        "trades": 126,
+        "wins": 59,
+        "win_rate": 0.46825396825396826,
+        "avg_pnl": 0.5615079365079365,
+        "profit_factor": 1.2644859813084113
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Long_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 15.0,
+      "Best_TP": 22.5,
+      "Opt_WR": 0.46825396825396826,
+      "Trades": 126,
+      "Avg_PnL": 0.5238095238095238,
+      "Score": 0.3326094051327696,
+      "Recent": {
+        "trades": 126,
+        "wins": 59,
+        "win_rate": 0.46825396825396826,
+        "avg_pnl": 0.5238095238095238,
+        "profit_factor": 1.246728971962617
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Long_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 12.0,
+      "Best_TP": 24.0,
+      "Opt_WR": 0.46825396825396826,
+      "Trades": 126,
+      "Avg_PnL": 0.5138888888888888,
+      "Score": 0.3257530577559258,
+      "Recent": {
+        "trades": 126,
+        "wins": 59,
+        "win_rate": 0.46825396825396826,
+        "avg_pnl": 0.5138888888888888,
+        "profit_factor": 1.2476099426386233
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Long_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 12.0,
+      "Best_TP": 15.0,
+      "Opt_WR": 0.46825396825396826,
+      "Trades": 126,
+      "Avg_PnL": 0.4880952380952381,
+      "Score": 0.30645467237245433,
+      "Recent": {
+        "trades": 126,
+        "wins": 59,
+        "win_rate": 0.46825396825396826,
+        "avg_pnl": 0.4880952380952381,
+        "profit_factor": 1.2351816443594645
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "06-09",
+      "Type": "Long_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 12.0,
+      "Best_TP": 18.0,
+      "Opt_WR": 0.46825396825396826,
+      "Trades": 126,
+      "Avg_PnL": 0.4781746031746032,
+      "Score": 0.2990322164557346,
+      "Recent": {
+        "trades": 126,
+        "wins": 59,
+        "win_rate": 0.46825396825396826,
+        "avg_pnl": 0.4781746031746032,
+        "profit_factor": 1.2304015296367112
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 6.0,
+      "Best_TP": 9.0,
+      "Opt_WR": 0.5227272727272727,
+      "Trades": 132,
+      "Avg_PnL": 0.3977272727272727,
+      "Score": 0.5153012684989428,
+      "Recent": {
+        "trades": 132,
+        "wins": 69,
+        "win_rate": 0.5227272727272727,
+        "avg_pnl": 0.3977272727272727,
+        "profit_factor": 1.2325581395348837
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 8.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.5303030303030303,
+      "Trades": 132,
+      "Avg_PnL": 0.2556818181818182,
+      "Score": 0.4442961052240192,
+      "Recent": {
+        "trades": 132,
+        "wins": 70,
+        "win_rate": 0.5303030303030303,
+        "avg_pnl": 0.2556818181818182,
+        "profit_factor": 1.138036809815951
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.5378787878787878,
+      "Trades": 132,
+      "Avg_PnL": 0.20075757575757575,
+      "Score": 0.44365481237242876,
+      "Recent": {
+        "trades": 132,
+        "wins": 71,
+        "win_rate": 0.5378787878787878,
+        "avg_pnl": 0.20075757575757575,
+        "profit_factor": 1.1373056994818653
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 6.0,
+      "Best_TP": 12.0,
+      "Opt_WR": 0.5151515151515151,
+      "Trades": 132,
+      "Avg_PnL": 0.3465909090909091,
+      "Score": 0.4381123124448366,
+      "Recent": {
+        "trades": 132,
+        "wins": 68,
+        "win_rate": 0.5151515151515151,
+        "avg_pnl": 0.3465909090909091,
+        "profit_factor": 1.197411003236246
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 6.0,
+      "Best_TP": 7.5,
+      "Opt_WR": 0.5227272727272727,
+      "Trades": 132,
+      "Avg_PnL": 0.2784090909090909,
+      "Score": 0.42480179704016896,
+      "Recent": {
+        "trades": 132,
+        "wins": 69,
+        "win_rate": 0.5227272727272727,
+        "avg_pnl": 0.2784090909090909,
+        "profit_factor": 1.1627906976744187
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "18-21",
+      "Type": "Short_Rev",
+      "Thresh": 3.0,
+      "Best_SL": 10.0,
+      "Best_TP": 10.0,
+      "Opt_WR": 0.5303030303030303,
+      "Trades": 132,
+      "Avg_PnL": 0.22348484848484848,
+      "Score": 0.41981384193695737,
+      "Recent": {
+        "trades": 132,
+        "wins": 70,
+        "win_rate": 0.5303030303030303,
+        "avg_pnl": 0.22348484848484848,
+        "profit_factor": 1.1185929648241206
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.5408163265306123,
+      "Trades": 98,
+      "Avg_PnL": 0.4005102040816326,
+      "Score": 0.6149835225919164,
+      "Recent": {
+        "trades": 98,
+        "wins": 53,
+        "win_rate": 0.5408163265306123,
+        "avg_pnl": 0.4005102040816326,
+        "profit_factor": 1.3054474708171206
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 5.0,
+      "Best_TP": 6.25,
+      "Opt_WR": 0.5204081632653061,
+      "Trades": 98,
+      "Avg_PnL": 0.3596938775510204,
+      "Score": 0.4759963419329997,
+      "Recent": {
+        "trades": 98,
+        "wins": 51,
+        "win_rate": 0.5204081632653061,
+        "avg_pnl": 0.3596938775510204,
+        "profit_factor": 1.221698113207547
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 5.0,
+      "Best_TP": 7.5,
+      "Opt_WR": 0.5102040816326531,
+      "Trades": 98,
+      "Avg_PnL": 0.3903061224489796,
+      "Score": 0.4475578646092584,
+      "Recent": {
+        "trades": 98,
+        "wins": 50,
+        "win_rate": 0.5102040816326531,
+        "avg_pnl": 0.3903061224489796,
+        "profit_factor": 1.233231707317073
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Long_Mom",
+      "Thresh": 3.0,
+      "Best_SL": 4.0,
+      "Best_TP": 8.0,
+      "Opt_WR": 0.4897959183673469,
+      "Trades": 98,
+      "Avg_PnL": 0.4719387755102041,
+      "Score": 0.41048151583865866,
+      "Recent": {
+        "trades": 98,
+        "wins": 48,
+        "win_rate": 0.4897959183673469,
+        "avg_pnl": 0.4719387755102041,
+        "profit_factor": 1.3114478114478114
+      }
+    },
+    {
+      "TF": "15min",
+      "Session": "21-24",
+      "Type": "Long_Mom",
+      "Thresh": 4.0,
+      "Best_SL": 4.0,
+      "Best_TP": 4.0,
+      "Opt_WR": 0.5263157894736842,
+      "Trades": 38,
+      "Avg_PnL": 0.08552631578947369,
+      "Score": 0.29730322427690836,
+      "Recent": {
+        "trades": 38,
+        "wins": 20,
+        "win_rate": 0.5263157894736842,
+        "avg_pnl": 0.08552631578947369,
+        "profit_factor": 1.0585585585585586
+      }
+    }
+  ],
+  "summary": {
+    "total_candidates": 2922,
+    "total_strategies": 308
+  }
+}

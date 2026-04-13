@@ -358,6 +358,12 @@ DEFAULT_THRESHOLDS = {
     "daily_extreme": 130.0
 }
 
+# Directional band: require price to be in outer portion of range to label extension.
+# Example: 0.65 => top/bottom 35% of the range.
+EXTENSION_BAND_RATIO = 0.65
+# Daily extension only applies if the active session has expanded enough relative to daily range.
+DAILY_SESSION_MIN_RATIO = 0.25
+
 
 class ExtensionFilter:
     """
@@ -382,6 +388,7 @@ class ExtensionFilter:
         
         self.state = 'NORMAL'
         self.extension_direction: Optional[str] = None
+        self.state_source: Optional[str] = None
         self.current_thresholds: Dict = DEFAULT_THRESHOLDS
     
     def _get_session(self, hour: int) -> str:
@@ -445,41 +452,56 @@ class ExtensionFilter:
         daily_extended = self.current_thresholds['daily_extended']
         daily_extreme = self.current_thresholds['daily_extreme']
         
-        # Calculate midpoint and which half price is in
-        session_mid = (self.session_high + self.session_low) / 2
-        daily_mid = (self.daily_high + self.daily_low) / 2 if self.daily_high and self.daily_low else session_mid
+        band_ratio = EXTENSION_BAND_RATIO
+        lower_ratio = 1.0 - band_ratio
+
+        # Calculate band thresholds (require price in outer bands, not just above midpoint)
+        session_upper = self.session_low + (session_range * band_ratio) if session_range > 0 else None
+        session_lower = self.session_low + (session_range * lower_ratio) if session_range > 0 else None
+        daily_upper = self.daily_low + (daily_range * band_ratio) if daily_range > 0 else None
+        daily_lower = self.daily_low + (daily_range * lower_ratio) if daily_range > 0 else None
+
+        # Require session activity to justify daily-based extension
+        daily_has_session_context = (
+            daily_range > 0
+            and session_range > 0
+            and session_range >= (daily_range * DAILY_SESSION_MIN_RATIO)
+        )
         
-        # Use daily midpoint for direction since it's the bigger picture
-        in_upper_half = current_price >= daily_mid
+        # Check for extreme daily extension (only if session has expanded meaningfully)
+        if daily_has_session_context and daily_range >= daily_extreme:
+            if daily_upper is not None and current_price >= daily_upper:
+                self.state_source = 'daily'
+                return 'EXTREME_UP'  # Big range, price in upper band = extended UP, block longs
+            if daily_lower is not None and current_price <= daily_lower:
+                self.state_source = 'daily'
+                return 'EXTREME_DOWN'  # Big range, price in lower band = extended DOWN, block shorts
         
-        # Check for extreme daily extension
-        if daily_range >= daily_extreme:
-            if in_upper_half:
-                return 'EXTREME_UP'  # Big range, price in upper half = extended UP, block longs
-            else:
-                return 'EXTREME_DOWN'  # Big range, price in lower half = extended DOWN, block shorts
-        
-        if daily_range >= daily_extended:
-            if in_upper_half:
+        if daily_has_session_context and daily_range >= daily_extended:
+            if daily_upper is not None and current_price >= daily_upper:
+                self.state_source = 'daily'
                 return 'EXTENDED_UP'
-            else:
+            if daily_lower is not None and current_price <= daily_lower:
+                self.state_source = 'daily'
                 return 'EXTENDED_DOWN'
         
         # Check session extension
-        session_in_upper = current_price >= session_mid
-        
         if session_range >= sess_extreme:
-            if session_in_upper:
+            if session_upper is not None and current_price >= session_upper:
+                self.state_source = 'session'
                 return 'EXTREME_UP'
-            else:
+            if session_lower is not None and current_price <= session_lower:
+                self.state_source = 'session'
                 return 'EXTREME_DOWN'
         
         if session_range >= sess_extended:
-            if session_in_upper:
+            if session_upper is not None and current_price >= session_upper:
+                self.state_source = 'session'
                 return 'EXTENDED_UP'
-            else:
+            if session_lower is not None and current_price <= session_lower:
+                self.state_source = 'session'
                 return 'EXTENDED_DOWN'
-        
+        self.state_source = None
         return 'NORMAL'
     
     def update(self, high: float, low: float, close: float, dt: datetime) -> str:
@@ -529,6 +551,7 @@ class ExtensionFilter:
             daily_range = self.daily_high - self.daily_low if self.daily_high and self.daily_low else 0
             logging.info(
                 f"📏 ExtFilter: {self.state} -> {new_state} | "
+                f"Source={self.state_source or 'n/a'} | "
                 f"Session: {session_range:.2f} (thresh: {self.current_thresholds['session_extended']:.2f}) | "
                 f"Daily: {daily_range:.2f} (thresh: {self.current_thresholds['daily_extended']:.2f})"
             )
@@ -547,18 +570,19 @@ class ExtensionFilter:
     def should_block_trade(self, direction: str) -> Tuple[bool, Optional[str]]:
         """Check if trade should be blocked based on extension state."""
         direction = direction.upper()
+        source = self.state_source or "range"
         
         if self.state in ['EXTENDED_UP', 'EXTREME_UP'] and direction == 'LONG':
             session_range = self.session_high - self.session_low if self.session_high and self.session_low else 0
             daily_range = self.daily_high - self.daily_low if self.daily_high and self.daily_low else 0
             severity = "EXTREME" if "EXTREME" in self.state else "Extended"
-            return True, f"{severity} UP: Session {session_range:.1f}pt, Daily {daily_range:.1f}pt - blocking LONG"
+            return True, f"{severity} UP ({source}): Session {session_range:.1f}pt, Daily {daily_range:.1f}pt - blocking LONG"
         
         if self.state in ['EXTENDED_DOWN', 'EXTREME_DOWN'] and direction == 'SHORT':
             session_range = self.session_high - self.session_low if self.session_high and self.session_low else 0
             daily_range = self.daily_high - self.daily_low if self.daily_high and self.daily_low else 0
             severity = "EXTREME" if "EXTREME" in self.state else "Extended"
-            return True, f"{severity} DOWN: Session {session_range:.1f}pt, Daily {daily_range:.1f}pt - blocking SHORT"
+            return True, f"{severity} DOWN ({source}): Session {session_range:.1f}pt, Daily {daily_range:.1f}pt - blocking SHORT"
         
         return False, None
     

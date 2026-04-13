@@ -1,0 +1,78 @@
+{
+  "version": "aetherflow_v1",
+  "trained_at": "2026-03-21T05:48:08.405951+00:00",
+  "model_type": "hgb",
+  "workers": 6,
+  "calibrated": false,
+  "input": "es_master_outrights.parquet",
+  "base_features": "manifold_strategy_features_clean_full_robust.parquet",
+  "rows": 209861,
+  "feature_rows": 2273681,
+  "candidate_coverage": 0.09230010718302172,
+  "setup_mix_all": {
+    "aligned_flow": 98465,
+    "compression_release": 46964,
+    "transition_burst": 39740,
+    "exhaustion_reversal": 24692
+  },
+  "setup_mix_train": {
+    "aligned_flow": 67322,
+    "transition_burst": 31300,
+    "compression_release": 30653,
+    "exhaustion_reversal": 17627
+  },
+  "setup_mix_val": {
+    "aligned_flow": 15322,
+    "compression_release": 7851,
+    "transition_burst": 4628,
+    "exhaustion_reversal": 3678
+  },
+  "setup_mix_test": {
+    "aligned_flow": 15821,
+    "compression_release": 8460,
+    "transition_burst": 3812,
+    "exhaustion_reversal": 3387
+  },
+  "train_rows": 146902,
+  "val_rows": 31479,
+  "test_rows": 31480,
+  "train_positive_rate": 0.38786401818899674,
+  "val_positive_rate": 0.37593316179039993,
+  "test_positive_rate": 0.37766836086404065,
+  "threshold": 0.53,
+  "validation": {
+    "threshold": 0.53,
+    "score": 0.42522618608570717,
+    "coverage": 0.15747005940468248,
+    "mean_fold_avg_pnl": 0.11699681814678345,
+    "worst_fold_avg_pnl": 0.012355121508781836,
+    "fold_std_avg_pnl": 0.11414977755047404,
+    "positive_folds": 4,
+    "evaluated_folds": 4,
+    "trade_count": 4957,
+    "avg_pnl": 0.12214961587558956,
+    "total_pnl": 605.4956458952975,
+    "win_rate": 0.42888844058906594,
+    "long_share": 0.7050635464998991,
+    "short_share": 0.2949364535001009
+  },
+  "test": {
+    "trade_count": 5185,
+    "avg_pnl": 0.008886442501649836,
+    "total_pnl": 46.076204371054395,
+    "win_rate": 0.4192864030858245,
+    "long_share": 0.7184185149469624,
+    "short_share": 0.2815814850530376,
+    "accuracy": 0.5456797966963152,
+    "precision": 0.41381527251946565,
+    "recall": 0.48725712843805197,
+    "f1": 0.44754326328800986,
+    "roc_auc": 0.5548905129238542
+  },
+  "artifacts": {
+    "model_file": "model_aetherflow_fullrange_v2.pkl",
+    "thresholds_file": "aetherflow_thresholds_fullrange_v2.json",
+    "metrics_file": "aetherflow_metrics_fullrange_v2.json",
+    "features_parquet": "aetherflow_features_fullrange_v2.parquet"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "row_count": 341053,
+  "accuracy": 0.5178696566222845,
+  "precision": 0.5257616102316804,
+  "recall": 0.7094936028384045,
+  "f1": 0.6039634484120676,
+  "roc_auc": 0.5164840011581352,
+  "trade_count": 2185,
+  "win_rate": 0.5583524027459954,
+  "avg_pnl": 0.39856750572082394,
+  "total_pnl": 870.8700000000003,
+  "long_share": 0.2965675057208238,
+  "short_share": 0.7034324942791762,
+  "confluence_enabled": false,
+  "threshold": 0.57,
+  "short_threshold": 0.43,
+  "allowed_session_ids": [
+    1,
+    2
+  ],
+  "allowed_session_names": [
+    "LONDON",
+    "NY_AM"
+  ]
+}

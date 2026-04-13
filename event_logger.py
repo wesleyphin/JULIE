@@ -14,6 +14,12 @@ class EventLogger:
 
     def __init__(self, logger_name: str = "JULIE"):
         self.logger = logging.getLogger(logger_name)
+        # High-volume filter-check logging is useful for debugging but can
+        # materially slow long backtests when enabled.
+        self.filter_check_logging_enabled = True
+
+    def set_filter_check_logging(self, enabled: bool) -> None:
+        self.filter_check_logging_enabled = bool(enabled)
 
     def _format_timestamp(self) -> str:
         """Generate timestamp in Eastern Time"""
@@ -148,6 +154,8 @@ class EventLogger:
                         reason: Optional[str] = None, additional_info: Optional[Dict] = None,
                         strategy: Optional[str] = None, metrics: Optional[Dict] = None):
         """Log filter check results with forensic metrics"""
+        if not self.filter_check_logging_enabled:
+            return
         details = {
             "filter": filter_name,
             "side": signal_side,

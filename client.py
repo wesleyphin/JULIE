@@ -5,18 +5,141 @@ Client for interacting with the ProjectX Gateway API for live futures trading.
 Handles authentication, market data retrieval, order placement, and position management.
 """
 import asyncio
-import requests
-import pandas as pd
 import datetime
-import time
+import inspect
 import logging
 import math
-from zoneinfo import ZoneInfo
+import time
 import uuid
-from typing import Dict, Optional, List, Tuple
+from collections import deque
+from typing import Any, Dict, Optional, List, Tuple
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+import requests
+
+try:
+    import websockets
+except Exception:
+    websockets = None
 
 from config import CONFIG, refresh_target_symbol, determine_current_contract_symbol
 from event_logger import event_logger
+
+try:
+    from signalrcore_async.hub_connection_builder import HubConnectionBuilder
+except Exception:
+    HubConnectionBuilder = None
+
+try:
+    from signalrcore_async.hub.base_hub_connection import WebSocketsConnection
+except Exception:
+    WebSocketsConnection = None
+
+try:
+    from signalrcore_async.hub.reconnection import ConnectionStateChecker
+except Exception:
+    ConnectionStateChecker = None
+
+
+def _patch_websockets_connect_compat() -> None:
+    """
+    Bridge signalrcore_async's older `extra_headers=` call into websockets>=15,
+    which renamed the keyword to `additional_headers=`.
+    """
+    if websockets is None:
+        return
+    connect = getattr(websockets, "connect", None)
+    if connect is None or getattr(connect, "_projectx_extra_headers_compat", False):
+        return
+    try:
+        signature = inspect.signature(connect)
+    except Exception:
+        return
+    if "extra_headers" in signature.parameters or "additional_headers" not in signature.parameters:
+        return
+
+    def _compat_connect(*args, extra_headers=None, **kwargs):
+        if extra_headers is not None and "additional_headers" not in kwargs:
+            kwargs["additional_headers"] = extra_headers
+        return connect(*args, **kwargs)
+
+    _compat_connect._projectx_extra_headers_compat = True
+    websockets.connect = _compat_connect
+    logging.info("Applied websockets.connect compatibility shim for ProjectX user stream")
+
+
+_patch_websockets_connect_compat()
+
+
+def _patch_signalrcore_async_loop_compat() -> None:
+    """
+    signalrcore_async schedules websocket sends from background threads.
+
+    On Python 3.13 / websockets>=15, `asyncio.create_task()` from those threads
+    raises `RuntimeError: no running event loop`. Route those sends back onto the
+    live websocket loop instead so keep-alive pings don't crash the stream thread.
+    """
+    if WebSocketsConnection is None:
+        return
+    if getattr(WebSocketsConnection, "_projectx_loop_compat", False):
+        return
+
+    original_run = WebSocketsConnection.run
+
+    async def _compat_run(self, *args, **kwargs):
+        self._projectx_event_loop = asyncio.get_running_loop()
+        return await original_run(self, *args, **kwargs)
+
+    def _compat_send(self, data):
+        ws = getattr(self, "_ws", None)
+        if ws is None:
+            logging.debug("ProjectX user stream send skipped: websocket not initialized")
+            return None
+
+        target_loop = getattr(self, "_projectx_event_loop", None)
+        if target_loop is None:
+            try:
+                target_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                logging.warning("ProjectX user stream send skipped: no event loop is available")
+                return None
+
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        if running_loop is target_loop:
+            return running_loop.create_task(ws.send(data))
+
+        try:
+            return asyncio.run_coroutine_threadsafe(ws.send(data), target_loop)
+        except RuntimeError as exc:
+            logging.warning("ProjectX user stream send skipped on closed loop: %s", exc)
+            return None
+
+    WebSocketsConnection.run = _compat_run
+    WebSocketsConnection.send = _compat_send
+    WebSocketsConnection._projectx_loop_compat = True
+    logging.info("Applied signalrcore_async event-loop compatibility shim for ProjectX user stream")
+
+    if ConnectionStateChecker is not None and not getattr(ConnectionStateChecker, "_projectx_loop_compat", False):
+        original_checker_run = ConnectionStateChecker.run
+
+        def _compat_checker_run(self):
+            try:
+                return original_checker_run(self)
+            except Exception as exc:
+                logging.warning("ProjectX user stream keep-alive thread stopped after error: %s", exc)
+                self.running = False
+
+        ConnectionStateChecker.run = _compat_checker_run
+        ConnectionStateChecker._projectx_loop_compat = True
+
+
+_patch_signalrcore_async_loop_compat()
 
 
 class ProjectXClient:
@@ -114,11 +237,48 @@ class ProjectXClient:
         # Shadow Position State (avoids unnecessary API calls)
         self._local_position = {'side': None, 'size': 0, 'avg_price': 0.0}
 
-        # Stop order tracking (avoids search_orders calls)
+        # Exit order tracking (avoids search_orders calls)
         self._active_stop_order_id = None
+        self._active_target_order_id = None
         self._order_cache = {}
         self._order_cache_ts = 0.0
         self._last_order_details = None
+        self._last_close_order_details = None
+        self._account_cache = None
+        self._account_cache_ts = 0.0
+
+        # ProjectX user-hub state
+        self._user_hub_url = str(CONFIG.get("RTC_USER_HUB", "") or "").strip()
+        self._user_stream = None
+        self._user_stream_connected = False
+        self._user_stream_last_error = None
+        self._user_stream_loop = None
+        self._user_stream_starting = False
+        self._user_stream_subscribed = False
+        self._user_stream_position = None
+        self._user_stream_position_ts = None
+        self._user_stream_account = None
+        self._user_stream_account_ts = None
+        self._user_stream_trades: List[Dict] = []
+        self._user_stream_trade_cache = max(
+            32,
+            self._coerce_int(CONFIG.get("PROJECTX_USER_STREAM_TRADE_CACHE", 256), 256) or 256,
+        )
+        self._user_stream_position_max_age = max(
+            1.0,
+            self._coerce_float(CONFIG.get("PROJECTX_USER_STREAM_MAX_POSITION_AGE_SEC", 15.0), 15.0) or 15.0,
+        )
+        self._user_stream_account_max_age = max(
+            5.0,
+            self._coerce_float(CONFIG.get("PROJECTX_USER_STREAM_MAX_ACCOUNT_AGE_SEC", 300.0), 300.0) or 300.0,
+        )
+        self._aiohttp_fallback_warned = False
+
+    def _warn_async_http_fallback_once(self) -> None:
+        if self._aiohttp_fallback_warned:
+            return
+        self._aiohttp_fallback_warned = True
+        logging.warning("aiohttp not installed; falling back to sync REST calls for async background tasks")
 
     def _check_general_rate_limit(self) -> bool:
         """Check if we're within general rate limits"""
@@ -141,6 +301,501 @@ class ProjectXClient:
         pos = self._local_position.copy()
         pos["stale"] = True
         return pos
+
+    def _utc_isoformat(self, value: Optional[datetime.datetime]) -> Optional[str]:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=self.et)
+        value = value.astimezone(datetime.timezone.utc)
+        return value.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    @staticmethod
+    def _coerce_float(value, default: Optional[float] = None) -> Optional[float]:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return default
+        if not math.isfinite(parsed):
+            return default
+        return float(parsed)
+
+    @staticmethod
+    def _coerce_int(value, default: Optional[int] = None) -> Optional[int]:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _extract_execution_price(self, payload: Dict, fallback: Optional[float] = None) -> Optional[float]:
+        for key in ("averagePrice", "avgPrice", "fillPrice", "price"):
+            parsed = self._coerce_float(payload.get(key), None)
+            if parsed is not None:
+                return parsed
+        return fallback
+
+    def _normalize_position(self, raw_position: Optional[Dict]) -> Dict:
+        if not isinstance(raw_position, dict):
+            return {'side': None, 'size': 0, 'avg_price': 0.0}
+        size_raw = raw_position.get('size', raw_position.get('positionSize', 0))
+        avg_raw = raw_position.get('averagePrice', raw_position.get('avgPrice', 0.0))
+        size = self._coerce_int(size_raw, 0) or 0
+        avg_price = self._coerce_float(avg_raw, 0.0) or 0.0
+        position_type = self._coerce_int(
+            raw_position.get('type', raw_position.get('positionType')),
+            None,
+        )
+        if size > 0:
+            side = 'SHORT' if position_type == 2 else 'LONG'
+        elif size < 0:
+            side = 'SHORT'
+        else:
+            side = None
+        position = {
+            'side': side,
+            'size': abs(size),
+            'avg_price': avg_price,
+        }
+        open_pnl = None
+        for key in (
+            'openPnl',
+            'openPNL',
+            'profitAndLoss',
+            'unrealizedProfitAndLoss',
+            'unrealizedPnl',
+            'unrealizedPnL',
+            'openProfitAndLoss',
+            'pnl',
+        ):
+            open_pnl = self._coerce_float(raw_position.get(key), None)
+            if open_pnl is not None:
+                break
+        if open_pnl is not None:
+            position['open_pnl'] = float(open_pnl)
+        position['raw'] = raw_position
+        return position
+
+    def _filter_positions_for_contract(self, positions: List[Dict]) -> List[Dict]:
+        if self.contract_id is None:
+            return []
+        return [
+            pos for pos in positions
+            if isinstance(pos, dict) and pos.get('contractId') == self.contract_id
+        ]
+
+    def _extract_trade_rows(self, payload) -> List[Dict]:
+        if isinstance(payload, dict):
+            rows = payload.get('trades')
+            if isinstance(rows, list):
+                return [row for row in rows if isinstance(row, dict)]
+            rows = payload.get('data')
+            if isinstance(rows, list):
+                return [row for row in rows if isinstance(row, dict)]
+        if isinstance(payload, list):
+            return [row for row in payload if isinstance(row, dict)]
+        return []
+
+    @staticmethod
+    def _signalr_payload(arguments) -> Optional[Any]:
+        if isinstance(arguments, list):
+            if len(arguments) == 0:
+                return None
+            if len(arguments) == 1:
+                return arguments[0]
+        return arguments
+
+    @staticmethod
+    def _normalize_order_row(row: Optional[Dict]) -> Dict:
+        if not isinstance(row, dict):
+            return {}
+        normalized = dict(row)
+        if normalized.get("orderId") is None and normalized.get("id") is not None:
+            normalized["orderId"] = normalized.get("id")
+        return normalized
+
+    @staticmethod
+    def _order_has_open_status(row: Optional[Dict]) -> bool:
+        if not isinstance(row, dict):
+            return False
+        status = row.get("status")
+        status_int = ProjectXClient._coerce_int(status, None)
+        if status_int is not None:
+            return status_int in {1, 6}
+        status_text = str(status or "").strip().lower()
+        return status_text in {"working", "pending", "accepted", "active", "open"}
+
+    def _normalize_account_row(self, row: Optional[Dict]) -> Dict:
+        if not isinstance(row, dict):
+            return {}
+        normalized = dict(row)
+        normalized["id"] = self._coerce_int(normalized.get("id"), None)
+        balance = self._coerce_float(normalized.get("balance"), None)
+        if balance is not None:
+            normalized["balance"] = float(balance)
+        return normalized
+
+    @staticmethod
+    def _trade_row_key(row: Optional[Dict]) -> Tuple:
+        if not isinstance(row, dict):
+            return tuple()
+        return (
+            row.get("id"),
+            row.get("orderId"),
+            row.get("creationTimestamp"),
+            row.get("price"),
+            row.get("size"),
+            row.get("contractId"),
+        )
+
+    def _is_recent_timestamp(
+        self,
+        value: Optional[datetime.datetime],
+        max_age_sec: float,
+    ) -> bool:
+        if value is None:
+            return False
+        now_utc = datetime.datetime.now(datetime.timezone.utc)
+        return (now_utc - value).total_seconds() <= float(max_age_sec)
+
+    def _get_stream_position(self) -> Optional[Dict]:
+        if not isinstance(self._user_stream_position, dict):
+            return None
+        if not self._is_recent_timestamp(self._user_stream_position_ts, self._user_stream_position_max_age):
+            return None
+        return dict(self._user_stream_position)
+
+    def _get_stream_account(self) -> Optional[Dict]:
+        if not isinstance(self._user_stream_account, dict):
+            return None
+        if not self._is_recent_timestamp(self._user_stream_account_ts, self._user_stream_account_max_age):
+            return None
+        return dict(self._user_stream_account)
+
+    def _get_stream_trades(
+        self,
+        start_time: Optional[datetime.datetime] = None,
+        end_time: Optional[datetime.datetime] = None,
+    ) -> List[Dict]:
+        if not self._user_stream_trades:
+            return []
+        start_utc = None
+        end_utc = None
+        if isinstance(start_time, datetime.datetime):
+            start_utc = start_time if start_time.tzinfo else start_time.replace(tzinfo=self.et)
+            start_utc = start_utc.astimezone(datetime.timezone.utc)
+        if isinstance(end_time, datetime.datetime):
+            end_utc = end_time if end_time.tzinfo else end_time.replace(tzinfo=self.et)
+            end_utc = end_utc.astimezone(datetime.timezone.utc)
+
+        rows: List[Dict] = []
+        for row in self._user_stream_trades:
+            if row.get("contractId") != self.contract_id:
+                continue
+            row_ts = self._parse_trade_timestamp(row)
+            if row_ts is None:
+                continue
+            if start_utc is not None and row_ts < start_utc:
+                continue
+            if end_utc is not None and row_ts > end_utc:
+                continue
+            rows.append(dict(row))
+        rows.sort(
+            key=lambda row: self._parse_trade_timestamp(row) or datetime.datetime.min.replace(
+                tzinfo=datetime.timezone.utc
+            )
+        )
+        return rows
+
+    def _merge_trade_rows(self, primary_rows: List[Dict], secondary_rows: List[Dict]) -> List[Dict]:
+        merged: Dict[Tuple, Dict] = {}
+        for row in list(primary_rows or []) + list(secondary_rows or []):
+            if not isinstance(row, dict):
+                continue
+            merged[self._trade_row_key(row)] = row
+        rows = list(merged.values())
+        rows.sort(
+            key=lambda row: self._parse_trade_timestamp(row) or datetime.datetime.min.replace(
+                tzinfo=datetime.timezone.utc
+            )
+        )
+        return rows
+
+    def _parse_trade_timestamp(self, row: Dict) -> Optional[datetime.datetime]:
+        if not isinstance(row, dict):
+            return None
+        for key in (
+            "creationTimestamp",
+            "timestamp",
+            "createdAt",
+            "updatedAt",
+            "tradeTime",
+            "executionTime",
+        ):
+            raw = row.get(key)
+            if not raw:
+                continue
+            try:
+                text = str(raw).strip()
+                if text.endswith("Z"):
+                    text = text[:-1] + "+00:00"
+                parsed = datetime.datetime.fromisoformat(text)
+            except Exception:
+                continue
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+            return parsed.astimezone(datetime.timezone.utc)
+        return None
+
+    def _record_user_position(self, row: Optional[Dict]) -> None:
+        if not isinstance(row, dict):
+            return
+        if row.get("contractId") != self.contract_id:
+            return
+        position = self._normalize_position(row)
+        self._user_stream_position = position
+        self._user_stream_position_ts = datetime.datetime.now(datetime.timezone.utc)
+        self._local_position = position.copy()
+
+    def _record_user_account(self, row: Optional[Dict]) -> None:
+        normalized = self._normalize_account_row(row)
+        if not normalized:
+            return
+        account_id = self._coerce_int(self.account_id, None)
+        if account_id is not None and normalized.get("id") not in (None, account_id):
+            return
+        self._user_stream_account = normalized
+        self._user_stream_account_ts = datetime.datetime.now(datetime.timezone.utc)
+        self._account_cache = dict(normalized)
+        self._account_cache_ts = time.time()
+
+    def _record_user_trade(self, row: Optional[Dict]) -> None:
+        if not isinstance(row, dict):
+            return
+        if row.get("contractId") != self.contract_id:
+            return
+        key = self._trade_row_key(row)
+        deduped = [
+            existing for existing in self._user_stream_trades
+            if self._trade_row_key(existing) != key
+        ]
+        deduped.append(dict(row))
+        deduped.sort(
+            key=lambda item: self._parse_trade_timestamp(item) or datetime.datetime.min.replace(
+                tzinfo=datetime.timezone.utc
+            )
+        )
+        if len(deduped) > self._user_stream_trade_cache:
+            deduped = deduped[-self._user_stream_trade_cache:]
+        self._user_stream_trades = deduped
+
+    def _record_user_order(self, row: Optional[Dict]) -> None:
+        normalized = self._normalize_order_row(row)
+        if not normalized:
+            return
+
+        account_id = self._coerce_int(self.account_id, None)
+        row_account_id = self._coerce_int(normalized.get("accountId"), None)
+        if account_id is not None and row_account_id not in (None, account_id):
+            return
+
+        order_id = self._coerce_int(normalized.get("orderId"), None)
+        if order_id is None:
+            return
+
+        contract_id = normalized.get("contractId")
+        is_target_contract = contract_id == self.contract_id
+        is_open = self._order_has_open_status(normalized)
+
+        if is_target_contract and is_open:
+            self._order_cache[order_id] = dict(normalized)
+            self._order_cache_ts = time.time()
+            return
+
+        if order_id in self._order_cache:
+            self._order_cache.pop(order_id, None)
+            self._order_cache_ts = time.time()
+        if self._active_stop_order_id == order_id:
+            self._active_stop_order_id = None
+        if self._active_target_order_id == order_id:
+            self._active_target_order_id = None
+
+    def _build_user_stream_connection_url(self) -> str:
+        raw_url = str(self._user_hub_url or "").strip()
+        if not raw_url:
+            return ""
+        parsed = urlparse(raw_url)
+        scheme = parsed.scheme.lower()
+        if scheme == "https":
+            target_scheme = "wss"
+        elif scheme == "http":
+            target_scheme = "ws"
+        else:
+            target_scheme = scheme or "wss"
+
+        query_items = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        if self.token:
+            query_items["access_token"] = self.token
+        return urlunparse(
+            parsed._replace(
+                scheme=target_scheme,
+                query=urlencode(query_items),
+            )
+        )
+
+    def _clear_user_stream_runtime(self) -> None:
+        self._user_stream = None
+        self._user_stream_connected = False
+        self._user_stream_starting = False
+        self._user_stream_subscribed = False
+        self._user_stream_loop = None
+
+    def _schedule_user_stream_task(self, coroutine_factory, *, description: str) -> bool:
+        target_loop = self._user_stream_loop
+        try:
+            running_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            running_loop = None
+
+        try:
+            if running_loop is not None and (target_loop is None or running_loop is target_loop):
+                task = running_loop.create_task(coroutine_factory())
+
+                def _log_task_exception(done_task: asyncio.Task) -> None:
+                    try:
+                        done_task.result()
+                    except Exception as exc:
+                        self._user_stream_last_error = str(exc)
+                        logging.warning("ProjectX user stream %s failed: %s", description, exc)
+
+                task.add_done_callback(_log_task_exception)
+                return True
+
+            if target_loop is not None:
+                future = asyncio.run_coroutine_threadsafe(coroutine_factory(), target_loop)
+
+                def _log_future_exception(done_future) -> None:
+                    try:
+                        done_future.result()
+                    except Exception as exc:
+                        self._user_stream_last_error = str(exc)
+                        logging.warning("ProjectX user stream %s failed: %s", description, exc)
+
+                future.add_done_callback(_log_future_exception)
+                return True
+        except Exception as exc:
+            self._user_stream_last_error = str(exc)
+            logging.warning("ProjectX user stream %s scheduling failed: %s", description, exc)
+            return False
+
+        logging.warning("ProjectX user stream %s scheduling failed: no event loop available", description)
+        return False
+
+    def _on_user_stream_open(self) -> None:
+        self._user_stream_connected = True
+        self._user_stream_last_error = None
+        logging.info("✅ ProjectX user stream connected")
+        if not self._user_stream_starting:
+            self._schedule_user_stream_task(
+                self._subscribe_user_stream,
+                description="resubscribe",
+            )
+
+    def _on_user_stream_close(self) -> None:
+        self._user_stream_connected = False
+        self._user_stream_subscribed = False
+        logging.warning("⚠️ ProjectX user stream disconnected")
+
+    def _on_gateway_user_account(self, arguments) -> None:
+        self._record_user_account(self._signalr_payload(arguments))
+
+    def _on_gateway_user_order(self, arguments) -> None:
+        self._record_user_order(self._signalr_payload(arguments))
+
+    def _on_gateway_user_position(self, arguments) -> None:
+        self._record_user_position(self._signalr_payload(arguments))
+
+    def _on_gateway_user_trade(self, arguments) -> None:
+        self._record_user_trade(self._signalr_payload(arguments))
+
+    async def _subscribe_user_stream(self) -> None:
+        if self._user_stream is None:
+            return
+        try:
+            await self._user_stream.invoke("SubscribeAccounts", [])
+            if self.account_id is not None:
+                await self._user_stream.invoke("SubscribeOrders", [int(self.account_id)])
+                await self._user_stream.invoke("SubscribePositions", [int(self.account_id)])
+                await self._user_stream.invoke("SubscribeTrades", [int(self.account_id)])
+            self._user_stream_subscribed = True
+            logging.info("📡 ProjectX user stream subscriptions active")
+        except Exception as exc:
+            self._user_stream_subscribed = False
+            self._user_stream_last_error = str(exc)
+            logging.warning(f"ProjectX user stream subscribe failed: {exc}")
+
+    async def start_user_stream(self) -> bool:
+        if HubConnectionBuilder is None:
+            logging.warning("ProjectX user stream unavailable: signalrcore_async not installed")
+            return False
+        user_stream_url = self._build_user_stream_connection_url()
+        if not user_stream_url or not self.token or self.account_id is None:
+            return False
+        if self._user_stream_connected and self._user_stream is not None:
+            return True
+
+        try:
+            self._user_stream_loop = asyncio.get_running_loop()
+            self._user_stream_starting = True
+            self._user_stream_subscribed = False
+            self._user_stream = (
+                HubConnectionBuilder()
+                .with_url(
+                    user_stream_url,
+                    options={
+                        "access_token_factory": lambda: self.token,
+                        "headers": {"Authorization": f"Bearer {self.token}"},
+                        "skip_negotiation": True,
+                    },
+                )
+                .with_automatic_reconnect(
+                    {
+                        "type": "raw",
+                        "keep_alive_interval": 10,
+                        "reconnect_interval": 5,
+                        "max_attempts": 5,
+                    }
+                )
+                .build()
+            )
+            self._user_stream.on_open(self._on_user_stream_open)
+            self._user_stream.on_close(self._on_user_stream_close)
+            self._user_stream.on("GatewayUserAccount", self._on_gateway_user_account)
+            self._user_stream.on("GatewayUserOrder", self._on_gateway_user_order)
+            self._user_stream.on("GatewayUserPosition", self._on_gateway_user_position)
+            self._user_stream.on("GatewayUserTrade", self._on_gateway_user_trade)
+            await self._user_stream.start()
+            self._user_stream_starting = False
+            await self._subscribe_user_stream()
+            if not self._user_stream_subscribed:
+                logging.warning("ProjectX user stream subscriptions failed; falling back to REST polling")
+                self._clear_user_stream_runtime()
+                return False
+            return True
+        except Exception as exc:
+            self._user_stream_last_error = str(exc)
+            self._clear_user_stream_runtime()
+            logging.warning(f"ProjectX user stream start failed: {exc}")
+            return False
+
+    async def stop_user_stream(self) -> None:
+        if self._user_stream is None:
+            return
+        try:
+            await self._user_stream.stop()
+        except Exception as exc:
+            logging.warning(f"ProjectX user stream stop failed: {exc}")
+        finally:
+            self._clear_user_stream_runtime()
 
     def login(self):
         """
@@ -294,6 +949,45 @@ class ProjectXClient:
         except Exception as e:
             logging.error(f"Failed to fetch accounts: {e}")
             return None
+
+    def get_account_info(self, force_refresh: bool = False) -> Optional[Dict]:
+        stream_account = self._get_stream_account()
+        if stream_account is not None:
+            return stream_account
+
+        if (
+            not force_refresh
+            and isinstance(self._account_cache, dict)
+            and (time.time() - self._account_cache_ts) <= 30.0
+        ):
+            return dict(self._account_cache)
+
+        if not self._check_general_rate_limit():
+            return dict(self._account_cache) if isinstance(self._account_cache, dict) else stream_account
+        if self.account_id is None:
+            return None
+
+        url = f"{self.base_url}/api/Account/search"
+        payload = {"onlyActiveAccounts": True}
+
+        try:
+            resp = self.session.post(url, json=payload)
+            self._track_general_request()
+            if resp.status_code != 200:
+                logging.warning(f"Account search failed: {resp.status_code} - {resp.text}")
+                return dict(self._account_cache) if isinstance(self._account_cache, dict) else None
+            data = resp.json()
+            accounts = data.get("accounts", [])
+            for account in accounts:
+                normalized = self._normalize_account_row(account)
+                if normalized.get("id") == int(self.account_id):
+                    self._account_cache = dict(normalized)
+                    self._account_cache_ts = time.time()
+                    return dict(normalized)
+            return None
+        except Exception as exc:
+            logging.error(f"Account search error: {exc}")
+            return dict(self._account_cache) if isinstance(self._account_cache, dict) else None
 
     def fetch_contracts(self) -> Optional[str]:
         """
@@ -547,15 +1241,40 @@ class ProjectXClient:
         # 2. Calculate Ticks Distance (Absolute)
         # MES tick size is 0.25
         # sl_dist and tp_dist are in POINTS, convert to ticks
-        # Use .get() with defaults for safety (all strategies should set these, but just in case)
-        sl_points = float(signal.get('sl_dist', 4.0))
-        tp_points = float(signal.get('tp_dist', 6.0))
-
-        # Log warning if defaults were used (helps debug strategy issues)
-        if 'sl_dist' not in signal:
-            logging.warning(f"⚠️ Strategy {signal.get('strategy', 'Unknown')} missing sl_dist, using default 4.0")
-        if 'tp_dist' not in signal:
-            logging.warning(f"⚠️ Strategy {signal.get('strategy', 'Unknown')} missing tp_dist, using default 6.0")
+        sl_raw = signal.get('sl_dist')
+        tp_raw = signal.get('tp_dist')
+        if sl_raw is None or tp_raw is None:
+            missing = []
+            if sl_raw is None:
+                missing.append("sl_dist")
+            if tp_raw is None:
+                missing.append("tp_dist")
+            msg = (
+                f"⚠️ Strategy {signal.get('strategy', 'Unknown')} missing {', '.join(missing)}; "
+                "skipping trade"
+            )
+            logging.warning(msg)
+            event_logger.log_error("MISSING_SLTP", msg)
+            return None
+        try:
+            sl_points = float(sl_raw)
+            tp_points = float(tp_raw)
+        except (TypeError, ValueError) as exc:
+            msg = (
+                f"⚠️ Strategy {signal.get('strategy', 'Unknown')} invalid sl/tp values "
+                f"(sl={sl_raw}, tp={tp_raw}); skipping trade"
+            )
+            logging.warning(msg)
+            event_logger.log_error("INVALID_SLTP", msg, exception=exc)
+            return None
+        if not math.isfinite(sl_points) or not math.isfinite(tp_points) or sl_points <= 0 or tp_points <= 0:
+            msg = (
+                f"⚠️ Strategy {signal.get('strategy', 'Unknown')} non-positive sl/tp values "
+                f"(sl={sl_points}, tp={tp_points}); skipping trade"
+            )
+            logging.warning(msg)
+            event_logger.log_error("INVALID_SLTP", msg)
+            return None
 
         # === TICK CONVERSION ===
         # sl_dist/tp_dist are in POINTS; convert to ticks and round up so we don't undershoot
@@ -619,6 +1338,7 @@ class ProjectXClient:
             )
 
             logging.info(f"SENDING ORDER: {signal['side']} @ ~{current_price:.2f}")
+            logging.info(f"   Size: {order_size} contracts")
             logging.info(f"   TP: {actual_tp_points:.2f}pts ({final_tp_ticks} ticks, req {tp_points:.2f})")
             logging.info(f"   SL: {actual_sl_points:.2f}pts ({final_sl_ticks} ticks, req {sl_points:.2f})")
 
@@ -680,14 +1400,59 @@ class ProjectXClient:
                 strategy=signal.get('strategy', 'Unknown')
             )
 
-            # Update shadow position state
-            self._local_position = {
-                'side': signal['side'],
-                'size': order_size,
-                'avg_price': entry_price
-            }
+            broker_order_id = self._coerce_int(
+                resp_data.get("orderId", resp_data.get("id")),
+                None,
+            )
+            stop_order_id = self._coerce_int(
+                resp_data.get("stopLossOrderId", resp_data.get("stopOrderId")),
+                None,
+            )
+            target_order_id = self._coerce_int(
+                resp_data.get("takeProfitOrderId", resp_data.get("targetOrderId")),
+                None,
+            )
+            if stop_order_id is None or target_order_id is None:
+                detected_ids = self._identify_bracket_order_ids(
+                    side=signal['side'],
+                    size=order_size,
+                    stop_price=sl_price,
+                    target_price=tp_price,
+                    prefer_stop_order_id=stop_order_id,
+                    prefer_target_order_id=target_order_id,
+                )
+                stop_order_id = stop_order_id or detected_ids.get("stop_order_id")
+                target_order_id = target_order_id or detected_ids.get("target_order_id")
+
+            prior_local_position = (
+                dict(self._local_position)
+                if isinstance(self._local_position, dict)
+                else {'side': None, 'size': 0, 'avg_price': 0.0}
+            )
+            prior_side = str(prior_local_position.get("side") or "").strip().upper()
+            prior_size = max(0, self._coerce_int(prior_local_position.get("size"), 0) or 0)
+            prior_avg_price = self._coerce_float(prior_local_position.get("avg_price"), None)
+            if prior_side == signal['side'] and prior_size > 0 and prior_avg_price is not None:
+                blended_size = prior_size + order_size
+                blended_avg = (
+                    ((prior_avg_price * prior_size) + (entry_price * order_size))
+                    / float(blended_size)
+                )
+                self._local_position = {
+                    'side': signal['side'],
+                    'size': int(blended_size),
+                    'avg_price': float(blended_avg),
+                }
+            else:
+                self._local_position = {
+                    'side': signal['side'],
+                    'size': order_size,
+                    'avg_price': entry_price,
+                }
             self._last_order_details = {
                 "order_id": unique_order_id,
+                "client_order_id": unique_order_id,
+                "broker_order_id": broker_order_id,
                 "side": signal['side'],
                 "entry_price": entry_price,
                 "tp_points": actual_tp_points,
@@ -697,16 +1462,17 @@ class ProjectXClient:
                 "tp_ticks": final_tp_ticks,
                 "sl_ticks": final_sl_ticks,
                 "size": order_size,
+                "stop_order_id": stop_order_id,
+                "target_order_id": target_order_id,
             }
 
-            # Try to capture stop order ID from response if available
-            # The exact field name depends on the API response structure
-            if 'stopLossOrderId' in resp_data:
-                self._active_stop_order_id = resp_data['stopLossOrderId']
+            if stop_order_id is not None:
+                self._active_stop_order_id = stop_order_id
                 logging.debug(f"Captured stop order ID: {self._active_stop_order_id}")
             elif 'orderId' in resp_data:
-                # Main order ID - we'll still need to search for bracket orders
                 logging.debug(f"Main order ID: {resp_data['orderId']}")
+            if target_order_id is not None:
+                self._active_target_order_id = target_order_id
 
             return resp_data
 
@@ -714,12 +1480,25 @@ class ProjectXClient:
             logging.error(f"Order exception: {e}")
             return None
 
-    def get_position(self) -> Dict:
+    def get_position(
+        self,
+        *,
+        prefer_stream: bool = True,
+        require_open_pnl: bool = False,
+    ) -> Dict:
         """
         Get current position. Tries Search (POST) first, then GET fallback.
         UPDATED: Treats 404 as 'Flat Position' to stop log errors when no trades are open.
         FIX: Returns cached local state if rate limited, preventing 'Fake Flat' signals.
         """
+        stream_position = self._get_stream_position() if prefer_stream else None
+        if stream_position is not None:
+            stream_side = str(stream_position.get("side") or "").strip().upper()
+            stream_open_pnl = self._coerce_float(stream_position.get("open_pnl"), None)
+            if not require_open_pnl or stream_side not in {"LONG", "SHORT"} or stream_open_pnl is not None:
+                self._local_position = stream_position.copy()
+                return stream_position
+
         # --- FIX START ---
         if not self._check_general_rate_limit():
             logging.warning(f"⚠️ Rate limit hit in get_position - trusting cached state: {self._local_position}")
@@ -729,57 +1508,61 @@ class ProjectXClient:
         if self.account_id is None:
             return {'side': None, 'size': 0, 'avg_price': 0.0}
 
-        # Primary: POST /api/Position/search
-        url = f"{self.base_url}/api/Position/search"
         payload = {"accountId": self.account_id}
+        best_position = None
 
         try:
-            resp = self.session.post(url, json=payload)
-            self._track_general_request()
-
-            # If 404, try Fallback Endpoint (GET /api/Position) - ORIGINAL FEATURE KEPT
-            if resp.status_code == 404:
-                # logging.debug("Position/search 404. Trying GET fallback...")
-                fallback_url = f"{self.base_url}/api/Position"
-                resp = self.session.get(fallback_url, params=payload)
+            search_endpoints = [
+                (f"{self.base_url}/api/Position/searchOpen", "post"),
+                (f"{self.base_url}/api/Position/search", "post"),
+                (f"{self.base_url}/api/Position", "get"),
+            ]
+            for url, method in search_endpoints:
+                if method == "post":
+                    resp = self.session.post(url, json=payload)
+                else:
+                    resp = self.session.get(url, params=payload)
                 self._track_general_request()
 
-            # Handle Success (200)
-            if resp.status_code == 200:
-                data = resp.json()
-                # Handle different response structures (list vs dict)
-                positions = data.get('positions', data) if isinstance(data, dict) else data
+                if resp.status_code == 200:
+                    data = resp.json()
+                    positions = data.get('positions', data) if isinstance(data, dict) else data
+                    filtered = self._filter_positions_for_contract(
+                        positions if isinstance(positions, list) else []
+                    )
+                    if filtered:
+                        normalized = self._normalize_position(filtered[0])
+                        if best_position is None:
+                            best_position = normalized
+                        normalized_side = str(normalized.get("side") or "").strip().upper()
+                        normalized_open_pnl = self._coerce_float(normalized.get("open_pnl"), None)
+                        if not require_open_pnl or normalized_side not in {"LONG", "SHORT"} or normalized_open_pnl is not None:
+                            self._local_position = normalized.copy()
+                            return normalized
+                    continue
 
-                # Find position for our contract
-                for pos in positions:
-                    if pos.get('contractId') == self.contract_id:
-                        size = pos.get('size', 0)
-                        avg_price = pos.get('averagePrice', 0.0)
-                        if size > 0:
-                            return {'side': 'LONG', 'size': size, 'avg_price': avg_price}
-                        elif size < 0:
-                            return {'side': 'SHORT', 'size': abs(size), 'avg_price': avg_price}
+                if resp.status_code in (400, 404):
+                    continue
 
-                # If 200 OK but contract not in list -> We are Flat
-                return {'side': None, 'size': 0, 'avg_price': 0.0}
-
-            # Handle 404 on Fallback (The Fix: This means NO positions exist = Flat)
-            elif resp.status_code == 404:
-                # Valid state: User has no open positions. Return clean flat state.
-                return {'side': None, 'size': 0, 'avg_price': 0.0}
-
-            # Handle Actual Errors
-            else:
                 logging.warning(f"Position check failed: {resp.status_code} - {resp.text}")
-                return self._stale_position()
+                return stream_position if stream_position is not None else self._stale_position()
+
+            if best_position is not None:
+                self._local_position = best_position.copy()
+                return best_position
+            if stream_position is not None:
+                self._local_position = stream_position.copy()
+                return stream_position
+            self._local_position = {'side': None, 'size': 0, 'avg_price': 0.0}
+            return {'side': None, 'size': 0, 'avg_price': 0.0}
 
         except Exception as e:
             logging.error(f"Position check error: {e}")
-            return self._stale_position()
+            return stream_position if stream_position is not None else self._stale_position()
 
     def close_position(self, position: Dict) -> bool:
         """
-        Close an existing position by placing an opposite market order
+        Close an existing position and explicitly clean up any remaining exit orders.
         """
         if position['side'] is None or position['size'] == 0:
             return True  # Nothing to close
@@ -788,30 +1571,25 @@ class ProjectXClient:
             logging.error("Rate limit reached, cannot close position")
             return False
 
-        url = f"{self.base_url}/api/Order/place"
-
-        # To close: sell if long, buy if short
-        if position['side'] == 'LONG':
-            side_code = 1  # Sell to close long
-            action = "SELL"
-        else:
-            side_code = 0  # Buy to close short
-            action = "BUY"
-
-        payload = {
-            "accountId": self.account_id,
-            "contractId": self.contract_id,
-            "clOrdId": str(uuid.uuid4()),  # Unique order ID for close
-            "type": 2,  # Market Order
-            "side": side_code,
-            "size": position['size']
-            # No brackets - just close the position
-        }
+        self._last_close_order_details = None
 
         try:
-            logging.info(f"CLOSING POSITION: {action} {position['size']} contracts to close {position['side']} @ ~{position['avg_price']:.2f}")
+            close_method = None
+            close_price = None
+            close_order_id = None
 
-            resp = self.session.post(url, json=payload)
+            contract_close_url = f"{self.base_url}/api/Position/closeContract"
+            contract_payload = {
+                "accountId": self.account_id,
+                "contractId": self.contract_id,
+            }
+            logging.info(
+                "CLOSING POSITION via closeContract: %s %s contracts @ ~%.2f",
+                position['side'],
+                position['size'],
+                position['avg_price'],
+            )
+            resp = self.session.post(contract_close_url, json=contract_payload)
             self._track_general_request()
 
             if resp.status_code == 429:
@@ -819,49 +1597,227 @@ class ProjectXClient:
                 event_logger.log_error("RATE_LIMIT", "Position close rate limited")
                 return False
 
-            if resp.status_code != 200:
-                logging.error(f"Position close HTTP Error {resp.status_code}: {resp.text[:500] if resp.text else 'Empty response'}")
-                event_logger.log_error("POSITION_CLOSE_FAILED", f"HTTP {resp.status_code}")
-                return False
-
-            # Only parse JSON after confirming 200 status
-            try:
-                resp_data = resp.json()
-            except Exception as json_err:
-                logging.error(f"Failed to parse close response: {json_err}")
-                return False
-
-            if resp_data.get('success', False):
-                logging.info(f"Position close order submitted: {resp_data}")
-
-                # Enhanced event logging: Position closed
-                # Note: We don't have the exact exit price yet, but we can estimate
-                event_logger.log_trade_closed(
-                    side=position['side'],
-                    entry_price=position['avg_price'],
-                    exit_price=position['avg_price'],  # Actual exit price not available yet
-                    pnl=0.0,  # PnL will be calculated later
-                    reason="Manual Close"
+            resp_data = None
+            if resp.status_code == 200:
+                try:
+                    resp_data = resp.json()
+                except Exception as json_err:
+                    logging.error(f"Failed to parse closeContract response: {json_err}")
+                if isinstance(resp_data, dict) and resp_data.get('success', False):
+                    close_method = "closeContract"
+                else:
+                    logging.warning(f"closeContract rejected: {resp_data}")
+            else:
+                logging.warning(
+                    "closeContract failed: %s - %s",
+                    resp.status_code,
+                    resp.text[:500] if resp.text else 'Empty response',
                 )
 
-                # Reset shadow position state
+            if close_method is None:
+                url = f"{self.base_url}/api/Order/place"
+                if position['side'] == 'LONG':
+                    side_code = 1
+                    action = "SELL"
+                else:
+                    side_code = 0
+                    action = "BUY"
+                payload = {
+                    "accountId": self.account_id,
+                    "contractId": self.contract_id,
+                    "clOrdId": str(uuid.uuid4()),
+                    "type": 2,
+                    "side": side_code,
+                    "size": position['size'],
+                }
+
+                logging.info(
+                    "Falling back to market close: %s %s contracts to close %s @ ~%.2f",
+                    action,
+                    position['size'],
+                    position['side'],
+                    position['avg_price'],
+                )
+                resp = self.session.post(url, json=payload)
+                self._track_general_request()
+
+                if resp.status_code == 429:
+                    logging.error("Rate limited on position close fallback!")
+                    event_logger.log_error("RATE_LIMIT", "Position close rate limited")
+                    return False
+
+                if resp.status_code != 200:
+                    logging.error(f"Position close HTTP Error {resp.status_code}: {resp.text[:500] if resp.text else 'Empty response'}")
+                    event_logger.log_error("POSITION_CLOSE_FAILED", f"HTTP {resp.status_code}")
+                    return False
+
+                try:
+                    resp_data = resp.json()
+                except Exception as json_err:
+                    logging.error(f"Failed to parse close response: {json_err}")
+                    return False
+
+                if not resp_data.get('success', False):
+                    logging.error(f"Position close rejected: {resp_data}")
+                    event_logger.log_error("POSITION_CLOSE_FAILED", f"Failed to close position: {resp_data}")
+                    return False
+
+                close_method = "market_order"
+                close_price = self._extract_execution_price(resp_data, None)
+                close_order_id = self._coerce_int(
+                    resp_data.get('orderId', resp_data.get('id')),
+                    None,
+                )
+
+            self._last_close_order_details = {
+                "order_id": close_order_id,
+                "side": position['side'],
+                "size": int(position['size']),
+                "exit_price": close_price,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc),
+                "method": close_method,
+            }
+            logging.info(f"Position close submitted via {close_method}")
+
+            event_logger.log_trade_closed(
+                side=position['side'],
+                entry_price=position['avg_price'],
+                exit_price=close_price if close_price is not None else position['avg_price'],
+                pnl=0.0,
+                reason="Manual Close"
+            )
+
+            time.sleep(0.35)
+            post_close_position = self.get_position()
+            if not post_close_position.get("stale") and (
+                post_close_position.get("side") is None or post_close_position.get("size", 0) == 0
+            ):
+                cancelled = self.cancel_open_exit_orders(
+                    side=None,
+                    reason=f"{close_method} cleanup",
+                )
+                if cancelled:
+                    logging.info(f"Cancelled {cancelled} orphan exit order(s) after {close_method}")
                 self._local_position = {'side': None, 'size': 0, 'avg_price': 0.0}
                 self._active_stop_order_id = None
-
-                return True
+                self._active_target_order_id = None
             else:
-                logging.error(f"Position close rejected: {resp_data}")
-                event_logger.log_error("POSITION_CLOSE_FAILED", f"Failed to close position: {resp_data}")
-                return False
+                logging.warning(
+                    "Position still not confirmed flat after %s; skipping exit-order cleanup",
+                    close_method,
+                )
+
+            return True
         except Exception as e:
             logging.error(f"Position close exception: {e}")
             event_logger.log_error("POSITION_CLOSE_EXCEPTION", f"Exception closing position: {e}", exception=e)
             return False
 
+    def close_trade_leg(self, trade: Dict) -> bool:
+        """
+        Close a specific tracked same-side leg without flattening the entire position.
+        The caller is responsible for ensuring the trade size is <= current broker position size.
+        """
+        if not isinstance(trade, dict):
+            return False
+        side_name = str(trade.get("side") or "").strip().upper()
+        trade_size = max(1, self._coerce_int(trade.get("size"), 1) or 1)
+        if side_name not in {"LONG", "SHORT"}:
+            return False
+        if not self._check_general_rate_limit():
+            logging.error("Rate limit reached, cannot close trade leg")
+            return False
+
+        self._last_close_order_details = None
+        for order_key in ("stop_order_id", "target_order_id"):
+            order_id = self._coerce_int(trade.get(order_key), None)
+            if order_id is None:
+                continue
+            try:
+                self.cancel_order(order_id)
+            except Exception:
+                pass
+            if self._active_stop_order_id == order_id:
+                self._active_stop_order_id = None
+            if self._active_target_order_id == order_id:
+                self._active_target_order_id = None
+        self._order_cache = {}
+        self._order_cache_ts = 0.0
+        time.sleep(0.2)
+
+        url = f"{self.base_url}/api/Order/place"
+        side_code = 1 if side_name == "LONG" else 0
+        payload = {
+            "accountId": self.account_id,
+            "contractId": self.contract_id,
+            "clOrdId": str(uuid.uuid4()),
+            "type": 2,
+            "side": side_code,
+            "size": trade_size,
+        }
+
+        try:
+            logging.info(
+                "Closing tracked trade leg: %s %s contracts (%s)",
+                side_name,
+                trade_size,
+                trade.get("strategy", "Unknown"),
+            )
+            resp = self.session.post(url, json=payload)
+            self._track_general_request()
+            if resp.status_code == 429:
+                logging.error("Rate limited on trade-leg close")
+                event_logger.log_error("RATE_LIMIT", "Trade-leg close rate limited")
+                return False
+            if resp.status_code != 200:
+                logging.error(
+                    "Trade-leg close HTTP Error %s: %s",
+                    resp.status_code,
+                    resp.text[:500] if resp.text else "Empty response",
+                )
+                event_logger.log_error("TRADE_LEG_CLOSE_FAILED", f"HTTP {resp.status_code}")
+                return False
+            try:
+                resp_data = resp.json()
+            except Exception as json_err:
+                logging.error("Failed to parse trade-leg close response: %s", json_err)
+                return False
+            if not resp_data.get("success", False):
+                logging.error("Trade-leg close rejected: %s", resp_data)
+                event_logger.log_error("TRADE_LEG_CLOSE_FAILED", f"Rejected: {resp_data}")
+                return False
+
+            close_price = self._extract_execution_price(resp_data, None)
+            close_order_id = self._coerce_int(
+                resp_data.get("orderId", resp_data.get("id")),
+                None,
+            )
+            self._last_close_order_details = {
+                "order_id": close_order_id,
+                "side": side_name,
+                "size": int(trade_size),
+                "exit_price": close_price,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc),
+                "method": "partial_market_order",
+            }
+            time.sleep(0.35)
+            refreshed_position = self.get_position()
+            if isinstance(refreshed_position, dict) and not refreshed_position.get("stale"):
+                self._local_position = refreshed_position.copy()
+                if refreshed_position.get("side") is None or refreshed_position.get("size", 0) == 0:
+                    self._active_stop_order_id = None
+                    self._active_target_order_id = None
+            return True
+        except Exception as e:
+            logging.error(f"Trade-leg close exception: {e}")
+            event_logger.log_error("TRADE_LEG_CLOSE_EXCEPTION", f"Exception closing trade leg: {e}", exception=e)
+            return False
+
     def close_and_reverse(self, new_signal: Dict, current_price: float, opposite_signal_count: int) -> Tuple[bool, int]:
         """
-        Check current position, close if 3 opposite signals received, then place new order.
-        Uses shadow position state to reduce API calls.
+        Close the current position and enter the new side immediately.
+        The confirmation policy is handled upstream in julie001.py; the
+        `opposite_signal_count` argument is kept only for API compatibility.
         """
         # Always sync shadow position with broker before deciding
         position = self.get_position()
@@ -875,43 +1831,40 @@ class ProjectXClient:
             resp = self.place_order(new_signal, current_price)
             return (resp is not None), 0
 
-        # If signal is SAME direction as position, place order and reset count
+        # Same-side live adds diverge from the single-active-trade backtest/tracker model.
+        # Ignore them defensively even if an upstream caller forgets to short-circuit.
         if position['side'] == new_signal['side']:
-            resp = self.place_order(new_signal, current_price)
-            return (resp is not None), 0
-
-        # Signal is OPPOSITE direction - increment counter
-        opposite_signal_count += 1
-        logging.info(f"OPPOSITE SIGNAL #{opposite_signal_count}/3: Current {position['side']} {position['size']} contracts, Signal: {new_signal['side']}")
-
-        # If we've received 3 opposite signals, close and reverse
-        if opposite_signal_count >= 3:
-            logging.info(f"3 OPPOSITE SIGNALS RECEIVED - Closing {position['side']} position and reversing to {new_signal['side']}")
-
-            # Enhanced event logging: Close and reverse
-            event_logger.log_close_and_reverse(
-                old_side=position['side'],
-                new_side=new_signal['side'],
-                price=current_price,
-                strategy=new_signal.get('strategy', 'Unknown')
+            logging.info(
+                "Ignoring same-side live signal: already %s %s contracts, signal=%s",
+                position['side'],
+                position['size'],
+                new_signal.get('strategy', 'Unknown'),
             )
+            return False, 0
 
-            # Close the existing position
-            close_success = self.close_position(position)
-            if not close_success:
-                logging.error("Failed to close existing position, aborting new order")
-                return False, opposite_signal_count
+        logging.info(
+            "Confirmed opposite live signal - closing %s %s contracts and reversing to %s",
+            position['side'],
+            position['size'],
+            new_signal['side'],
+        )
 
-            # Small delay to let the close order process
-            time.sleep(0.5)
+        event_logger.log_close_and_reverse(
+            old_side=position['side'],
+            new_side=new_signal['side'],
+            price=current_price,
+            strategy=new_signal.get('strategy', 'Unknown')
+        )
 
-            # Place the new order
-            resp = self.place_order(new_signal, current_price)
-            return (resp is not None), 0  # Reset counter after closing
+        close_success = self.close_position(position)
+        if not close_success:
+            logging.error("Failed to close existing position, aborting new order")
+            return False, opposite_signal_count
 
-        # Not yet 3 signals - don't place order, just return updated count
-        logging.info(f"Waiting for {3 - opposite_signal_count} more opposite signals before closing position")
-        return False, opposite_signal_count
+        time.sleep(0.5)
+
+        resp = self.place_order(new_signal, current_price)
+        return (resp is not None), 0
 
     def _update_order_cache(self, orders: List[Dict]) -> None:
         self._order_cache = {
@@ -938,6 +1891,17 @@ class ProjectXClient:
                 return None
         return None
 
+    def _extract_order_limit_price(self, order: Dict) -> Optional[float]:
+        for key in ("limitPrice", "price", "triggerPrice"):
+            value = order.get(key)
+            if value is None:
+                continue
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                return None
+        return None
+
     def _select_stop_order(
         self,
         orders: List[Dict],
@@ -950,7 +1914,7 @@ class ProjectXClient:
         candidates = [
             o for o in orders
             if o.get("type") in [4, 5]
-            and str(o.get("status", "")).lower() in ["working", "pending", "accepted", "active"]
+            and self._order_has_open_status(o)
         ]
         if expected_side is not None:
             candidates = [o for o in candidates if o.get("side") == expected_side]
@@ -983,10 +1947,284 @@ class ProjectXClient:
         candidates.sort(key=lambda o: o.get("orderId", 0), reverse=True)
         return candidates[0]
 
+    def _select_limit_order(
+        self,
+        orders: List[Dict],
+        expected_side: Optional[int],
+        expected_price: Optional[float],
+        expected_size: Optional[int],
+        prefer_order_id: Optional[int],
+        price_tolerance: float = 0.5,
+    ) -> Optional[Dict]:
+        candidates = [
+            o for o in orders
+            if o.get("type") == 1
+            and self._order_has_open_status(o)
+        ]
+        if expected_side is not None:
+            candidates = [o for o in candidates if o.get("side") == expected_side]
+
+        if prefer_order_id is not None:
+            for o in candidates:
+                if o.get("orderId") == prefer_order_id:
+                    return o
+
+        if expected_size is not None:
+            size_matches = [o for o in candidates if o.get("size") == expected_size]
+            if size_matches:
+                candidates = size_matches
+
+        if expected_price is not None:
+            scored = []
+            for o in candidates:
+                limit_price = self._extract_order_limit_price(o)
+                if limit_price is None:
+                    continue
+                scored.append((abs(limit_price - expected_price), o))
+            if scored:
+                scored.sort(key=lambda item: item[0])
+                if scored[0][0] <= price_tolerance:
+                    return scored[0][1]
+                return None
+
+        if not candidates:
+            return None
+        candidates.sort(key=lambda o: o.get("orderId", 0), reverse=True)
+        return candidates[0]
+
+    def _identify_bracket_order_ids(
+        self,
+        *,
+        side: str,
+        size: int,
+        stop_price: Optional[float],
+        target_price: Optional[float],
+        prefer_stop_order_id: Optional[int] = None,
+        prefer_target_order_id: Optional[int] = None,
+        max_attempts: int = 3,
+        settle_delay_sec: float = 0.2,
+    ) -> Dict[str, Optional[int]]:
+        side_name = str(side or "").strip().upper()
+        expected_side = 1 if side_name == "LONG" else 0 if side_name == "SHORT" else None
+        expected_size = max(1, int(size)) if size is not None else None
+        detected_stop_id = self._coerce_int(prefer_stop_order_id, None)
+        detected_target_id = self._coerce_int(prefer_target_order_id, None)
+        stop_price_val = self._coerce_float(stop_price, None)
+        target_price_val = self._coerce_float(target_price, None)
+
+        for attempt in range(max(1, int(max_attempts))):
+            orders = self._get_cached_orders(max_age_sec=0.0, force_refresh=True)
+            if detected_stop_id is None:
+                stop_order = self._select_stop_order(
+                    orders,
+                    expected_side=expected_side,
+                    expected_price=stop_price_val,
+                    expected_size=expected_size,
+                    prefer_order_id=prefer_stop_order_id,
+                    price_tolerance=1.0,
+                )
+                detected_stop_id = (
+                    self._coerce_int(stop_order.get("orderId"), None)
+                    if isinstance(stop_order, dict)
+                    else None
+                )
+            if detected_target_id is None:
+                target_order = self._select_limit_order(
+                    orders,
+                    expected_side=expected_side,
+                    expected_price=target_price_val,
+                    expected_size=expected_size,
+                    prefer_order_id=prefer_target_order_id,
+                    price_tolerance=1.0,
+                )
+                detected_target_id = (
+                    self._coerce_int(target_order.get("orderId"), None)
+                    if isinstance(target_order, dict)
+                    else None
+                )
+            if detected_stop_id is not None or detected_target_id is not None:
+                if detected_stop_id is not None and detected_target_id is not None:
+                    break
+            if attempt + 1 < max(1, int(max_attempts)):
+                time.sleep(max(0.0, float(settle_delay_sec)))
+
+        return {
+            "stop_order_id": detected_stop_id,
+            "target_order_id": detected_target_id,
+        }
+
+    def _list_open_stop_orders(
+        self,
+        side: Optional[str] = None,
+        *,
+        expected_size: Optional[int] = None,
+        force_refresh: bool = False,
+    ) -> List[Dict]:
+        expected_side = None
+        side_name = str(side or "").strip().upper()
+        if side_name == "LONG":
+            expected_side = 1
+        elif side_name == "SHORT":
+            expected_side = 0
+
+        orders = self._get_cached_orders(max_age_sec=0.0 if force_refresh else 2.0, force_refresh=force_refresh)
+        candidates: List[Dict] = []
+        for order in orders:
+            if not isinstance(order, dict) or not self._order_has_open_status(order):
+                continue
+            order_type = self._coerce_int(order.get("type"), None)
+            if order_type not in {4, 5}:
+                continue
+            order_side = self._coerce_int(order.get("side"), None)
+            if expected_side is not None and order_side not in (None, expected_side):
+                continue
+            order_size = self._coerce_int(order.get("size"), None)
+            if expected_size is not None and order_size not in (None, expected_size):
+                continue
+            candidates.append(self._normalize_order_row(order))
+        return candidates
+
+    def _pick_preferred_stop_order(
+        self,
+        orders: List[Dict],
+        *,
+        expected_price: Optional[float],
+        prefer_order_id: Optional[int],
+    ) -> Optional[Dict]:
+        if not orders:
+            return None
+
+        expected_price_val = self._coerce_float(expected_price, None)
+        scored: List[Tuple[float, int, int, Dict]] = []
+        for order in orders:
+            order_id = self._coerce_int(order.get("orderId"), None)
+            stop_price = self._extract_order_stop_price(order)
+            if expected_price_val is not None and stop_price is not None:
+                price_distance = abs(float(stop_price) - float(expected_price_val))
+            elif expected_price_val is None:
+                price_distance = 0.0
+            else:
+                price_distance = 1e9
+            prefer_penalty = 0 if prefer_order_id is not None and order_id == prefer_order_id else 1
+            freshness_penalty = -(order_id or 0)
+            scored.append((float(price_distance), int(prefer_penalty), int(freshness_penalty), order))
+        scored.sort(key=lambda item: (item[0], item[1], item[2]))
+        return scored[0][3]
+
+    def _cancel_order_rows(
+        self,
+        orders: List[Dict],
+        *,
+        reason: str = "",
+        settle_delay_sec: float = 0.35,
+    ) -> int:
+        cancelled = 0
+        if reason and orders:
+            logging.info("Cancelling %s order(s) for %s", len(orders), reason)
+        any_cancelled = False
+        for order in orders:
+            order_id = self._coerce_int(order.get("orderId"), None)
+            if order_id is None:
+                continue
+            if self.cancel_order(order_id):
+                cancelled += 1
+                any_cancelled = True
+                if self._active_stop_order_id == order_id:
+                    self._active_stop_order_id = None
+                if self._active_target_order_id == order_id:
+                    self._active_target_order_id = None
+        if any_cancelled:
+            self._order_cache = {}
+            self._order_cache_ts = 0.0
+            time.sleep(max(0.0, float(settle_delay_sec)))
+        return cancelled
+
+    def _cancel_open_stop_orders(
+        self,
+        side: Optional[str] = None,
+        *,
+        expected_size: Optional[int] = None,
+        exclude_order_id: Optional[int] = None,
+        reason: str = "",
+        max_attempts: int = 3,
+        settle_delay_sec: float = 0.35,
+    ) -> int:
+        cancelled = 0
+        for _ in range(max(1, int(max_attempts))):
+            candidates = self._list_open_stop_orders(
+                side,
+                expected_size=expected_size,
+                force_refresh=True,
+            )
+            if exclude_order_id is not None:
+                candidates = [
+                    order for order in candidates
+                    if self._coerce_int(order.get("orderId"), None) != exclude_order_id
+                ]
+            if not candidates:
+                break
+            cancelled_now = self._cancel_order_rows(
+                candidates,
+                reason=reason,
+                settle_delay_sec=settle_delay_sec,
+            )
+            if cancelled_now <= 0:
+                break
+            cancelled += int(cancelled_now)
+        return cancelled
+
+    def _cleanup_duplicate_stop_orders(
+        self,
+        side: str,
+        *,
+        expected_size: Optional[int],
+        expected_price: Optional[float],
+        prefer_order_id: Optional[int],
+        settle_delay_sec: float = 0.35,
+    ) -> Optional[int]:
+        stop_orders = self._list_open_stop_orders(side, expected_size=expected_size, force_refresh=True)
+        if not stop_orders:
+            return None
+
+        preferred = self._pick_preferred_stop_order(
+            stop_orders,
+            expected_price=expected_price,
+            prefer_order_id=prefer_order_id,
+        )
+        keep_order_id = self._coerce_int(preferred.get("orderId"), None) if isinstance(preferred, dict) else None
+        duplicate_orders = [
+            order for order in stop_orders
+            if self._coerce_int(order.get("orderId"), None) != keep_order_id
+        ]
+        if duplicate_orders:
+            logging.warning(
+                "Detected %s open stop orders for %s; keeping %s and cancelling %s duplicate(s).",
+                len(stop_orders),
+                str(side or "").strip().upper(),
+                keep_order_id,
+                len(duplicate_orders),
+            )
+            self._cancel_order_rows(
+                duplicate_orders,
+                reason="duplicate stop cleanup",
+                settle_delay_sec=settle_delay_sec,
+            )
+            stop_orders = self._list_open_stop_orders(side, expected_size=expected_size, force_refresh=True)
+            preferred = self._pick_preferred_stop_order(
+                stop_orders,
+                expected_price=expected_price,
+                prefer_order_id=keep_order_id,
+            )
+            keep_order_id = self._coerce_int(preferred.get("orderId"), None) if isinstance(preferred, dict) else None
+
+        if keep_order_id is not None:
+            self._active_stop_order_id = keep_order_id
+        return keep_order_id
+
     def search_orders(self) -> List[Dict]:
         """
         Search for open orders (bracket orders) for the account.
-        Endpoint: POST /api/Order/search
+        Endpoint: POST /api/Order/searchOpen (preferred) or /api/Order/search
         Returns: List of order dicts with orderId, type, side, price, etc.
         """
         if not self._check_general_rate_limit():
@@ -994,34 +2232,818 @@ class ProjectXClient:
 
         if self.account_id is None:
             return []
-
-        url = f"{self.base_url}/api/Order/search"
         payload = {"accountId": self.account_id}
+
+        try:
+            search_endpoints = [
+                f"{self.base_url}/api/Order/searchOpen",
+                f"{self.base_url}/api/Order/search",
+            ]
+            for url in search_endpoints:
+                resp = self.session.post(url, json=payload)
+                self._track_general_request()
+                if resp.status_code == 200:
+                    data = resp.json()
+                    orders = data.get('orders', [])
+                    filtered = [
+                        self._normalize_order_row(o)
+                        for o in orders
+                        if isinstance(o, dict) and o.get('contractId') == self.contract_id
+                    ]
+                    self._update_order_cache(filtered)
+                    return filtered
+                if resp.status_code in (400, 404):
+                    continue
+                logging.warning(f"Order search failed: {resp.status_code} - {resp.text}")
+                return []
+            return []
+        except Exception as e:
+            logging.error(f"Order search error: {e}")
+            return []
+
+    def cancel_open_exit_orders(
+        self,
+        side: Optional[str] = None,
+        *,
+        reason: str = "",
+        max_attempts: int = 3,
+        settle_delay_sec: float = 0.35,
+    ) -> int:
+        expected_side = None
+        side_name = str(side or "").strip().upper()
+        if side_name == "LONG":
+            expected_side = 1
+        elif side_name == "SHORT":
+            expected_side = 0
+
+        cancelled = 0
+        for _ in range(max(1, int(max_attempts))):
+            orders = self._get_cached_orders(max_age_sec=0.0, force_refresh=True)
+            candidates: List[Dict] = []
+            for order in orders:
+                if not isinstance(order, dict) or not self._order_has_open_status(order):
+                    continue
+                order_type = self._coerce_int(order.get("type"), None)
+                if order_type not in {1, 4, 5}:
+                    continue
+                order_side = self._coerce_int(order.get("side"), None)
+                if expected_side is not None and order_side not in (None, expected_side):
+                    continue
+                candidates.append(order)
+
+            if not candidates:
+                break
+
+            if reason:
+                logging.info("Cancelling %s open exit order(s) for %s", len(candidates), reason)
+
+            any_cancelled = False
+            for order in candidates:
+                order_id = self._coerce_int(order.get("orderId"), None)
+                if order_id is None:
+                    continue
+                if self.cancel_order(order_id):
+                    cancelled += 1
+                    any_cancelled = True
+                    if self._active_stop_order_id == order_id:
+                        self._active_stop_order_id = None
+                    if self._active_target_order_id == order_id:
+                        self._active_target_order_id = None
+
+            if not any_cancelled:
+                break
+
+            self._order_cache = {}
+            self._order_cache_ts = 0.0
+            time.sleep(max(0.0, float(settle_delay_sec)))
+
+        return cancelled
+
+    def get_live_bracket_state(
+        self,
+        side: str,
+        size: Optional[int] = None,
+        reference_price: Optional[float] = None,
+        expected_stop_price: Optional[float] = None,
+        expected_target_price: Optional[float] = None,
+        prefer_stop_order_id: Optional[int] = None,
+        prefer_target_order_id: Optional[int] = None,
+        max_cache_age_sec: float = 15.0,
+        force_refresh: bool = False,
+    ) -> Dict[str, Any]:
+        side_name = str(side or "").strip().upper()
+        if side_name not in {"LONG", "SHORT"}:
+            return {}
+
+        try:
+            expected_size = self._coerce_int(size, None) if size is not None else None
+            exit_side = 1 if side_name == "LONG" else 0
+            ref_price = self._coerce_float(reference_price, None)
+            stop_price_val = self._coerce_float(expected_stop_price, None)
+            target_price_val = self._coerce_float(expected_target_price, None)
+            orders = self._get_cached_orders(
+                max_age_sec=0.0 if force_refresh else max_cache_age_sec,
+                force_refresh=force_refresh,
+            )
+        except Exception:
+            return {}
+
+        stop_order = self._select_stop_order(
+            orders,
+            expected_side=exit_side,
+            expected_price=stop_price_val,
+            expected_size=expected_size,
+            prefer_order_id=prefer_stop_order_id,
+            price_tolerance=4.0,
+        )
+        if stop_order is None and (prefer_stop_order_id is not None or stop_price_val is not None):
+            stop_order = self._select_stop_order(
+                orders,
+                expected_side=exit_side,
+                expected_price=None,
+                expected_size=expected_size,
+                prefer_order_id=prefer_stop_order_id,
+            )
+
+        target_order = self._select_limit_order(
+            orders,
+            expected_side=exit_side,
+            expected_price=target_price_val,
+            expected_size=expected_size,
+            prefer_order_id=prefer_target_order_id,
+            price_tolerance=4.0,
+        )
+        if target_order is None and (prefer_target_order_id is not None or target_price_val is not None):
+            target_order = self._select_limit_order(
+                orders,
+                expected_side=exit_side,
+                expected_price=None,
+                expected_size=expected_size,
+                prefer_order_id=prefer_target_order_id,
+            )
+
+        snapshot: Dict[str, Any] = {}
+        if isinstance(stop_order, dict):
+            stop_order = self._normalize_order_row(stop_order)
+            stop_order_id = self._coerce_int(stop_order.get("orderId"), None)
+            stop_price = self._extract_order_stop_price(stop_order)
+            if stop_order_id is not None:
+                snapshot["stop_order_id"] = stop_order_id
+            if stop_price is not None:
+                snapshot["stop_price"] = float(stop_price)
+                snapshot["sl_price"] = float(stop_price)
+
+        if isinstance(target_order, dict):
+            target_order = self._normalize_order_row(target_order)
+            target_order_id = self._coerce_int(target_order.get("orderId"), None)
+            target_price = self._extract_order_limit_price(target_order)
+            if (
+                ref_price is not None
+                and target_price is not None
+                and (
+                    (side_name == "LONG" and target_price <= ref_price)
+                    or (side_name == "SHORT" and target_price >= ref_price)
+                )
+                and target_price_val is None
+                and prefer_target_order_id is None
+            ):
+                target_order = None
+            else:
+                if target_order_id is not None:
+                    snapshot["target_order_id"] = target_order_id
+                if target_price is not None:
+                    snapshot["target_price"] = float(target_price)
+                    snapshot["tp_price"] = float(target_price)
+
+        return snapshot
+
+    def get_live_bracket_snapshot(
+        self,
+        side: str,
+        size: Optional[int] = None,
+        reference_price: Optional[float] = None,
+        max_cache_age_sec: float = 15.0,
+    ) -> Dict[str, float]:
+        state = self.get_live_bracket_state(
+            side,
+            size=size,
+            reference_price=reference_price,
+            max_cache_age_sec=max_cache_age_sec,
+        )
+        snapshot: Dict[str, float] = {}
+        stop_price = self._coerce_float(state.get("stop_price", state.get("sl_price")), None)
+        if stop_price is not None:
+            snapshot["stop_price"] = float(stop_price)
+            snapshot["sl_price"] = float(stop_price)
+        target_price = self._coerce_float(state.get("target_price", state.get("tp_price")), None)
+        if target_price is not None:
+            snapshot["target_price"] = float(target_price)
+            snapshot["tp_price"] = float(target_price)
+        return snapshot
+
+    def search_trades(
+        self,
+        start_time: datetime.datetime,
+        end_time: Optional[datetime.datetime] = None,
+    ) -> List[Dict]:
+        """
+        Search recent trades for the account/contract.
+        Endpoint: POST /api/Trade/search
+        """
+        if not self._check_general_rate_limit():
+            return []
+        if self.account_id is None:
+            return []
+
+        url = f"{self.base_url}/api/Trade/search"
+        payload = {
+            "accountId": self.account_id,
+            "startTimestamp": self._utc_isoformat(start_time),
+        }
+        end_iso = self._utc_isoformat(end_time)
+        if end_iso:
+            payload["endTimestamp"] = end_iso
 
         try:
             resp = self.session.post(url, json=payload)
             self._track_general_request()
-
-            if resp.status_code == 200:
-                data = resp.json()
-                orders = data.get('orders', [])
-                # Filter for our contract
-                filtered = [o for o in orders if o.get('contractId') == self.contract_id]
-                self._update_order_cache(filtered)
-                return filtered
-            elif resp.status_code == 400:
-                # 400 often means no orders exist - treat as empty
-                logging.debug("Order search returned 400 - treating as no orders")
+            if resp.status_code != 200:
+                if resp.status_code in (400, 404):
+                    return []
+                logging.warning(f"Trade search failed: {resp.status_code} - {resp.text}")
                 return []
-            elif resp.status_code == 404:
-                # 404 means no orders found - valid empty state
-                return []
-            else:
-                logging.warning(f"Order search failed: {resp.status_code} - {resp.text}")
-                return []
+            data = resp.json()
+            rows = self._extract_trade_rows(data)
+            filtered = [
+                row for row in rows
+                if row.get("contractId") == self.contract_id
+                and not bool(row.get("voided", False))
+            ]
+            filtered.sort(
+                key=lambda row: self._parse_trade_timestamp(row) or datetime.datetime.min.replace(
+                    tzinfo=datetime.timezone.utc
+                )
+            )
+            return filtered
         except Exception as e:
-            logging.error(f"Order search error: {e}")
+            logging.error(f"Trade search error: {e}")
             return []
+
+    def reconstruct_closed_trades(
+        self,
+        start_time: datetime.datetime,
+        end_time: Optional[datetime.datetime] = None,
+        *,
+        include_stream_trades: bool = True,
+    ) -> List[Dict]:
+        """
+        Reconstruct round-trip closed trades from ProjectX raw trade rows.
+
+        ProjectX entry fills typically have ``profitAndLoss=None`` while close fills
+        carry realized ``profitAndLoss``. We pair those close rows back to the
+        preceding opposite-side entry inventory so missed live closes can be
+        backfilled later.
+        """
+        merged_rows: List[Dict] = []
+        if include_stream_trades:
+            merged_rows = self._get_stream_trades(start_time, end_time)
+        rest_rows = self.search_trades(start_time, end_time)
+        merged_rows = self._merge_trade_rows(merged_rows, rest_rows)
+        if not merged_rows:
+            return []
+
+        point_value = self._coerce_float(
+            ((CONFIG.get("RISK_MANAGEMENT") or {}).get("POINT_VALUE")),
+            5.0,
+        ) or 5.0
+
+        open_inventory: Dict[int, deque] = {
+            0: deque(),  # buy-side entries => long inventory
+            1: deque(),  # sell-side entries => short inventory
+        }
+        grouped_closes: Dict[Tuple[Any, ...], Dict[str, Any]] = {}
+        close_order: List[Tuple[Any, ...]] = []
+
+        for row in merged_rows:
+            if not isinstance(row, dict):
+                continue
+            if row.get("contractId") != self.contract_id:
+                continue
+            if bool(row.get("voided", False)):
+                continue
+
+            side_code = self._coerce_int(row.get("side"), None)
+            fill_qty = abs(self._coerce_int(row.get("size"), 0) or 0)
+            fill_price = self._coerce_float(row.get("price"), None)
+            row_ts = self._parse_trade_timestamp(row)
+            if side_code not in (0, 1) or fill_qty <= 0 or row_ts is None:
+                continue
+
+            pnl_value = self._coerce_float(row.get("profitAndLoss"), None)
+            if pnl_value is None:
+                open_inventory[side_code].append(
+                    {
+                        "row": dict(row),
+                        "remaining_qty": int(fill_qty),
+                        "timestamp": row_ts,
+                        "price": fill_price,
+                        "order_id": self._coerce_int(row.get("orderId"), None),
+                    }
+                )
+                continue
+
+            entry_side_code = 0 if side_code == 1 else 1
+            matched_entry_legs: List[Dict[str, Any]] = []
+            remaining_qty = int(fill_qty)
+            while remaining_qty > 0 and open_inventory[entry_side_code]:
+                entry_leg = open_inventory[entry_side_code][0]
+                leg_qty = min(
+                    remaining_qty,
+                    max(0, int(entry_leg.get("remaining_qty", 0) or 0)),
+                )
+                if leg_qty <= 0:
+                    open_inventory[entry_side_code].popleft()
+                    continue
+                matched_entry_legs.append(
+                    {
+                        "qty": int(leg_qty),
+                        "timestamp": entry_leg.get("timestamp"),
+                        "price": entry_leg.get("price"),
+                        "order_id": entry_leg.get("order_id"),
+                        "row": dict(entry_leg.get("row") or {}),
+                    }
+                )
+                entry_leg["remaining_qty"] = int(entry_leg.get("remaining_qty", 0) or 0) - int(leg_qty)
+                remaining_qty -= int(leg_qty)
+                if int(entry_leg.get("remaining_qty", 0) or 0) <= 0:
+                    open_inventory[entry_side_code].popleft()
+
+            if not matched_entry_legs:
+                continue
+
+            close_order_id = self._coerce_int(row.get("orderId"), None)
+            group_key = (
+                "order",
+                close_order_id,
+            ) if close_order_id is not None else (
+                "close",
+                row_ts.isoformat(),
+                side_code,
+                fill_qty,
+                fill_price,
+            )
+            group = grouped_closes.get(group_key)
+            if group is None:
+                group = {
+                    "side": "LONG" if entry_side_code == 0 else "SHORT",
+                    "entry_legs": [],
+                    "exit_rows": [],
+                    "exit_qty": 0,
+                    "entry_qty": 0,
+                    "weighted_exit": 0.0,
+                    "pnl_dollars": 0.0,
+                    "exit_time": None,
+                    "close_order_id": close_order_id,
+                }
+                grouped_closes[group_key] = group
+                close_order.append(group_key)
+
+            group["exit_rows"].append(dict(row))
+            group["entry_legs"].extend(matched_entry_legs)
+            group["exit_qty"] += int(fill_qty)
+            group["entry_qty"] += sum(int(leg.get("qty", 0) or 0) for leg in matched_entry_legs)
+            if fill_price is not None:
+                group["weighted_exit"] += float(fill_price) * float(fill_qty)
+            group["pnl_dollars"] += float(pnl_value)
+            if group["exit_time"] is None or row_ts > group["exit_time"]:
+                group["exit_time"] = row_ts
+
+        reconstructed: List[Dict[str, Any]] = []
+        for group_key in close_order:
+            group = grouped_closes.get(group_key) or {}
+            entry_legs = list(group.get("entry_legs") or [])
+            exit_qty = max(0, int(group.get("exit_qty", 0) or 0))
+            entry_qty = max(0, int(group.get("entry_qty", 0) or 0))
+            matched_qty = min(exit_qty, entry_qty)
+            if matched_qty <= 0:
+                continue
+
+            entry_weighted = 0.0
+            entry_time: Optional[datetime.datetime] = None
+            entry_order_ids: List[int] = []
+            for leg in entry_legs:
+                leg_qty = max(0, int(leg.get("qty", 0) or 0))
+                leg_price = self._coerce_float(leg.get("price"), None)
+                if leg_qty > 0 and leg_price is not None:
+                    entry_weighted += float(leg_price) * float(leg_qty)
+                leg_ts = leg.get("timestamp")
+                if isinstance(leg_ts, datetime.datetime) and (
+                    entry_time is None or leg_ts < entry_time
+                ):
+                    entry_time = leg_ts
+                leg_order_id = self._coerce_int(leg.get("order_id"), None)
+                if leg_order_id is not None and leg_order_id not in entry_order_ids:
+                    entry_order_ids.append(int(leg_order_id))
+
+            entry_price = None
+            if entry_weighted > 0.0 and matched_qty > 0:
+                entry_price = entry_weighted / float(matched_qty)
+
+            exit_price = None
+            if float(group.get("weighted_exit", 0.0) or 0.0) > 0.0 and exit_qty > 0:
+                exit_price = float(group.get("weighted_exit", 0.0) or 0.0) / float(exit_qty)
+
+            pnl_dollars = float(group.get("pnl_dollars", 0.0) or 0.0)
+            pnl_points = pnl_dollars / float(point_value * matched_qty) if point_value > 0.0 and matched_qty > 0 else None
+            if pnl_points is None and entry_price is not None and exit_price is not None:
+                if str(group.get("side") or "").upper() == "LONG":
+                    pnl_points = float(exit_price - entry_price)
+                else:
+                    pnl_points = float(entry_price - exit_price)
+
+            reconstructed.append(
+                {
+                    "source": "projectx_trade_history",
+                    "strategy": None,
+                    "sub_strategy": None,
+                    "combo_key": None,
+                    "side": str(group.get("side") or ""),
+                    "size": int(matched_qty),
+                    "entry_price": float(entry_price) if entry_price is not None else None,
+                    "entry_time": entry_time,
+                    "entry_order_id": entry_order_ids[0] if len(entry_order_ids) == 1 else (entry_order_ids[0] if entry_order_ids else None),
+                    "entry_order_ids": entry_order_ids,
+                    "exit_price": float(exit_price) if exit_price is not None else None,
+                    "exit_time": group.get("exit_time"),
+                    "order_id": group.get("close_order_id"),
+                    "pnl_dollars": float(pnl_dollars),
+                    "pnl_points": float(pnl_points) if pnl_points is not None else None,
+                    "raw_close_rows": list(group.get("exit_rows") or []),
+                    "raw_entry_rows": [dict(leg.get("row") or {}) for leg in entry_legs],
+                }
+            )
+
+        reconstructed.sort(
+            key=lambda row: row.get("exit_time") or datetime.datetime.min.replace(
+                tzinfo=datetime.timezone.utc
+            )
+        )
+        return reconstructed
+
+    def get_trade_fill_summary(
+        self,
+        order_id: int,
+        *,
+        start_time: Optional[datetime.datetime] = None,
+        end_time: Optional[datetime.datetime] = None,
+        min_qty: Optional[int] = None,
+        allow_rest_lookup: bool = True,
+    ) -> Optional[Dict]:
+        target_order_id = self._coerce_int(order_id, None)
+        if target_order_id is None:
+            return None
+
+        now_et = datetime.datetime.now(self.et)
+        if not isinstance(start_time, datetime.datetime):
+            start_time = now_et - datetime.timedelta(hours=12)
+        elif start_time.tzinfo is None:
+            start_time = start_time.replace(tzinfo=self.et)
+
+        if not isinstance(end_time, datetime.datetime):
+            end_time = now_et
+        elif end_time.tzinfo is None:
+            end_time = end_time.replace(tzinfo=self.et)
+
+        required_qty = None
+        if min_qty is not None:
+            required_qty = max(1, int(min_qty))
+
+        def _matching_rows(rows: List[Dict]) -> List[Dict]:
+            matched: List[Dict] = []
+            for row in rows or []:
+                if not isinstance(row, dict):
+                    continue
+                if row.get("contractId") != self.contract_id:
+                    continue
+                if bool(row.get("voided", False)):
+                    continue
+                if self._coerce_int(row.get("orderId"), None) != target_order_id:
+                    continue
+                fill_qty = abs(self._coerce_int(row.get("size"), 0) or 0)
+                if fill_qty <= 0:
+                    continue
+                matched.append(dict(row))
+            matched.sort(
+                key=lambda row: self._parse_trade_timestamp(row) or datetime.datetime.min.replace(
+                    tzinfo=datetime.timezone.utc
+                )
+            )
+            return matched
+
+        matched_rows = _matching_rows(self._get_stream_trades(start_time, end_time))
+        matched_qty = sum(abs(self._coerce_int(row.get("size"), 0) or 0) for row in matched_rows)
+        need_rest_lookup = bool(allow_rest_lookup) and not matched_rows
+        if required_qty is not None and matched_qty < required_qty:
+            need_rest_lookup = bool(allow_rest_lookup)
+        if need_rest_lookup:
+            rest_rows = _matching_rows(self.search_trades(start_time, end_time))
+            matched_rows = self._merge_trade_rows(matched_rows, rest_rows)
+        if not matched_rows:
+            return None
+
+        filled_qty = 0
+        weighted_price = 0.0
+        latest_fill_time: Optional[datetime.datetime] = None
+        for row in matched_rows:
+            fill_qty = abs(self._coerce_int(row.get("size"), 0) or 0)
+            fill_price = self._coerce_float(row.get("price"), None)
+            if fill_qty > 0:
+                filled_qty += fill_qty
+                if fill_price is not None:
+                    weighted_price += float(fill_price) * float(fill_qty)
+            row_ts = self._parse_trade_timestamp(row)
+            if row_ts is not None:
+                latest_fill_time = row_ts
+
+        avg_price = None
+        if filled_qty > 0 and weighted_price > 0.0:
+            avg_price = weighted_price / float(filled_qty)
+
+        return {
+            "order_id": target_order_id,
+            "filled_qty": int(filled_qty),
+            "avg_price": float(avg_price) if avg_price is not None else None,
+            "latest_fill_time": latest_fill_time,
+            "matched_rows": len(matched_rows),
+            "complete": required_qty is None or filled_qty >= required_qty,
+        }
+
+    def reconcile_trade_close(
+        self,
+        active_trade: Dict,
+        *,
+        exit_time: Optional[datetime.datetime] = None,
+        fallback_exit_price: Optional[float] = None,
+        close_order_id: Optional[int] = None,
+        point_value: float = 5.0,
+    ) -> Optional[Dict]:
+        if not isinstance(active_trade, dict):
+            return None
+        trade_size = self._coerce_int(active_trade.get("size"), 0) or 0
+        if trade_size <= 0:
+            return None
+
+        risk_cfg = CONFIG.get("RISK") or {}
+        base_round_turn_fee = max(
+            0.0,
+            float(self._coerce_float(risk_cfg.get("FEES_PER_SIDE"), 0.37) or 0.37) * 2.0,
+        )
+        topstep_round_turn_commission = max(
+            0.0,
+            float(
+                self._coerce_float(
+                    risk_cfg.get("TOPSTEP_COMMISSION_ROUND_TURN_PER_CONTRACT"),
+                    0.50,
+                )
+                or 0.50
+            ),
+        )
+        fallback_round_turn_fee = base_round_turn_fee + topstep_round_turn_commission
+
+        entry_time = active_trade.get("entry_time")
+        if isinstance(entry_time, str):
+            try:
+                entry_time = datetime.datetime.fromisoformat(entry_time)
+            except Exception:
+                entry_time = None
+        if not isinstance(entry_time, datetime.datetime):
+            now_utc = datetime.datetime.now(datetime.timezone.utc)
+            entry_time = now_utc - datetime.timedelta(minutes=30)
+        if entry_time.tzinfo is None:
+            entry_time = entry_time.replace(tzinfo=self.et)
+
+        effective_exit_time = exit_time or datetime.datetime.now(self.et)
+        if effective_exit_time.tzinfo is None:
+            effective_exit_time = effective_exit_time.replace(tzinfo=self.et)
+
+        lookback_start = entry_time - datetime.timedelta(minutes=2)
+        lookahead_end = effective_exit_time + datetime.timedelta(minutes=2)
+        recent_trades = self._get_stream_trades(lookback_start, lookahead_end)
+        need_rest_lookup = not recent_trades
+        if not need_rest_lookup and close_order_id is not None:
+            need_rest_lookup = not any(
+                self._coerce_int(row.get("orderId"), None) == int(close_order_id)
+                for row in recent_trades
+            )
+        if need_rest_lookup:
+            rest_trades = self.search_trades(lookback_start, lookahead_end)
+            recent_trades = self._merge_trade_rows(recent_trades, rest_trades)
+        if not recent_trades:
+            return None
+
+        close_side_code = 1 if str(active_trade.get("side", "")).upper() == "LONG" else 0
+        entry_side_code = 0 if close_side_code == 1 else 1
+        entry_order_id = self._coerce_int(active_trade.get("entry_order_id"), None)
+
+        def _trade_side_code(row: Dict) -> Optional[int]:
+            return self._coerce_int(row.get("side"), None)
+
+        def _trade_order_id(row: Dict) -> Optional[int]:
+            return self._coerce_int(row.get("orderId"), None)
+
+        def _build_candidates(rows: List[Dict]) -> List[Dict]:
+            built: List[Dict] = []
+            for row in rows:
+                if _trade_side_code(row) != close_side_code:
+                    continue
+                row_ts = self._parse_trade_timestamp(row)
+                if row_ts is None:
+                    continue
+                if row_ts < entry_time.astimezone(datetime.timezone.utc):
+                    continue
+                if entry_order_id is not None and _trade_order_id(row) == entry_order_id:
+                    continue
+                built.append(row)
+            return built
+
+        def _build_entry_candidates(rows: List[Dict]) -> List[Dict]:
+            built: List[Dict] = []
+            for row in rows:
+                if _trade_side_code(row) != entry_side_code:
+                    continue
+                row_ts = self._parse_trade_timestamp(row)
+                if row_ts is None:
+                    continue
+                if row_ts < lookback_start.astimezone(datetime.timezone.utc):
+                    continue
+                built.append(row)
+            return built
+
+        if entry_order_id is not None and not any(
+            _trade_order_id(row) == entry_order_id for row in recent_trades
+        ):
+            rest_trades = self.search_trades(lookback_start, lookahead_end)
+            recent_trades = self._merge_trade_rows(recent_trades, rest_trades)
+
+        candidates = _build_candidates(recent_trades)
+        candidate_qty = sum(abs(self._coerce_int(row.get("size"), 0) or 0) for row in candidates)
+        if close_order_id is None and candidate_qty < trade_size and not need_rest_lookup:
+            rest_trades = self.search_trades(lookback_start, lookahead_end)
+            recent_trades = self._merge_trade_rows(recent_trades, rest_trades)
+            candidates = _build_candidates(recent_trades)
+        if not candidates:
+            return None
+
+        entry_candidates = _build_entry_candidates(recent_trades)
+        matching_entry_rows: List[Dict] = []
+        if entry_order_id is not None:
+            matching_entry_rows = [
+                row for row in entry_candidates
+                if _trade_order_id(row) == entry_order_id
+            ]
+        if not matching_entry_rows:
+            remaining = trade_size
+            for row in sorted(
+                entry_candidates,
+                key=lambda item: self._parse_trade_timestamp(item) or datetime.datetime.min.replace(
+                    tzinfo=datetime.timezone.utc
+                ),
+            ):
+                matching_entry_rows.append(row)
+                fill_qty = abs(self._coerce_int(row.get("size"), 0) or 0)
+                remaining -= max(1, fill_qty)
+                if remaining <= 0:
+                    break
+
+        matching_rows: List[Dict] = []
+        source = "trade_search_recent"
+        if close_order_id is not None:
+            matching_rows = [
+                row for row in candidates
+                if _trade_order_id(row) == int(close_order_id)
+            ]
+            if matching_rows:
+                source = "trade_search_exact_order"
+        if not matching_rows:
+            remaining = trade_size
+            for row in sorted(
+                candidates,
+                key=lambda item: self._parse_trade_timestamp(item) or datetime.datetime.min.replace(
+                    tzinfo=datetime.timezone.utc
+                ),
+                reverse=True,
+            ):
+                matching_rows.append(row)
+                fill_qty = abs(self._coerce_int(row.get("size"), 0) or 0)
+                remaining -= max(1, fill_qty)
+                if remaining <= 0:
+                    break
+            matching_rows.sort(
+                key=lambda item: self._parse_trade_timestamp(item) or datetime.datetime.min.replace(
+                    tzinfo=datetime.timezone.utc
+                )
+            )
+
+        total_qty = 0
+        weighted_price = 0.0
+        pnl_dollars_gross = 0.0
+        pnl_found = False
+        reported_fee_dollars = 0.0
+        fee_found = False
+        exit_ts: Optional[datetime.datetime] = None
+        for row in matching_rows:
+            fill_qty = abs(self._coerce_int(row.get("size"), 0) or 0)
+            fill_price = self._coerce_float(row.get("price"), None)
+            if fill_qty > 0 and fill_price is not None:
+                total_qty += fill_qty
+                weighted_price += fill_price * fill_qty
+            pnl_val = self._coerce_float(row.get("profitAndLoss"), None)
+            if pnl_val is not None:
+                pnl_dollars_gross += pnl_val
+                pnl_found = True
+            row_commissions = self._coerce_float(row.get("commissions"), None)
+            row_fees = self._coerce_float(row.get("fees"), None)
+            if row_commissions is not None or row_fees is not None:
+                reported_fee_dollars += float(row_commissions or 0.0) + float(row_fees or 0.0)
+                fee_found = True
+            row_ts = self._parse_trade_timestamp(row)
+            if row_ts is not None:
+                exit_ts = row_ts
+
+        if total_qty <= 0:
+            total_qty = trade_size
+        if total_qty <= 0:
+            return None
+
+        exit_price = None
+        if weighted_price > 0.0:
+            exit_price = weighted_price / float(total_qty)
+        elif fallback_exit_price is not None:
+            exit_price = float(fallback_exit_price)
+
+        pnl_points = None
+        if pnl_found:
+            denom = float(point_value) * float(trade_size)
+            if denom > 0.0:
+                pnl_points = pnl_dollars_gross / denom
+        if pnl_points is None and exit_price is not None:
+            entry_price = self._coerce_float(active_trade.get("entry_price"), 0.0) or 0.0
+            if str(active_trade.get("side", "")).upper() == "LONG":
+                pnl_points = float(exit_price - entry_price)
+            else:
+                pnl_points = float(entry_price - exit_price)
+            pnl_dollars_gross = float(pnl_points * float(point_value) * float(trade_size))
+
+        if pnl_points is None or exit_price is None:
+            return None
+
+        pnl_fee_dollars = float(reported_fee_dollars) if fee_found else float(fallback_round_turn_fee * float(trade_size))
+        pnl_dollars_net = float(pnl_dollars_gross - pnl_fee_dollars)
+
+        entry_total_qty = 0
+        entry_weighted_price = 0.0
+        entry_ts: Optional[datetime.datetime] = None
+        for row in matching_entry_rows:
+            fill_qty = abs(self._coerce_int(row.get("size"), 0) or 0)
+            fill_price = self._coerce_float(row.get("price"), None)
+            if fill_qty > 0 and fill_price is not None:
+                entry_total_qty += fill_qty
+                entry_weighted_price += fill_price * fill_qty
+            row_ts = self._parse_trade_timestamp(row)
+            if row_ts is not None and entry_ts is None:
+                entry_ts = row_ts
+
+        entry_price = None
+        if entry_weighted_price > 0.0 and entry_total_qty > 0:
+            entry_price = entry_weighted_price / float(entry_total_qty)
+        if entry_price is None:
+            entry_price = self._coerce_float(
+                active_trade.get("broker_entry_price"),
+                self._coerce_float(active_trade.get("entry_price"), None),
+            )
+
+        return {
+            "source": source,
+            "entry_price": float(entry_price) if entry_price is not None else None,
+            "entry_time": entry_ts,
+            "exit_price": float(exit_price),
+            "pnl_points": float(pnl_points),
+            "pnl_dollars_gross": float(pnl_dollars_gross),
+            "pnl_fee_dollars": float(pnl_fee_dollars),
+            "pnl_dollars_net": float(pnl_dollars_net),
+            "pnl_dollars": float(pnl_dollars_net),
+            "exit_time": exit_ts,
+            "entry_order_id": entry_order_id if entry_order_id is not None else self._coerce_int(
+                matching_entry_rows[0].get("orderId"),
+                None,
+            ) if matching_entry_rows else None,
+            "order_id": close_order_id if close_order_id is not None else self._coerce_int(
+                matching_rows[-1].get("orderId"),
+                None,
+            ),
+            "entry_matched_rows": len(matching_entry_rows),
+            "matched_rows": len(matching_rows),
+        }
 
     def cancel_order(self, order_id: int) -> bool:
         """
@@ -1044,6 +3066,10 @@ class ProjectXClient:
                 data = resp.json()
                 if data.get('success', False):
                     logging.info(f"Order {order_id} cancelled")
+                    if self._active_stop_order_id == order_id:
+                        self._active_stop_order_id = None
+                    if self._active_target_order_id == order_id:
+                        self._active_target_order_id = None
                     return True
                 else:
                     err = data.get('errorMessage', 'Unknown error')
@@ -1142,7 +3168,13 @@ class ProjectXClient:
             logging.info(f"🔒 MOVING STOP: {side} -> {be_price:.2f} (Order ID: {target_stop_id})")
             if self.modify_order(target_stop_id, stop_price=be_price):
                 logging.info(f"✅ STOP UPDATED to {be_price:.2f}")
-                self._active_stop_order_id = target_stop_id
+                surviving_stop_id = self._cleanup_duplicate_stop_orders(
+                    side,
+                    expected_size=expected_size,
+                    expected_price=be_price,
+                    prefer_order_id=target_stop_id,
+                )
+                self._active_stop_order_id = surviving_stop_id or target_stop_id
                 return True
             logging.warning(f"⚠️ Modify failed for {target_stop_id}. Attempting Cancel/Replace...")
 
@@ -1164,7 +3196,13 @@ class ProjectXClient:
             # Try modify against matched stop order
             if candidate_id and self.modify_order(candidate_id, stop_price=be_price):
                 logging.info(f"✅ STOP UPDATED to {be_price:.2f}")
-                self._active_stop_order_id = candidate_id
+                surviving_stop_id = self._cleanup_duplicate_stop_orders(
+                    side,
+                    expected_size=expected_size,
+                    expected_price=be_price,
+                    prefer_order_id=self._coerce_int(candidate_id, None),
+                )
+                self._active_stop_order_id = surviving_stop_id or self._coerce_int(candidate_id, None)
                 return True
 
             if candidate_id:
@@ -1179,9 +3217,49 @@ class ProjectXClient:
         else:
             logging.warning("No matching stop order found; placing new stop.")
 
+        self._cancel_open_stop_orders(
+            side,
+            expected_size=expected_size,
+            reason="break-even stop replace cleanup",
+        )
+        remaining_stop_orders = self._list_open_stop_orders(
+            side,
+            expected_size=expected_size,
+            force_refresh=True,
+        )
+        if remaining_stop_orders:
+            retry_candidate = self._pick_preferred_stop_order(
+                remaining_stop_orders,
+                expected_price=current_stop_price,
+                prefer_order_id=target_stop_id,
+            )
+            retry_order_id = self._coerce_int(retry_candidate.get("orderId"), None) if isinstance(retry_candidate, dict) else None
+            if retry_order_id is not None and self.modify_order(retry_order_id, stop_price=be_price):
+                logging.info(f"✅ STOP UPDATED to {be_price:.2f} after cleanup retry")
+                surviving_stop_id = self._cleanup_duplicate_stop_orders(
+                    side,
+                    expected_size=expected_size,
+                    expected_price=be_price,
+                    prefer_order_id=retry_order_id,
+                )
+                self._active_stop_order_id = surviving_stop_id or retry_order_id
+                return True
+            logging.warning("Open stop order(s) still present after cleanup; skipping new stop to avoid duplicates.")
+            return False
+
         # 5. FALLBACK: Place New Stop Order
         logging.info(f"🔄 PLACING NEW STOP at {be_price:.2f}...")
-        return self._place_breakeven_stop(be_price, side, position_size)
+        if not self._place_breakeven_stop(be_price, side, position_size):
+            return False
+        surviving_stop_id = self._cleanup_duplicate_stop_orders(
+            side,
+            expected_size=expected_size,
+            expected_price=be_price,
+            prefer_order_id=self._active_stop_order_id,
+        )
+        if surviving_stop_id is not None:
+            self._active_stop_order_id = surviving_stop_id
+        return True
 
     def _place_breakeven_stop(self, be_price: float, side: str, size: int) -> bool:
         """
@@ -1305,7 +3383,27 @@ class ProjectXClient:
             opposite_signal_count,
         )
 
-    async def async_get_position(self) -> Dict:
+    async def async_place_order(self, signal: Dict, current_price: float):
+        """Async wrapper for place_order() to avoid blocking the event loop."""
+        return await asyncio.to_thread(
+            self.place_order,
+            signal,
+            current_price,
+        )
+
+    async def async_close_trade_leg(self, trade: Dict) -> bool:
+        """Async wrapper for close_trade_leg() to avoid blocking the event loop."""
+        return await asyncio.to_thread(
+            self.close_trade_leg,
+            trade,
+        )
+
+    async def async_get_position(
+        self,
+        *,
+        prefer_stream: bool = True,
+        require_open_pnl: bool = False,
+    ) -> Dict:
         """
         Async version of get_position() for use in independent async tasks.
         FIX: Returns cached local state if rate limited.
@@ -1313,7 +3411,23 @@ class ProjectXClient:
         Returns:
             Position dict with 'side', 'size', 'avg_price'
         """
-        import aiohttp
+        try:
+            import aiohttp
+        except Exception:
+            self._warn_async_http_fallback_once()
+            return await asyncio.to_thread(
+                self.get_position,
+                prefer_stream=prefer_stream,
+                require_open_pnl=require_open_pnl,
+            )
+
+        stream_position = self._get_stream_position() if prefer_stream else None
+        if stream_position is not None:
+            stream_side = str(stream_position.get("side") or "").strip().upper()
+            stream_open_pnl = self._coerce_float(stream_position.get("open_pnl"), None)
+            if not require_open_pnl or stream_side not in {"LONG", "SHORT"} or stream_open_pnl is not None:
+                self._local_position = stream_position.copy()
+                return stream_position
 
         # --- FIX START ---
         if not self._check_general_rate_limit():
@@ -1324,46 +3438,76 @@ class ProjectXClient:
         if self.account_id is None:
             return {'side': None, 'size': 0, 'avg_price': 0.0}
 
-        url = f"{self.base_url}/api/Position/search"
         payload = {"accountId": self.account_id}
         headers = {"Authorization": f"Bearer {self.token}"}
+        best_position = None
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, headers=headers) as resp:
-                    self._track_general_request()
-
-                    # Fallback to GET if POST returns 404
-                    if resp.status == 404:
-                        fallback_url = f"{self.base_url}/api/Position"
-                        async with session.get(fallback_url, params=payload, headers=headers) as resp:
+                search_endpoints = [
+                    (f"{self.base_url}/api/Position/searchOpen", "post"),
+                    (f"{self.base_url}/api/Position/search", "post"),
+                    (f"{self.base_url}/api/Position", "get"),
+                ]
+                for url, method in search_endpoints:
+                    if method == "post":
+                        async with session.post(url, json=payload, headers=headers) as resp:
                             self._track_general_request()
-
-                    if resp.status == 200:
-                        data = await resp.json()
-                        positions = data.get('positions', data) if isinstance(data, dict) else data
-
-                        # Find position for our contract
-                        for pos in positions:
-                            if pos.get('contractId') == self.contract_id:
-                                size = pos.get('size', 0)
-                                avg_price = pos.get('averagePrice', 0.0)
-                                if size > 0:
-                                    return {'side': 'LONG', 'size': size, 'avg_price': avg_price}
-                                elif size < 0:
-                                    return {'side': 'SHORT', 'size': abs(size), 'avg_price': avg_price}
-
-                        return {'side': None, 'size': 0, 'avg_price': 0.0}
-
-                    elif resp.status == 404:
-                        return {'side': None, 'size': 0, 'avg_price': 0.0}
+                            if resp.status == 200:
+                                data = await resp.json()
+                                positions = data.get('positions', data) if isinstance(data, dict) else data
+                                filtered = self._filter_positions_for_contract(
+                                    positions if isinstance(positions, list) else []
+                                )
+                                if filtered:
+                                    normalized = self._normalize_position(filtered[0])
+                                    if best_position is None:
+                                        best_position = normalized
+                                    normalized_side = str(normalized.get("side") or "").strip().upper()
+                                    normalized_open_pnl = self._coerce_float(normalized.get("open_pnl"), None)
+                                    if not require_open_pnl or normalized_side not in {"LONG", "SHORT"} or normalized_open_pnl is not None:
+                                        self._local_position = normalized.copy()
+                                        return normalized
+                                continue
+                            if resp.status in (400, 404):
+                                continue
+                            logging.warning(f"Async position check failed: {resp.status}")
+                            return stream_position if stream_position is not None else self._stale_position()
                     else:
-                        logging.warning(f"Async position check failed: {resp.status}")
-                        return self._stale_position()
+                        async with session.get(url, params=payload, headers=headers) as resp:
+                            self._track_general_request()
+                            if resp.status == 200:
+                                data = await resp.json()
+                                positions = data.get('positions', data) if isinstance(data, dict) else data
+                                filtered = self._filter_positions_for_contract(
+                                    positions if isinstance(positions, list) else []
+                                )
+                                if filtered:
+                                    normalized = self._normalize_position(filtered[0])
+                                    if best_position is None:
+                                        best_position = normalized
+                                    normalized_side = str(normalized.get("side") or "").strip().upper()
+                                    normalized_open_pnl = self._coerce_float(normalized.get("open_pnl"), None)
+                                    if not require_open_pnl or normalized_side not in {"LONG", "SHORT"} or normalized_open_pnl is not None:
+                                        self._local_position = normalized.copy()
+                                        return normalized
+                                continue
+                            if resp.status in (400, 404):
+                                continue
+                            logging.warning(f"Async position check failed: {resp.status}")
+                            return stream_position if stream_position is not None else self._stale_position()
+                if best_position is not None:
+                    self._local_position = best_position.copy()
+                    return best_position
+                if stream_position is not None:
+                    self._local_position = stream_position.copy()
+                    return stream_position
+                self._local_position = {'side': None, 'size': 0, 'avg_price': 0.0}
+                return {'side': None, 'size': 0, 'avg_price': 0.0}
 
         except Exception as e:
             logging.error(f"Async position check error: {e}")
-            return self._stale_position()
+            return stream_position if stream_position is not None else self._stale_position()
 
     async def async_validate_session(self) -> bool:
         """
@@ -1372,7 +3516,11 @@ class ProjectXClient:
         Returns:
             True if session is valid, False otherwise
         """
-        import aiohttp
+        try:
+            import aiohttp
+        except Exception:
+            self._warn_async_http_fallback_once()
+            return await asyncio.to_thread(self.validate_session)
 
         if not self._check_general_rate_limit():
             return self.token is not None

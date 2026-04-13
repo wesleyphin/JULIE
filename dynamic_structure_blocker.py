@@ -75,7 +75,14 @@ class PenaltyBoxBlocker:
             distance_to_ceiling = self.ceiling - current_price
             if 0 < distance_to_ceiling <= self.tolerance:
                 if self.long_block_counter == 0:
-                    logging.warning(f"⚠️ PENALTY BOX: Price near CEILING ({self.ceiling:.2f}), blocking LONGS for {self.penalty_bars} bars")
+                    msg = (
+                        f"⚠️ PENALTY BOX: Price near CEILING ({self.ceiling:.2f}), "
+                        f"blocking LONGS for {self.penalty_bars} bars"
+                    )
+                    if bool(CONFIG.get("PENALTY_BOX_VERBOSE_WARNINGS", True)):
+                        logging.warning(msg)
+                    else:
+                        logging.debug(msg)
                 self.long_block_counter = self.penalty_bars
 
         # Check if price entered FLOOR danger zone (blocks SHORTS)
@@ -83,7 +90,14 @@ class PenaltyBoxBlocker:
             distance_to_floor = current_price - self.floor
             if 0 < distance_to_floor <= self.tolerance:
                 if self.short_block_counter == 0:
-                    logging.warning(f"⚠️ PENALTY BOX: Price near FLOOR ({self.floor:.2f}), blocking SHORTS for {self.penalty_bars} bars")
+                    msg = (
+                        f"⚠️ PENALTY BOX: Price near FLOOR ({self.floor:.2f}), "
+                        f"blocking SHORTS for {self.penalty_bars} bars"
+                    )
+                    if bool(CONFIG.get("PENALTY_BOX_VERBOSE_WARNINGS", True)):
+                        logging.warning(msg)
+                    else:
+                        logging.debug(msg)
                 self.short_block_counter = self.penalty_bars
 
     def should_block_trade(self, side: str, current_price: float):
@@ -165,29 +179,34 @@ class DynamicStructureBlocker:
     - Allows counter-trend trades only on high-probability reversals
     """
 
-    def __init__(self, pivot_window: int = 5, lookback: int = 50):
+    def __init__(
+        self,
+        pivot_window: int = 5,
+        lookback: int = 50,
+        rejection_memory_bars: int = 1,
+    ):
         """
         :param pivot_window: Bars on left/right to confirm a fractal pivot.
         :param lookback: Minimum bars needed for trend detection.
+        :param rejection_memory_bars: Recent-bar window where a validated rejection
+            remains actionable for counter-trend fade checks.
         """
         self.pivot_window = pivot_window
         self.lookback = lookback
+        self.rejection_memory_bars = max(1, int(rejection_memory_bars))
         self.df = None  # Stored dataframe from update()
 
     def update(self, df: pd.DataFrame) -> None:
         """Store the latest dataframe for blocking checks."""
         if df is not None and not df.empty:
-            self.df = df.copy()
+            self.df = df
 
     def _find_pivots(self, df: pd.DataFrame):
         """Identify fractal swing points."""
-        df = df.copy()
-        # Vectorized pivot detection
-        # Rolling max/min with center=True checks left and right neighbors
-        df['is_pivot_high'] = df['high'].rolling(window=self.pivot_window*2+1, center=True).max() == df['high']
-        df['is_pivot_low'] = df['low'].rolling(window=self.pivot_window*2+1, center=True).min() == df['low']
-
-        return df[df['is_pivot_high']], df[df['is_pivot_low']]
+        window = self.pivot_window * 2 + 1
+        pivot_high = df['high'].rolling(window=window, center=True).max().eq(df['high'])
+        pivot_low = df['low'].rolling(window=window, center=True).min().eq(df['low'])
+        return df.loc[pivot_high.fillna(False)], df.loc[pivot_low.fillna(False)]
 
     def get_structure_trend(self, df: pd.DataFrame) -> str:
         """
@@ -211,27 +230,14 @@ class DynamicStructureBlocker:
 
         return "NEUTRAL"
 
-    def check_fade_setup(self, df: pd.DataFrame, signal_type: str) -> bool:
+    def check_fade_setup(self, df: pd.DataFrame, signal_type: str):
         """
         Detects Bottoms/Tops using PRICE ACTION + VOLUME.
-        MODIFIED: Lowered thresholds to prevent blocking valid reversals.
+        Uses a short rejection-memory window so a valid setup can persist across
+        a few bars, instead of only on the latest candle.
         """
         if len(df) < 20:
-            return False
-
-        current = df.iloc[-1]
-        avg_vol = df['volume'].rolling(window=20).mean().iloc[-1]
-        vol_ratio = current['volume'] / avg_vol if avg_vol > 0 else 1.0
-
-        # Calculate Candle Body & Wicks
-        open_ = current['open']
-        close = current['close']
-        high = current['high']
-        low = current['low']
-        range_ = high - low
-
-        if range_ == 0:
-            return False
+            return False, "insufficient bars"
 
         # --- RELAXED THRESHOLDS ---
         # Was 2.0 (200% vol), now 1.2 (20% above avg)
@@ -239,33 +245,55 @@ class DynamicStructureBlocker:
         # Was 0.40 (40% wick), now 0.25 (25% wick)
         WICK_THRESHOLD = 0.25
 
-        # --- FADE A DOWNTREND (Buy the Bottom) ---
-        if signal_type == "LONG":
+        vol_ma20 = df["volume"].rolling(window=20, min_periods=1).mean()
+        last_i = len(df) - 1
+        start_i = max(1, len(df) - self.rejection_memory_bars)
+
+        for i in range(last_i, start_i - 1, -1):
+            current = df.iloc[i]
+            prev = df.iloc[i - 1]
+
+            open_ = float(current["open"])
+            close = float(current["close"])
+            high = float(current["high"])
+            low = float(current["low"])
+            range_ = high - low
+            if not np.isfinite(range_) or range_ <= 0.0:
+                continue
+
+            avg_vol = float(vol_ma20.iloc[i]) if pd.notna(vol_ma20.iloc[i]) else 0.0
+            vol_ratio = (float(current["volume"]) / avg_vol) if avg_vol > 0.0 else 1.0
             is_vol_climax = vol_ratio > VOL_THRESHOLD
-            lower_wick = min(open_, close) - low
-            is_hammer = (lower_wick / range_) > WICK_THRESHOLD
 
-            prev_close = df['close'].iloc[-2]
-            prev_open = df['open'].iloc[-2]
-            is_engulfing = (close > prev_open) and (open_ < prev_close) and (close > open_)
+            prev_close = float(prev["close"])
+            prev_open = float(prev["open"])
+            bars_ago = last_i - i
 
-            if is_vol_climax and (is_hammer or is_engulfing):
-                return True
+            if signal_type == "LONG":
+                lower_wick = min(open_, close) - low
+                is_hammer = (lower_wick / range_) > WICK_THRESHOLD
+                is_engulfing = (close > prev_open) and (open_ < prev_close) and (close > open_)
+                if is_vol_climax and (is_hammer or is_engulfing):
+                    # Invalidate stale rejection if structure already made a new low.
+                    if i < last_i:
+                        future_low = pd.to_numeric(df["low"].iloc[i + 1 : last_i + 1], errors="coerce").min()
+                        if pd.notna(future_low) and float(future_low) < low:
+                            continue
+                    return True, f"LONG rejection memory ({bars_ago} bars ago)"
 
-        # --- FADE AN UPTREND (Short the Top) ---
-        elif signal_type == "SHORT":
-            is_vol_climax = vol_ratio > VOL_THRESHOLD
-            upper_wick = high - max(open_, close)
-            is_shooting_star = (upper_wick / range_) > WICK_THRESHOLD
+            elif signal_type == "SHORT":
+                upper_wick = high - max(open_, close)
+                is_shooting_star = (upper_wick / range_) > WICK_THRESHOLD
+                is_engulfing = (close < prev_open) and (open_ > prev_close) and (close < open_)
+                if is_vol_climax and (is_shooting_star or is_engulfing):
+                    # Invalidate stale rejection if structure already made a new high.
+                    if i < last_i:
+                        future_high = pd.to_numeric(df["high"].iloc[i + 1 : last_i + 1], errors="coerce").max()
+                        if pd.notna(future_high) and float(future_high) > high:
+                            continue
+                    return True, f"SHORT rejection memory ({bars_ago} bars ago)"
 
-            prev_close = df['close'].iloc[-2]
-            prev_open = df['open'].iloc[-2]
-            is_engulfing = (close < prev_open) and (open_ > prev_close) and (close < open_)
-
-            if is_vol_climax and (is_shooting_star or is_engulfing):
-                return True
-
-        return False
+        return False, "no recent rejection setup"
 
     def is_trade_allowed(self, df: pd.DataFrame, signal_type: str):
         """
@@ -277,18 +305,20 @@ class DynamicStructureBlocker:
 
         # Case 1: Trend says DOWN, Signal is LONG
         if trend == "DOWN" and signal_type == "LONG":
-            if self.check_fade_setup(df, "LONG"):
-                logging.info(f"✅ Trade ALLOWED (Fade): Vol Climax + Rejection Wick detected.")
-                return True, "Fade setup valid: Vol Climax + Rejection Wick"
+            fade_ok, fade_reason = self.check_fade_setup(df, "LONG")
+            if fade_ok:
+                logging.info(f"✅ Trade ALLOWED (Fade): {fade_reason}.")
+                return True, f"Fade setup valid: {fade_reason}"
             else:
                 logging.info(f"⛔ Trade BLOCKED: Trend is DOWN and no Volume/Wick Rejection.")
                 return False, "Trend is DOWN and no Volume/Wick Rejection"
 
         # Case 2: Trend says UP, Signal is SHORT
         if trend == "UP" and signal_type == "SHORT":
-            if self.check_fade_setup(df, "SHORT"):
-                logging.info(f"✅ Trade ALLOWED (Fade): Vol Climax + Shooting Star detected.")
-                return True, "Fade setup valid: Vol Climax + Shooting Star"
+            fade_ok, fade_reason = self.check_fade_setup(df, "SHORT")
+            if fade_ok:
+                logging.info(f"✅ Trade ALLOWED (Fade): {fade_reason}.")
+                return True, f"Fade setup valid: {fade_reason}"
             else:
                 logging.info(f"⛔ Trade BLOCKED: Trend is UP and no Volume/Wick Rejection.")
                 return False, "Trend is UP and no Volume/Wick Rejection"

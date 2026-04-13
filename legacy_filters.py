@@ -34,44 +34,138 @@ class LegacyTrendFilter:
     Filters counter-trend trades when the trend is extremely strong.
     """
 
-    def __init__(self, fast_period: int = 50, slow_period: int = 200):
+    def __init__(
+        self,
+        fast_period: int = 50,
+        slow_period: int = 200,
+        rejection_memory_bars: int = 1,
+    ):
         self.fast_period = fast_period
         self.slow_period = slow_period
+        self.rejection_memory_bars = max(1, int(rejection_memory_bars))
+        self._cache_key = None
+        self._cache_results: Dict[str, Tuple[bool, str]] = {}
+
+    def _has_recent_wick_rejection(self, df: pd.DataFrame, side: str) -> Tuple[bool, Optional[int]]:
+        side = str(side or "").upper()
+        if side not in ("LONG", "SHORT") or df is None or len(df) < 2:
+            return False, None
+
+        last_i = len(df) - 1
+        start_i = max(0, len(df) - self.rejection_memory_bars)
+
+        for i in range(last_i, start_i - 1, -1):
+            bar = df.iloc[i]
+            open_ = float(bar["open"])
+            close = float(bar["close"])
+            high = float(bar["high"])
+            low = float(bar["low"])
+            body = abs(close - open_)
+            wick_threshold = body * 0.5
+            bars_ago = last_i - i
+
+            if side == "LONG":
+                lower_wick = min(open_, close) - low
+                if lower_wick > wick_threshold:
+                    # Invalidate stale bullish rejection if a newer lower-low printed.
+                    if i < last_i:
+                        future_low = pd.to_numeric(df["low"].iloc[i + 1 : last_i + 1], errors="coerce").min()
+                        if pd.notna(future_low) and float(future_low) < low:
+                            continue
+                    return True, bars_ago
+
+            elif side == "SHORT":
+                upper_wick = high - max(open_, close)
+                if upper_wick > wick_threshold:
+                    # Invalidate stale bearish rejection if a newer higher-high printed.
+                    if i < last_i:
+                        future_high = pd.to_numeric(df["high"].iloc[i + 1 : last_i + 1], errors="coerce").max()
+                        if pd.notna(future_high) and float(future_high) > high:
+                            continue
+                    return True, bars_ago
+
+        return False, None
+
+    def _build_cache_key(self, df: pd.DataFrame):
+        """Stable key for memoizing repeated same-bar checks."""
+        if df is None or len(df) == 0:
+            return (0, None, 0.0, 0.0, 0.0, 0.0)
+        last = df.iloc[-1]
+        idx = df.index[-1]
+        try:
+            idx_key = idx.value
+        except Exception:
+            idx_key = str(idx)
+        return (
+            int(len(df)),
+            idx_key,
+            float(last.get("open", 0.0)),
+            float(last.get("high", 0.0)),
+            float(last.get("low", 0.0)),
+            float(last.get("close", 0.0)),
+        )
 
     def should_block_trade(self, df: pd.DataFrame, side: str) -> Tuple[bool, str]:
-        if len(df) < self.slow_period:
+        side = str(side or "").upper()
+        if side not in ("LONG", "SHORT"):
             return False, ""
+
+        cache_key = self._build_cache_key(df)
+        if cache_key != self._cache_key:
+            self._cache_key = cache_key
+            self._cache_results = {}
+        cached = self._cache_results.get(side)
+        if cached is not None:
+            return cached
+
+        if len(df) < self.slow_period:
+            result = (False, "")
+            self._cache_results[side] = result
+            return result
 
         closes = df["close"]
         ema_fast = closes.ewm(span=self.fast_period, adjust=False).mean().iloc[-1]
         ema_slow = closes.ewm(span=self.slow_period, adjust=False).mean().iloc[-1]
         price = closes.iloc[-1]
 
-        # --- ADD WICK CALCULATION ---
-        last_bar = df.iloc[-1]
-        body = abs(last_bar['close'] - last_bar['open'])
-        upper_wick = last_bar['high'] - max(last_bar['open'], last_bar['close'])
-        lower_wick = min(last_bar['open'], last_bar['close']) - last_bar['low']
-        # Simple 50% wick rule
-        wick_threshold = body * 0.5
+        recent_short_reject, short_bars_ago = self._has_recent_wick_rejection(df, "SHORT")
+        recent_long_reject, long_bars_ago = self._has_recent_wick_rejection(df, "LONG")
 
         # Block Shorts in Strong Uptrend
         if price > ema_fast > ema_slow:
             if side == "SHORT":
-                # ALLOW if big wick
-                if upper_wick > wick_threshold:
-                    return False, ""
-                return True, f"Legacy Trend: Price > {self.fast_period}EMA > {self.slow_period}EMA (Strong Bullish)"
+                if recent_short_reject:
+                    result = (
+                        False,
+                        f"Legacy Trend override: recent bearish rejection ({short_bars_ago} bars ago)",
+                    )
+                else:
+                    result = (
+                        True,
+                        f"Legacy Trend: Price > {self.fast_period}EMA > {self.slow_period}EMA (Strong Bullish)",
+                    )
+                self._cache_results[side] = result
+                return result
 
         # Block Longs in Strong Downtrend
         if price < ema_fast < ema_slow:
             if side == "LONG":
-                # ALLOW if big wick
-                if lower_wick > wick_threshold:
-                    return False, ""
-                return True, f"Legacy Trend: Price < {self.fast_period}EMA < {self.slow_period}EMA (Strong Bearish)"
+                if recent_long_reject:
+                    result = (
+                        False,
+                        f"Legacy Trend override: recent bullish rejection ({long_bars_ago} bars ago)",
+                    )
+                else:
+                    result = (
+                        True,
+                        f"Legacy Trend: Price < {self.fast_period}EMA < {self.slow_period}EMA (Strong Bearish)",
+                    )
+                self._cache_results[side] = result
+                return result
 
-        return False, ""
+        result = (False, "")
+        self._cache_results[side] = result
+        return result
 
 
 # ============================================================
@@ -970,15 +1064,21 @@ class LegacyFilterSystem:
     Exact reproduction of the filter logic from December 17th, 2025 at 8:11am California time.
     """
 
-    def __init__(self):
+    def __init__(self, load_news: bool = True):
         self.trend_filter = LegacyTrendFilter()
         self.chop_filter = LegacyChopFilter()
         self.volatility_filter = LegacyVolatilityFilter()
-        self.news_filter = LegacyNewsFilter()
+        self.news_filter: Optional[LegacyNewsFilter] = LegacyNewsFilter() if load_news else None
         self.htf_fvg_filter = LegacyHTFFVGFilter()
         self.rejection_filter = LegacyRejectionFilter()
 
         logging.info("Legacy Filter System (Dec 17th 8:11am) initialized")
+
+    def _ensure_news_filter(self) -> LegacyNewsFilter:
+        """Lazy-initialize news filter so backtests can skip startup network fetch."""
+        if self.news_filter is None:
+            self.news_filter = LegacyNewsFilter()
+        return self.news_filter
 
     def check_trend(self, df: pd.DataFrame, side: str) -> Tuple[bool, str]:
         """Check legacy trend filter."""
@@ -986,11 +1086,11 @@ class LegacyFilterSystem:
 
     def get_news_buffers(self, event_title: str) -> Tuple[int, int]:
         """Get legacy news event buffers (tiered)."""
-        return self.news_filter.get_event_buffers(event_title)
+        return self._ensure_news_filter().get_event_buffers(event_title)
 
     def check_news(self, current_time: datetime.datetime) -> Tuple[bool, str]:
         """Check legacy news filter."""
-        return self.news_filter.should_block_trade(current_time)
+        return self._ensure_news_filter().should_block_trade(current_time)
 
     def check_htf_fvg(self, signal: str, current_price: float,
                       df_1h=None, df_4h=None, tp_dist: float = None) -> Tuple[bool, str]:

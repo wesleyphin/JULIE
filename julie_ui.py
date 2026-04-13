@@ -145,9 +145,9 @@ class LogMonitor:
                 # Don't spam the UI, will be updated by API poller
 
         # Extract strategy signals before filters
-        elif any(strat in line for strat in ["RegimeAdaptive", "IntradayDip", "Confluence", "ORB", "ICT", "MLPhysics", "DynamicEngine"]):
+        elif any(strat in line for strat in ["RegimeAdaptive", "IntradayDip", "Confluence", "ORB", "Manifold", "MLPhysics", "DynamicEngine"]):
             if "signal" in line.lower():
-                for strategy in ["RegimeAdaptive", "IntradayDip", "Confluence", "ORB", "ICTModel", "MLPhysics", "DynamicEngine"]:
+                for strategy in ["RegimeAdaptive", "IntradayDip", "Confluence", "ORB", "ManifoldStrategy", "MLPhysics", "DynamicEngine"]:
                     if strategy in line:
                         # Try to extract side
                         side_match = re.search(r'(LONG|SHORT)', line)

@@ -26,13 +26,24 @@ class SMTStrategy(Strategy):
     def _prepare_df(self, df: pd.DataFrame) -> pd.DataFrame:
         if df.empty:
             return df
-        # Normalize column names to Capitalized (Open, High...) for Analyzer
-        cols = {c: c.capitalize() for c in ['open', 'high', 'low', 'close', 'volume'] if c in df.columns}
+        # Normalize only when needed to avoid repeated rename allocations.
+        needed = ("Open", "High", "Low", "Close")
+        if all(col in df.columns for col in needed):
+            return df
+        cols = {c: c.capitalize() for c in ["open", "high", "low", "close", "volume"] if c in df.columns}
         return df.rename(columns=cols)
 
     def on_bar(self, df_mes: pd.DataFrame, df_mnq: pd.DataFrame = None) -> Optional[Dict]:
         if df_mes.empty or df_mnq is None or df_mnq.empty:
             return None
+
+        # Bound runtime cost: SMT only needs recent structure context, not the
+        # full prefix history from run start.
+        lookback = max(int(self.lookback_minutes or 1500), 128)
+        if len(df_mes) > lookback:
+            df_mes = df_mes.iloc[-lookback:]
+        if len(df_mnq) > lookback:
+            df_mnq = df_mnq.iloc[-lookback:]
 
         df_mnq_prepared = self._prepare_df(df_mnq)
         df_mes_prepared = self._prepare_df(df_mes)

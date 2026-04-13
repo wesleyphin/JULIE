@@ -1,0 +1,38 @@
+{
+  "compression_release": {
+    "allowed_session_ids": [1, 2, 3],
+    "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+  },
+  "transition_burst": {
+    "allowed_session_ids": [1, 2, 3],
+    "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+  },
+  "aligned_flow": {
+    "allowed_session_ids": [2],
+    "allowed_regimes": ["DISPERSED"],
+    "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+    "min_d_alignment_3": 0.02,
+    "max_directional_vwap_dist_atr": 5.0,
+    "max_flow_mag_slow": 1.0,
+    "policy_rules": [
+      {
+        "match_session_ids": [3],
+        "match_regimes": ["DISPERSED"],
+        "allowed_session_ids": [3],
+        "allowed_regimes": ["DISPERSED"],
+        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+        "max_directional_vwap_dist_atr": 6.0,
+        "max_flow_mag_slow": 1.0
+      },
+      {
+        "match_session_ids": [3],
+        "match_regimes": ["TREND_GEODESIC"],
+        "allowed_session_ids": [3],
+        "allowed_regimes": ["TREND_GEODESIC"],
+        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+        "max_directional_vwap_dist_atr": 6.0,
+        "max_flow_mag_slow": 1.0
+      }
+    ]
+  }
+}

@@ -66,9 +66,10 @@ class ImpulseFilter:
 
         # ATR-style volatility baseline (True Range)
         if self.atr_window > 0:
-            highs = df['high']
-            lows = df['low']
-            prev_close = df['close'].shift(1)
+            atr_df = df.iloc[-(self.atr_window + 1):]
+            highs = atr_df['high']
+            lows = atr_df['low']
+            prev_close = atr_df['close'].shift(1)
             tr = np.maximum(
                 highs - lows,
                 np.maximum((highs - prev_close).abs(), (lows - prev_close).abs())

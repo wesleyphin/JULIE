@@ -1,0 +1,102 @@
+{
+  "variants": [
+    {
+      "name": "deploy_live_pair",
+      "description": "Current live AetherFlow pair: compression_release plus transition_burst.",
+      "include_live_pair": true,
+      "include_aligned_flow": false
+    },
+    {
+      "name": "af_thr058_setup58_dirvwap45_flow40_only",
+      "description": "Threshold-relaxed aligned-flow runner searched for maximum exact OOS standalone strength.",
+      "include_live_pair": false,
+      "include_aligned_flow": true,
+      "threshold": 0.58,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.40,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 6,
+        "max_profit_crosses": 99
+      }
+    },
+    {
+      "name": "live_pair_plus_af_strong_setup65_dirvwap5_flow35",
+      "description": "Previous best combined-book aligned-flow candidate from the earlier strength pass.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "threshold": 0.60,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.65,
+      "max_directional_vwap_dist_atr": 5.0,
+      "max_flow_mag_slow": 0.35,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 6,
+        "max_profit_crosses": 99
+      }
+    },
+    {
+      "name": "live_pair_plus_af_setup60_dirvwap6_flow40",
+      "description": "Broader runner AF with slightly easier setup-strength, extension, and slow-flow caps.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "threshold": 0.60,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.60,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 0.40,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 6,
+        "max_profit_crosses": 99
+      }
+    },
+    {
+      "name": "live_pair_plus_af_thr058_setup58_dirvwap45_flow40",
+      "description": "Threshold-relaxed aligned-flow runner that became the strongest exact OOS combined-book candidate in the focused neighborhood search.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "threshold": 0.58,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.40,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 6,
+        "max_profit_crosses": 99
+      }
+    }
+  ]
+}

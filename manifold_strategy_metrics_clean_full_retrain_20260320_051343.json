@@ -1,0 +1,21 @@
+{
+  "row_count": 341053,
+  "accuracy": 0.518752217397296,
+  "precision": 0.5260375297855441,
+  "recall": 0.7195491146962126,
+  "f1": 0.6077615564217212,
+  "roc_auc": 0.5171297346607603,
+  "trade_count": 235,
+  "win_rate": 0.5361702127659574,
+  "avg_pnl": 0.9083829787234043,
+  "total_pnl": 213.47000000000003,
+  "long_share": 0.1276595744680851,
+  "short_share": 0.8723404255319149,
+  "confluence_enabled": false,
+  "threshold": 0.6000000000000001,
+  "short_threshold": 0.3999999999999999,
+  "train_window": {
+    "start": null,
+    "end": null
+  }
+}

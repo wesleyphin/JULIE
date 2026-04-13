@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import logging
+from typing import Dict, List, Optional
 
 class DynamicSignalEngine2:
     """
@@ -293,46 +294,67 @@ class DynamicSignalEngine2:
     # ==========================================
     # MAIN CHECK FUNCTION
     # ==========================================
-    def check_signal(self, current_time, df_5m, df_15m):
+    def check_signals(self, current_time, df_5m, df_15m, *, emit_logs: bool = False) -> List[Dict]:
         """
-        Main entry point. Looks up hardcoded edge and checks pattern.
+        Return all currently valid DE2 candidates for the active Q/Day/Session segment.
         """
         q, d, s = self._get_segment_info(current_time)
-        
-        best_signal = None
-        best_pnl = -1 # PnL is implicit in choice (we only stored the winners)
-        
-        # 1. Check 15m Edge
-        edge_15m = self.edges_db.get(('15min', q, d, s))
-        if edge_15m and len(df_15m) >= 5:
-            check_func = self.strategies.get(edge_15m['Strategy'])
-            if check_func:
-                direction = check_func(df_15m)
-                if direction != 0:
-                    return {
-                        'strategy_id': f"Dynamic_{edge_15m['Strategy']}_15m_{q}_{d}_{s}",
-                        'signal': "LONG" if direction == 1 else "SHORT",
-                        'tp': float(edge_15m['TP']),
-                        'sl': float(edge_15m['SL']),
-                        'rr': float(edge_15m['RR'])
-                    }
+        candidates: List[Dict] = []
 
-        # 2. Check 5m Edge (Secondary priority)
-        edge_5m = self.edges_db.get(('5min', q, d, s))
-        if edge_5m and len(df_5m) >= 5:
-            check_func = self.strategies.get(edge_5m['Strategy'])
-            if check_func:
-                direction = check_func(df_5m)
-                if direction != 0:
-                     return {
-                        'strategy_id': f"Dynamic_{edge_5m['Strategy']}_5m_{q}_{d}_{s}",
-                        'signal': "LONG" if direction == 1 else "SHORT",
-                        'tp': float(edge_5m['TP']),
-                        'sl': float(edge_5m['SL']),
-                        'rr': float(edge_5m['RR'])
-                    }
+        for timeframe_str, tf_tag, df_tf in (
+            ("15min", "15m", df_15m),
+            ("5min", "5m", df_5m),
+        ):
+            edge = self.edges_db.get((timeframe_str, q, d, s))
+            if not edge or df_tf is None or len(df_tf) < 5:
+                continue
 
-        return None
+            check_func = self.strategies.get(edge["Strategy"])
+            if check_func is None:
+                continue
+
+            direction = check_func(df_tf)
+            if direction == 0:
+                continue
+
+            signal_side = "LONG" if direction == 1 else "SHORT"
+            strategy_name = str(edge["Strategy"])
+            candidate = {
+                "strategy_id": f"Dynamic_{strategy_name}_{tf_tag}_{q}_{d}_{s}",
+                "signal": signal_side,
+                "tp": float(edge["TP"]),
+                "sl": float(edge["SL"]),
+                "rr": float(edge["RR"]),
+                "timeframe": timeframe_str,
+                "strategy_type": strategy_name,
+                "quarter": q,
+                "day": d,
+                "session": s,
+            }
+            candidates.append(candidate)
+            if emit_logs:
+                logging.info(
+                    "DE2 candidate: %s %s tf=%s rr=%.2f",
+                    strategy_name,
+                    signal_side,
+                    timeframe_str,
+                    float(edge["RR"]),
+                )
+
+        return candidates
+
+    def check_signal(self, current_time, df_5m, df_15m) -> Optional[Dict]:
+        """
+        Backward-compatible single-candidate API.
+        """
+        candidates = self.check_signals(current_time, df_5m, df_15m, emit_logs=False)
+        if not candidates:
+            return None
+        candidates.sort(
+            key=lambda c: (float(c.get("rr", 0.0) or 0.0), float(c.get("tp", 0.0) or 0.0)),
+            reverse=True,
+        )
+        return candidates[0]
 
 def get_signal_engine():
     return DynamicSignalEngine2()

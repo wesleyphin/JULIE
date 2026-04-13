@@ -107,7 +107,7 @@ class RejectionFilter:
 
     def check_continuation(self, high: float, low: float, close: float,
                           level_high: Optional[float], level_low: Optional[float],
-                          current_bias: Optional[str]) -> Optional[str]:
+                          current_bias: Optional[str]) -> Optional[dict]:
         """Check for continuation - breakout after rejection reinforces bias.
 
         - If we had a LOW rejection (bounced from low) and now CLOSE above high = LONG continuation
@@ -128,17 +128,13 @@ class RejectionFilter:
                 logging.info(f"⚠️ Weak breakout above high (+{dist:.2f} pts). Ignoring continuation bias at Resistance/EQH.")
                 return None
 
-            logging.info(f"📈 CONTINUATION: Bounced from low, broke high (+{dist:.2f} pts) -> reinforcing LONG bias")
-
-            # Enhanced event logging: Continuation pattern detected
-            event_logger.log_rejection_detected(
-                rejection_type=f"{self.last_rejection_source}_CONTINUATION",
-                direction='LONG',
-                level=level_high,
-                current_price=close,
-                additional_info={"pattern": "Bounce_from_low_broke_high", "previous_rejection": "LOW"}
-            )
-            return 'LONG'
+            return {
+                "direction": "LONG",
+                "level": level_high,
+                "dist": dist,
+                "pattern": "Bounce_from_low_broke_high",
+                "previous_rejection": "LOW",
+            }
 
         # SHORT continuation: previously rejected from high, now closed SIGNIFICANTLY below low
         if self.last_rejection_level == 'HIGH' and close < level_low:
@@ -147,17 +143,13 @@ class RejectionFilter:
                 logging.info(f"⚠️ Weak breakout below low (-{dist:.2f} pts). Ignoring continuation bias at Support/EQL.")
                 return None
 
-            logging.info(f"📉 CONTINUATION: Rejected from high, broke low (-{dist:.2f} pts) -> reinforcing SHORT bias")
-
-            # Enhanced event logging: Continuation pattern detected
-            event_logger.log_rejection_detected(
-                rejection_type=f"{self.last_rejection_source}_CONTINUATION",
-                direction='SHORT',
-                level=level_low,
-                current_price=close,
-                additional_info={"pattern": "Reject_from_high_broke_low", "previous_rejection": "HIGH"}
-            )
-            return 'SHORT'
+            return {
+                "direction": "SHORT",
+                "level": level_low,
+                "dist": dist,
+                "pattern": "Reject_from_high_broke_low",
+                "previous_rejection": "HIGH",
+            }
 
         return None
 
@@ -183,10 +175,33 @@ class RejectionFilter:
         # 2. First check for continuation (breakout after rejection)
         continuation = self.check_continuation(high, low, close, level_high, level_low, current_bias)
         if continuation:
-            if current_bias != continuation:
-                logging.info(f"🎯 CONTINUATION CONFIRMED (Q{current_quarter}): {label} -> {continuation} bias (breakout after rejection)")
+            direction = continuation["direction"]
+            if current_bias != direction:
+                if direction == "LONG":
+                    logging.info(
+                        f"📈 CONTINUATION: Bounced from low, broke high (+{continuation['dist']:.2f} pts) -> reinforcing LONG bias"
+                    )
+                else:
+                    logging.info(
+                        f"📉 CONTINUATION: Rejected from high, broke low (-{continuation['dist']:.2f} pts) -> reinforcing SHORT bias"
+                    )
+                logging.info(
+                    f"🎯 CONTINUATION CONFIRMED (Q{current_quarter}): {label} -> {direction} bias (breakout after rejection)"
+                )
+                # Enhanced event logging: Continuation pattern detected
+                rejection_source = self.last_rejection_source or label
+                event_logger.log_rejection_detected(
+                    rejection_type=f"{rejection_source}_CONTINUATION",
+                    direction=direction,
+                    level=continuation["level"],
+                    current_price=close,
+                    additional_info={
+                        "pattern": continuation["pattern"],
+                        "previous_rejection": continuation["previous_rejection"],
+                    },
+                )
             self.last_rejection_level = None  # Reset after continuation
-            return continuation
+            return direction
 
         # Then check for new rejection (1 candle close required)
         if rej is not None:

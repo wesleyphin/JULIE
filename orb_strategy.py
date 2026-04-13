@@ -25,6 +25,7 @@ class OrbStrategy(Strategy):
         self.daily_open = None
         self.current_date = None
         self.trade_taken_today = False
+        self.disabled_for_day = False
 
     def on_bar(self, df: pd.DataFrame) -> Optional[Dict]:
         if len(df) < 2:
@@ -51,6 +52,9 @@ class OrbStrategy(Strategy):
                 self.orb_high = max(self.orb_high, curr['high'])
                 self.orb_low = min(self.orb_low, curr['low'])
 
+        if self.disabled_for_day:
+            return None
+
         if t >= datetime.time(9, 45) and not self.orb_complete and self.orb_high is not None:
             self.orb_range = self.orb_high - self.orb_low
             self.orb_mid = (self.orb_high + self.orb_low) / 2.0
@@ -59,6 +63,7 @@ class OrbStrategy(Strategy):
 
             if self.orb_range >= 15.0:
                 self.orb_complete = False
+                self.disabled_for_day = True
                 logging.info(f"ORB: Range {self.orb_range:.2f} >= 15.0pt - Strategy disabled for day")
 
         if not self.orb_complete:
