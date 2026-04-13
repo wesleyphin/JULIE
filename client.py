@@ -9,6 +9,7 @@ import datetime
 import inspect
 import logging
 import math
+import threading
 import time
 import uuid
 from collections import deque
@@ -273,6 +274,25 @@ class ProjectXClient:
             self._coerce_float(CONFIG.get("PROJECTX_USER_STREAM_MAX_ACCOUNT_AGE_SEC", 300.0), 300.0) or 300.0,
         )
         self._aiohttp_fallback_warned = False
+        self._auth_recovery_lock = threading.Lock()
+        self._auth_recovery_in_progress = False
+        self._auth_recovery_last_attempt_ts = 0.0
+        self._auth_recovery_cooldown_sec = max(
+            1.0,
+            self._coerce_float(CONFIG.get("PROJECTX_AUTH_RECOVERY_COOLDOWN_SEC", 5.0), 5.0) or 5.0,
+        )
+        self._auth_failure_reason = None
+        self._session_conflict_policy = str(
+            CONFIG.get("PROJECTX_SESSION_CONFLICT_POLICY", "yield") or "yield"
+        ).strip().lower()
+        self._external_session_retry_sec = max(
+            0.0,
+            self._coerce_float(CONFIG.get("PROJECTX_EXTERNAL_SESSION_RETRY_SEC", 0.0), 0.0) or 0.0,
+        )
+        self._yielding_to_external_session = False
+        self._yielding_to_external_session_since = 0.0
+        self._yielding_to_external_session_reason = ""
+        self.session.hooks.setdefault("response", []).append(self._requests_response_auth_hook)
 
     def _warn_async_http_fallback_once(self) -> None:
         if self._aiohttp_fallback_warned:
@@ -642,6 +662,155 @@ class ProjectXClient:
             )
         )
 
+    def _requests_response_auth_hook(self, response, *args, **kwargs):
+        if response is None or getattr(response, "status_code", None) != 401:
+            return response
+        request = getattr(response, "request", None)
+        request_url = str(getattr(request, "url", "") or "")
+        if "/api/Auth/loginKey" in request_url:
+            return response
+        request_method = str(getattr(request, "method", "HTTP") or "HTTP").upper()
+        context = f"{request_method} {request_url}".strip()
+        self._handle_unauthorized_response(context)
+        return response
+
+    def _invalidate_auth_state(self, reason: str = "") -> None:
+        self.token = None
+        self.token_expiry = None
+        self.session.headers.pop("Authorization", None)
+        self._user_stream_connected = False
+        self._user_stream_subscribed = False
+        if reason:
+            self._auth_failure_reason = str(reason)
+            self._user_stream_last_error = str(reason)
+
+    def _is_external_session_conflict(self, reason: str = "") -> bool:
+        text = str(reason or "").strip().lower()
+        if not text:
+            return False
+        return (
+            "multiple sessions" in text
+            or "one active device session" in text
+            or "active device session" in text
+        )
+
+    def _clear_external_session_yield(self) -> None:
+        self._yielding_to_external_session = False
+        self._yielding_to_external_session_since = 0.0
+        self._yielding_to_external_session_reason = ""
+
+    def _external_session_retry_allowed(self) -> bool:
+        if not self._yielding_to_external_session:
+            return True
+        if self._external_session_retry_sec <= 0.0:
+            return False
+        return (time.time() - self._yielding_to_external_session_since) >= self._external_session_retry_sec
+
+    def _auth_temporarily_unavailable(self) -> bool:
+        return self._yielding_to_external_session and not self._external_session_retry_allowed()
+
+    def _yield_to_external_session(self, reason: str = "") -> bool:
+        if self._session_conflict_policy != "yield":
+            return False
+        if not self._is_external_session_conflict(reason):
+            return False
+        reason_text = str(reason or "external TopstepX session takeover")
+        self._yielding_to_external_session = True
+        self._yielding_to_external_session_since = time.time()
+        self._yielding_to_external_session_reason = reason_text
+        self._invalidate_auth_state(reason_text)
+        logging.warning(
+            "ProjectX session conflict detected (%s). Yielding API session to the external TopstepX login.",
+            reason_text,
+        )
+        scheduled = self._schedule_user_stream_task(
+            lambda: self.stop_user_stream(),
+            description="stop after external session conflict",
+        )
+        if not scheduled:
+            self._clear_user_stream_runtime()
+        return True
+
+    async def _restart_user_stream_after_reauth(self, reason: str = "") -> None:
+        if not bool(CONFIG.get("PROJECTX_USER_STREAM_ENABLED", True)):
+            return
+        if self.account_id is None:
+            return
+        try:
+            await self.stop_user_stream()
+        except Exception as exc:
+            logging.warning("ProjectX user stream stop during auth recovery failed: %s", exc)
+        started = await self.start_user_stream()
+        if started:
+            logging.info("📡 ProjectX user stream restarted after auth recovery")
+        else:
+            logging.warning("ProjectX user stream restart after auth recovery did not succeed")
+
+    def recover_auth_sync(self, reason: str = "", *, restart_user_stream: bool = True) -> bool:
+        reason_text = str(reason or "unauthorized response")
+        if self._yield_to_external_session(reason_text):
+            return False
+        if self._auth_temporarily_unavailable():
+            return False
+        if self._yielding_to_external_session and self._external_session_retry_allowed():
+            logging.warning("ProjectX external-session cooldown elapsed; attempting API re-authentication again.")
+            self._clear_external_session_yield()
+        now = time.time()
+        with self._auth_recovery_lock:
+            if self._auth_recovery_in_progress:
+                return self.token is not None
+            if (now - self._auth_recovery_last_attempt_ts) < self._auth_recovery_cooldown_sec:
+                return self.token is not None
+            self._auth_recovery_in_progress = True
+            self._auth_recovery_last_attempt_ts = now
+
+        try:
+            had_user_stream = (
+                bool(CONFIG.get("PROJECTX_USER_STREAM_ENABLED", True))
+                and self.account_id is not None
+                and (
+                    self._user_stream is not None
+                    or self._user_stream_connected
+                    or self._user_stream_subscribed
+                    or self._user_stream_loop is not None
+                )
+            )
+            logging.warning(
+                "ProjectX auth invalidated (%s). Re-authenticating via loginKey.",
+                reason_text,
+            )
+            self._invalidate_auth_state(reason_text)
+            self.login()
+            if restart_user_stream and had_user_stream and self._user_stream_loop is not None:
+                scheduled = self._schedule_user_stream_task(
+                    lambda: self._restart_user_stream_after_reauth(reason_text),
+                    description="restart after auth recovery",
+                )
+                if not scheduled:
+                    logging.warning("ProjectX user stream restart scheduling failed after auth recovery")
+            return self.token is not None
+        except Exception as exc:
+            logging.error("ProjectX auth recovery failed after %s: %s", reason_text, exc)
+            return False
+        finally:
+            with self._auth_recovery_lock:
+                self._auth_recovery_in_progress = False
+
+    def _handle_unauthorized_response(self, context: str, *, restart_user_stream: bool = True) -> bool:
+        return self.recover_auth_sync(context, restart_user_stream=restart_user_stream)
+
+    async def _handle_unauthorized_response_async(
+        self,
+        context: str,
+        *,
+        restart_user_stream: bool = True,
+    ) -> bool:
+        return await asyncio.to_thread(
+            self.recover_auth_sync,
+            context,
+            restart_user_stream=restart_user_stream,
+        )
+
     def _clear_user_stream_runtime(self) -> None:
         self._user_stream = None
         self._user_stream_connected = False
@@ -717,6 +886,20 @@ class ProjectXClient:
     def _on_gateway_user_trade(self, arguments) -> None:
         self._record_user_trade(self._signalr_payload(arguments))
 
+    def _on_gateway_logout(self, arguments) -> None:
+        payload = self._signalr_payload(arguments)
+        if isinstance(payload, dict):
+            payload_text = payload.get("message") or payload.get("reason") or str(payload)
+        elif payload not in (None, "", []):
+            payload_text = str(payload)
+        else:
+            payload_text = "no details"
+        logging.warning("⚠️ ProjectX user stream logout received: %s", payload_text)
+        self._handle_unauthorized_response(
+            f"GatewayLogout ({payload_text})",
+            restart_user_stream=True,
+        )
+
     async def _subscribe_user_stream(self) -> None:
         if self._user_stream is None:
             return
@@ -773,6 +956,7 @@ class ProjectXClient:
             self._user_stream.on("GatewayUserOrder", self._on_gateway_user_order)
             self._user_stream.on("GatewayUserPosition", self._on_gateway_user_position)
             self._user_stream.on("GatewayUserTrade", self._on_gateway_user_trade)
+            self._user_stream.on("GatewayLogout", self._on_gateway_logout)
             await self._user_stream.start()
             self._user_stream_starting = False
             await self._subscribe_user_stream()
@@ -828,6 +1012,7 @@ class ProjectXClient:
 
             # Set auth header for all subsequent requests
             self.session.headers.update({"Authorization": f"Bearer {self.token}"})
+            self._clear_external_session_yield()
             logging.info("Authentication successful (JWT token acquired, valid 24h)")
             self._track_general_request()
         except Exception as e:
@@ -839,6 +1024,8 @@ class ProjectXClient:
         Validate and refresh session token if needed
         Endpoint: POST /api/Auth/validate
         """
+        if self._auth_temporarily_unavailable():
+            return False
         if not self._check_general_rate_limit():
             return self.token is not None
 
@@ -854,6 +1041,12 @@ class ProjectXClient:
                     self.session.headers.update({"Authorization": f"Bearer {self.token}"})
                     logging.info("Session token refreshed")
                 return True
+            elif resp.status_code == 401:
+                logging.warning("Session validation failed: 401")
+                return self._handle_unauthorized_response(
+                    "POST /api/Auth/validate",
+                    restart_user_stream=True,
+                )
             else:
                 logging.warning(f"Session validation failed: {resp.status_code}")
                 return False
@@ -961,6 +1154,8 @@ class ProjectXClient:
             and (time.time() - self._account_cache_ts) <= 30.0
         ):
             return dict(self._account_cache)
+        if self._auth_temporarily_unavailable():
+            return dict(self._account_cache) if isinstance(self._account_cache, dict) else stream_account
 
         if not self._check_general_rate_limit():
             return dict(self._account_cache) if isinstance(self._account_cache, dict) else stream_account
@@ -974,6 +1169,9 @@ class ProjectXClient:
             resp = self.session.post(url, json=payload)
             self._track_general_request()
             if resp.status_code != 200:
+                if resp.status_code == 401:
+                    logging.warning("Account search returned 401; using cached account snapshot while auth recovery runs")
+                    return dict(self._account_cache) if isinstance(self._account_cache, dict) else None
                 logging.warning(f"Account search failed: {resp.status_code} - {resp.text}")
                 return dict(self._account_cache) if isinstance(self._account_cache, dict) else None
             data = resp.json()
@@ -1045,6 +1243,8 @@ class ProjectXClient:
         Endpoint: POST /api/History/retrieveBars
         Rate Limit: 50 requests / 30 seconds
         """
+        if self._auth_temporarily_unavailable():
+            return self.cached_df
         # SHARED rate limit check first (coordinates across MES/MNQ clients)
         if not ProjectXClient._shared_check_bar_rate_limit():
             return self.cached_df
@@ -1098,6 +1298,9 @@ class ProjectXClient:
             if resp.status_code == 429:
                 logging.warning(f"Rate limited (429) for {self.contract_root}. Backing off 5s...")
                 time.sleep(5)
+                return self.cached_df
+            if resp.status_code == 401:
+                logging.warning("History retrieveBars returned 401; using cached data while auth recovery runs")
                 return self.cached_df
 
             resp.raise_for_status()
@@ -1158,6 +1361,8 @@ class ProjectXClient:
             Fetch historical bars with custom timeframe (for HTF analysis).
             minutes_per_bar: 60 for 1H, 240 for 4H.
             """
+            if self._auth_temporarily_unavailable():
+                return pd.DataFrame()
             # SHARED rate limit check first (coordinates across MES/MNQ clients)
             if not ProjectXClient._shared_check_bar_rate_limit():
                 return pd.DataFrame()
@@ -1197,6 +1402,9 @@ class ProjectXClient:
                         df['ts'] = df['ts'].dt.tz_convert(self.et)
                         df = df.set_index('ts').sort_index()
                         return df
+                if resp.status_code == 401:
+                    logging.warning("HTF retrieveBars returned 401; returning empty dataframe while auth recovery runs")
+                    return pd.DataFrame()
                 return pd.DataFrame()
             except Exception as e:
                 logging.error(f"HTF Data fetch error: {e}")
@@ -1498,6 +1706,8 @@ class ProjectXClient:
             if not require_open_pnl or stream_side not in {"LONG", "SHORT"} or stream_open_pnl is not None:
                 self._local_position = stream_position.copy()
                 return stream_position
+        if self._auth_temporarily_unavailable():
+            return stream_position if stream_position is not None else self._stale_position()
 
         # --- FIX START ---
         if not self._check_general_rate_limit():
@@ -1543,6 +1753,9 @@ class ProjectXClient:
 
                 if resp.status_code in (400, 404):
                     continue
+                if resp.status_code == 401:
+                    logging.warning("Position check returned 401; using stream/cached position while auth recovery runs")
+                    return stream_position if stream_position is not None else self._stale_position()
 
                 logging.warning(f"Position check failed: {resp.status_code} - {resp.text}")
                 return stream_position if stream_position is not None else self._stale_position()
@@ -2227,6 +2440,8 @@ class ProjectXClient:
         Endpoint: POST /api/Order/searchOpen (preferred) or /api/Order/search
         Returns: List of order dicts with orderId, type, side, price, etc.
         """
+        if self._auth_temporarily_unavailable():
+            return list(self._order_cache.values())
         if not self._check_general_rate_limit():
             return []
 
@@ -2254,6 +2469,9 @@ class ProjectXClient:
                     return filtered
                 if resp.status_code in (400, 404):
                     continue
+                if resp.status_code == 401:
+                    logging.warning("Order search returned 401; auth recovery is in progress")
+                    return []
                 logging.warning(f"Order search failed: {resp.status_code} - {resp.text}")
                 return []
             return []
@@ -2450,6 +2668,8 @@ class ProjectXClient:
         Search recent trades for the account/contract.
         Endpoint: POST /api/Trade/search
         """
+        if self._auth_temporarily_unavailable():
+            return []
         if not self._check_general_rate_limit():
             return []
         if self.account_id is None:
@@ -2469,6 +2689,9 @@ class ProjectXClient:
             self._track_general_request()
             if resp.status_code != 200:
                 if resp.status_code in (400, 404):
+                    return []
+                if resp.status_code == 401:
+                    logging.warning("Trade search returned 401; auth recovery is in progress")
                     return []
                 logging.warning(f"Trade search failed: {resp.status_code} - {resp.text}")
                 return []
@@ -3428,6 +3651,8 @@ class ProjectXClient:
             if not require_open_pnl or stream_side not in {"LONG", "SHORT"} or stream_open_pnl is not None:
                 self._local_position = stream_position.copy()
                 return stream_position
+        if self._auth_temporarily_unavailable():
+            return stream_position if stream_position is not None else self._stale_position()
 
         # --- FIX START ---
         if not self._check_general_rate_limit():
@@ -3471,6 +3696,13 @@ class ProjectXClient:
                                 continue
                             if resp.status in (400, 404):
                                 continue
+                            if resp.status == 401:
+                                logging.warning("Async position check returned 401; re-authenticating via API key")
+                                await self._handle_unauthorized_response_async(
+                                    "POST /api/Position/searchOpen|search (async)",
+                                    restart_user_stream=True,
+                                )
+                                return stream_position if stream_position is not None else self._stale_position()
                             logging.warning(f"Async position check failed: {resp.status}")
                             return stream_position if stream_position is not None else self._stale_position()
                     else:
@@ -3494,6 +3726,13 @@ class ProjectXClient:
                                 continue
                             if resp.status in (400, 404):
                                 continue
+                            if resp.status == 401:
+                                logging.warning("Async position GET returned 401; re-authenticating via API key")
+                                await self._handle_unauthorized_response_async(
+                                    "GET /api/Position (async)",
+                                    restart_user_stream=True,
+                                )
+                                return stream_position if stream_position is not None else self._stale_position()
                             logging.warning(f"Async position check failed: {resp.status}")
                             return stream_position if stream_position is not None else self._stale_position()
                 if best_position is not None:
@@ -3522,6 +3761,8 @@ class ProjectXClient:
             self._warn_async_http_fallback_once()
             return await asyncio.to_thread(self.validate_session)
 
+        if self._auth_temporarily_unavailable():
+            return False
         if not self._check_general_rate_limit():
             return self.token is not None
 
@@ -3541,6 +3782,12 @@ class ProjectXClient:
                             self.session.headers.update({"Authorization": f"Bearer {self.token}"})
                             logging.info("Session token refreshed (async)")
                         return True
+                    if resp.status == 401:
+                        logging.warning("Async session validation failed: 401")
+                        return await self._handle_unauthorized_response_async(
+                            "POST /api/Auth/validate (async)",
+                            restart_user_stream=True,
+                        )
                     else:
                         logging.warning(f"Async session validation failed: {resp.status}")
                         return False
