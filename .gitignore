@@ -25,6 +25,7 @@ montecarlo/Backtest-Simulator-main/.env.local
 # Model files (large)
 *.joblib
 *.pkl
+!artifacts/regimeadaptive_v19_live/regimeadaptive_gate_model.joblib
 
 # Temp release artifacts
 julie_filterless_public_*.zip
