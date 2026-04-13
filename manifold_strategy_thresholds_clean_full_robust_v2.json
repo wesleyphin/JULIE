@@ -1,0 +1,65 @@
+{
+  "threshold": 0.5700000000000001,
+  "short_threshold": 0.42999999999999994,
+  "horizon_bars": 10,
+  "min_move_points": 0.75,
+  "fees_points": 0.148,
+  "feature_columns": [
+    "manifold_R",
+    "manifold_alignment",
+    "manifold_smoothness",
+    "manifold_stress",
+    "manifold_dispersion",
+    "manifold_risk_mult",
+    "manifold_R_pct",
+    "manifold_alignment_pct",
+    "manifold_smoothness_pct",
+    "manifold_stress_pct",
+    "manifold_dispersion_pct",
+    "ret_1",
+    "ret_5",
+    "ret_15",
+    "atr14",
+    "atr14_z",
+    "range_z",
+    "vol_z",
+    "vwap_dist_atr",
+    "ema_spread",
+    "ema_slope_20",
+    "hour_sin",
+    "hour_cos",
+    "session_id"
+  ],
+  "model_type": "rf",
+  "workers": 6,
+  "confluence_enabled": false,
+  "confluence_file": "manifold_strategy_confluence_clean_full_robust_v2.json",
+  "allowed_session_ids": [
+    1,
+    2
+  ],
+  "allowed_session_names": [
+    "LONDON",
+    "NY_AM"
+  ],
+  "trained_at": "2026-03-20T15:35:11.867411+00:00",
+  "train_window": {
+    "start": null,
+    "end": null
+  },
+  "validation": {
+    "trade_count": 1816,
+    "win_rate": 0.5958149779735683,
+    "avg_pnl": 0.2888116740088107,
+    "total_pnl": 524.4820000000002,
+    "long_share": 0.38876651982378857,
+    "short_share": 0.6112334801762115,
+    "score": 0.1728340808008377,
+    "coverage": 0.005324701218582504,
+    "mean_fold_avg_pnl": 0.30557639627369515,
+    "worst_fold_avg_pnl": 0.02880180180180189,
+    "fold_std_avg_pnl": 0.40344685745579895,
+    "positive_folds": 4,
+    "evaluated_folds": 4
+  }
+}

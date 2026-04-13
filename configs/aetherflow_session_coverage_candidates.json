@@ -1,0 +1,100 @@
+{
+  "variants": [
+    {
+      "name": "deploy_live_pair_baseline",
+      "description": "Current live AetherFlow pair using only LONDON, NY_AM, and NY_PM.",
+      "family_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "deploy_live_pair_plus_asia_thr055",
+      "description": "Open both live-pair families to ASIA with the current 0.55 threshold.",
+      "family_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "deploy_live_pair_plus_asia_thr058",
+      "description": "Open both live-pair families to ASIA with a tighter 0.58 threshold.",
+      "family_policies": {
+        "compression_release": {
+          "threshold": 0.58,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.58,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "deploy_live_pair_plus_asia_thr060",
+      "description": "Open both live-pair families to ASIA with a still tighter 0.60 threshold.",
+      "family_policies": {
+        "compression_release": {
+          "threshold": 0.60,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.60,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "deploy_live_pair_tb_plus_asia_thr055",
+      "description": "Only transition_burst is allowed to trade ASIA; compression_release stays on live sessions.",
+      "family_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "deploy_live_pair_cr_plus_asia_thr055",
+      "description": "Only compression_release is allowed to trade ASIA; transition_burst stays on live sessions.",
+      "family_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    }
+  ]
+}

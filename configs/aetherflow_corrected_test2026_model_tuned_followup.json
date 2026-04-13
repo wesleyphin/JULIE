@@ -1,0 +1,84 @@
+{
+  "variants": [
+    {
+      "name": "tb_only_0545",
+      "description": "Slightly tighter TB-only corrected 2026-fold book.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.545,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "tb_only_0550",
+      "description": "Cleaner TB-only corrected 2026-fold book.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "pair_cr0580_tb0545",
+      "description": "Keep CR selective with a slightly tighter TB threshold.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.58,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.545,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "pair_cr0580_tb0550",
+      "description": "More conservative pair corrected 2026-fold book.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.58,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "pair_base_0545",
+      "description": "Balanced pair baseline between 0.54 and 0.55.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.545,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.545,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    }
+  ]
+}

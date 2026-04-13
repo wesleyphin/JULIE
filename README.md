@@ -11,29 +11,6 @@ This document explains the current Julie bot from a technical perspective:
 It is intentionally focused on the current filterless live stack, because that
 is the path the bot is actually meant to run on.
 
-To make the strategy sections read more like technical notes than source-code
-comments, the equations below use standard mathematical notation.
-
-Let:
-
-- $\mathbf{x}_t$ denote the live state vector at bar $t$
-- $\mathcal{M}$ denote the full candidate or member inventory
-- $\mathcal{F}_t \subseteq \mathcal{M}$ denote the feasible set after hard live guards
-- $s_t \in \{\mathrm{LONG}, \mathrm{SHORT}, \varnothing\}$ denote the side decision
-- $\ell_t$ denote the session label
-- $v_t$ denote rolling volatility
-- $u_t$ denote smoothness
-- $\chi_t$ denote stress
-- $\delta_t$ denote dispersion
-- $\pi_\theta$ denote a learned or configured policy with parameters $\theta$
-- $\tau$ denote a decision threshold
-- $\mathbb{E}[R_t \mid \mathbf{x}_t]$ denote conditional expected return
-- $\mathbb{1}\{\cdot\}$ denote an indicator function
-
-When Greek letters appear later, they generally stand for tunable coefficients
-or thresholds in the live artifact, not abstract theory disconnected from the
-runtime.
-
 ## 1. System Overview
 
 Julie is an automated MES futures trading system for TopstepX / ProjectX
@@ -309,25 +286,6 @@ the engine should choose among those possibilities.
 This distinction matters more in DE3 than anywhere else in the bot. If the
 structural artifact is skewed, the runtime can only optimize inside that skew.
 
-In compact notation, the structural file defines
-$\mathcal{M} = \{m_1, \dots, m_N\}$ and the live bundle defines a policy
-$\pi_\theta(\mathbf{x}_t, \mathcal{M}) \to \{\varnothing\} \cup \mathcal{M}$.
-The live decision is therefore constrained optimization, not open-ended
-discovery:
-
-```math
-\begin{aligned}
-m_t^\star &= \underset{m \in \mathcal{F}_t}{\mathrm{arg\,max}}
-\;\mathcal{S}_\theta(m, \mathbf{x}_t), \\
-\mathrm{trade}_t &= \mathbb{1}\!\left\{
-\mathcal{S}_\theta(m_t^\star, \mathbf{x}_t) \ge \tau_t
-\right\}.
-\end{aligned}
-```
-
-Here $\mathcal{F}_t$ is the feasible subset of $\mathcal{M}$ that survives
-live runtime guards.
-
 ### 7.2 The member database
 
 The v2 member database is the raw inventory of tradable DE3 variants. Each row
@@ -347,13 +305,6 @@ expected bracket and historical behavior look like this."
 
 That means the member DB is not just a lookup table. It is the space of actions
 DE3 is allowed to take.
-
-One useful abstraction is to view each member row as an action vector
-$m = (\sigma, \Delta, s, f, b, q_{\mathrm{hist}})$, where $\sigma$ is session,
-$\Delta$ is timeframe, $s$ is side, $f$ is family, $b$ is bracket profile, and
-$q_{\mathrm{hist}}$ collects empirical priors such as win behavior, payoff
-shape, loss share, and coverage. In that sense the DB behaves more like a
-discretized action manifold than a flat parameter table.
 
 The most important practical consequence is side coverage. If the DB has no
 short members in a session, DE3 cannot truly become bearish there. The router,
@@ -377,21 +328,6 @@ The rough order is:
 By the time DE3 v4 sees its candidate set, it is not evaluating every member in
 the JSON blindly. It is evaluating the feasible subset that survived the base
 runtime checks.
-
-Formally, the wrapper is constructing:
-
-```math
-\mathcal{F}_t
-=
-\left\{
-m \in \mathcal{M} : g_{\mathrm{base}}(m, \mathbf{x}_t) = 1
-\right\}.
-```
-
-Here $g_{\mathrm{base}}$ bundles session compatibility, timeframe availability,
-bracket realizability, and local feasibility logic. Every later DE3 score is
-therefore conditional on the support of $\mathcal{F}_t$, not on the full
-member inventory.
 
 ### 7.4 The v4 runtime as a decision stack
 
@@ -444,21 +380,6 @@ This gives DE3 a hierarchy:
 That is why DE3 behaves more like a portfolio allocator than a normal signal
 generator.
 
-A compact way to describe the hierarchy is:
-
-```math
-\begin{aligned}
-r_t^\star &= \underset{r}{\mathrm{arg\,max}}
-\; P_\theta(r \mid \mathbf{x}_t), \\
-\mathcal{L}_t &= \mathrm{LaneSet}(r_t^\star, \mathbf{x}_t), \\
-m_t^\star &= \underset{m \in \mathcal{F}_t \cap \mathcal{L}_t}{\mathrm{arg\,max}}
-\;\mathcal{S}_{\mathrm{lane}}(m, \mathbf{x}_t).
-\end{aligned}
-```
-
-`de3_v4_route_confidence` and the stored route margin are effectively
-diagnostics of how separated the winning corridor is from the competing ones.
-
 ### 7.6 Entry model, execution policy, and decision-side model
 
 Once a candidate is near the top, DE3 can still apply several learned or
@@ -487,58 +408,6 @@ Its real power depends on how the bundle applies it:
 Even then, it still lives inside the member inventory. If there are no credible
 short candidates in the lane, the side model cannot manufacture one.
 
-The calibrated entry model in the live code is explicitly additive. It builds a
-score from weighted, saturating components rather than a single opaque number.
-If $\alpha_\bullet$, $\beta_\bullet$, and $\gamma_\bullet$ denote artifact
-weights, a faithful high-level summary is:
-
-```math
-\begin{aligned}
-\mathcal{S}_{\mathrm{entry}}
-&=
-\alpha_1 c_{\mathrm{quality}}
-\;+\;
-\alpha_2 c_{\mathrm{lane}}
-\;+\;
-\alpha_3 c_{\mathrm{variant}}
-\;+\;
-\alpha_4 c_{\mathrm{edge}}
-\;+\;
-\alpha_5 c_{\mathrm{structure}}
-\;+\;
-\alpha_6 c_{\mathrm{PF}}
-\;+\;
-\alpha_7 c_{\mathrm{coverage}} \\
-&\quad
--\beta_1 c_{\mathrm{loss}}
--\beta_2 c_{\mathrm{stop}}
--\beta_3 c_{\mathrm{drawdown}}
--\beta_4 c_{\mathrm{worstblock}}
--\beta_5 c_{\mathrm{shape}} \\
-&\quad
-+\gamma_1 c_{\mathrm{context}}
-+\gamma_2 c_{\mathrm{shortterm}}
-+\gamma_3 c_{\mathrm{action}}
-+\gamma_4 c_{\mathrm{sideprior}}.
-\end{aligned}
-```
-
-Most non-binary components are normalized in the live code as
-$w \tanh\!\big((v-\mu)/\sigma\big)$, and a candidate is admitted only if
-
-```math
-\mathcal{S}_{\mathrm{entry}}
-\ge
-\tau_{\mathrm{base}} + \delta_{\mathrm{scope}}.
-```
-
-The execution policy is similarly engineered: it first applies hard bounds such
-as minimum route confidence or maximum loss share, then computes a normalized
-quality score in `[0, 1]` as a weighted average of route confidence, edge
-points, lane score, structural score, prior quality, and inverted loss / stop
-shares. That quality score determines whether the candidate is promoted to
-`full`, degraded to `conservative`, or rejected outright.
-
 ### 7.7 Profit gates, prune rules, and signal-size rules
 
 The live DE3 wrapper also supports runtime risk shaping above and beyond simple
@@ -556,23 +425,6 @@ is structurally present but repeatedly undesirable in a narrow context.
 Finally, signal-size rules can modify the final contract count after the winner
 has already been selected. This is one of the reasons DE3 is not simply a
 "which row wins?" engine. Position size itself can be part of the decision.
-
-The pre-router profit gate is best understood as a conditional expectancy test:
-
-```math
-\mathrm{AllowLane}_t
-=
-\mathbb{1}\!\left\{
-\begin{array}{l}
-n(\ell,\sigma) \ge n_{\min}, \\
-\mathbb{P}(R_t < 0 \mid \ell,\sigma) \le p_{\max}, \\
-\mathbb{E}[R_t \mid \ell,\sigma] \ge \mathrm{EV}_{\min}
-\end{array}
-\right\}.
-```
-
-Signal-size logic then acts as a post-selection map from trade identity to risk
-budget, rather than as a fixed per-engine constant.
 
 ### 7.8 Bracket selection and execution payload
 
@@ -594,24 +446,6 @@ This is important because DE3's decision is not complete until the bracket is
 resolved. In DE3, a member identity and a bracket identity are related but not
 identical.
 
-At the accounting layer, the chosen payload corresponds to the familiar
-decomposition:
-
-```math
-\begin{aligned}
-\mathrm{EV}_{\mathrm{gross}}
-&\approx
-p_{\mathrm{hit}} \cdot \mathrm{TP}
--\left(1-p_{\mathrm{hit}}\right)\cdot \mathrm{SL}, \\
-\mathrm{EV}_{\mathrm{net}}
-&\approx
-\mathrm{EV}_{\mathrm{gross}} - \mathrm{fees}.
-\end{aligned}
-```
-
-with $\mathrm{TP}$ and $\mathrm{SL}$ expressed in the concrete stop and target
-distances that the runtime will actually send downstream.
-
 ### 7.9 Final drift gate
 
 Even after selection, sizing, and bracketing, DE3 can still refuse the trade.
@@ -621,24 +455,6 @@ too far from the anchor condition the candidate expects.
 This is one of the last defenses against stale signals. A candidate can be
 structurally valid and top-ranked, but still fail because the market has drifted
 too far away from the trade's intended entry geometry.
-
-Mathematically the gate is very simple:
-
-```math
-\begin{aligned}
-d_t^{\mathrm{drift}}
-&=
-\frac{\left|P_t - A_t\right|}{\mathrm{ATR}_t}, \\
-\mathrm{AllowTrade}_t
-&=
-\mathbb{1}\!\left\{
-d_t^{\mathrm{drift}} \le \delta_{\max}
-\right\}.
-\end{aligned}
-```
-
-The anchor is tracked per strategy / side / time bucket, which makes the gate a
-scale-adjusted freshness test rather than a fixed-point heuristic.
 
 ### 7.10 What DE3 is learning, and what it is not
 
@@ -683,19 +499,6 @@ Examples:
 This turns market timing into a lattice of contexts rather than a single global
 environment.
 
-Formally, the context key is a discrete state variable:
-
-```math
-k_t = \big(q_t,\; w_t,\; \mathrm{dow}_t,\; \ell_t\big),
-```
-
-where $q_t$ is quarter, $w_t$ is week-in-month, $\mathrm{dow}_t$ is
-day-of-week, and $\ell_t$ is the session label.
-
-The artifact then behaves like a map from `k_t` to a rule family, parameter
-tuple, and side policy. RegimeAdaptive is therefore much closer to
-$\mathrm{signal}_t = f(P_t, k_t)$ than to $\mathrm{signal}_t = f(P_t)$ alone.
-
 ### 8.2 The artifact is the strategy grammar
 
 The live artifact at `artifacts/regimeadaptive_v19_live/latest.json` is not just
@@ -739,31 +542,6 @@ blocked to trade.
 This is why RegimeAdaptive should not be described as purely calendar-based. It
 is calendar-conditioned, but still price- and volatility-aware at the bar level.
 
-When low-vol trend confirmation is enabled, the effective trend predicates are
-close to:
-
-```math
-\begin{aligned}
-\mathrm{TrendUp}_t
-&=
-\mathbb{1}\!\left\{
-\mathrm{SMA}^{(f)}_t > \mathrm{SMA}^{(s)}_t
-\;\wedge\;
-v_t < \mathrm{med}(v)_t
-\right\}, \\
-\mathrm{TrendDown}_t
-&=
-\mathbb{1}\!\left\{
-\mathrm{SMA}^{(f)}_t < \mathrm{SMA}^{(s)}_t
-\;\wedge\;
-v_t < \mathrm{med}(v)_t
-\right\}.
-\end{aligned}
-```
-
-Here $v_t$ comes from rolling close-to-close volatility and the decisive
-price geometry normalized by ATR whenever ATR is available.
-
 ### 8.4 Rule families in detail
 
 The artifact can choose among three rule types, each of which defines a
@@ -796,38 +574,6 @@ different interpretation of trend structure.
 In other words, the artifact is not just selecting thresholds. It is selecting
 the very geometry of the signal.
 
-At runtime, the three rule families reduce to threshold inequalities:
-
-```math
-\begin{aligned}
-\text{Pullback}_{\mathrm{long}}:\quad
-&\mathrm{TrendUp}_t, \\
-&C_t < \mathrm{SMA}^{(f)}_t - \lambda_{\mathrm{cross}}\mathrm{ATR}_t, \\
-&\mathrm{Range}_t >
-\max\!\left(
-\kappa_{\mathrm{range}}\overline{\mathrm{Range}}_t,\;
-\lambda_{\mathrm{range}}\mathrm{ATR}_t
-\right); \\
-[6pt]
-\text{Continuation}_{\mathrm{long}}:\quad
-&\mathrm{TrendUp}_t, \\
-&L_t^{\mathrm{recent}}
-\le
-\mathrm{SMA}^{(f)}_t + \lambda_{\mathrm{touch}}\mathrm{ATR}_t, \\
-&C_t >
-\mathrm{SMA}^{(f)}_t + \lambda_{\mathrm{cross}}\mathrm{ATR}_t; \\
-[6pt]
-\text{Breakout}_{\mathrm{long}}:\quad
-&\mathrm{TrendUp}_t, \\
-&C_t >
-\mathrm{HH}_{L}(t) + \lambda_{\mathrm{cross}}\mathrm{ATR}_t.
-\end{aligned}
-```
-
-The short rules are the sign-mirrored analogs. Candidate strength is then the
-amount by which the close exceeds the relevant trigger, which allows the engine
-to rank multiple valid rules instead of emitting a pure boolean.
-
 ### 8.5 Equal-high and equal-low protection
 
 RegimeAdaptive includes an equal-high / equal-low filter that matters most for
@@ -837,11 +583,6 @@ or repeated high, the engine can reject the signal.
 The purpose is subtle but important: a "pullback" that is really just a repeated
 failure zone can behave more like a continuation trap than a clean retracement.
 The equal-level filter is a structural guard against that ambiguity.
-
-The tolerance is ATR-aware in the live code, effectively
-$\varepsilon_t = \max(\varepsilon_{\mathrm{abs}},
-\lambda_{\mathrm{eq}}\mathrm{ATR}_t)$, so the equal-level concept scales
-with regime volatility instead of using a single absolute distance.
 
 ### 8.6 Reversion and skip policy
 
@@ -861,33 +602,6 @@ can explicitly say that this context should be faded instead.
 
 This is one of the few engines in the stack where "bad historical context" can
 be converted into a systematic contrarian rule rather than a dead zone.
-
-In policy terms, the artifact applies a map:
-
-```math
-\pi(k_t, s_t^{\mathrm{raw}})
-\in
-\left\{
-\mathrm{normal},\;
-\mathrm{reversed},\;
-\mathrm{skip}
-\right\}.
-```
-
-and the emitted side becomes:
-
-```math
-s_t
-=
-\begin{cases}
-s_t^{\mathrm{raw}}, & \pi = \mathrm{normal}, \\
--\,s_t^{\mathrm{raw}}, & \pi = \mathrm{reversed}, \\
-\varnothing, & \pi = \mathrm{skip}.
-\end{cases}
-```
-
-That is why RegimeAdaptive can turn a historically bad continuation context
-into a systematic fade without changing the underlying detector.
 
 ### 8.7 Volatility and time guards
 
@@ -921,13 +635,6 @@ Its runtime feature row includes:
 
 So the gate is not simply checking "is this a long?" It is checking the full
 shape of the proposed signal inside its context.
-
-Equivalently, the gate is a second-stage classifier
-$p_{\mathrm{take}} = g_\phi(\mathbf{z}_t)$, where $\mathbf{z}_t$ includes
-cyclical time encodings, rule code, ATR-scaled bar geometry, returns, and
-volatility summaries. The candidate survives only if
-$p_{\mathrm{take}} \ge \tau_{\mathrm{gate}}$, so the gate is better thought of
-as a tradeability posterior than as a directional model.
 
 ### 8.9 Exit behavior
 
@@ -981,24 +688,6 @@ Its real job is closer to:
 - estimate whether the resulting trade is worth taking
 
 That is why the live replacement runtime is called `dist_bracket_ml`.
-
-In compact notation, MLPhysics is trying to estimate a conditional object of
-the form:
-
-```math
-\mathcal{D}_t^{(s)}
-=
-\left\{
-\mathrm{EV}_t^{(s)},
-Q_{\mathrm{MFE}}^{(s)}(q),
-Q_{\mathrm{MAE}}^{(s)}(q),
-Q_{\mathrm{EV}}^{(s)}(q),
-p_{\mathrm{take}}^{(s)}
-\right\},
-```
-
-rather than a single class label. Direction is only one coordinate of the
-object being inferred.
 
 ### 9.2 Bundle anatomy
 
@@ -1066,50 +755,6 @@ This is crucial. MLPhysics does not frame long versus short as a single
 softmax-style contest. It asks whether each side is independently viable first,
 then compares the survivors.
 
-In the live inference code, side scoring is approximately:
-
-```math
-\begin{aligned}
-\mathrm{TP}_{\mathrm{ATR}}
-&=
-\mathrm{clip}\!\left(
-Q_{\mathrm{MFE}}(0.90),\;
-\mathrm{TP}_{\min},\;
-\mathrm{TP}_{\max,\sigma}
-\right), \\
-\mathrm{SL}_{\mathrm{ATR}}
-&=
-\mathrm{clip}\!\left(
-\left|Q_{\mathrm{MAE}}(0.10)\right|,\;
-\mathrm{SL}_{\min},\;
-\mathrm{SL}_{\max,\sigma}
-\right), \\
-\rho_t
-&=
-\frac{\mathrm{TP}_{\mathrm{ATR}}}{\mathrm{SL}_{\mathrm{ATR}}}, \\
-\mathrm{TP}_{\mathrm{ATR}}
-&\leftarrow
-\min\!\left(
-\mathrm{TP}_{\max,\sigma},\;
-\rho_{\min}\mathrm{SL}_{\mathrm{ATR}}
-\right)
-\quad \text{if } \rho_t < \rho_{\min}, \\
-u_t
-&=
-Q_{\mathrm{EV}}(0.95) - Q_{\mathrm{EV}}(0.05), \\
-\mathcal{S}_t
-&=
-\begin{cases}
-\mathrm{EV}_t / \mathrm{SL}_{\mathrm{ATR}}, & \text{if score mode is EV-over-SL}, \\
-\mathrm{EV}_t / u_t, & \text{if score mode is EV-over-uncertainty}.
-\end{cases}
-\end{aligned}
-```
-
-If EV quantile models are unavailable, uncertainty falls back to roughly
-$\big(\mathrm{TP}_{\mathrm{ATR}} + \mathrm{SL}_{\mathrm{ATR}}\big)/2$, which
-keeps the score defined even in lighter bundles.
-
 ### 9.6 Bracket optimization
 
 The most distinctive part of MLPhysics is its bracket search.
@@ -1127,25 +772,6 @@ It then picks the best bracket from that candidate set.
 This means MLPhysics is not merely inheriting a fixed bracket from training. It
 can choose among multiple bracket shapes at runtime using learned hit
 probabilities.
-
-With hit-model search enabled, bracket choice becomes an explicit discrete
-optimization:
-
-```math
-\left(\mathrm{SL}^\star,\mathrm{TP}^\star\right)
-=
-\underset{(\mathrm{SL},\mathrm{TP}) \in \mathcal{G}}{\mathrm{arg\,max}}
-\left[
-p_{\mathrm{hit}}(\mathrm{SL},\mathrm{TP})\mathrm{TP}
--\left(1-p_{\mathrm{hit}}(\mathrm{SL},\mathrm{TP})\right)\mathrm{SL}
--c_{\mathrm{ATR}}
-\right].
-```
-
-where $\mathcal{G}$ is the ATR-grid that survives session caps and minimum
-reward-to-risk
-constraints. The runtime also records the margin over the second-best bracket,
-which is a useful proxy for bracket stability.
 
 ### 9.7 Scoring and uncertainty
 
@@ -1179,35 +805,11 @@ gate feature row from:
 - the chosen side
 - base model outputs such as EV and bracket metrics
 
-The gate then predicts $p_{\mathrm{take}}$, optionally calibrates it, and
-compares it to a threshold. If $p_{\mathrm{take}}$ is below threshold, the side
-is turned into $\varnothing$.
+The gate then predicts `p_take`, optionally calibrates it, and compares it to a
+threshold. If `p_take` is below threshold, the side is turned into `NONE`.
 
 This is important philosophically. In MLPhysics, "tradeability" is a separate
 problem from "directional edge."
-
-The gate is solving:
-
-```math
-\begin{aligned}
-p_{\mathrm{take}}
-&=
-\mathrm{Cal}\!\left(
-h_\psi(\mathbf{x}_t, s_t, \mathrm{EV}, \mathrm{TP}_{\mathrm{ATR}},
-\mathrm{SL}_{\mathrm{ATR}}, \rho_t, \dots)
-\right), \\
-\mathrm{take}_t
-&=
-\mathbb{1}\!\left\{
-p_{\mathrm{take}} \ge \tau_{\mathrm{gate}}
-\right\}.
-\end{aligned}
-```
-
-and the live signal confidence is roughly
-$\max(\mathcal{S}_t, 0)\,p_{\mathrm{take}}$. In other
-words, MLPhysics only becomes aggressive when both the distributional forecast
-and the tradeability model agree.
 
 ### 9.9 The live wrapper around the bundle
 
@@ -1259,33 +861,6 @@ So AetherFlow is not a pure classifier. It is a two-stage engine:
 - deterministic setup labeling
 - probabilistic validation
 
-In compact notation, AetherFlow behaves like:
-
-```math
-\begin{aligned}
-f_t^\star
-&=
-\underset{f}{\mathrm{arg\,max}}
-\;\mathcal{S}_f(\mathbf{x}_t), \\
-\mathrm{TakeSetup}_t
-&=
-\mathbb{1}\!\left\{
-\mathcal{S}_{f_t^\star}(\mathbf{x}_t) \ge \tau_{f_t^\star}
-\right\}, \\
-p_{\mathrm{succ},t}
-&=
-h_\phi(\mathbf{x}_t, f_t^\star), \\
-\mathrm{trade}_t
-&=
-\mathbb{1}\!\left\{
-p_{\mathrm{succ},t} \ge \tau_{\mathrm{live}}
-\right\}.
-\end{aligned}
-```
-
-The learned model is therefore validating a setup identity that has already
-been declared by deterministic structure.
-
 ### 10.2 Artifact set and live runtime
 
 The live deployment is intentionally compact:
@@ -1325,54 +900,6 @@ That manifold layer produces state variables such as:
 - regime-specific allow flags
 
 It also classifies each bar into one of four named regimes.
-
-The manifold layer is deliberately geometric. In the current implementation the
-core state variables are approximately:
-
-```math
-\begin{aligned}
-a_t
-&=
-\mathrm{hotspot}_t, \\
-\delta_t
-&=
-\mathrm{clip}\!\left(
-\frac{\sqrt{\mathrm{mean}(r_{i,t}^2)}}{\pi}
-\right), \\
-u_t
-&=
-\mathrm{clip}\!\left(
-1 - \frac{\mathrm{mean}\!\left(|\Delta \mathrm{direction}|\right)}{\pi}
-\right), \\
-\chi_t
-&=
-\mathrm{clip}\!\left(
-0.65\,\mathrm{Var}_{\mathrm{dir},t}
-+
-0.35\,\mathrm{EWMA}(\mathrm{turbulence})_t
-\right), \\
-R_t
-&=
-\mathrm{clip}\!\left(
-0.3 B_t + 0.2 V_t + 0.4 a_t + 0.1 \chi_t + 0.1
-\right), \\
-\mu_t^{\mathrm{risk}}
-&=
-\mathrm{clip}\!\left(
-0.5 + 1.2 R_t - 0.8 \chi_t,\;
-\mu_{\min},\;
-\mu_{\max}
-\right).
-\end{aligned}
-```
-
-Here $r_{i,t}$ denotes the raw local displacement samples on the manifold prior
-to aggregation, so the dispersion term is not self-referential. The terms
-$B_t$ and $V_t$ denote the signed bias and band-volatility components used by
-the manifold engine before regime classification.
-
-The named regimes are therefore thresholded summaries of a continuous manifold
-state, not hand-tagged categories.
 
 #### 10.3.1 TREND_GEODESIC
 
@@ -1483,123 +1010,10 @@ second layer of directional and structural features such as:
 
 This is the language AetherFlow uses to decide which setup family is present.
 
-Several of the most important derived variables are explicitly compositional:
-
-```math
-\begin{aligned}
-\kappa_t
-&=
-a_t^{\mathrm{pct}} u_t^{\mathrm{pct}} \left(1-\chi_t^{\mathrm{pct}}\right), \\
-\rho_t^{\mathrm{comp}}
-&=
-\left(1-\delta_t^{\mathrm{pct}}\right)
-\frac{
-\frac{1}{1+e^{z_t^{\mathrm{range}}}}
-+
-\frac{1}{1+e^{z_t^{\mathrm{ATR}}}}
-}{2}, \\
-\rho_t^{\mathrm{ext}}
-&=
-\tanh\!\left(\frac{|z_t^{\mathrm{VWAP}}|}{2}\right)
-\left(0.5 + 0.5\chi_t^{\mathrm{pct}}\right), \\
-\eta_t
-&=
-\frac{
-|\Delta_3 a_t^{\mathrm{pct}}|
-+
-|\Delta_3 \chi_t^{\mathrm{pct}}|
-+
-|\Delta_3 \delta_t^{\mathrm{pct}}|
-+
-|\Delta_3 R_t^{\mathrm{pct}}|
-}{4}, \\
-\nu_t
-&=
-\mathrm{clip}\!\left(
-\frac{
-\left|a_t^{\mathrm{pct}}-0.5\right|
-+
-\left|\chi_t^{\mathrm{pct}}-0.5\right|
-+
-\left|\delta_t^{\mathrm{pct}}-0.5\right|
-}{1.5}
-\right), \\
-\beta_t
-&=
-\tanh\!\left(
-\frac{
-\mathrm{flow}_{\mathrm{fast},t}
-+
-0.70\,\mathrm{flow}_{\mathrm{slow},t}
-+
-0.35\,\mathrm{pressure}_{10,t}
-+
-0.20\,\mathrm{EMAspread}_t
-}{\lambda_\beta}
-\right).
-\end{aligned}
-```
-
-Here the superscript $\mathrm{pct}$ denotes the percentile-normalized version
-of the corresponding manifold variable. The quantities
-$z_t^{\mathrm{range}}$, $z_t^{\mathrm{ATR}}$, and $z_t^{\mathrm{VWAP}}$ are
-the corresponding runtime z-scored inputs, and $\lambda_\beta$ is the scaling
-constant used in the directional-bias squash.
-
-This is why AetherFlow feels more like a compact feature-geometry paper than a
-conventional indicator stack.
-
 ### 10.5 Setup families
 
 AetherFlow has four setup families. These are not four models. They are four
 market narratives encoded as deterministic score functions.
-
-The family scores themselves are intentionally simple weighted composites:
-
-```math
-\begin{aligned}
-\mathcal{S}_{\mathrm{CR}}
-&=
-0.45\,\rho_t^{\mathrm{comp}}
-+
-0.30\,\kappa_t
-+
-0.15\,|\mathrm{flow}_{\mathrm{fast},t}|
-+
-0.10\,\max(\Delta_3 a_t^{\mathrm{pct}}, 0), \\
-\mathcal{S}_{\mathrm{AF}}
-&=
-0.35\,\kappa_t
-+
-0.25\,a_t^{\mathrm{pct}}
-+
-0.20\left(1-\chi_t^{\mathrm{pct}}\right)
-+
-0.20\,|\mathrm{flow}_{\mathrm{slow},t}|, \\
-\mathcal{S}_{\mathrm{ER}}
-&=
-0.45\,\rho_t^{\mathrm{ext}}
-+
-0.20\,\chi_t^{\mathrm{pct}}
-+
-0.20\,|\mathrm{curvature}_t|_{\mathrm{clip}}
-+
-0.15\,\max(\Delta_3 \chi_t^{\mathrm{pct}}, 0), \\
-\mathcal{S}_{\mathrm{TB}}
-&=
-0.35\,\eta_t
-+
-0.25\,\nu_t
-+
-0.20\,|\mathrm{flow}_{\mathrm{fast},t}|
-+
-0.20\,|\mathrm{flow}_{\mathrm{slow},t}|.
-\end{aligned}
-```
-
-Long and short variants are then gated by directional-bias terms and
-regime-specific boolean conditions, so the learned model only sees candidates
-that already have a coherent structural narrative.
 
 #### 10.5.1 Compression Release
 
@@ -1730,10 +1144,6 @@ This is a key design choice. The model is not asked to decide whether any state
 is tradable. The setup dictionary first decides whether a recognizable state
 exists at all.
 
-Formally, $s_t^{\mathrm{cand}} = 0$ unless
-$\max_f \mathcal{S}_f(\mathbf{x}_t) \ge \tau_f$, which means
-the model never has to rescue an unrecognized structural state.
-
 ### 10.7 The learned model's role
 
 Once a setup family and side have been selected, `aetherflow_strategy.py` feeds
@@ -1750,12 +1160,6 @@ This separation is what makes AetherFlow easy to reason about:
 - deterministic setup identity
 - probabilistic validation
 
-The learned model is therefore estimating
-$\mathbb{P}(Y_t = 1 \mid \mathbf{x}_t, f_t, s_t)$, not
-$\mathbb{P}(\mathrm{direction}_t \mid \mathbf{x}_t)$ in the abstract. That
-conditional framing is why the
-engine remains unusually interpretable for something with a learned layer.
-
 ### 10.8 Bracket and holding-horizon resolution
 
 `resolve_setup_params()` converts the chosen setup's ATR-scaled defaults into
@@ -1770,33 +1174,6 @@ The runtime:
 
 It also returns a setup-specific holding horizon. That horizon is part of the
 setup definition, not just a generic live rule.
-
-The translation into executable geometry is explicit:
-
-```math
-\begin{aligned}
-\mathrm{SL}_f
-&=
-\mathrm{clip}\!\left(
-\mathrm{ATR}_{14}\,\lambda_f^{\mathrm{SL}},\;
-1.0,\;
-8.0
-\right), \\
-\mathrm{TP}_f
-&=
-\mathrm{clip}\!\left(
-\mathrm{ATR}_{14}\,\lambda_f^{\mathrm{TP}},\;
-\max\!\left(1.2\,\mathrm{SL}_f,\;1.5\right),\;
-16.0
-\right), \\
-H_f
-&=
-\max\!\left(6,\; h_f\right).
-\end{aligned}
-```
-
-So both exit distances and holding horizon are embedded in the setup family,
-not bolted on afterward.
 
 ### 10.9 Why the live deployment only uses some regimes and setups
 

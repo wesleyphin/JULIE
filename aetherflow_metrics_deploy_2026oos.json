@@ -1,0 +1,34 @@
+{
+  "deployment_candidate": true,
+  "strategy": "AetherFlowStrategy",
+  "policy_name": "live_current_book_tbnyamchop_cond_w003",
+  "threshold": 0.55,
+  "bundle_design": "single",
+  "family_feature_mode": "all",
+  "family_head_weight": 0.03,
+  "allowed_setup_families": [
+    "compression_release",
+    "transition_burst",
+    "aligned_flow"
+  ],
+  "hazard_block_regimes": [
+    "ROTATIONAL_TURBULENCE"
+  ],
+  "source_fold": "hybrid_tbnyamchop_edge2025_cond_w003",
+  "source_model_file": "C:\\Users\\timot\\OneDrive\\Desktop\\topstep2\\artifacts\\aetherflow_hybrid_candidates\\hybrid_tbnyamchop_edge2025_cond_w003.pkl",
+  "source_thresholds_file": "C:\\Users\\timot\\OneDrive\\Desktop\\topstep2\\artifacts\\aetherflow_hybrid_candidates\\hybrid_tbnyamchop_edge2025_cond_w003_thresholds.json",
+  "source_model_sha256": "eca5822866cec7d32d001861d3fd0af40132215e807af5a30e045d38fc592576",
+  "packaged_model_file": "C:\\Users\\timot\\OneDrive\\Desktop\\topstep2\\model_aetherflow_deploy_2026oos.pkl",
+  "packaged_thresholds_file": "C:\\Users\\timot\\OneDrive\\Desktop\\topstep2\\aetherflow_thresholds_deploy_2026oos.json",
+  "packaged_at": "2026-04-13T16:47:30.100396+00:00",
+  "validation_window": {
+    "start": "2025-01-01",
+    "end": "2026-01-26"
+  },
+  "exact_oos": {
+    "equity": 8359.06,
+    "trades": 131,
+    "max_drawdown": 1422.59,
+    "profit_factor": null
+  }
+}

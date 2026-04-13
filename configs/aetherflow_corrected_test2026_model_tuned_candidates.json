@@ -1,0 +1,297 @@
+{
+  "variants": [
+    {
+      "name": "pair_base_0540",
+      "description": "Corrected 2026-fold pair baseline at the model-native threshold.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.54,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.54,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "pair_base_0550",
+      "description": "Slightly tighter corrected 2026-fold pair baseline.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "tb_only_0540",
+      "description": "Transition-burst-only corrected 2026-fold baseline.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.54,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "tb_only_london0540_nyam0535_nypm0545",
+      "description": "TB-focused corrected 2026-fold variant with more London and NY_AM coverage.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            {
+              "name": "tb_london_0540",
+              "match_session_ids": [1],
+              "threshold": 0.54
+            },
+            {
+              "name": "tb_nyam_0535",
+              "match_session_ids": [2],
+              "threshold": 0.535
+            },
+            {
+              "name": "tb_nypm_0545",
+              "match_session_ids": [3],
+              "threshold": 0.545
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "pair_cr0580_tb0540",
+      "description": "Keep CR tight while letting TB trade near the corrected 2026-fold threshold.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.58,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.54,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "pair_cr0590_tb0540",
+      "description": "Very selective CR plus active TB for corrected 2026-fold deployment.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.59,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.54,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "pair_cr_nypm0550_tb_london0540_nyam0535_nypm0545",
+      "description": "Corrected 2026-fold book with selective CR NY_PM and active TB across London and NY.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.59,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            {
+              "name": "cr_nypm_0550",
+              "match_session_ids": [3],
+              "threshold": 0.55
+            }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            {
+              "name": "tb_london_0540",
+              "match_session_ids": [1],
+              "threshold": 0.54
+            },
+            {
+              "name": "tb_nyam_0535",
+              "match_session_ids": [2],
+              "threshold": 0.535
+            },
+            {
+              "name": "tb_nypm_0545",
+              "match_session_ids": [3],
+              "threshold": 0.545
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "pair_cr_london0550_nypm0550_tb_london0540_nyam0535_nypm0545",
+      "description": "Broader corrected 2026-fold London and NY pair coverage with still-tight CR.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.59,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            {
+              "name": "cr_london_0550",
+              "match_session_ids": [1],
+              "threshold": 0.55
+            },
+            {
+              "name": "cr_nypm_0550",
+              "match_session_ids": [3],
+              "threshold": 0.55
+            }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            {
+              "name": "tb_london_0540",
+              "match_session_ids": [1],
+              "threshold": 0.54
+            },
+            {
+              "name": "tb_nyam_0535",
+              "match_session_ids": [2],
+              "threshold": 0.535
+            },
+            {
+              "name": "tb_nypm_0545",
+              "match_session_ids": [3],
+              "threshold": 0.545
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "pair_cr_london0535_nypm0550_tb_london0540_nyam0535_nypm0545",
+      "description": "Softer London CR retry for the corrected 2026-fold book.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.59,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            {
+              "name": "cr_london_0535",
+              "match_session_ids": [1],
+              "threshold": 0.535
+            },
+            {
+              "name": "cr_nypm_0550",
+              "match_session_ids": [3],
+              "threshold": 0.55
+            }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            {
+              "name": "tb_london_0540",
+              "match_session_ids": [1],
+              "threshold": 0.54
+            },
+            {
+              "name": "tb_nyam_0535",
+              "match_session_ids": [2],
+              "threshold": 0.535
+            },
+            {
+              "name": "tb_nypm_0545",
+              "match_session_ids": [3],
+              "threshold": 0.545
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "pair_cr_nypm0550_tb_london0540_nyam0535_nypm0540",
+      "description": "Slightly more active NY_PM TB for the corrected 2026-fold book.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.59,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            {
+              "name": "cr_nypm_0550",
+              "match_session_ids": [3],
+              "threshold": 0.55
+            }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            {
+              "name": "tb_london_0540",
+              "match_session_ids": [1],
+              "threshold": 0.54
+            },
+            {
+              "name": "tb_nyam_0535",
+              "match_session_ids": [2],
+              "threshold": 0.535
+            },
+            {
+              "name": "tb_nypm_0540",
+              "match_session_ids": [3],
+              "threshold": 0.54
+            }
+          ]
+        }
+      }
+    }
+  ]
+}

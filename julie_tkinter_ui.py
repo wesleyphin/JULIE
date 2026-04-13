@@ -110,6 +110,12 @@ class JulieUI:
         # TrendDay indicator
         self.trend_day_indicator = None
 
+        # Config-driven disabled filters shown in Filter Status Dashboard.
+        self.disabled_filters = set()
+        htf_cfg = CONFIG.get("HTF_FVG_FILTER", {}) if isinstance(CONFIG, dict) else {}
+        if isinstance(htf_cfg, dict) and not bool(htf_cfg.get("enabled_live", True)):
+            self.disabled_filters.add("HTF FVG")
+
         # Setup cleanup on window close
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
@@ -356,6 +362,28 @@ class JulieUI:
                 cwd=str(bot_script.parent),
                 bufsize=0  # Unbuffered (Binary compatible)
             )
+            time.sleep(0.4)
+            exit_code = self.bot_process.poll()
+            if exit_code is not None:
+                stdout_text = ""
+                stderr_text = ""
+                try:
+                    if self.bot_process.stdout is not None:
+                        stdout_text = (self.bot_process.stdout.read() or b"").decode("utf-8", errors="ignore").strip()
+                except Exception:
+                    stdout_text = ""
+                try:
+                    if self.bot_process.stderr is not None:
+                        stderr_text = (self.bot_process.stderr.read() or b"").decode("utf-8", errors="ignore").strip()
+                except Exception:
+                    stderr_text = ""
+                print(f"julie001.py exited immediately (code {exit_code}).")
+                if stderr_text:
+                    print(stderr_text)
+                elif stdout_text:
+                    print(stdout_text)
+                self.bot_process = None
+                return
             print(f"✓ julie001.py launched in background (PID: {self.bot_process.pid})")
             print(f"  Account: {account_id}")
 
@@ -617,10 +645,10 @@ class JulieUI:
             "Regime Adaptive",
             "Intraday Dip",
             "Confluence",
-            "ICT Model",
+            "Manifold Strategy",
             "Breakout Strategy",
             "ML Physics",
-            "Dynamic Engine 1",
+            "Dynamic Engine",
             "SMT Divergence",
             "VIX Reversion",
             "Continuation"
@@ -799,7 +827,7 @@ class JulieUI:
             ("Volatility", "IDLE"),
             ("Trend", "IDLE"),
             ("Impulse", "IDLE"),
-            ("HTF FVG", "IDLE"),
+            ("HTF FVG", "DISABLED" if "HTF FVG" in self.disabled_filters else "IDLE"),
             ("Bank Level", "IDLE"),
             ("Memory S/R", "IDLE"),
             ("News", "IDLE"),
@@ -904,11 +932,24 @@ class JulieUI:
 
         self.add_log("Waiting for bot activity...")
 
+    def _should_follow_log_tail(self, widget) -> bool:
+        try:
+            _, y_bottom = widget.yview()
+            return float(y_bottom) >= 0.995
+        except Exception:
+            return True
+
+    def _append_log_line(self, widget, message: str, tag: str) -> None:
+        follow_tail = self._should_follow_log_tail(widget)
+        widget.config(state='normal')
+        widget.insert('end', message + '\n', tag)
+        if follow_tail:
+            widget.see('end')
+        widget.config(state='disabled')
+
     def add_log(self, message):
         """Add entry to event log with color coding"""
         def update():
-            self.log_text.config(state='normal')
-
             # Determine tag based on message content (priority order matters)
             tag = 'normal'
             if 'RESCUE SUCCESSFUL' in message or '🚑' in message:
@@ -928,9 +969,7 @@ class JulieUI:
             elif 'SLOW EXECUTION' in message or 'SYSTEM_LAG' in message:
                 tag = 'latency'
 
-            self.log_text.insert('end', message + '\n', tag)
-            self.log_text.see('end')
-            self.log_text.config(state='disabled')
+            self._append_log_line(self.log_text, message, tag)
 
         if threading.current_thread() != threading.main_thread():
             self.root.after(0, update)
@@ -940,8 +979,6 @@ class JulieUI:
     def add_market_log(self, message):
         """Add entry to market context log with color coding"""
         def update():
-            self.market_log.config(state='normal')
-
             # Determine tag based on content
             tag = 'info'
             if '🕒 Session' in message or 'SESSION HANDOVER' in message or 'SESSION CHANGE' in message:
@@ -955,9 +992,7 @@ class JulieUI:
             elif '🌊 DRIFT' in message or 'CALIBRATION' in message or 'Calibrated' in message:
                 tag = 'drift'
 
-            self.market_log.insert('end', message + '\n', tag)
-            self.market_log.see('end')
-            self.market_log.config(state='disabled')
+            self._append_log_line(self.market_log, message, tag)
 
         if threading.current_thread() != threading.main_thread():
             self.root.after(0, update)
@@ -967,8 +1002,6 @@ class JulieUI:
     def add_gemini_log(self, message):
         """Add entry to Gemini LLM log with color coding"""
         def update():
-            self.gemini_log_text.config(state='normal')
-
             # Determine tag based on content (priority order matters)
             tag = 'info'
             if 'ERROR' in message.upper() or 'FAILED' in message.upper():
@@ -982,9 +1015,7 @@ class JulieUI:
             elif 'GEMINI' in message.upper() or 'LLM' in message.upper():
                 tag = 'gemini'
 
-            self.gemini_log_text.insert('end', message + '\n', tag)
-            self.gemini_log_text.see('end')
-            self.gemini_log_text.config(state='disabled')
+            self._append_log_line(self.gemini_log_text, message, tag)
 
         if threading.current_thread() != threading.main_thread():
             self.root.after(0, update)
@@ -994,8 +1025,6 @@ class JulieUI:
     def add_continuation_log(self, message):
         """Add entry to Continuation Strategy log with color coding"""
         def update():
-            self.continuation_log_text.config(state='normal')
-
             # Determine tag based on content (priority order matters)
             tag = 'info'
             if 'RESCUE SUCCESSFUL' in message or '🚑 RESCUE' in message:
@@ -1007,9 +1036,7 @@ class JulieUI:
             elif 'Continuation_Q' in message or 'ACTIVE' in message.upper():
                 tag = 'active'
 
-            self.continuation_log_text.insert('end', message + '\n', tag)
-            self.continuation_log_text.see('end')
-            self.continuation_log_text.config(state='disabled')
+            self._append_log_line(self.continuation_log_text, message, tag)
 
         if threading.current_thread() != threading.main_thread():
             self.root.after(0, update)
@@ -1099,6 +1126,17 @@ class JulieUI:
                 tier = int(match.group(1))
                 direction = match.group(2).lower()
                 self.set_trend_day_status(direction, tier)
+        elif "TrendDay deactivated" in line:
+            self.set_trend_day_status(None, None)
+        elif "[TrendDay] status" in line:
+            match = re.search(r"status tier=(\d+)\s+dir=(\w+)", line, re.IGNORECASE)
+            if match:
+                tier = int(match.group(1))
+                direction = match.group(2).lower()
+                if tier <= 0 or direction == "none":
+                    self.set_trend_day_status(None, None)
+                else:
+                    self.set_trend_day_status(direction, tier)
         elif "Deactivating tier/alt" in line:
             self.set_trend_day_status(None, None)
 
@@ -1240,6 +1278,12 @@ class JulieUI:
                 if "EXECUTED" not in current:
                     self.update_strategy(strategy, "WAITING", self.colors['text_gray'])
 
+        # Clear executed state when a trade closes
+        if "Trade closed" in line:
+            for strategy in self.strategy_labels.keys():
+                if strategy in line or strategy.replace(" ", "") in line:
+                    self.update_strategy(strategy, "WAITING", self.colors['text_gray'])
+
         # Parse FILTER_CHECK logs with strategy names
         if "[FILTER_CHECK]" in line:
             # Extract strategy from the log details: strategy=StrategyName
@@ -1254,15 +1298,15 @@ class JulieUI:
                     "SmoothTrendAsia": "Regime Adaptive",
                     "IntradayDip": "Intraday Dip",
                     "Confluence": "Confluence",
-                    "ICTModel": "ICT Model",
+                    "ManifoldStrategy": "Manifold Strategy",
                     "ORBStrategy": "Breakout Strategy",
                     "ORB": "Breakout Strategy",
                     "ImpulseBreakout": "Breakout Strategy",
                     "ValueAreaBreakout": "Breakout Strategy",
                     "MLPhysicsStrategy": "ML Physics",
                     "MLPhysics": "ML Physics",
-                    "DynamicEngine": "Dynamic Engine 1",
-                    "DynamicEngine2": "Dynamic Engine 1",
+                    "DynamicEngine": "Dynamic Engine",
+                    "DynamicEngine2": "Dynamic Engine",
                     "SMTStrategy": "SMT Divergence",
                     "SMTAnalyzer": "SMT Divergence",
                     "LiquiditySweep": "SMT Divergence",
@@ -1340,6 +1384,10 @@ class JulieUI:
 
         for keyword, filter_name in filter_map.items():
             if keyword in line:
+                if filter_name in self.disabled_filters:
+                    # Keep disabled filters pinned to DISABLED/orange.
+                    self.update_filter(filter_name, "DISABLED", self.colors['orange'])
+                    continue
                 if "BLOCK" in line or "blocked" in line:
                     self.update_filter(filter_name, "BLOCK", self.colors['red'])
                 elif "PASS" in line:
@@ -1377,16 +1425,19 @@ class JulieUI:
         """Update filter status and background color"""
         def update():
             if name in self.filter_labels:
+                current_status = status
+                if name in self.disabled_filters and current_status != "DISABLED":
+                    current_status = "DISABLED"
                 filter_info = self.filter_labels[name]
 
                 # Determine background color based on status
-                if status in ["PASS", "SAFE"]:
+                if current_status in ["PASS", "SAFE"]:
                     bg_color = '#1a3d2e'  # Dark green
                     status_color = self.colors['green_light']
-                elif status in ["BLOCK", "FAIL"]:
+                elif current_status in ["BLOCK", "FAIL"]:
                     bg_color = '#3d1a1a'  # Dark red
                     status_color = self.colors['red']
-                elif status == "DISABLED":
+                elif current_status == "DISABLED":
                     bg_color = '#3a2616'  # Dark orange
                     status_color = self.colors['orange']
                 else:  # IDLE or neutral
@@ -1396,7 +1447,7 @@ class JulieUI:
                 # Update all components
                 filter_info['box'].config(bg=bg_color)
                 filter_info['name_label'].config(bg=bg_color)
-                filter_info['status_label'].config(text=f"[{status}]", fg=status_color, bg=bg_color)
+                filter_info['status_label'].config(text=f"[{current_status}]", fg=status_color, bg=bg_color)
 
         self.root.after(0, update)
 

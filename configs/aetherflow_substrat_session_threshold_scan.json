@@ -1,0 +1,541 @@
+{
+  "variants": [
+    {
+      "name": "final_baseline_cr_london0545_tb_nyam0540_af_london0580",
+      "description": "Current promoted baseline: CR London 0.545, TB NY_AM 0.54, AF London 0.58.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "london_soft_0545", "match_session_ids": [1], "threshold": 0.545 }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "nyam_soft_0540", "match_session_ids": [2], "threshold": 0.54 }
+          ]
+        }
+      },
+      "threshold": 0.58,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.4,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.1,
+      "tp_mult_override": 2.8,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": { "enabled": true, "exit_if_not_green_by": 6, "max_profit_crosses": 99 }
+    },
+    {
+      "name": "scan_cr_asia0545",
+      "description": "Check whether CR wants a softer ASIA threshold too.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "asia_soft_0545", "match_session_ids": [0], "threshold": 0.545 },
+            { "name": "london_soft_0545", "match_session_ids": [1], "threshold": 0.545 }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "nyam_soft_0540", "match_session_ids": [2], "threshold": 0.54 }
+          ]
+        }
+      },
+      "threshold": 0.58,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.4,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.1,
+      "tp_mult_override": 2.8,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": { "enabled": true, "exit_if_not_green_by": 6, "max_profit_crosses": 99 }
+    },
+    {
+      "name": "scan_cr_london0550",
+      "description": "Check whether London CR actually needs a separate threshold.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "nyam_soft_0540", "match_session_ids": [2], "threshold": 0.54 }
+          ]
+        }
+      },
+      "threshold": 0.58,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.4,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.1,
+      "tp_mult_override": 2.8,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": { "enabled": true, "exit_if_not_green_by": 6, "max_profit_crosses": 99 }
+    },
+    {
+      "name": "scan_cr_london0540",
+      "description": "Check a stronger London CR soften.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "london_soft_0540", "match_session_ids": [1], "threshold": 0.54 }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "nyam_soft_0540", "match_session_ids": [2], "threshold": 0.54 }
+          ]
+        }
+      },
+      "threshold": 0.58,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.4,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.1,
+      "tp_mult_override": 2.8,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": { "enabled": true, "exit_if_not_green_by": 6, "max_profit_crosses": 99 }
+    },
+    {
+      "name": "scan_cr_nyam0545",
+      "description": "Check whether CR wants a dedicated NY_AM threshold too.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "london_soft_0545", "match_session_ids": [1], "threshold": 0.545 },
+            { "name": "nyam_soft_0545", "match_session_ids": [2], "threshold": 0.545 }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "nyam_soft_0540", "match_session_ids": [2], "threshold": 0.54 }
+          ]
+        }
+      },
+      "threshold": 0.58,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.4,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.1,
+      "tp_mult_override": 2.8,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": { "enabled": true, "exit_if_not_green_by": 6, "max_profit_crosses": 99 }
+    },
+    {
+      "name": "scan_cr_nypm0545",
+      "description": "Check whether CR wants a dedicated NY_PM threshold too.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "london_soft_0545", "match_session_ids": [1], "threshold": 0.545 },
+            { "name": "nypm_soft_0545", "match_session_ids": [3], "threshold": 0.545 }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "nyam_soft_0540", "match_session_ids": [2], "threshold": 0.54 }
+          ]
+        }
+      },
+      "threshold": 0.58,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.4,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.1,
+      "tp_mult_override": 2.8,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": { "enabled": true, "exit_if_not_green_by": 6, "max_profit_crosses": 99 }
+    },
+    {
+      "name": "scan_tb_london0545",
+      "description": "Check whether TB wants a softer London threshold too.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "london_soft_0545", "match_session_ids": [1], "threshold": 0.545 }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "london_soft_0545", "match_session_ids": [1], "threshold": 0.545 },
+            { "name": "nyam_soft_0540", "match_session_ids": [2], "threshold": 0.54 }
+          ]
+        }
+      },
+      "threshold": 0.58,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.4,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.1,
+      "tp_mult_override": 2.8,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": { "enabled": true, "exit_if_not_green_by": 6, "max_profit_crosses": 99 }
+    },
+    {
+      "name": "scan_tb_nyam0550",
+      "description": "Check whether TB NY_AM really needs its softer threshold.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "london_soft_0545", "match_session_ids": [1], "threshold": 0.545 }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.58,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.4,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.1,
+      "tp_mult_override": 2.8,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": { "enabled": true, "exit_if_not_green_by": 6, "max_profit_crosses": 99 }
+    },
+    {
+      "name": "scan_tb_nyam0535",
+      "description": "Check whether TB NY_AM wants an even softer threshold.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "london_soft_0545", "match_session_ids": [1], "threshold": 0.545 }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "nyam_soft_0535", "match_session_ids": [2], "threshold": 0.535 }
+          ]
+        }
+      },
+      "threshold": 0.58,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.4,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.1,
+      "tp_mult_override": 2.8,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": { "enabled": true, "exit_if_not_green_by": 6, "max_profit_crosses": 99 }
+    },
+    {
+      "name": "scan_tb_nypm0545",
+      "description": "Check whether TB wants a softer NY_PM threshold too.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "london_soft_0545", "match_session_ids": [1], "threshold": 0.545 }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "nyam_soft_0540", "match_session_ids": [2], "threshold": 0.54 },
+            { "name": "nypm_soft_0545", "match_session_ids": [3], "threshold": 0.545 }
+          ]
+        }
+      },
+      "threshold": 0.58,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.4,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.1,
+      "tp_mult_override": 2.8,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": { "enabled": true, "exit_if_not_green_by": 6, "max_profit_crosses": 99 }
+    },
+    {
+      "name": "scan_af_london0575",
+      "description": "Check whether AF London wants a slightly softer threshold.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "london_soft_0545", "match_session_ids": [1], "threshold": 0.545 }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "nyam_soft_0540", "match_session_ids": [2], "threshold": 0.54 }
+          ]
+        }
+      },
+      "threshold": 0.575,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.4,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.1,
+      "tp_mult_override": 2.8,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": { "enabled": true, "exit_if_not_green_by": 6, "max_profit_crosses": 99 }
+    },
+    {
+      "name": "scan_af_london0570",
+      "description": "Check whether AF London wants a clearly softer threshold.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "london_soft_0545", "match_session_ids": [1], "threshold": 0.545 }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "nyam_soft_0540", "match_session_ids": [2], "threshold": 0.54 }
+          ]
+        }
+      },
+      "threshold": 0.57,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.4,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.1,
+      "tp_mult_override": 2.8,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": { "enabled": true, "exit_if_not_green_by": 6, "max_profit_crosses": 99 }
+    },
+    {
+      "name": "scan_af_london0580_nyam0620",
+      "description": "Check whether AF wants a separate higher NY_AM threshold while keeping London unchanged.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "london_soft_0545", "match_session_ids": [1], "threshold": 0.545 }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "nyam_soft_0540", "match_session_ids": [2], "threshold": 0.54 }
+          ]
+        }
+      },
+      "threshold": 0.58,
+      "allowed_session_ids": [1, 2],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "policy_rules": [
+        { "name": "nyam_thr0620", "match_session_ids": [2], "threshold": 0.62 }
+      ],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.4,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.1,
+      "tp_mult_override": 2.8,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": { "enabled": true, "exit_if_not_green_by": 6, "max_profit_crosses": 99 }
+    },
+    {
+      "name": "scan_af_london0575_nyam0620",
+      "description": "Check AF with a softer London threshold and higher NY_AM threshold.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "london_soft_0545", "match_session_ids": [1], "threshold": 0.545 }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            { "name": "nyam_soft_0540", "match_session_ids": [2], "threshold": 0.54 }
+          ]
+        }
+      },
+      "threshold": 0.575,
+      "allowed_session_ids": [1, 2],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "policy_rules": [
+        { "name": "nyam_thr0620", "match_session_ids": [2], "threshold": 0.62 }
+      ],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.4,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.1,
+      "tp_mult_override": 2.8,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": { "enabled": true, "exit_if_not_green_by": 6, "max_profit_crosses": 99 }
+    }
+  ]
+}

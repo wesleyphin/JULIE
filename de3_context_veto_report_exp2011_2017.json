@@ -1,0 +1,3979 @@
+{
+  "walk_forward": {
+    "splits": [
+      {
+        "split": 1,
+        "train_start": "2011-01-01T00:00:00-05:00",
+        "train_end": "2013-01-01T00:00:00-05:00",
+        "test_start": "2013-01-01T00:00:00-05:00",
+        "test_end": "2013-02-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 5057,
+            "removed_pct": 0.6923076923076923,
+            "baseline_loss_rate": 0.6970535890844374,
+            "veto_loss_rate": 0.04691516709511568,
+            "kept_winrate": 0.9530848329048843,
+            "avg_outcome": 0.9530848329048843
+          },
+          "0.55": {
+            "total": 5057,
+            "removed_pct": 0.691121218113506,
+            "baseline_loss_rate": 0.6970535890844374,
+            "veto_loss_rate": 0.04737516005121639,
+            "kept_winrate": 0.9526248399487836,
+            "avg_outcome": 0.9526248399487836
+          },
+          "0.6": {
+            "total": 5057,
+            "removed_pct": 0.6893415068222266,
+            "baseline_loss_rate": 0.6970535890844374,
+            "veto_loss_rate": 0.047740292807129214,
+            "kept_winrate": 0.9522597071928708,
+            "avg_outcome": 0.9522597071928708
+          },
+          "0.65": {
+            "total": 5057,
+            "removed_pct": 0.6889460154241646,
+            "baseline_loss_rate": 0.6970535890844374,
+            "veto_loss_rate": 0.04831532104259377,
+            "kept_winrate": 0.9516846789574063,
+            "avg_outcome": 0.9516846789574063
+          },
+          "0.7": {
+            "total": 5057,
+            "removed_pct": 0.6881550326280403,
+            "baseline_loss_rate": 0.6970535890844374,
+            "veto_loss_rate": 0.05009511731135067,
+            "kept_winrate": 0.9499048826886494,
+            "avg_outcome": 0.9499048826886494
+          },
+          "0.75": {
+            "total": 5057,
+            "removed_pct": 0.6861775756377299,
+            "baseline_loss_rate": 0.6970535890844374,
+            "veto_loss_rate": 0.056080655324511654,
+            "kept_winrate": 0.9439193446754883,
+            "avg_outcome": 0.9439193446754883
+          },
+          "0.8": {
+            "total": 5057,
+            "removed_pct": 0.6845956100454815,
+            "baseline_loss_rate": 0.6970535890844374,
+            "veto_loss_rate": 0.060815047021943576,
+            "kept_winrate": 0.9391849529780564,
+            "avg_outcome": 0.9391849529780564
+          }
+        }
+      },
+      {
+        "split": 2,
+        "train_start": "2011-02-01T00:00:00-05:00",
+        "train_end": "2013-02-01T00:00:00-05:00",
+        "test_start": "2013-02-01T00:00:00-05:00",
+        "test_end": "2013-03-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 6636,
+            "removed_pct": 0.7290536467751657,
+            "baseline_loss_rate": 0.7382459312839059,
+            "veto_loss_rate": 0.10066740823136819,
+            "kept_winrate": 0.8993325917686318,
+            "avg_outcome": 0.8993325917686318
+          },
+          "0.55": {
+            "total": 6636,
+            "removed_pct": 0.7289029535864979,
+            "baseline_loss_rate": 0.7382459312839059,
+            "veto_loss_rate": 0.10061145080600334,
+            "kept_winrate": 0.8993885491939967,
+            "avg_outcome": 0.8993885491939967
+          },
+          "0.6": {
+            "total": 6636,
+            "removed_pct": 0.7272453285111513,
+            "baseline_loss_rate": 0.7382459312839059,
+            "veto_loss_rate": 0.10331491712707182,
+            "kept_winrate": 0.8966850828729281,
+            "avg_outcome": 0.8966850828729281
+          },
+          "0.65": {
+            "total": 6636,
+            "removed_pct": 0.7267932489451476,
+            "baseline_loss_rate": 0.7382459312839059,
+            "veto_loss_rate": 0.10424710424710425,
+            "kept_winrate": 0.8957528957528957,
+            "avg_outcome": 0.8957528957528957
+          },
+          "0.7": {
+            "total": 6636,
+            "removed_pct": 0.7258890898131405,
+            "baseline_loss_rate": 0.7382459312839059,
+            "veto_loss_rate": 0.10555250137438153,
+            "kept_winrate": 0.8944474986256185,
+            "avg_outcome": 0.8944474986256185
+          },
+          "0.75": {
+            "total": 6636,
+            "removed_pct": 0.7221217600964437,
+            "baseline_loss_rate": 0.7382459312839059,
+            "veto_loss_rate": 0.11225596529284165,
+            "kept_winrate": 0.8877440347071583,
+            "avg_outcome": 0.8877440347071583
+          },
+          "0.8": {
+            "total": 6636,
+            "removed_pct": 0.7103676913803496,
+            "baseline_loss_rate": 0.7382459312839059,
+            "veto_loss_rate": 0.14151925078043703,
+            "kept_winrate": 0.858480749219563,
+            "avg_outcome": 0.858480749219563
+          }
+        }
+      },
+      {
+        "split": 3,
+        "train_start": "2011-03-01T00:00:00-05:00",
+        "train_end": "2013-03-01T00:00:00-05:00",
+        "test_start": "2013-03-01T00:00:00-05:00",
+        "test_end": "2013-04-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 17781,
+            "removed_pct": 0.6045779202519543,
+            "baseline_loss_rate": 0.6077835892244531,
+            "veto_loss_rate": 0.09571895889631632,
+            "kept_winrate": 0.9042810411036837,
+            "avg_outcome": 0.9042810411036837
+          },
+          "0.55": {
+            "total": 17781,
+            "removed_pct": 0.5934986783645464,
+            "baseline_loss_rate": 0.6077835892244531,
+            "veto_loss_rate": 0.10279468732706143,
+            "kept_winrate": 0.8972053126729386,
+            "avg_outcome": 0.8972053126729386
+          },
+          "0.6": {
+            "total": 17781,
+            "removed_pct": 0.5871998200326191,
+            "baseline_loss_rate": 0.6077835892244531,
+            "veto_loss_rate": 0.10831062670299728,
+            "kept_winrate": 0.8916893732970027,
+            "avg_outcome": 0.8916893732970027
+          },
+          "0.65": {
+            "total": 17781,
+            "removed_pct": 0.5779202519543333,
+            "baseline_loss_rate": 0.6077835892244531,
+            "veto_loss_rate": 0.12165223184543637,
+            "kept_winrate": 0.8783477681545636,
+            "avg_outcome": 0.8783477681545636
+          },
+          "0.7": {
+            "total": 17781,
+            "removed_pct": 0.5621168663179799,
+            "baseline_loss_rate": 0.6077835892244531,
+            "veto_loss_rate": 0.14089391215001285,
+            "kept_winrate": 0.8591060878499872,
+            "avg_outcome": 0.8591060878499872
+          },
+          "0.75": {
+            "total": 17781,
+            "removed_pct": 0.5455823631966706,
+            "baseline_loss_rate": 0.6077835892244531,
+            "veto_loss_rate": 0.1639851485148515,
+            "kept_winrate": 0.8360148514851485,
+            "avg_outcome": 0.8360148514851485
+          },
+          "0.8": {
+            "total": 17781,
+            "removed_pct": 0.5298352173668522,
+            "baseline_loss_rate": 0.6077835892244531,
+            "veto_loss_rate": 0.186244019138756,
+            "kept_winrate": 0.813755980861244,
+            "avg_outcome": 0.813755980861244
+          }
+        }
+      },
+      {
+        "split": 4,
+        "train_start": "2011-04-01T00:00:00-04:00",
+        "train_end": "2013-04-01T00:00:00-04:00",
+        "test_start": "2013-04-01T00:00:00-04:00",
+        "test_end": "2013-05-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 7651,
+            "removed_pct": 0.7205594039994772,
+            "baseline_loss_rate": 0.7325839759508561,
+            "veto_loss_rate": 0.09635173058933583,
+            "kept_winrate": 0.9036482694106642,
+            "avg_outcome": 0.9036482694106642
+          },
+          "0.55": {
+            "total": 7651,
+            "removed_pct": 0.7202980002614038,
+            "baseline_loss_rate": 0.7325839759508561,
+            "veto_loss_rate": 0.09626168224299066,
+            "kept_winrate": 0.9037383177570093,
+            "avg_outcome": 0.9037383177570093
+          },
+          "0.6": {
+            "total": 7651,
+            "removed_pct": 0.720167298392367,
+            "baseline_loss_rate": 0.7325839759508561,
+            "veto_loss_rate": 0.09621672115833722,
+            "kept_winrate": 0.9037832788416628,
+            "avg_outcome": 0.9037832788416628
+          },
+          "0.65": {
+            "total": 7651,
+            "removed_pct": 0.7193830871781467,
+            "baseline_loss_rate": 0.7325839759508561,
+            "veto_loss_rate": 0.09874243129948766,
+            "kept_winrate": 0.9012575687005123,
+            "avg_outcome": 0.9012575687005123
+          },
+          "0.7": {
+            "total": 7651,
+            "removed_pct": 0.7170304535354856,
+            "baseline_loss_rate": 0.7325839759508561,
+            "veto_loss_rate": 0.1048498845265589,
+            "kept_winrate": 0.8951501154734411,
+            "avg_outcome": 0.8951501154734411
+          },
+          "0.75": {
+            "total": 7651,
+            "removed_pct": 0.7132400993334205,
+            "baseline_loss_rate": 0.7325839759508561,
+            "veto_loss_rate": 0.11394712853236098,
+            "kept_winrate": 0.886052871467639,
+            "avg_outcome": 0.886052871467639
+          },
+          "0.8": {
+            "total": 7651,
+            "removed_pct": 0.6980786825251601,
+            "baseline_loss_rate": 0.7325839759508561,
+            "veto_loss_rate": 0.1510822510822511,
+            "kept_winrate": 0.8489177489177488,
+            "avg_outcome": 0.8489177489177488
+          }
+        }
+      },
+      {
+        "split": 5,
+        "train_start": "2011-05-01T00:00:00-04:00",
+        "train_end": "2013-05-01T00:00:00-04:00",
+        "test_start": "2013-05-01T00:00:00-04:00",
+        "test_end": "2013-06-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 10945,
+            "removed_pct": 0.6991320237551394,
+            "baseline_loss_rate": 0.7037003197807218,
+            "veto_loss_rate": 0.07500759186152445,
+            "kept_winrate": 0.9249924081384755,
+            "avg_outcome": 0.9249924081384755
+          },
+          "0.55": {
+            "total": 10945,
+            "removed_pct": 0.6987665600730928,
+            "baseline_loss_rate": 0.7037003197807218,
+            "veto_loss_rate": 0.07552320291173795,
+            "kept_winrate": 0.924476797088262,
+            "avg_outcome": 0.924476797088262
+          },
+          "0.6": {
+            "total": 10945,
+            "removed_pct": 0.6976701690269529,
+            "baseline_loss_rate": 0.7037003197807218,
+            "veto_loss_rate": 0.07887579329102448,
+            "kept_winrate": 0.9211242067089755,
+            "avg_outcome": 0.9211242067089755
+          },
+          "0.65": {
+            "total": 10945,
+            "removed_pct": 0.697121973503883,
+            "baseline_loss_rate": 0.7037003197807218,
+            "veto_loss_rate": 0.08054298642533937,
+            "kept_winrate": 0.9194570135746606,
+            "avg_outcome": 0.9194570135746606
+          },
+          "0.7": {
+            "total": 10945,
+            "removed_pct": 0.6959342165372316,
+            "baseline_loss_rate": 0.7037003197807218,
+            "veto_loss_rate": 0.08383413461538461,
+            "kept_winrate": 0.9161658653846154,
+            "avg_outcome": 0.9161658653846154
+          },
+          "0.75": {
+            "total": 10945,
+            "removed_pct": 0.6916400182731841,
+            "baseline_loss_rate": 0.7037003197807218,
+            "veto_loss_rate": 0.0951111111111111,
+            "kept_winrate": 0.9048888888888889,
+            "avg_outcome": 0.9048888888888889
+          },
+          "0.8": {
+            "total": 10945,
+            "removed_pct": 0.6653266331658292,
+            "baseline_loss_rate": 0.7037003197807218,
+            "veto_loss_rate": 0.1476931476931477,
+            "kept_winrate": 0.8523068523068523,
+            "avg_outcome": 0.8523068523068523
+          }
+        }
+      },
+      {
+        "split": 6,
+        "train_start": "2011-06-01T00:00:00-04:00",
+        "train_end": "2013-06-01T00:00:00-04:00",
+        "test_start": "2013-06-01T00:00:00-04:00",
+        "test_end": "2013-07-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 22919,
+            "removed_pct": 0.6049565862384921,
+            "baseline_loss_rate": 0.6204459182337798,
+            "veto_loss_rate": 0.1280097194610117,
+            "kept_winrate": 0.8719902805389883,
+            "avg_outcome": 0.8719902805389883
+          },
+          "0.55": {
+            "total": 22919,
+            "removed_pct": 0.5981936384659017,
+            "baseline_loss_rate": 0.6204459182337798,
+            "veto_loss_rate": 0.13237050711260723,
+            "kept_winrate": 0.8676294928873928,
+            "avg_outcome": 0.8676294928873928
+          },
+          "0.6": {
+            "total": 22919,
+            "removed_pct": 0.5905580522710415,
+            "baseline_loss_rate": 0.6204459182337798,
+            "veto_loss_rate": 0.14119778346121056,
+            "kept_winrate": 0.8588022165387894,
+            "avg_outcome": 0.8588022165387894
+          },
+          "0.65": {
+            "total": 22919,
+            "removed_pct": 0.58252977878616,
+            "baseline_loss_rate": 0.6204459182337798,
+            "veto_loss_rate": 0.1485158862876254,
+            "kept_winrate": 0.8514841137123745,
+            "avg_outcome": 0.8514841137123745
+          },
+          "0.7": {
+            "total": 22919,
+            "removed_pct": 0.5706618962432916,
+            "baseline_loss_rate": 0.6204459182337798,
+            "veto_loss_rate": 0.1628048780487805,
+            "kept_winrate": 0.8371951219512195,
+            "avg_outcome": 0.8371951219512195
+          },
+          "0.75": {
+            "total": 22919,
+            "removed_pct": 0.5532527597190104,
+            "baseline_loss_rate": 0.6204459182337798,
+            "veto_loss_rate": 0.18790897548588728,
+            "kept_winrate": 0.8120910245141127,
+            "avg_outcome": 0.8120910245141127
+          },
+          "0.8": {
+            "total": 22919,
+            "removed_pct": 0.5381997469348575,
+            "baseline_loss_rate": 0.6204459182337798,
+            "veto_loss_rate": 0.20965608465608465,
+            "kept_winrate": 0.7903439153439153,
+            "avg_outcome": 0.7903439153439153
+          }
+        }
+      },
+      {
+        "split": 7,
+        "train_start": "2011-07-01T00:00:00-04:00",
+        "train_end": "2013-07-01T00:00:00-04:00",
+        "test_start": "2013-07-01T00:00:00-04:00",
+        "test_end": "2013-08-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 7889,
+            "removed_pct": 0.6752440106477373,
+            "baseline_loss_rate": 0.6846241602230955,
+            "veto_loss_rate": 0.08430913348946135,
+            "kept_winrate": 0.9156908665105387,
+            "avg_outcome": 0.9156908665105387
+          },
+          "0.55": {
+            "total": 7889,
+            "removed_pct": 0.6723285587526936,
+            "baseline_loss_rate": 0.6846241602230955,
+            "veto_loss_rate": 0.08588007736943908,
+            "kept_winrate": 0.914119922630561,
+            "avg_outcome": 0.914119922630561
+          },
+          "0.6": {
+            "total": 7889,
+            "removed_pct": 0.671441247306376,
+            "baseline_loss_rate": 0.6846241602230955,
+            "veto_loss_rate": 0.08796296296296297,
+            "kept_winrate": 0.912037037037037,
+            "avg_outcome": 0.912037037037037
+          },
+          "0.65": {
+            "total": 7889,
+            "removed_pct": 0.6708074534161491,
+            "baseline_loss_rate": 0.6846241602230955,
+            "veto_loss_rate": 0.08971890643049672,
+            "kept_winrate": 0.9102810935695033,
+            "avg_outcome": 0.9102810935695033
+          },
+          "0.7": {
+            "total": 7889,
+            "removed_pct": 0.6703004183039676,
+            "baseline_loss_rate": 0.6846241602230955,
+            "veto_loss_rate": 0.09034986543637062,
+            "kept_winrate": 0.9096501345636294,
+            "avg_outcome": 0.9096501345636294
+          },
+          "0.75": {
+            "total": 7889,
+            "removed_pct": 0.6656103435162884,
+            "baseline_loss_rate": 0.6846241602230955,
+            "veto_loss_rate": 0.10007581501137225,
+            "kept_winrate": 0.8999241849886277,
+            "avg_outcome": 0.8999241849886277
+          },
+          "0.8": {
+            "total": 7889,
+            "removed_pct": 0.6607935099505641,
+            "baseline_loss_rate": 0.6846241602230955,
+            "veto_loss_rate": 0.10986547085201794,
+            "kept_winrate": 0.8901345291479821,
+            "avg_outcome": 0.8901345291479821
+          }
+        }
+      },
+      {
+        "split": 8,
+        "train_start": "2011-08-01T00:00:00-04:00",
+        "train_end": "2013-08-01T00:00:00-04:00",
+        "test_start": "2013-08-01T00:00:00-04:00",
+        "test_end": "2013-09-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 9463,
+            "removed_pct": 0.6827644510197611,
+            "baseline_loss_rate": 0.709605833245271,
+            "veto_loss_rate": 0.12325116588940706,
+            "kept_winrate": 0.8767488341105929,
+            "avg_outcome": 0.8767488341105929
+          },
+          "0.55": {
+            "total": 9463,
+            "removed_pct": 0.6827644510197611,
+            "baseline_loss_rate": 0.709605833245271,
+            "veto_loss_rate": 0.12325116588940706,
+            "kept_winrate": 0.8767488341105929,
+            "avg_outcome": 0.8767488341105929
+          },
+          "0.6": {
+            "total": 9463,
+            "removed_pct": 0.6827644510197611,
+            "baseline_loss_rate": 0.709605833245271,
+            "veto_loss_rate": 0.12325116588940706,
+            "kept_winrate": 0.8767488341105929,
+            "avg_outcome": 0.8767488341105929
+          },
+          "0.65": {
+            "total": 9463,
+            "removed_pct": 0.6827644510197611,
+            "baseline_loss_rate": 0.709605833245271,
+            "veto_loss_rate": 0.12325116588940706,
+            "kept_winrate": 0.8767488341105929,
+            "avg_outcome": 0.8767488341105929
+          },
+          "0.7": {
+            "total": 9463,
+            "removed_pct": 0.6826587762865899,
+            "baseline_loss_rate": 0.709605833245271,
+            "veto_loss_rate": 0.12354312354312354,
+            "kept_winrate": 0.8764568764568764,
+            "avg_outcome": 0.8764568764568764
+          },
+          "0.75": {
+            "total": 9463,
+            "removed_pct": 0.6805452816231639,
+            "baseline_loss_rate": 0.709605833245271,
+            "veto_loss_rate": 0.12636453853787627,
+            "kept_winrate": 0.8736354614621238,
+            "avg_outcome": 0.8736354614621238
+          },
+          "0.8": {
+            "total": 9463,
+            "removed_pct": 0.6732537250343443,
+            "baseline_loss_rate": 0.709605833245271,
+            "veto_loss_rate": 0.13939197930142302,
+            "kept_winrate": 0.860608020698577,
+            "avg_outcome": 0.860608020698577
+          }
+        }
+      },
+      {
+        "split": 9,
+        "train_start": "2011-09-01T00:00:00-04:00",
+        "train_end": "2013-09-01T00:00:00-04:00",
+        "test_start": "2013-09-01T00:00:00-04:00",
+        "test_end": "2013-10-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 22051,
+            "removed_pct": 0.603600743730443,
+            "baseline_loss_rate": 0.623191691986758,
+            "veto_loss_rate": 0.1383136940853449,
+            "kept_winrate": 0.8616863059146551,
+            "avg_outcome": 0.8616863059146551
+          },
+          "0.55": {
+            "total": 22051,
+            "removed_pct": 0.5980227654074645,
+            "baseline_loss_rate": 0.623191691986758,
+            "veto_loss_rate": 0.1440658844765343,
+            "kept_winrate": 0.8559341155234657,
+            "avg_outcome": 0.8559341155234657
+          },
+          "0.6": {
+            "total": 22051,
+            "removed_pct": 0.5903587138905265,
+            "baseline_loss_rate": 0.623191691986758,
+            "veto_loss_rate": 0.15111258718033876,
+            "kept_winrate": 0.8488874128196613,
+            "avg_outcome": 0.8488874128196613
+          },
+          "0.65": {
+            "total": 22051,
+            "removed_pct": 0.5827853612081084,
+            "baseline_loss_rate": 0.623191691986758,
+            "veto_loss_rate": 0.16021739130434784,
+            "kept_winrate": 0.8397826086956521,
+            "avg_outcome": 0.8397826086956521
+          },
+          "0.7": {
+            "total": 22051,
+            "removed_pct": 0.5753480567774704,
+            "baseline_loss_rate": 0.623191691986758,
+            "veto_loss_rate": 0.1687313114053823,
+            "kept_winrate": 0.8312686885946177,
+            "avg_outcome": 0.8312686885946177
+          },
+          "0.75": {
+            "total": 22051,
+            "removed_pct": 0.5620153281030339,
+            "baseline_loss_rate": 0.623191691986758,
+            "veto_loss_rate": 0.18647753158003727,
+            "kept_winrate": 0.8135224684199627,
+            "avg_outcome": 0.8135224684199627
+          },
+          "0.8": {
+            "total": 22051,
+            "removed_pct": 0.5458709355584781,
+            "baseline_loss_rate": 0.623191691986758,
+            "veto_loss_rate": 0.20720990613141602,
+            "kept_winrate": 0.792790093868584,
+            "avg_outcome": 0.792790093868584
+          }
+        }
+      },
+      {
+        "split": 10,
+        "train_start": "2011-10-01T00:00:00-04:00",
+        "train_end": "2013-10-01T00:00:00-04:00",
+        "test_start": "2013-10-01T00:00:00-04:00",
+        "test_end": "2013-11-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 10206,
+            "removed_pct": 0.7140897511267882,
+            "baseline_loss_rate": 0.7297668038408779,
+            "veto_loss_rate": 0.13776559287183002,
+            "kept_winrate": 0.86223440712817,
+            "avg_outcome": 0.86223440712817
+          },
+          "0.55": {
+            "total": 10206,
+            "removed_pct": 0.7140897511267882,
+            "baseline_loss_rate": 0.7297668038408779,
+            "veto_loss_rate": 0.13776559287183002,
+            "kept_winrate": 0.86223440712817,
+            "avg_outcome": 0.86223440712817
+          },
+          "0.6": {
+            "total": 10206,
+            "removed_pct": 0.7140897511267882,
+            "baseline_loss_rate": 0.7297668038408779,
+            "veto_loss_rate": 0.13776559287183002,
+            "kept_winrate": 0.86223440712817,
+            "avg_outcome": 0.86223440712817
+          },
+          "0.65": {
+            "total": 10206,
+            "removed_pct": 0.7138937879678621,
+            "baseline_loss_rate": 0.7297668038408779,
+            "veto_loss_rate": 0.13835616438356163,
+            "kept_winrate": 0.8616438356164384,
+            "avg_outcome": 0.8616438356164384
+          },
+          "0.7": {
+            "total": 10206,
+            "removed_pct": 0.7133058984910837,
+            "baseline_loss_rate": 0.7297668038408779,
+            "veto_loss_rate": 0.13909774436090225,
+            "kept_winrate": 0.8609022556390977,
+            "avg_outcome": 0.8609022556390977
+          },
+          "0.75": {
+            "total": 10206,
+            "removed_pct": 0.7110523221634333,
+            "baseline_loss_rate": 0.7297668038408779,
+            "veto_loss_rate": 0.14513394370973212,
+            "kept_winrate": 0.8548660562902679,
+            "avg_outcome": 0.8548660562902679
+          },
+          "0.8": {
+            "total": 10206,
+            "removed_pct": 0.7033117773858515,
+            "baseline_loss_rate": 0.7297668038408779,
+            "veto_loss_rate": 0.1595112285336856,
+            "kept_winrate": 0.8404887714663144,
+            "avg_outcome": 0.8404887714663144
+          }
+        }
+      },
+      {
+        "split": 11,
+        "train_start": "2011-11-01T00:00:00-04:00",
+        "train_end": "2013-11-01T00:00:00-04:00",
+        "test_start": "2013-11-01T00:00:00-04:00",
+        "test_end": "2013-12-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 8489,
+            "removed_pct": 0.6610908234185416,
+            "baseline_loss_rate": 0.682765932383084,
+            "veto_loss_rate": 0.12930135557872785,
+            "kept_winrate": 0.8706986444212721,
+            "avg_outcome": 0.8706986444212721
+          },
+          "0.55": {
+            "total": 8489,
+            "removed_pct": 0.6609730239132996,
+            "baseline_loss_rate": 0.682765932383084,
+            "veto_loss_rate": 0.1296038915913829,
+            "kept_winrate": 0.8703961084086171,
+            "avg_outcome": 0.8703961084086171
+          },
+          "0.6": {
+            "total": 8489,
+            "removed_pct": 0.6606196253975734,
+            "baseline_loss_rate": 0.682765932383084,
+            "veto_loss_rate": 0.13051023950017354,
+            "kept_winrate": 0.8694897604998264,
+            "avg_outcome": 0.8694897604998264
+          },
+          "0.65": {
+            "total": 8489,
+            "removed_pct": 0.6599128283661209,
+            "baseline_loss_rate": 0.682765932383084,
+            "veto_loss_rate": 0.1319709040526498,
+            "kept_winrate": 0.8680290959473502,
+            "avg_outcome": 0.8680290959473502
+          },
+          "0.7": {
+            "total": 8489,
+            "removed_pct": 0.6583814347979738,
+            "baseline_loss_rate": 0.682765932383084,
+            "veto_loss_rate": 0.13482758620689655,
+            "kept_winrate": 0.8651724137931034,
+            "avg_outcome": 0.8651724137931034
+          },
+          "0.75": {
+            "total": 8489,
+            "removed_pct": 0.6548474496407115,
+            "baseline_loss_rate": 0.682765932383084,
+            "veto_loss_rate": 0.14027303754266213,
+            "kept_winrate": 0.8597269624573378,
+            "avg_outcome": 0.8597269624573378
+          },
+          "0.8": {
+            "total": 8489,
+            "removed_pct": 0.6453056897161031,
+            "baseline_loss_rate": 0.682765932383084,
+            "veto_loss_rate": 0.15210893390900032,
+            "kept_winrate": 0.8478910660909997,
+            "avg_outcome": 0.8478910660909997
+          }
+        }
+      },
+      {
+        "split": 12,
+        "train_start": "2011-12-01T00:00:00-05:00",
+        "train_end": "2013-12-01T00:00:00-05:00",
+        "test_start": "2013-12-01T00:00:00-05:00",
+        "test_end": "2014-01-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 21858,
+            "removed_pct": 0.5761277335529326,
+            "baseline_loss_rate": 0.591179430871992,
+            "veto_loss_rate": 0.108041014570966,
+            "kept_winrate": 0.891958985429034,
+            "avg_outcome": 0.891958985429034
+          },
+          "0.55": {
+            "total": 21858,
+            "removed_pct": 0.5705462530881142,
+            "baseline_loss_rate": 0.591179430871992,
+            "veto_loss_rate": 0.11185682326621924,
+            "kept_winrate": 0.8881431767337807,
+            "avg_outcome": 0.8881431767337807
+          },
+          "0.6": {
+            "total": 21858,
+            "removed_pct": 0.5625400311098911,
+            "baseline_loss_rate": 0.591179430871992,
+            "veto_loss_rate": 0.11922192010039741,
+            "kept_winrate": 0.8807780798996026,
+            "avg_outcome": 0.8807780798996026
+          },
+          "0.65": {
+            "total": 21858,
+            "removed_pct": 0.5547168084911703,
+            "baseline_loss_rate": 0.591179430871992,
+            "veto_loss_rate": 0.12945648823589848,
+            "kept_winrate": 0.8705435117641015,
+            "avg_outcome": 0.8705435117641015
+          },
+          "0.7": {
+            "total": 21858,
+            "removed_pct": 0.548083081709214,
+            "baseline_loss_rate": 0.591179430871992,
+            "veto_loss_rate": 0.13838833772018627,
+            "kept_winrate": 0.8616116622798138,
+            "avg_outcome": 0.8616116622798138
+          },
+          "0.75": {
+            "total": 21858,
+            "removed_pct": 0.5389331137341019,
+            "baseline_loss_rate": 0.591179430871992,
+            "veto_loss_rate": 0.14844215122048027,
+            "kept_winrate": 0.8515578487795197,
+            "avg_outcome": 0.8515578487795197
+          },
+          "0.8": {
+            "total": 21858,
+            "removed_pct": 0.5289138988013542,
+            "baseline_loss_rate": 0.591179430871992,
+            "veto_loss_rate": 0.16092065650189374,
+            "kept_winrate": 0.8390793434981063,
+            "avg_outcome": 0.8390793434981063
+          }
+        }
+      },
+      {
+        "split": 13,
+        "train_start": "2012-01-01T00:00:00-05:00",
+        "train_end": "2014-01-01T00:00:00-05:00",
+        "test_start": "2014-01-01T00:00:00-05:00",
+        "test_end": "2014-02-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 9016,
+            "removed_pct": 0.7232697426796806,
+            "baseline_loss_rate": 0.7334738243123337,
+            "veto_loss_rate": 0.13867735470941883,
+            "kept_winrate": 0.8613226452905811,
+            "avg_outcome": 0.8613226452905811
+          },
+          "0.55": {
+            "total": 9016,
+            "removed_pct": 0.7227151730257321,
+            "baseline_loss_rate": 0.7334738243123337,
+            "veto_loss_rate": 0.1384,
+            "kept_winrate": 0.8616,
+            "avg_outcome": 0.8616
+          },
+          "0.6": {
+            "total": 9016,
+            "removed_pct": 0.7227151730257321,
+            "baseline_loss_rate": 0.7334738243123337,
+            "veto_loss_rate": 0.1384,
+            "kept_winrate": 0.8616,
+            "avg_outcome": 0.8616
+          },
+          "0.65": {
+            "total": 9016,
+            "removed_pct": 0.7227151730257321,
+            "baseline_loss_rate": 0.7334738243123337,
+            "veto_loss_rate": 0.1384,
+            "kept_winrate": 0.8616,
+            "avg_outcome": 0.8616
+          },
+          "0.7": {
+            "total": 9016,
+            "removed_pct": 0.7222715173025732,
+            "baseline_loss_rate": 0.7334738243123337,
+            "veto_loss_rate": 0.1393769968051118,
+            "kept_winrate": 0.8606230031948882,
+            "avg_outcome": 0.8606230031948882
+          },
+          "0.75": {
+            "total": 9016,
+            "removed_pct": 0.7192768411712511,
+            "baseline_loss_rate": 0.7334738243123337,
+            "veto_loss_rate": 0.1457921770051363,
+            "kept_winrate": 0.8542078229948638,
+            "avg_outcome": 0.8542078229948638
+          },
+          "0.8": {
+            "total": 9016,
+            "removed_pct": 0.709072759538598,
+            "baseline_loss_rate": 0.7334738243123337,
+            "veto_loss_rate": 0.1666031261913839,
+            "kept_winrate": 0.8333968738086162,
+            "avg_outcome": 0.8333968738086162
+          }
+        }
+      },
+      {
+        "split": 14,
+        "train_start": "2012-02-01T00:00:00-05:00",
+        "train_end": "2014-02-01T00:00:00-05:00",
+        "test_start": "2014-02-01T00:00:00-05:00",
+        "test_end": "2014-03-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 10707,
+            "removed_pct": 0.6964602596432241,
+            "baseline_loss_rate": 0.711123564023536,
+            "veto_loss_rate": 0.148,
+            "kept_winrate": 0.852,
+            "avg_outcome": 0.852
+          },
+          "0.55": {
+            "total": 10707,
+            "removed_pct": 0.6954328943681704,
+            "baseline_loss_rate": 0.711123564023536,
+            "veto_loss_rate": 0.15026065624041704,
+            "kept_winrate": 0.8497393437595829,
+            "avg_outcome": 0.8497393437595829
+          },
+          "0.6": {
+            "total": 10707,
+            "removed_pct": 0.6938451480339964,
+            "baseline_loss_rate": 0.711123564023536,
+            "veto_loss_rate": 0.15344722391702256,
+            "kept_winrate": 0.8465527760829774,
+            "avg_outcome": 0.8465527760829774
+          },
+          "0.65": {
+            "total": 10707,
+            "removed_pct": 0.692444195386196,
+            "baseline_loss_rate": 0.711123564023536,
+            "veto_loss_rate": 0.1548739750986942,
+            "kept_winrate": 0.8451260249013058,
+            "avg_outcome": 0.8451260249013058
+          },
+          "0.7": {
+            "total": 10707,
+            "removed_pct": 0.6892687027178481,
+            "baseline_loss_rate": 0.711123564023536,
+            "veto_loss_rate": 0.1620078148482116,
+            "kept_winrate": 0.8379921851517884,
+            "avg_outcome": 0.8379921851517884
+          },
+          "0.75": {
+            "total": 10707,
+            "removed_pct": 0.6817969552629121,
+            "baseline_loss_rate": 0.711123564023536,
+            "veto_loss_rate": 0.1728793660111535,
+            "kept_winrate": 0.8271206339888465,
+            "avg_outcome": 0.8271206339888465
+          },
+          "0.8": {
+            "total": 10707,
+            "removed_pct": 0.6685346035304006,
+            "baseline_loss_rate": 0.711123564023536,
+            "veto_loss_rate": 0.19695688926458157,
+            "kept_winrate": 0.8030431107354185,
+            "avg_outcome": 0.8030431107354185
+          }
+        }
+      },
+      {
+        "split": 15,
+        "train_start": "2012-03-01T00:00:00-05:00",
+        "train_end": "2014-03-01T00:00:00-05:00",
+        "test_start": "2014-03-01T00:00:00-05:00",
+        "test_end": "2014-04-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 23354,
+            "removed_pct": 0.5895778025177699,
+            "baseline_loss_rate": 0.6146698638348891,
+            "veto_loss_rate": 0.15503390714658322,
+            "kept_winrate": 0.8449660928534168,
+            "avg_outcome": 0.8449660928534168
+          },
+          "0.55": {
+            "total": 23354,
+            "removed_pct": 0.581056778282093,
+            "baseline_loss_rate": 0.6146698638348891,
+            "veto_loss_rate": 0.16036385936222403,
+            "kept_winrate": 0.8396361406377759,
+            "avg_outcome": 0.8396361406377759
+          },
+          "0.6": {
+            "total": 23354,
+            "removed_pct": 0.576218206731181,
+            "baseline_loss_rate": 0.6146698638348891,
+            "veto_loss_rate": 0.16419116904112357,
+            "kept_winrate": 0.8358088309588765,
+            "avg_outcome": 0.8358088309588765
+          },
+          "0.65": {
+            "total": 23354,
+            "removed_pct": 0.5720647426565042,
+            "baseline_loss_rate": 0.6146698638348891,
+            "veto_loss_rate": 0.169601761056634,
+            "kept_winrate": 0.830398238943366,
+            "avg_outcome": 0.830398238943366
+          },
+          "0.7": {
+            "total": 23354,
+            "removed_pct": 0.5614027575575918,
+            "baseline_loss_rate": 0.6146698638348891,
+            "veto_loss_rate": 0.18480913794786683,
+            "kept_winrate": 0.8151908620521332,
+            "avg_outcome": 0.8151908620521332
+          },
+          "0.75": {
+            "total": 23354,
+            "removed_pct": 0.5432902286546202,
+            "baseline_loss_rate": 0.6146698638348891,
+            "veto_loss_rate": 0.20485655353459592,
+            "kept_winrate": 0.7951434464654041,
+            "avg_outcome": 0.7951434464654041
+          },
+          "0.8": {
+            "total": 23354,
+            "removed_pct": 0.5317290399931489,
+            "baseline_loss_rate": 0.6146698638348891,
+            "veto_loss_rate": 0.2195501097293343,
+            "kept_winrate": 0.7804498902706657,
+            "avg_outcome": 0.7804498902706657
+          }
+        }
+      },
+      {
+        "split": 16,
+        "train_start": "2012-04-01T00:00:00-04:00",
+        "train_end": "2014-04-01T00:00:00-04:00",
+        "test_start": "2014-04-01T00:00:00-04:00",
+        "test_end": "2014-05-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 9827,
+            "removed_pct": 0.682405617177165,
+            "baseline_loss_rate": 0.6981784878396256,
+            "veto_loss_rate": 0.13361102210829862,
+            "kept_winrate": 0.8663889778917013,
+            "avg_outcome": 0.8663889778917013
+          },
+          "0.55": {
+            "total": 9827,
+            "removed_pct": 0.682405617177165,
+            "baseline_loss_rate": 0.6981784878396256,
+            "veto_loss_rate": 0.13361102210829862,
+            "kept_winrate": 0.8663889778917013,
+            "avg_outcome": 0.8663889778917013
+          },
+          "0.6": {
+            "total": 9827,
+            "removed_pct": 0.682405617177165,
+            "baseline_loss_rate": 0.6981784878396256,
+            "veto_loss_rate": 0.13361102210829862,
+            "kept_winrate": 0.8663889778917013,
+            "avg_outcome": 0.8663889778917013
+          },
+          "0.65": {
+            "total": 9827,
+            "removed_pct": 0.6818968148977308,
+            "baseline_loss_rate": 0.6981784878396256,
+            "veto_loss_rate": 0.1346769033909149,
+            "kept_winrate": 0.8653230966090851,
+            "avg_outcome": 0.8653230966090851
+          },
+          "0.7": {
+            "total": 9827,
+            "removed_pct": 0.681082731250636,
+            "baseline_loss_rate": 0.6981784878396256,
+            "veto_loss_rate": 0.13656668793873644,
+            "kept_winrate": 0.8634333120612636,
+            "avg_outcome": 0.8634333120612636
+          },
+          "0.75": {
+            "total": 9827,
+            "removed_pct": 0.6686679556324412,
+            "baseline_loss_rate": 0.6981784878396256,
+            "veto_loss_rate": 0.1630835380835381,
+            "kept_winrate": 0.836916461916462,
+            "avg_outcome": 0.836916461916462
+          },
+          "0.8": {
+            "total": 9827,
+            "removed_pct": 0.6594077541467386,
+            "baseline_loss_rate": 0.6981784878396256,
+            "veto_loss_rate": 0.18075888855691663,
+            "kept_winrate": 0.8192411114430833,
+            "avg_outcome": 0.8192411114430833
+          }
+        }
+      },
+      {
+        "split": 17,
+        "train_start": "2012-05-01T00:00:00-04:00",
+        "train_end": "2014-05-01T00:00:00-04:00",
+        "test_start": "2014-05-01T00:00:00-04:00",
+        "test_end": "2014-06-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 10541,
+            "removed_pct": 0.6659709704961578,
+            "baseline_loss_rate": 0.6842804288018215,
+            "veto_loss_rate": 0.12098835558080091,
+            "kept_winrate": 0.8790116444191991,
+            "avg_outcome": 0.8790116444191991
+          },
+          "0.55": {
+            "total": 10541,
+            "removed_pct": 0.6656863675173134,
+            "baseline_loss_rate": 0.6842804288018215,
+            "veto_loss_rate": 0.12116912599318956,
+            "kept_winrate": 0.8788308740068105,
+            "avg_outcome": 0.8788308740068105
+          },
+          "0.6": {
+            "total": 10541,
+            "removed_pct": 0.6651171615596243,
+            "baseline_loss_rate": 0.6842804288018215,
+            "veto_loss_rate": 0.12237960339943343,
+            "kept_winrate": 0.8776203966005666,
+            "avg_outcome": 0.8776203966005666
+          },
+          "0.65": {
+            "total": 10541,
+            "removed_pct": 0.6649274262403947,
+            "baseline_loss_rate": 0.6842804288018215,
+            "veto_loss_rate": 0.12287655719139298,
+            "kept_winrate": 0.877123442808607,
+            "avg_outcome": 0.877123442808607
+          },
+          "0.7": {
+            "total": 10541,
+            "removed_pct": 0.6646428232615501,
+            "baseline_loss_rate": 0.6842804288018215,
+            "veto_loss_rate": 0.12362093352192362,
+            "kept_winrate": 0.8763790664780764,
+            "avg_outcome": 0.8763790664780764
+          },
+          "0.75": {
+            "total": 10541,
+            "removed_pct": 0.6617019258134902,
+            "baseline_loss_rate": 0.6842804288018215,
+            "veto_loss_rate": 0.12731351654514864,
+            "kept_winrate": 0.8726864834548513,
+            "avg_outcome": 0.8726864834548513
+          },
+          "0.8": {
+            "total": 10541,
+            "removed_pct": 0.6518356892135471,
+            "baseline_loss_rate": 0.6842804288018215,
+            "veto_loss_rate": 0.144141689373297,
+            "kept_winrate": 0.855858310626703,
+            "avg_outcome": 0.855858310626703
+          }
+        }
+      },
+      {
+        "split": 18,
+        "train_start": "2012-06-01T00:00:00-04:00",
+        "train_end": "2014-06-01T00:00:00-04:00",
+        "test_start": "2014-06-01T00:00:00-04:00",
+        "test_end": "2014-07-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 18375,
+            "removed_pct": 0.6008707482993197,
+            "baseline_loss_rate": 0.6111020408163266,
+            "veto_loss_rate": 0.1574856831197164,
+            "kept_winrate": 0.8425143168802836,
+            "avg_outcome": 0.8425143168802836
+          },
+          "0.55": {
+            "total": 18375,
+            "removed_pct": 0.5884081632653061,
+            "baseline_loss_rate": 0.6111020408163266,
+            "veto_loss_rate": 0.16792278196482877,
+            "kept_winrate": 0.8320772180351712,
+            "avg_outcome": 0.8320772180351712
+          },
+          "0.6": {
+            "total": 18375,
+            "removed_pct": 0.5780136054421768,
+            "baseline_loss_rate": 0.6111020408163266,
+            "veto_loss_rate": 0.1782305906628837,
+            "kept_winrate": 0.8217694093371163,
+            "avg_outcome": 0.8217694093371163
+          },
+          "0.65": {
+            "total": 18375,
+            "removed_pct": 0.5691972789115646,
+            "baseline_loss_rate": 0.6111020408163266,
+            "veto_loss_rate": 0.18822637695805963,
+            "kept_winrate": 0.8117736230419403,
+            "avg_outcome": 0.8117736230419403
+          },
+          "0.7": {
+            "total": 18375,
+            "removed_pct": 0.5583673469387755,
+            "baseline_loss_rate": 0.6111020408163266,
+            "veto_loss_rate": 0.19987677141096735,
+            "kept_winrate": 0.8001232285890326,
+            "avg_outcome": 0.8001232285890326
+          },
+          "0.75": {
+            "total": 18375,
+            "removed_pct": 0.5349659863945578,
+            "baseline_loss_rate": 0.6111020408163266,
+            "veto_loss_rate": 0.2248098303101229,
+            "kept_winrate": 0.7751901696898771,
+            "avg_outcome": 0.7751901696898771
+          },
+          "0.8": {
+            "total": 18375,
+            "removed_pct": 0.5223945578231293,
+            "baseline_loss_rate": 0.6111020408163266,
+            "veto_loss_rate": 0.23723792160437557,
+            "kept_winrate": 0.7627620783956244,
+            "avg_outcome": 0.7627620783956244
+          }
+        }
+      },
+      {
+        "split": 19,
+        "train_start": "2012-07-01T00:00:00-04:00",
+        "train_end": "2014-07-01T00:00:00-04:00",
+        "test_start": "2014-07-01T00:00:00-04:00",
+        "test_end": "2014-08-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 10394,
+            "removed_pct": 0.6532614970175101,
+            "baseline_loss_rate": 0.6718299018664614,
+            "veto_loss_rate": 0.12680355160932297,
+            "kept_winrate": 0.873196448390677,
+            "avg_outcome": 0.873196448390677
+          },
+          "0.55": {
+            "total": 10394,
+            "removed_pct": 0.6526842409082163,
+            "baseline_loss_rate": 0.6718299018664614,
+            "veto_loss_rate": 0.12797783933518006,
+            "kept_winrate": 0.87202216066482,
+            "avg_outcome": 0.87202216066482
+          },
+          "0.6": {
+            "total": 10394,
+            "removed_pct": 0.6521069847989225,
+            "baseline_loss_rate": 0.6718299018664614,
+            "veto_loss_rate": 0.12914823008849557,
+            "kept_winrate": 0.8708517699115044,
+            "avg_outcome": 0.8708517699115044
+          },
+          "0.65": {
+            "total": 10394,
+            "removed_pct": 0.6518183567442756,
+            "baseline_loss_rate": 0.6718299018664614,
+            "veto_loss_rate": 0.12959381044487428,
+            "kept_winrate": 0.8704061895551257,
+            "avg_outcome": 0.8704061895551257
+          },
+          "0.7": {
+            "total": 10394,
+            "removed_pct": 0.6506638445256879,
+            "baseline_loss_rate": 0.6718299018664614,
+            "veto_loss_rate": 0.13191958138253926,
+            "kept_winrate": 0.8680804186174608,
+            "avg_outcome": 0.8680804186174608
+          },
+          "0.75": {
+            "total": 10394,
+            "removed_pct": 0.6426784683471234,
+            "baseline_loss_rate": 0.6718299018664614,
+            "veto_loss_rate": 0.1416262789445342,
+            "kept_winrate": 0.8583737210554658,
+            "avg_outcome": 0.8583737210554658
+          },
+          "0.8": {
+            "total": 10394,
+            "removed_pct": 0.6395035597460074,
+            "baseline_loss_rate": 0.6718299018664614,
+            "veto_loss_rate": 0.14518281291700028,
+            "kept_winrate": 0.8548171870829997,
+            "avg_outcome": 0.8548171870829997
+          }
+        }
+      },
+      {
+        "split": 20,
+        "train_start": "2012-08-01T00:00:00-04:00",
+        "train_end": "2014-08-01T00:00:00-04:00",
+        "test_start": "2014-08-01T00:00:00-04:00",
+        "test_end": "2014-09-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 12774,
+            "removed_pct": 0.6601690934711132,
+            "baseline_loss_rate": 0.6905432910599656,
+            "veto_loss_rate": 0.17208016586040084,
+            "kept_winrate": 0.8279198341395991,
+            "avg_outcome": 0.8279198341395991
+          },
+          "0.55": {
+            "total": 12774,
+            "removed_pct": 0.6586816971974323,
+            "baseline_loss_rate": 0.6905432910599656,
+            "veto_loss_rate": 0.1743119266055046,
+            "kept_winrate": 0.8256880733944953,
+            "avg_outcome": 0.8256880733944953
+          },
+          "0.6": {
+            "total": 12774,
+            "removed_pct": 0.6571943009237514,
+            "baseline_loss_rate": 0.6905432910599656,
+            "veto_loss_rate": 0.17743777118063483,
+            "kept_winrate": 0.8225622288193651,
+            "avg_outcome": 0.8225622288193651
+          },
+          "0.65": {
+            "total": 12774,
+            "removed_pct": 0.6559417566932833,
+            "baseline_loss_rate": 0.6905432910599656,
+            "veto_loss_rate": 0.1770193401592719,
+            "kept_winrate": 0.8229806598407281,
+            "avg_outcome": 0.8229806598407281
+          },
+          "0.7": {
+            "total": 12774,
+            "removed_pct": 0.654376076405198,
+            "baseline_loss_rate": 0.6905432910599656,
+            "veto_loss_rate": 0.17757644394110986,
+            "kept_winrate": 0.8224235560588902,
+            "avg_outcome": 0.8224235560588902
+          },
+          "0.75": {
+            "total": 12774,
+            "removed_pct": 0.6496007515265383,
+            "baseline_loss_rate": 0.6905432910599656,
+            "veto_loss_rate": 0.18655049151027703,
+            "kept_winrate": 0.813449508489723,
+            "avg_outcome": 0.813449508489723
+          },
+          "0.8": {
+            "total": 12774,
+            "removed_pct": 0.6417723500861124,
+            "baseline_loss_rate": 0.6905432910599656,
+            "veto_loss_rate": 0.19689685314685315,
+            "kept_winrate": 0.8031031468531469,
+            "avg_outcome": 0.8031031468531469
+          }
+        }
+      },
+      {
+        "split": 21,
+        "train_start": "2012-09-01T00:00:00-04:00",
+        "train_end": "2014-09-01T00:00:00-04:00",
+        "test_start": "2014-09-01T00:00:00-04:00",
+        "test_end": "2014-10-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 21836,
+            "removed_pct": 0.5945228063747939,
+            "baseline_loss_rate": 0.5963546437076388,
+            "veto_loss_rate": 0.14885927264513216,
+            "kept_winrate": 0.8511407273548679,
+            "avg_outcome": 0.8511407273548679
+          },
+          "0.55": {
+            "total": 21836,
+            "removed_pct": 0.5813335775783111,
+            "baseline_loss_rate": 0.5963546437076388,
+            "veto_loss_rate": 0.15959308685189236,
+            "kept_winrate": 0.8404069131481077,
+            "avg_outcome": 0.8404069131481077
+          },
+          "0.6": {
+            "total": 21836,
+            "removed_pct": 0.5682359406484704,
+            "baseline_loss_rate": 0.5963546437076388,
+            "veto_loss_rate": 0.17214679677556216,
+            "kept_winrate": 0.8278532032244379,
+            "avg_outcome": 0.8278532032244379
+          },
+          "0.65": {
+            "total": 21836,
+            "removed_pct": 0.560130060450632,
+            "baseline_loss_rate": 0.5963546437076388,
+            "veto_loss_rate": 0.18094742321707444,
+            "kept_winrate": 0.8190525767829255,
+            "avg_outcome": 0.8190525767829255
+          },
+          "0.7": {
+            "total": 21836,
+            "removed_pct": 0.5503755266532332,
+            "baseline_loss_rate": 0.5963546437076388,
+            "veto_loss_rate": 0.19005907516805867,
+            "kept_winrate": 0.8099409248319414,
+            "avg_outcome": 0.8099409248319414
+          },
+          "0.75": {
+            "total": 21836,
+            "removed_pct": 0.5227605788605971,
+            "baseline_loss_rate": 0.5963546437076388,
+            "veto_loss_rate": 0.2222435466845792,
+            "kept_winrate": 0.7777564533154208,
+            "avg_outcome": 0.7777564533154208
+          },
+          "0.8": {
+            "total": 21836,
+            "removed_pct": 0.507556328997985,
+            "baseline_loss_rate": 0.5963546437076388,
+            "veto_loss_rate": 0.23593415790942063,
+            "kept_winrate": 0.7640658420905794,
+            "avg_outcome": 0.7640658420905794
+          }
+        }
+      },
+      {
+        "split": 22,
+        "train_start": "2012-10-01T00:00:00-04:00",
+        "train_end": "2014-10-01T00:00:00-04:00",
+        "test_start": "2014-10-01T00:00:00-04:00",
+        "test_end": "2014-11-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 14964,
+            "removed_pct": 0.6753541833734296,
+            "baseline_loss_rate": 0.681769580326116,
+            "veto_loss_rate": 0.17249897076986415,
+            "kept_winrate": 0.8275010292301359,
+            "avg_outcome": 0.8275010292301359
+          },
+          "0.55": {
+            "total": 14964,
+            "removed_pct": 0.6748863940122962,
+            "baseline_loss_rate": 0.681769580326116,
+            "veto_loss_rate": 0.1734840698869476,
+            "kept_winrate": 0.8265159301130525,
+            "avg_outcome": 0.8265159301130525
+          },
+          "0.6": {
+            "total": 14964,
+            "removed_pct": 0.6730820636193531,
+            "baseline_loss_rate": 0.681769580326116,
+            "veto_loss_rate": 0.1757972199509403,
+            "kept_winrate": 0.8242027800490597,
+            "avg_outcome": 0.8242027800490597
+          },
+          "0.65": {
+            "total": 14964,
+            "removed_pct": 0.6706762897620957,
+            "baseline_loss_rate": 0.681769580326116,
+            "veto_loss_rate": 0.17918019480519481,
+            "kept_winrate": 0.8208198051948052,
+            "avg_outcome": 0.8208198051948052
+          },
+          "0.7": {
+            "total": 14964,
+            "removed_pct": 0.6685378241112002,
+            "baseline_loss_rate": 0.681769580326116,
+            "veto_loss_rate": 0.18225806451612903,
+            "kept_winrate": 0.817741935483871,
+            "avg_outcome": 0.817741935483871
+          },
+          "0.75": {
+            "total": 14964,
+            "removed_pct": 0.6609195402298851,
+            "baseline_loss_rate": 0.681769580326116,
+            "veto_loss_rate": 0.19333858888450925,
+            "kept_winrate": 0.8066614111154907,
+            "avg_outcome": 0.8066614111154907
+          },
+          "0.8": {
+            "total": 14964,
+            "removed_pct": 0.6365276663993584,
+            "baseline_loss_rate": 0.681769580326116,
+            "veto_loss_rate": 0.2349696635410921,
+            "kept_winrate": 0.765030336458908,
+            "avg_outcome": 0.765030336458908
+          }
+        }
+      },
+      {
+        "split": 23,
+        "train_start": "2012-11-01T00:00:00-04:00",
+        "train_end": "2014-11-01T00:00:00-04:00",
+        "test_start": "2014-11-01T00:00:00-04:00",
+        "test_end": "2014-12-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 11396,
+            "removed_pct": 0.641979641979642,
+            "baseline_loss_rate": 0.6629519129519129,
+            "veto_loss_rate": 0.11397058823529412,
+            "kept_winrate": 0.8860294117647058,
+            "avg_outcome": 0.8860294117647058
+          },
+          "0.55": {
+            "total": 11396,
+            "removed_pct": 0.6404001404001404,
+            "baseline_loss_rate": 0.6629519129519129,
+            "veto_loss_rate": 0.11566617862371889,
+            "kept_winrate": 0.8843338213762811,
+            "avg_outcome": 0.8843338213762811
+          },
+          "0.6": {
+            "total": 11396,
+            "removed_pct": 0.6393471393471394,
+            "baseline_loss_rate": 0.6629519129519129,
+            "veto_loss_rate": 0.11678832116788321,
+            "kept_winrate": 0.8832116788321168,
+            "avg_outcome": 0.8832116788321168
+          },
+          "0.65": {
+            "total": 11396,
+            "removed_pct": 0.6374166374166375,
+            "baseline_loss_rate": 0.6629519129519129,
+            "veto_loss_rate": 0.11955469506292353,
+            "kept_winrate": 0.8804453049370765,
+            "avg_outcome": 0.8804453049370765
+          },
+          "0.7": {
+            "total": 11396,
+            "removed_pct": 0.6361881361881362,
+            "baseline_loss_rate": 0.6629519129519129,
+            "veto_loss_rate": 0.12180414857694163,
+            "kept_winrate": 0.8781958514230583,
+            "avg_outcome": 0.8781958514230583
+          },
+          "0.75": {
+            "total": 11396,
+            "removed_pct": 0.6343453843453843,
+            "baseline_loss_rate": 0.6629519129519129,
+            "veto_loss_rate": 0.1238300935925126,
+            "kept_winrate": 0.8761699064074874,
+            "avg_outcome": 0.8761699064074874
+          },
+          "0.8": {
+            "total": 11396,
+            "removed_pct": 0.6223236223236224,
+            "baseline_loss_rate": 0.6629519129519129,
+            "veto_loss_rate": 0.14660780669144982,
+            "kept_winrate": 0.8533921933085502,
+            "avg_outcome": 0.8533921933085502
+          }
+        }
+      },
+      {
+        "split": 24,
+        "train_start": "2012-12-01T00:00:00-05:00",
+        "train_end": "2014-12-01T00:00:00-05:00",
+        "test_start": "2014-12-01T00:00:00-05:00",
+        "test_end": "2015-01-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 21976,
+            "removed_pct": 0.5796778303603931,
+            "baseline_loss_rate": 0.5970604295595194,
+            "veto_loss_rate": 0.1333766374363971,
+            "kept_winrate": 0.8666233625636028,
+            "avg_outcome": 0.8666233625636028
+          },
+          "0.55": {
+            "total": 21976,
+            "removed_pct": 0.5733982526392428,
+            "baseline_loss_rate": 0.5970604295595194,
+            "veto_loss_rate": 0.13856,
+            "kept_winrate": 0.86144,
+            "avg_outcome": 0.86144
+          },
+          "0.6": {
+            "total": 21976,
+            "removed_pct": 0.5710775391336003,
+            "baseline_loss_rate": 0.5970604295595194,
+            "veto_loss_rate": 0.1406747294716741,
+            "kept_winrate": 0.8593252705283259,
+            "avg_outcome": 0.8593252705283259
+          },
+          "0.65": {
+            "total": 21976,
+            "removed_pct": 0.5658445576993083,
+            "baseline_loss_rate": 0.5970604295595194,
+            "veto_loss_rate": 0.1483073053139084,
+            "kept_winrate": 0.8516926946860917,
+            "avg_outcome": 0.8516926946860917
+          },
+          "0.7": {
+            "total": 21976,
+            "removed_pct": 0.55710775391336,
+            "baseline_loss_rate": 0.5970604295595194,
+            "veto_loss_rate": 0.15822459673276482,
+            "kept_winrate": 0.8417754032672352,
+            "avg_outcome": 0.8417754032672352
+          },
+          "0.75": {
+            "total": 21976,
+            "removed_pct": 0.5389515835456862,
+            "baseline_loss_rate": 0.5970604295595194,
+            "veto_loss_rate": 0.18160284247927358,
+            "kept_winrate": 0.8183971575207264,
+            "avg_outcome": 0.8183971575207264
+          },
+          "0.8": {
+            "total": 21976,
+            "removed_pct": 0.5252548234437568,
+            "baseline_loss_rate": 0.5970604295595194,
+            "veto_loss_rate": 0.19630020128438608,
+            "kept_winrate": 0.8036997987156139,
+            "avg_outcome": 0.8036997987156139
+          }
+        }
+      },
+      {
+        "split": 25,
+        "train_start": "2013-01-01T00:00:00-05:00",
+        "train_end": "2015-01-01T00:00:00-05:00",
+        "test_start": "2015-01-01T00:00:00-05:00",
+        "test_end": "2015-02-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 11026,
+            "removed_pct": 0.6489207328133503,
+            "baseline_loss_rate": 0.6647016143660439,
+            "veto_loss_rate": 0.1518987341772152,
+            "kept_winrate": 0.8481012658227848,
+            "avg_outcome": 0.8481012658227848
+          },
+          "0.55": {
+            "total": 11026,
+            "removed_pct": 0.6476510067114094,
+            "baseline_loss_rate": 0.6647016143660439,
+            "veto_loss_rate": 0.15263835263835263,
+            "kept_winrate": 0.8473616473616474,
+            "avg_outcome": 0.8473616473616474
+          },
+          "0.6": {
+            "total": 11026,
+            "removed_pct": 0.6459278070016325,
+            "baseline_loss_rate": 0.6647016143660439,
+            "veto_loss_rate": 0.1559938524590164,
+            "kept_winrate": 0.8440061475409836,
+            "avg_outcome": 0.8440061475409836
+          },
+          "0.65": {
+            "total": 11026,
+            "removed_pct": 0.6438418284055868,
+            "baseline_loss_rate": 0.6647016143660439,
+            "veto_loss_rate": 0.1591545709192768,
+            "kept_winrate": 0.8408454290807232,
+            "avg_outcome": 0.8408454290807232
+          },
+          "0.7": {
+            "total": 11026,
+            "removed_pct": 0.6392163976056594,
+            "baseline_loss_rate": 0.6647016143660439,
+            "veto_loss_rate": 0.16691804927099044,
+            "kept_winrate": 0.8330819507290096,
+            "avg_outcome": 0.8330819507290096
+          },
+          "0.75": {
+            "total": 11026,
+            "removed_pct": 0.6317794304371486,
+            "baseline_loss_rate": 0.6647016143660439,
+            "veto_loss_rate": 0.17783251231527095,
+            "kept_winrate": 0.822167487684729,
+            "avg_outcome": 0.822167487684729
+          },
+          "0.8": {
+            "total": 11026,
+            "removed_pct": 0.6252494104843098,
+            "baseline_loss_rate": 0.6647016143660439,
+            "veto_loss_rate": 0.1856243949661181,
+            "kept_winrate": 0.814375605033882,
+            "avg_outcome": 0.814375605033882
+          }
+        }
+      },
+      {
+        "split": 26,
+        "train_start": "2013-02-01T00:00:00-05:00",
+        "train_end": "2015-02-01T00:00:00-05:00",
+        "test_start": "2015-02-01T00:00:00-05:00",
+        "test_end": "2015-03-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 8503,
+            "removed_pct": 0.6751734681876984,
+            "baseline_loss_rate": 0.6945783840997295,
+            "veto_loss_rate": 0.12997827661115133,
+            "kept_winrate": 0.8700217233888486,
+            "avg_outcome": 0.8700217233888486
+          },
+          "0.55": {
+            "total": 8503,
+            "removed_pct": 0.6744678348818064,
+            "baseline_loss_rate": 0.6945783840997295,
+            "veto_loss_rate": 0.1315028901734104,
+            "kept_winrate": 0.8684971098265896,
+            "avg_outcome": 0.8684971098265896
+          },
+          "0.6": {
+            "total": 8503,
+            "removed_pct": 0.6738798071268964,
+            "baseline_loss_rate": 0.6945783840997295,
+            "veto_loss_rate": 0.13162639740353407,
+            "kept_winrate": 0.8683736025964659,
+            "avg_outcome": 0.8683736025964659
+          },
+          "0.65": {
+            "total": 8503,
+            "removed_pct": 0.6730565682700224,
+            "baseline_loss_rate": 0.6945783840997295,
+            "veto_loss_rate": 0.13345323741007195,
+            "kept_winrate": 0.866546762589928,
+            "avg_outcome": 0.866546762589928
+          },
+          "0.7": {
+            "total": 8503,
+            "removed_pct": 0.6728213571680584,
+            "baseline_loss_rate": 0.6945783840997295,
+            "veto_loss_rate": 0.13407620416966212,
+            "kept_winrate": 0.8659237958303379,
+            "avg_outcome": 0.8659237958303379
+          },
+          "0.75": {
+            "total": 8503,
+            "removed_pct": 0.6629424908855698,
+            "baseline_loss_rate": 0.6945783840997295,
+            "veto_loss_rate": 0.15143056524773202,
+            "kept_winrate": 0.848569434752268,
+            "avg_outcome": 0.848569434752268
+          },
+          "0.8": {
+            "total": 8503,
+            "removed_pct": 0.6538868634599553,
+            "baseline_loss_rate": 0.6945783840997295,
+            "veto_loss_rate": 0.16853550798504927,
+            "kept_winrate": 0.8314644920149508,
+            "avg_outcome": 0.8314644920149508
+          }
+        }
+      },
+      {
+        "split": 27,
+        "train_start": "2013-03-01T00:00:00-05:00",
+        "train_end": "2015-03-01T00:00:00-05:00",
+        "test_start": "2015-03-01T00:00:00-05:00",
+        "test_end": "2015-04-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 23876,
+            "removed_pct": 0.5852739152286816,
+            "baseline_loss_rate": 0.5874937175406266,
+            "veto_loss_rate": 0.14421329024439508,
+            "kept_winrate": 0.8557867097556049,
+            "avg_outcome": 0.8557867097556049
+          },
+          "0.55": {
+            "total": 23876,
+            "removed_pct": 0.5751382141062155,
+            "baseline_loss_rate": 0.5874937175406266,
+            "veto_loss_rate": 0.15240536277602523,
+            "kept_winrate": 0.8475946372239748,
+            "avg_outcome": 0.8475946372239748
+          },
+          "0.6": {
+            "total": 23876,
+            "removed_pct": 0.5618612832970347,
+            "baseline_loss_rate": 0.5874937175406266,
+            "veto_loss_rate": 0.165662938533601,
+            "kept_winrate": 0.834337061466399,
+            "avg_outcome": 0.834337061466399
+          },
+          "0.65": {
+            "total": 23876,
+            "removed_pct": 0.5513486346121629,
+            "baseline_loss_rate": 0.5874937175406266,
+            "veto_loss_rate": 0.1773711725168036,
+            "kept_winrate": 0.8226288274831964,
+            "avg_outcome": 0.8226288274831964
+          },
+          "0.7": {
+            "total": 23876,
+            "removed_pct": 0.5376528731780867,
+            "baseline_loss_rate": 0.5874937175406266,
+            "veto_loss_rate": 0.1886946281366066,
+            "kept_winrate": 0.8113053718633934,
+            "avg_outcome": 0.8113053718633934
+          },
+          "0.75": {
+            "total": 23876,
+            "removed_pct": 0.5184704305578824,
+            "baseline_loss_rate": 0.5874937175406266,
+            "veto_loss_rate": 0.2050969818213447,
+            "kept_winrate": 0.7949030181786553,
+            "avg_outcome": 0.7949030181786553
+          },
+          "0.8": {
+            "total": 23876,
+            "removed_pct": 0.5002512983749372,
+            "baseline_loss_rate": 0.5874937175406266,
+            "veto_loss_rate": 0.22242708682534362,
+            "kept_winrate": 0.7775729131746564,
+            "avg_outcome": 0.7775729131746564
+          }
+        }
+      },
+      {
+        "split": 28,
+        "train_start": "2013-04-01T00:00:00-04:00",
+        "train_end": "2015-04-01T00:00:00-04:00",
+        "test_start": "2015-04-01T00:00:00-04:00",
+        "test_end": "2015-05-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 7540,
+            "removed_pct": 0.6838196286472149,
+            "baseline_loss_rate": 0.6957559681697613,
+            "veto_loss_rate": 0.14261744966442952,
+            "kept_winrate": 0.8573825503355705,
+            "avg_outcome": 0.8573825503355705
+          },
+          "0.55": {
+            "total": 7540,
+            "removed_pct": 0.6822281167108754,
+            "baseline_loss_rate": 0.6957559681697613,
+            "veto_loss_rate": 0.1456594323873122,
+            "kept_winrate": 0.8543405676126878,
+            "avg_outcome": 0.8543405676126878
+          },
+          "0.6": {
+            "total": 7540,
+            "removed_pct": 0.6802387267904509,
+            "baseline_loss_rate": 0.6957559681697613,
+            "veto_loss_rate": 0.14890087100788055,
+            "kept_winrate": 0.8510991289921195,
+            "avg_outcome": 0.8510991289921195
+          },
+          "0.65": {
+            "total": 7540,
+            "removed_pct": 0.6729442970822281,
+            "baseline_loss_rate": 0.6957559681697613,
+            "veto_loss_rate": 0.16423357664233576,
+            "kept_winrate": 0.8357664233576643,
+            "avg_outcome": 0.8357664233576643
+          },
+          "0.7": {
+            "total": 7540,
+            "removed_pct": 0.6680371352785146,
+            "baseline_loss_rate": 0.6957559681697613,
+            "veto_loss_rate": 0.17099480623252097,
+            "kept_winrate": 0.829005193767479,
+            "avg_outcome": 0.829005193767479
+          },
+          "0.75": {
+            "total": 7540,
+            "removed_pct": 0.6615384615384615,
+            "baseline_loss_rate": 0.6957559681697613,
+            "veto_loss_rate": 0.17907523510971787,
+            "kept_winrate": 0.8209247648902821,
+            "avg_outcome": 0.8209247648902821
+          },
+          "0.8": {
+            "total": 7540,
+            "removed_pct": 0.6543766578249337,
+            "baseline_loss_rate": 0.6957559681697613,
+            "veto_loss_rate": 0.18994627782041443,
+            "kept_winrate": 0.8100537221795856,
+            "avg_outcome": 0.8100537221795856
+          }
+        }
+      },
+      {
+        "split": 29,
+        "train_start": "2013-05-01T00:00:00-04:00",
+        "train_end": "2015-05-01T00:00:00-04:00",
+        "test_start": "2015-05-01T00:00:00-04:00",
+        "test_end": "2015-06-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 9962,
+            "removed_pct": 0.6443485243926922,
+            "baseline_loss_rate": 0.6551897209395704,
+            "veto_loss_rate": 0.10979395992097093,
+            "kept_winrate": 0.890206040079029,
+            "avg_outcome": 0.890206040079029
+          },
+          "0.55": {
+            "total": 9962,
+            "removed_pct": 0.6414374623569564,
+            "baseline_loss_rate": 0.6551897209395704,
+            "veto_loss_rate": 0.11562150055991041,
+            "kept_winrate": 0.8843784994400896,
+            "avg_outcome": 0.8843784994400896
+          },
+          "0.6": {
+            "total": 9962,
+            "removed_pct": 0.6387271632202369,
+            "baseline_loss_rate": 0.6551897209395704,
+            "veto_loss_rate": 0.11919977771603223,
+            "kept_winrate": 0.8808002222839678,
+            "avg_outcome": 0.8808002222839678
+          },
+          "0.65": {
+            "total": 9962,
+            "removed_pct": 0.6321019875527003,
+            "baseline_loss_rate": 0.6551897209395704,
+            "veto_loss_rate": 0.13342428376534787,
+            "kept_winrate": 0.8665757162346521,
+            "avg_outcome": 0.8665757162346521
+          },
+          "0.7": {
+            "total": 9962,
+            "removed_pct": 0.6301947400120458,
+            "baseline_loss_rate": 0.6551897209395704,
+            "veto_loss_rate": 0.13626492942453855,
+            "kept_winrate": 0.8637350705754614,
+            "avg_outcome": 0.8637350705754614
+          },
+          "0.75": {
+            "total": 9962,
+            "removed_pct": 0.6264806263802449,
+            "baseline_loss_rate": 0.6551897209395704,
+            "veto_loss_rate": 0.14350980919107767,
+            "kept_winrate": 0.8564901908089223,
+            "avg_outcome": 0.8564901908089223
+          },
+          "0.8": {
+            "total": 9962,
+            "removed_pct": 0.6213611724553303,
+            "baseline_loss_rate": 0.6551897209395704,
+            "veto_loss_rate": 0.15270413573700956,
+            "kept_winrate": 0.8472958642629904,
+            "avg_outcome": 0.8472958642629904
+          }
+        }
+      },
+      {
+        "split": 30,
+        "train_start": "2013-06-01T00:00:00-04:00",
+        "train_end": "2015-06-01T00:00:00-04:00",
+        "test_start": "2015-06-01T00:00:00-04:00",
+        "test_end": "2015-07-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 24288,
+            "removed_pct": 0.5809864953886693,
+            "baseline_loss_rate": 0.6058135704874835,
+            "veto_loss_rate": 0.18207723297631914,
+            "kept_winrate": 0.8179227670236808,
+            "avg_outcome": 0.8179227670236808
+          },
+          "0.55": {
+            "total": 24288,
+            "removed_pct": 0.5682229907773386,
+            "baseline_loss_rate": 0.6058135704874835,
+            "veto_loss_rate": 0.19214265280823878,
+            "kept_winrate": 0.8078573471917612,
+            "avg_outcome": 0.8078573471917612
+          },
+          "0.6": {
+            "total": 24288,
+            "removed_pct": 0.5542654808959157,
+            "baseline_loss_rate": 0.6058135704874835,
+            "veto_loss_rate": 0.20515425826713468,
+            "kept_winrate": 0.7948457417328654,
+            "avg_outcome": 0.7948457417328654
+          },
+          "0.65": {
+            "total": 24288,
+            "removed_pct": 0.5426136363636364,
+            "baseline_loss_rate": 0.6058135704874835,
+            "veto_loss_rate": 0.21523089386983527,
+            "kept_winrate": 0.7847691061301647,
+            "avg_outcome": 0.7847691061301647
+          },
+          "0.7": {
+            "total": 24288,
+            "removed_pct": 0.5301383399209486,
+            "baseline_loss_rate": 0.6058135704874835,
+            "veto_loss_rate": 0.22607781282860148,
+            "kept_winrate": 0.7739221871713985,
+            "avg_outcome": 0.7739221871713985
+          },
+          "0.75": {
+            "total": 24288,
+            "removed_pct": 0.5170454545454546,
+            "baseline_loss_rate": 0.6058135704874835,
+            "veto_loss_rate": 0.24040920716112532,
+            "kept_winrate": 0.7595907928388747,
+            "avg_outcome": 0.7595907928388747
+          },
+          "0.8": {
+            "total": 24288,
+            "removed_pct": 0.49728260869565216,
+            "baseline_loss_rate": 0.6058135704874835,
+            "veto_loss_rate": 0.2585585585585586,
+            "kept_winrate": 0.7414414414414414,
+            "avg_outcome": 0.7414414414414414
+          }
+        }
+      },
+      {
+        "split": 31,
+        "train_start": "2013-07-01T00:00:00-04:00",
+        "train_end": "2015-07-01T00:00:00-04:00",
+        "test_start": "2015-07-01T00:00:00-04:00",
+        "test_end": "2015-08-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 11755,
+            "removed_pct": 0.6844746916205869,
+            "baseline_loss_rate": 0.6940876222883879,
+            "veto_loss_rate": 0.15556753842005933,
+            "kept_winrate": 0.8444324615799407,
+            "avg_outcome": 0.8444324615799407
+          },
+          "0.55": {
+            "total": 11755,
+            "removed_pct": 0.6834538494257762,
+            "baseline_loss_rate": 0.6940876222883879,
+            "veto_loss_rate": 0.15748454716474067,
+            "kept_winrate": 0.8425154528352593,
+            "avg_outcome": 0.8425154528352593
+          },
+          "0.6": {
+            "total": 11755,
+            "removed_pct": 0.6826882177796683,
+            "baseline_loss_rate": 0.6940876222883879,
+            "veto_loss_rate": 0.15871313672922252,
+            "kept_winrate": 0.8412868632707775,
+            "avg_outcome": 0.8412868632707775
+          },
+          "0.65": {
+            "total": 11755,
+            "removed_pct": 0.6810718843045512,
+            "baseline_loss_rate": 0.6940876222883879,
+            "veto_loss_rate": 0.16217658042144573,
+            "kept_winrate": 0.8378234195785543,
+            "avg_outcome": 0.8378234195785543
+          },
+          "0.7": {
+            "total": 11755,
+            "removed_pct": 0.6795406210123351,
+            "baseline_loss_rate": 0.6940876222883879,
+            "veto_loss_rate": 0.16379081497212636,
+            "kept_winrate": 0.8362091850278737,
+            "avg_outcome": 0.8362091850278737
+          },
+          "0.75": {
+            "total": 11755,
+            "removed_pct": 0.6661846022968949,
+            "baseline_loss_rate": 0.6940876222883879,
+            "veto_loss_rate": 0.18577981651376146,
+            "kept_winrate": 0.8142201834862386,
+            "avg_outcome": 0.8142201834862386
+          },
+          "0.8": {
+            "total": 11755,
+            "removed_pct": 0.6570820927264993,
+            "baseline_loss_rate": 0.6940876222883879,
+            "veto_loss_rate": 0.20267923592160755,
+            "kept_winrate": 0.7973207640783925,
+            "avg_outcome": 0.7973207640783925
+          }
+        }
+      },
+      {
+        "split": 32,
+        "train_start": "2013-08-01T00:00:00-04:00",
+        "train_end": "2015-08-01T00:00:00-04:00",
+        "test_start": "2015-08-01T00:00:00-04:00",
+        "test_end": "2015-09-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 20026,
+            "removed_pct": 0.6377708978328174,
+            "baseline_loss_rate": 0.6527014880655149,
+            "veto_loss_rate": 0.2780534877309071,
+            "kept_winrate": 0.7219465122690929,
+            "avg_outcome": 0.7219465122690929
+          },
+          "0.55": {
+            "total": 20026,
+            "removed_pct": 0.6335763507440327,
+            "baseline_loss_rate": 0.6527014880655149,
+            "veto_loss_rate": 0.28141182883619514,
+            "kept_winrate": 0.7185881711638049,
+            "avg_outcome": 0.7185881711638049
+          },
+          "0.6": {
+            "total": 20026,
+            "removed_pct": 0.6292319984020773,
+            "baseline_loss_rate": 0.6527014880655149,
+            "veto_loss_rate": 0.284983164983165,
+            "kept_winrate": 0.715016835016835,
+            "avg_outcome": 0.715016835016835
+          },
+          "0.65": {
+            "total": 20026,
+            "removed_pct": 0.625087386397683,
+            "baseline_loss_rate": 0.6527014880655149,
+            "veto_loss_rate": 0.28902503995737877,
+            "kept_winrate": 0.7109749600426212,
+            "avg_outcome": 0.7109749600426212
+          },
+          "0.7": {
+            "total": 20026,
+            "removed_pct": 0.6184959552581644,
+            "baseline_loss_rate": 0.6527014880655149,
+            "veto_loss_rate": 0.29541884816753927,
+            "kept_winrate": 0.7045811518324607,
+            "avg_outcome": 0.7045811518324607
+          },
+          "0.75": {
+            "total": 20026,
+            "removed_pct": 0.5994207530210726,
+            "baseline_loss_rate": 0.6527014880655149,
+            "veto_loss_rate": 0.31725255547245074,
+            "kept_winrate": 0.6827474445275492,
+            "avg_outcome": 0.6827474445275492
+          },
+          "0.8": {
+            "total": 20026,
+            "removed_pct": 0.5876860081893538,
+            "baseline_loss_rate": 0.6527014880655149,
+            "veto_loss_rate": 0.3273586048201526,
+            "kept_winrate": 0.6726413951798473,
+            "avg_outcome": 0.6726413951798473
+          }
+        }
+      },
+      {
+        "split": 33,
+        "train_start": "2013-09-01T00:00:00-04:00",
+        "train_end": "2015-09-01T00:00:00-04:00",
+        "test_start": "2015-09-01T00:00:00-04:00",
+        "test_end": "2015-10-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 31079,
+            "removed_pct": 0.6047813636217382,
+            "baseline_loss_rate": 0.616718684642363,
+            "veto_loss_rate": 0.22372384596596923,
+            "kept_winrate": 0.7762761540340308,
+            "avg_outcome": 0.7762761540340308
+          },
+          "0.55": {
+            "total": 31079,
+            "removed_pct": 0.5885324495640143,
+            "baseline_loss_rate": 0.616718684642363,
+            "veto_loss_rate": 0.23389114795120425,
+            "kept_winrate": 0.7661088520487958,
+            "avg_outcome": 0.7661088520487958
+          },
+          "0.6": {
+            "total": 31079,
+            "removed_pct": 0.5757907268573635,
+            "baseline_loss_rate": 0.616718684642363,
+            "veto_loss_rate": 0.2445388349514563,
+            "kept_winrate": 0.7554611650485437,
+            "avg_outcome": 0.7554611650485437
+          },
+          "0.65": {
+            "total": 31079,
+            "removed_pct": 0.5640142861739438,
+            "baseline_loss_rate": 0.616718684642363,
+            "veto_loss_rate": 0.2555719557195572,
+            "kept_winrate": 0.7444280442804427,
+            "avg_outcome": 0.7444280442804427
+          },
+          "0.7": {
+            "total": 31079,
+            "removed_pct": 0.5476688439138968,
+            "baseline_loss_rate": 0.616718684642363,
+            "veto_loss_rate": 0.2698819177692417,
+            "kept_winrate": 0.7301180822307582,
+            "avg_outcome": 0.7301180822307582
+          },
+          "0.75": {
+            "total": 31079,
+            "removed_pct": 0.5300041828887674,
+            "baseline_loss_rate": 0.616718684642363,
+            "veto_loss_rate": 0.2828780721571849,
+            "kept_winrate": 0.7171219278428151,
+            "avg_outcome": 0.7171219278428151
+          },
+          "0.8": {
+            "total": 31079,
+            "removed_pct": 0.5071591750056308,
+            "baseline_loss_rate": 0.616718684642363,
+            "veto_loss_rate": 0.3018215055167461,
+            "kept_winrate": 0.6981784944832539,
+            "avg_outcome": 0.6981784944832539
+          }
+        }
+      },
+      {
+        "split": 34,
+        "train_start": "2013-10-01T00:00:00-04:00",
+        "train_end": "2015-10-01T00:00:00-04:00",
+        "test_start": "2015-10-01T00:00:00-04:00",
+        "test_end": "2015-11-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 12520,
+            "removed_pct": 0.667332268370607,
+            "baseline_loss_rate": 0.6748402555910543,
+            "veto_loss_rate": 0.14021608643457384,
+            "kept_winrate": 0.8597839135654262,
+            "avg_outcome": 0.8597839135654262
+          },
+          "0.55": {
+            "total": 12520,
+            "removed_pct": 0.6652555910543131,
+            "baseline_loss_rate": 0.6748402555910543,
+            "veto_loss_rate": 0.1448341684562157,
+            "kept_winrate": 0.8551658315437843,
+            "avg_outcome": 0.8551658315437843
+          },
+          "0.6": {
+            "total": 12520,
+            "removed_pct": 0.662220447284345,
+            "baseline_loss_rate": 0.6748402555910543,
+            "veto_loss_rate": 0.14826200047292504,
+            "kept_winrate": 0.851737999527075,
+            "avg_outcome": 0.851737999527075
+          },
+          "0.65": {
+            "total": 12520,
+            "removed_pct": 0.6607827476038338,
+            "baseline_loss_rate": 0.6748402555910543,
+            "veto_loss_rate": 0.14998822698375325,
+            "kept_winrate": 0.8500117730162468,
+            "avg_outcome": 0.8500117730162468
+          },
+          "0.7": {
+            "total": 12520,
+            "removed_pct": 0.65814696485623,
+            "baseline_loss_rate": 0.6748402555910543,
+            "veto_loss_rate": 0.1544392523364486,
+            "kept_winrate": 0.8455607476635514,
+            "avg_outcome": 0.8455607476635514
+          },
+          "0.75": {
+            "total": 12520,
+            "removed_pct": 0.648482428115016,
+            "baseline_loss_rate": 0.6748402555910543,
+            "veto_loss_rate": 0.17473301522381277,
+            "kept_winrate": 0.8252669847761872,
+            "avg_outcome": 0.8252669847761872
+          },
+          "0.8": {
+            "total": 12520,
+            "removed_pct": 0.6269169329073483,
+            "baseline_loss_rate": 0.6748402555910543,
+            "veto_loss_rate": 0.21216013701562836,
+            "kept_winrate": 0.7878398629843717,
+            "avg_outcome": 0.7878398629843717
+          }
+        }
+      },
+      {
+        "split": 35,
+        "train_start": "2013-11-01T00:00:00-04:00",
+        "train_end": "2015-11-01T00:00:00-04:00",
+        "test_start": "2015-11-01T00:00:00-04:00",
+        "test_end": "2015-12-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 12865,
+            "removed_pct": 0.6436066848037311,
+            "baseline_loss_rate": 0.6567431014380101,
+            "veto_loss_rate": 0.11995637949836423,
+            "kept_winrate": 0.8800436205016358,
+            "avg_outcome": 0.8800436205016358
+          },
+          "0.55": {
+            "total": 12865,
+            "removed_pct": 0.6416634279051691,
+            "baseline_loss_rate": 0.6567431014380101,
+            "veto_loss_rate": 0.12255965292841649,
+            "kept_winrate": 0.8774403470715835,
+            "avg_outcome": 0.8774403470715835
+          },
+          "0.6": {
+            "total": 12865,
+            "removed_pct": 0.6392537893509522,
+            "baseline_loss_rate": 0.6567431014380101,
+            "veto_loss_rate": 0.12540400775694893,
+            "kept_winrate": 0.8745959922430511,
+            "avg_outcome": 0.8745959922430511
+          },
+          "0.65": {
+            "total": 12865,
+            "removed_pct": 0.6359113874854255,
+            "baseline_loss_rate": 0.6567431014380101,
+            "veto_loss_rate": 0.13023057216054654,
+            "kept_winrate": 0.8697694278394534,
+            "avg_outcome": 0.8697694278394534
+          },
+          "0.7": {
+            "total": 12865,
+            "removed_pct": 0.6338904003109211,
+            "baseline_loss_rate": 0.6567431014380101,
+            "veto_loss_rate": 0.13397027600849257,
+            "kept_winrate": 0.8660297239915075,
+            "avg_outcome": 0.8660297239915075
+          },
+          "0.75": {
+            "total": 12865,
+            "removed_pct": 0.6273610571317528,
+            "baseline_loss_rate": 0.6567431014380101,
+            "veto_loss_rate": 0.1462244472256988,
+            "kept_winrate": 0.8537755527743012,
+            "avg_outcome": 0.8537755527743012
+          },
+          "0.8": {
+            "total": 12865,
+            "removed_pct": 0.6066070734551108,
+            "baseline_loss_rate": 0.6567431014380101,
+            "veto_loss_rate": 0.18237502469867614,
+            "kept_winrate": 0.8176249753013238,
+            "avg_outcome": 0.8176249753013238
+          }
+        }
+      },
+      {
+        "split": 36,
+        "train_start": "2013-12-01T00:00:00-05:00",
+        "train_end": "2015-12-01T00:00:00-05:00",
+        "test_start": "2015-12-01T00:00:00-05:00",
+        "test_end": "2016-01-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 25920,
+            "removed_pct": 0.5947145061728395,
+            "baseline_loss_rate": 0.598070987654321,
+            "veto_loss_rate": 0.14554973821989528,
+            "kept_winrate": 0.8544502617801047,
+            "avg_outcome": 0.8544502617801047
+          },
+          "0.55": {
+            "total": 25920,
+            "removed_pct": 0.5858410493827161,
+            "baseline_loss_rate": 0.598070987654321,
+            "veto_loss_rate": 0.15267815556590592,
+            "kept_winrate": 0.8473218444340941,
+            "avg_outcome": 0.8473218444340941
+          },
+          "0.6": {
+            "total": 25920,
+            "removed_pct": 0.5760416666666667,
+            "baseline_loss_rate": 0.598070987654321,
+            "veto_loss_rate": 0.15815815815815815,
+            "kept_winrate": 0.8418418418418419,
+            "avg_outcome": 0.8418418418418419
+          },
+          "0.65": {
+            "total": 25920,
+            "removed_pct": 0.5596064814814815,
+            "baseline_loss_rate": 0.598070987654321,
+            "veto_loss_rate": 0.1736311870346036,
+            "kept_winrate": 0.8263688129653964,
+            "avg_outcome": 0.8263688129653964
+          },
+          "0.7": {
+            "total": 25920,
+            "removed_pct": 0.5452932098765432,
+            "baseline_loss_rate": 0.598070987654321,
+            "veto_loss_rate": 0.19115900220600712,
+            "kept_winrate": 0.8088409977939929,
+            "avg_outcome": 0.8088409977939929
+          },
+          "0.75": {
+            "total": 25920,
+            "removed_pct": 0.523070987654321,
+            "baseline_loss_rate": 0.598070987654321,
+            "veto_loss_rate": 0.2143666073450898,
+            "kept_winrate": 0.7856333926549102,
+            "avg_outcome": 0.7856333926549102
+          },
+          "0.8": {
+            "total": 25920,
+            "removed_pct": 0.4931327160493827,
+            "baseline_loss_rate": 0.598070987654321,
+            "veto_loss_rate": 0.24653676358654286,
+            "kept_winrate": 0.7534632364134571,
+            "avg_outcome": 0.7534632364134571
+          }
+        }
+      },
+      {
+        "split": 37,
+        "train_start": "2014-01-01T00:00:00-05:00",
+        "train_end": "2016-01-01T00:00:00-05:00",
+        "test_start": "2016-01-01T00:00:00-05:00",
+        "test_end": "2016-02-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 19833,
+            "removed_pct": 0.6088337619119649,
+            "baseline_loss_rate": 0.6216406998436949,
+            "veto_loss_rate": 0.18123227635988656,
+            "kept_winrate": 0.8187677236401134,
+            "avg_outcome": 0.8187677236401134
+          },
+          "0.55": {
+            "total": 19833,
+            "removed_pct": 0.6081278676952554,
+            "baseline_loss_rate": 0.6216406998436949,
+            "veto_loss_rate": 0.18167781780751416,
+            "kept_winrate": 0.8183221821924859,
+            "avg_outcome": 0.8183221821924859
+          },
+          "0.6": {
+            "total": 19833,
+            "removed_pct": 0.6070186053547119,
+            "baseline_loss_rate": 0.6216406998436949,
+            "veto_loss_rate": 0.18219142930459328,
+            "kept_winrate": 0.8178085706954067,
+            "avg_outcome": 0.8178085706954067
+          },
+          "0.65": {
+            "total": 19833,
+            "removed_pct": 0.6027832400544547,
+            "baseline_loss_rate": 0.6216406998436949,
+            "veto_loss_rate": 0.18811881188118812,
+            "kept_winrate": 0.8118811881188119,
+            "avg_outcome": 0.8118811881188119
+          },
+          "0.7": {
+            "total": 19833,
+            "removed_pct": 0.5955730348409217,
+            "baseline_loss_rate": 0.6216406998436949,
+            "veto_loss_rate": 0.1978556289739434,
+            "kept_winrate": 0.8021443710260566,
+            "avg_outcome": 0.8021443710260566
+          },
+          "0.75": {
+            "total": 19833,
+            "removed_pct": 0.5819089396460445,
+            "baseline_loss_rate": 0.6216406998436949,
+            "veto_loss_rate": 0.21635311143270622,
+            "kept_winrate": 0.7836468885672938,
+            "avg_outcome": 0.7836468885672938
+          },
+          "0.8": {
+            "total": 19833,
+            "removed_pct": 0.5623455856400947,
+            "baseline_loss_rate": 0.6216406998436949,
+            "veto_loss_rate": 0.24596774193548387,
+            "kept_winrate": 0.7540322580645161,
+            "avg_outcome": 0.7540322580645161
+          }
+        }
+      },
+      {
+        "split": 38,
+        "train_start": "2014-02-01T00:00:00-05:00",
+        "train_end": "2016-02-01T00:00:00-05:00",
+        "test_start": "2016-02-01T00:00:00-05:00",
+        "test_end": "2016-03-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 20979,
+            "removed_pct": 0.6157109490442824,
+            "baseline_loss_rate": 0.6257209590542924,
+            "veto_loss_rate": 0.18035226990821135,
+            "kept_winrate": 0.8196477300917886,
+            "avg_outcome": 0.8196477300917886
+          },
+          "0.55": {
+            "total": 20979,
+            "removed_pct": 0.6128509461842795,
+            "baseline_loss_rate": 0.6257209590542924,
+            "veto_loss_rate": 0.18209800541738488,
+            "kept_winrate": 0.8179019945826151,
+            "avg_outcome": 0.8179019945826151
+          },
+          "0.6": {
+            "total": 20979,
+            "removed_pct": 0.6114209447542781,
+            "baseline_loss_rate": 0.6257209590542924,
+            "veto_loss_rate": 0.18388125613346418,
+            "kept_winrate": 0.8161187438665358,
+            "avg_outcome": 0.8161187438665358
+          },
+          "0.65": {
+            "total": 20979,
+            "removed_pct": 0.6063682730349397,
+            "baseline_loss_rate": 0.6257209590542924,
+            "veto_loss_rate": 0.1921772826350206,
+            "kept_winrate": 0.8078227173649795,
+            "avg_outcome": 0.8078227173649795
+          },
+          "0.7": {
+            "total": 20979,
+            "removed_pct": 0.5997425997425997,
+            "baseline_loss_rate": 0.6257209590542924,
+            "veto_loss_rate": 0.20221507681314754,
+            "kept_winrate": 0.7977849231868525,
+            "avg_outcome": 0.7977849231868525
+          },
+          "0.75": {
+            "total": 20979,
+            "removed_pct": 0.584393917727251,
+            "baseline_loss_rate": 0.6257209590542924,
+            "veto_loss_rate": 0.222158504415644,
+            "kept_winrate": 0.777841495584356,
+            "avg_outcome": 0.777841495584356
+          },
+          "0.8": {
+            "total": 20979,
+            "removed_pct": 0.5657562324228991,
+            "baseline_loss_rate": 0.6257209590542924,
+            "veto_loss_rate": 0.2443468715697036,
+            "kept_winrate": 0.7556531284302964,
+            "avg_outcome": 0.7556531284302964
+          }
+        }
+      },
+      {
+        "split": 39,
+        "train_start": "2014-03-01T00:00:00-05:00",
+        "train_end": "2016-03-01T00:00:00-05:00",
+        "test_start": "2016-03-01T00:00:00-05:00",
+        "test_end": "2016-04-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 29270,
+            "removed_pct": 0.5774171506662111,
+            "baseline_loss_rate": 0.5943628288349846,
+            "veto_loss_rate": 0.18611043738378202,
+            "kept_winrate": 0.8138895626162179,
+            "avg_outcome": 0.8138895626162179
+          },
+          "0.55": {
+            "total": 29270,
+            "removed_pct": 0.5631021523744448,
+            "baseline_loss_rate": 0.5943628288349846,
+            "veto_loss_rate": 0.1940100093837973,
+            "kept_winrate": 0.8059899906162027,
+            "avg_outcome": 0.8059899906162027
+          },
+          "0.6": {
+            "total": 29270,
+            "removed_pct": 0.5525794328664161,
+            "baseline_loss_rate": 0.5943628288349846,
+            "veto_loss_rate": 0.20051924251679903,
+            "kept_winrate": 0.799480757483201,
+            "avg_outcome": 0.799480757483201
+          },
+          "0.65": {
+            "total": 29270,
+            "removed_pct": 0.5389477280491971,
+            "baseline_loss_rate": 0.5943628288349846,
+            "veto_loss_rate": 0.21281956280103742,
+            "kept_winrate": 0.7871804371989626,
+            "avg_outcome": 0.7871804371989626
+          },
+          "0.7": {
+            "total": 29270,
+            "removed_pct": 0.5203279808677828,
+            "baseline_loss_rate": 0.5943628288349846,
+            "veto_loss_rate": 0.230982905982906,
+            "kept_winrate": 0.769017094017094,
+            "avg_outcome": 0.769017094017094
+          },
+          "0.75": {
+            "total": 29270,
+            "removed_pct": 0.5000341646737274,
+            "baseline_loss_rate": 0.5943628288349846,
+            "veto_loss_rate": 0.24859915265819324,
+            "kept_winrate": 0.7514008473418068,
+            "avg_outcome": 0.7514008473418068
+          },
+          "0.8": {
+            "total": 29270,
+            "removed_pct": 0.47540143491629655,
+            "baseline_loss_rate": 0.5943628288349846,
+            "veto_loss_rate": 0.2732009117551286,
+            "kept_winrate": 0.7267990882448714,
+            "avg_outcome": 0.7267990882448714
+          }
+        }
+      },
+      {
+        "split": 40,
+        "train_start": "2014-04-01T00:00:00-04:00",
+        "train_end": "2016-04-01T00:00:00-04:00",
+        "test_start": "2016-04-01T00:00:00-04:00",
+        "test_end": "2016-05-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 11388,
+            "removed_pct": 0.6463821566561293,
+            "baseline_loss_rate": 0.6515630488233228,
+            "veto_loss_rate": 0.1256518500124162,
+            "kept_winrate": 0.8743481499875838,
+            "avg_outcome": 0.8743481499875838
+          },
+          "0.55": {
+            "total": 11388,
+            "removed_pct": 0.6459430979978925,
+            "baseline_loss_rate": 0.6515630488233228,
+            "veto_loss_rate": 0.12648809523809523,
+            "kept_winrate": 0.8735119047619048,
+            "avg_outcome": 0.8735119047619048
+          },
+          "0.6": {
+            "total": 11388,
+            "removed_pct": 0.6448893572181243,
+            "baseline_loss_rate": 0.6515630488233228,
+            "veto_loss_rate": 0.12833827893175073,
+            "kept_winrate": 0.8716617210682492,
+            "avg_outcome": 0.8716617210682492
+          },
+          "0.65": {
+            "total": 11388,
+            "removed_pct": 0.6439234281700035,
+            "baseline_loss_rate": 0.6515630488233228,
+            "veto_loss_rate": 0.12922318125770654,
+            "kept_winrate": 0.8707768187422935,
+            "avg_outcome": 0.8707768187422935
+          },
+          "0.7": {
+            "total": 11388,
+            "removed_pct": 0.6421671935370565,
+            "baseline_loss_rate": 0.6515630488233228,
+            "veto_loss_rate": 0.13177914110429448,
+            "kept_winrate": 0.8682208588957055,
+            "avg_outcome": 0.8682208588957055
+          },
+          "0.75": {
+            "total": 11388,
+            "removed_pct": 0.6352300667369161,
+            "baseline_loss_rate": 0.6515630488233228,
+            "veto_loss_rate": 0.14203177660086663,
+            "kept_winrate": 0.8579682233991334,
+            "avg_outcome": 0.8579682233991334
+          },
+          "0.8": {
+            "total": 11388,
+            "removed_pct": 0.6239023533544081,
+            "baseline_loss_rate": 0.6515630488233228,
+            "veto_loss_rate": 0.16273639971982257,
+            "kept_winrate": 0.8372636002801774,
+            "avg_outcome": 0.8372636002801774
+          }
+        }
+      },
+      {
+        "split": 41,
+        "train_start": "2014-05-01T00:00:00-04:00",
+        "train_end": "2016-05-01T00:00:00-04:00",
+        "test_start": "2016-05-01T00:00:00-04:00",
+        "test_end": "2016-06-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 16542,
+            "removed_pct": 0.6144359811389191,
+            "baseline_loss_rate": 0.6292467658082457,
+            "veto_loss_rate": 0.13891502038256506,
+            "kept_winrate": 0.8610849796174349,
+            "avg_outcome": 0.8610849796174349
+          },
+          "0.55": {
+            "total": 16542,
+            "removed_pct": 0.6125015113045581,
+            "baseline_loss_rate": 0.6292467658082457,
+            "veto_loss_rate": 0.1405616224648986,
+            "kept_winrate": 0.8594383775351014,
+            "avg_outcome": 0.8594383775351014
+          },
+          "0.6": {
+            "total": 16542,
+            "removed_pct": 0.6118365372989965,
+            "baseline_loss_rate": 0.6292467658082457,
+            "veto_loss_rate": 0.14141099517209157,
+            "kept_winrate": 0.8585890048279085,
+            "avg_outcome": 0.8585890048279085
+          },
+          "0.65": {
+            "total": 16542,
+            "removed_pct": 0.6107483980171684,
+            "baseline_loss_rate": 0.6292467658082457,
+            "veto_loss_rate": 0.14318993632551638,
+            "kept_winrate": 0.8568100636744836,
+            "avg_outcome": 0.8568100636744836
+          },
+          "0.7": {
+            "total": 16542,
+            "removed_pct": 0.606698101801475,
+            "baseline_loss_rate": 0.6292467658082457,
+            "veto_loss_rate": 0.14924684906240393,
+            "kept_winrate": 0.8507531509375961,
+            "avg_outcome": 0.8507531509375961
+          },
+          "0.75": {
+            "total": 16542,
+            "removed_pct": 0.5946076653367186,
+            "baseline_loss_rate": 0.6292467658082457,
+            "veto_loss_rate": 0.16716373396957948,
+            "kept_winrate": 0.8328362660304205,
+            "avg_outcome": 0.8328362660304205
+          },
+          "0.8": {
+            "total": 16542,
+            "removed_pct": 0.5782855761092975,
+            "baseline_loss_rate": 0.6292467658082457,
+            "veto_loss_rate": 0.19108371559633028,
+            "kept_winrate": 0.8089162844036697,
+            "avg_outcome": 0.8089162844036697
+          }
+        }
+      },
+      {
+        "split": 42,
+        "train_start": "2014-06-01T00:00:00-04:00",
+        "train_end": "2016-06-01T00:00:00-04:00",
+        "test_start": "2016-06-01T00:00:00-04:00",
+        "test_end": "2016-07-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 29765,
+            "removed_pct": 0.5727196371577356,
+            "baseline_loss_rate": 0.5844784142449185,
+            "veto_loss_rate": 0.1701525397075012,
+            "kept_winrate": 0.8298474602924988,
+            "avg_outcome": 0.8298474602924988
+          },
+          "0.55": {
+            "total": 29765,
+            "removed_pct": 0.5597177893499076,
+            "baseline_loss_rate": 0.5844784142449185,
+            "veto_loss_rate": 0.182602060282335,
+            "kept_winrate": 0.817397939717665,
+            "avg_outcome": 0.817397939717665
+          },
+          "0.6": {
+            "total": 29765,
+            "removed_pct": 0.5476566437090543,
+            "baseline_loss_rate": 0.5844784142449185,
+            "veto_loss_rate": 0.19399881164587046,
+            "kept_winrate": 0.8060011883541296,
+            "avg_outcome": 0.8060011883541296
+          },
+          "0.65": {
+            "total": 29765,
+            "removed_pct": 0.5321014614480094,
+            "baseline_loss_rate": 0.5844784142449185,
+            "veto_loss_rate": 0.20578731959503124,
+            "kept_winrate": 0.7942126804049687,
+            "avg_outcome": 0.7942126804049687
+          },
+          "0.7": {
+            "total": 29765,
+            "removed_pct": 0.5175877708718293,
+            "baseline_loss_rate": 0.5844784142449185,
+            "veto_loss_rate": 0.2205585347169023,
+            "kept_winrate": 0.7794414652830977,
+            "avg_outcome": 0.7794414652830977
+          },
+          "0.75": {
+            "total": 29765,
+            "removed_pct": 0.488190828153872,
+            "baseline_loss_rate": 0.5844784142449185,
+            "veto_loss_rate": 0.2479322567940134,
+            "kept_winrate": 0.7520677432059866,
+            "avg_outcome": 0.7520677432059866
+          },
+          "0.8": {
+            "total": 29765,
+            "removed_pct": 0.4605409037460104,
+            "baseline_loss_rate": 0.5844784142449185,
+            "veto_loss_rate": 0.27813414710095286,
+            "kept_winrate": 0.7218658528990471,
+            "avg_outcome": 0.7218658528990471
+          }
+        }
+      },
+      {
+        "split": 43,
+        "train_start": "2014-07-01T00:00:00-04:00",
+        "train_end": "2016-07-01T00:00:00-04:00",
+        "test_start": "2016-07-01T00:00:00-04:00",
+        "test_end": "2016-08-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 11018,
+            "removed_pct": 0.670811399528045,
+            "baseline_loss_rate": 0.6880559085133418,
+            "veto_loss_rate": 0.14336917562724014,
+            "kept_winrate": 0.8566308243727598,
+            "avg_outcome": 0.8566308243727598
+          },
+          "0.55": {
+            "total": 11018,
+            "removed_pct": 0.6692684697767289,
+            "baseline_loss_rate": 0.6880559085133418,
+            "veto_loss_rate": 0.1451701427003293,
+            "kept_winrate": 0.8548298572996706,
+            "avg_outcome": 0.8548298572996706
+          },
+          "0.6": {
+            "total": 11018,
+            "removed_pct": 0.6686331457614813,
+            "baseline_loss_rate": 0.6880559085133418,
+            "veto_loss_rate": 0.14543960558751026,
+            "kept_winrate": 0.8545603944124898,
+            "avg_outcome": 0.8545603944124898
+          },
+          "0.65": {
+            "total": 11018,
+            "removed_pct": 0.6679070611726267,
+            "baseline_loss_rate": 0.6880559085133418,
+            "veto_loss_rate": 0.14648811150587593,
+            "kept_winrate": 0.8535118884941241,
+            "avg_outcome": 0.8535118884941241
+          },
+          "0.7": {
+            "total": 11018,
+            "removed_pct": 0.6662733708477038,
+            "baseline_loss_rate": 0.6880559085133418,
+            "veto_loss_rate": 0.1490345390263802,
+            "kept_winrate": 0.8509654609736198,
+            "avg_outcome": 0.8509654609736198
+          },
+          "0.75": {
+            "total": 11018,
+            "removed_pct": 0.6595570884007987,
+            "baseline_loss_rate": 0.6880559085133418,
+            "veto_loss_rate": 0.15969074913356437,
+            "kept_winrate": 0.8403092508664356,
+            "avg_outcome": 0.8403092508664356
+          },
+          "0.8": {
+            "total": 11018,
+            "removed_pct": 0.6383191141768016,
+            "baseline_loss_rate": 0.6880559085133418,
+            "veto_loss_rate": 0.2,
+            "kept_winrate": 0.8,
+            "avg_outcome": 0.8
+          }
+        }
+      },
+      {
+        "split": 44,
+        "train_start": "2014-08-01T00:00:00-04:00",
+        "train_end": "2016-08-01T00:00:00-04:00",
+        "test_start": "2016-08-01T00:00:00-04:00",
+        "test_end": "2016-09-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 12785,
+            "removed_pct": 0.6450527962456003,
+            "baseline_loss_rate": 0.662025811497849,
+            "veto_loss_rate": 0.09078889378580873,
+            "kept_winrate": 0.9092111062141912,
+            "avg_outcome": 0.9092111062141912
+          },
+          "0.55": {
+            "total": 12785,
+            "removed_pct": 0.6449745795854517,
+            "baseline_loss_rate": 0.662025811497849,
+            "veto_loss_rate": 0.0909892046706323,
+            "kept_winrate": 0.9090107953293677,
+            "avg_outcome": 0.9090107953293677
+          },
+          "0.6": {
+            "total": 12785,
+            "removed_pct": 0.6445834962847087,
+            "baseline_loss_rate": 0.662025811497849,
+            "veto_loss_rate": 0.0917693661971831,
+            "kept_winrate": 0.9082306338028169,
+            "avg_outcome": 0.9082306338028169
+          },
+          "0.65": {
+            "total": 12785,
+            "removed_pct": 0.6441924129839656,
+            "baseline_loss_rate": 0.662025811497849,
+            "veto_loss_rate": 0.09276764123983293,
+            "kept_winrate": 0.9072323587601671,
+            "avg_outcome": 0.9072323587601671
+          },
+          "0.7": {
+            "total": 12785,
+            "removed_pct": 0.6412201798983184,
+            "baseline_loss_rate": 0.662025811497849,
+            "veto_loss_rate": 0.09810333551340746,
+            "kept_winrate": 0.9018966644865926,
+            "avg_outcome": 0.9018966644865926
+          },
+          "0.75": {
+            "total": 12785,
+            "removed_pct": 0.626593664450528,
+            "baseline_loss_rate": 0.662025811497849,
+            "veto_loss_rate": 0.12065354000837872,
+            "kept_winrate": 0.8793464599916213,
+            "avg_outcome": 0.8793464599916213
+          },
+          "0.8": {
+            "total": 12785,
+            "removed_pct": 0.6067266327727806,
+            "baseline_loss_rate": 0.662025811497849,
+            "veto_loss_rate": 0.15990453460620524,
+            "kept_winrate": 0.8400954653937948,
+            "avg_outcome": 0.8400954653937948
+          }
+        }
+      },
+      {
+        "split": 45,
+        "train_start": "2014-09-01T00:00:00-04:00",
+        "train_end": "2016-09-01T00:00:00-04:00",
+        "test_start": "2016-09-01T00:00:00-04:00",
+        "test_end": "2016-10-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 23340,
+            "removed_pct": 0.6024850042844901,
+            "baseline_loss_rate": 0.6039417309340188,
+            "veto_loss_rate": 0.10217719336063807,
+            "kept_winrate": 0.8978228066393619,
+            "avg_outcome": 0.8978228066393619
+          },
+          "0.55": {
+            "total": 23340,
+            "removed_pct": 0.5923307626392459,
+            "baseline_loss_rate": 0.6039417309340188,
+            "veto_loss_rate": 0.10835522858644246,
+            "kept_winrate": 0.8916447714135576,
+            "avg_outcome": 0.8916447714135576
+          },
+          "0.6": {
+            "total": 23340,
+            "removed_pct": 0.5817480719794345,
+            "baseline_loss_rate": 0.6039417309340188,
+            "veto_loss_rate": 0.12179881171891006,
+            "kept_winrate": 0.87820118828109,
+            "avg_outcome": 0.87820118828109
+          },
+          "0.65": {
+            "total": 23340,
+            "removed_pct": 0.5643101970865467,
+            "baseline_loss_rate": 0.6039417309340188,
+            "veto_loss_rate": 0.1422952109351952,
+            "kept_winrate": 0.8577047890648049,
+            "avg_outcome": 0.8577047890648049
+          },
+          "0.7": {
+            "total": 23340,
+            "removed_pct": 0.5335047129391602,
+            "baseline_loss_rate": 0.6039417309340188,
+            "veto_loss_rate": 0.18442321822189567,
+            "kept_winrate": 0.8155767817781043,
+            "avg_outcome": 0.8155767817781043
+          },
+          "0.75": {
+            "total": 23340,
+            "removed_pct": 0.5149528706083976,
+            "baseline_loss_rate": 0.6039417309340188,
+            "veto_loss_rate": 0.20890380708417985,
+            "kept_winrate": 0.7910961929158201,
+            "avg_outcome": 0.7910961929158201
+          },
+          "0.8": {
+            "total": 23340,
+            "removed_pct": 0.48303341902313623,
+            "baseline_loss_rate": 0.6039417309340188,
+            "veto_loss_rate": 0.25111884634510195,
+            "kept_winrate": 0.748881153654898,
+            "avg_outcome": 0.748881153654898
+          }
+        }
+      },
+      {
+        "split": 46,
+        "train_start": "2014-10-01T00:00:00-04:00",
+        "train_end": "2016-10-01T00:00:00-04:00",
+        "test_start": "2016-10-01T00:00:00-04:00",
+        "test_end": "2016-11-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 10286,
+            "removed_pct": 0.6450515263464903,
+            "baseline_loss_rate": 0.6527318685592067,
+            "veto_loss_rate": 0.05751848808545604,
+            "kept_winrate": 0.942481511914544,
+            "avg_outcome": 0.942481511914544
+          },
+          "0.55": {
+            "total": 10286,
+            "removed_pct": 0.6450515263464903,
+            "baseline_loss_rate": 0.6527318685592067,
+            "veto_loss_rate": 0.05751848808545604,
+            "kept_winrate": 0.942481511914544,
+            "avg_outcome": 0.942481511914544
+          },
+          "0.6": {
+            "total": 10286,
+            "removed_pct": 0.6442737701730508,
+            "baseline_loss_rate": 0.6527318685592067,
+            "veto_loss_rate": 0.059305821262640064,
+            "kept_winrate": 0.9406941787373599,
+            "avg_outcome": 0.9406941787373599
+          },
+          "0.65": {
+            "total": 10286,
+            "removed_pct": 0.6440793311296908,
+            "baseline_loss_rate": 0.6527318685592067,
+            "veto_loss_rate": 0.059819721387599015,
+            "kept_winrate": 0.9401802786124009,
+            "avg_outcome": 0.9401802786124009
+          },
+          "0.7": {
+            "total": 10286,
+            "removed_pct": 0.6432043554345712,
+            "baseline_loss_rate": 0.6527318685592067,
+            "veto_loss_rate": 0.06103542234332425,
+            "kept_winrate": 0.9389645776566757,
+            "avg_outcome": 0.9389645776566757
+          },
+          "0.75": {
+            "total": 10286,
+            "removed_pct": 0.6402877697841727,
+            "baseline_loss_rate": 0.6527318685592067,
+            "veto_loss_rate": 0.06513513513513514,
+            "kept_winrate": 0.9348648648648649,
+            "avg_outcome": 0.9348648648648649
+          },
+          "0.8": {
+            "total": 10286,
+            "removed_pct": 0.6316352323546568,
+            "baseline_loss_rate": 0.6527318685592067,
+            "veto_loss_rate": 0.08498284507785696,
+            "kept_winrate": 0.9150171549221431,
+            "avg_outcome": 0.9150171549221431
+          }
+        }
+      },
+      {
+        "split": 47,
+        "train_start": "2014-11-01T00:00:00-04:00",
+        "train_end": "2016-11-01T00:00:00-04:00",
+        "test_start": "2016-11-01T00:00:00-04:00",
+        "test_end": "2016-12-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 14244,
+            "removed_pct": 0.6588739118225218,
+            "baseline_loss_rate": 0.6682813816343723,
+            "veto_loss_rate": 0.09549289977361597,
+            "kept_winrate": 0.904507100226384,
+            "avg_outcome": 0.904507100226384
+          },
+          "0.55": {
+            "total": 14244,
+            "removed_pct": 0.6585930918281382,
+            "baseline_loss_rate": 0.6682813816343723,
+            "veto_loss_rate": 0.09582562204400576,
+            "kept_winrate": 0.9041743779559942,
+            "avg_outcome": 0.9041743779559942
+          },
+          "0.6": {
+            "total": 14244,
+            "removed_pct": 0.6573294018534119,
+            "baseline_loss_rate": 0.6682813816343723,
+            "veto_loss_rate": 0.09813562794509322,
+            "kept_winrate": 0.9018643720549068,
+            "avg_outcome": 0.9018643720549068
+          },
+          "0.65": {
+            "total": 14244,
+            "removed_pct": 0.6555040718899185,
+            "baseline_loss_rate": 0.6682813816343723,
+            "veto_loss_rate": 0.10148767067454656,
+            "kept_winrate": 0.8985123293254534,
+            "avg_outcome": 0.8985123293254534
+          },
+          "0.7": {
+            "total": 14244,
+            "removed_pct": 0.6501684919966302,
+            "baseline_loss_rate": 0.6682813816343723,
+            "veto_loss_rate": 0.11358619305639173,
+            "kept_winrate": 0.8864138069436083,
+            "avg_outcome": 0.8864138069436083
+          },
+          "0.75": {
+            "total": 14244,
+            "removed_pct": 0.6339511373209773,
+            "baseline_loss_rate": 0.6682813816343723,
+            "veto_loss_rate": 0.14384349827387802,
+            "kept_winrate": 0.856156501726122,
+            "avg_outcome": 0.856156501726122
+          },
+          "0.8": {
+            "total": 14244,
+            "removed_pct": 0.6097304128053918,
+            "baseline_loss_rate": 0.6682813816343723,
+            "veto_loss_rate": 0.18654434250764526,
+            "kept_winrate": 0.8134556574923547,
+            "avg_outcome": 0.8134556574923547
+          }
+        }
+      },
+      {
+        "split": 48,
+        "train_start": "2014-12-01T00:00:00-05:00",
+        "train_end": "2016-12-01T00:00:00-05:00",
+        "test_start": "2016-12-01T00:00:00-05:00",
+        "test_end": "2017-01-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 21507,
+            "removed_pct": 0.5951085693030176,
+            "baseline_loss_rate": 0.5976658762263449,
+            "veto_loss_rate": 0.10863573725310059,
+            "kept_winrate": 0.8913642627468994,
+            "avg_outcome": 0.8913642627468994
+          },
+          "0.55": {
+            "total": 21507,
+            "removed_pct": 0.5814386013855953,
+            "baseline_loss_rate": 0.5976658762263449,
+            "veto_loss_rate": 0.12086203065985336,
+            "kept_winrate": 0.8791379693401467,
+            "avg_outcome": 0.8791379693401467
+          },
+          "0.6": {
+            "total": 21507,
+            "removed_pct": 0.5678616264472033,
+            "baseline_loss_rate": 0.5976658762263449,
+            "veto_loss_rate": 0.13955239939746072,
+            "kept_winrate": 0.8604476006025392,
+            "avg_outcome": 0.8604476006025392
+          },
+          "0.65": {
+            "total": 21507,
+            "removed_pct": 0.5483331008508857,
+            "baseline_loss_rate": 0.5976658762263449,
+            "veto_loss_rate": 0.16326950792670372,
+            "kept_winrate": 0.8367304920732963,
+            "avg_outcome": 0.8367304920732963
+          },
+          "0.7": {
+            "total": 21507,
+            "removed_pct": 0.5315013716464407,
+            "baseline_loss_rate": 0.5976658762263449,
+            "veto_loss_rate": 0.18221516474791585,
+            "kept_winrate": 0.8177848352520841,
+            "avg_outcome": 0.8177848352520841
+          },
+          "0.75": {
+            "total": 21507,
+            "removed_pct": 0.5046728971962616,
+            "baseline_loss_rate": 0.5976658762263449,
+            "veto_loss_rate": 0.21871773209424575,
+            "kept_winrate": 0.7812822679057543,
+            "avg_outcome": 0.7812822679057543
+          },
+          "0.8": {
+            "total": 21507,
+            "removed_pct": 0.47561259124936067,
+            "baseline_loss_rate": 0.5976658762263449,
+            "veto_loss_rate": 0.25421173967015426,
+            "kept_winrate": 0.7457882603298458,
+            "avg_outcome": 0.7457882603298458
+          }
+        }
+      },
+      {
+        "split": 49,
+        "train_start": "2015-01-01T00:00:00-05:00",
+        "train_end": "2017-01-01T00:00:00-05:00",
+        "test_start": "2017-01-01T00:00:00-05:00",
+        "test_end": "2017-02-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 6906,
+            "removed_pct": 0.7186504488850275,
+            "baseline_loss_rate": 0.7298001737619462,
+            "veto_loss_rate": 0.09881626351003603,
+            "kept_winrate": 0.901183736489964,
+            "avg_outcome": 0.901183736489964
+          },
+          "0.55": {
+            "total": 6906,
+            "removed_pct": 0.7185056472632494,
+            "baseline_loss_rate": 0.7298001737619462,
+            "veto_loss_rate": 0.09927983539094651,
+            "kept_winrate": 0.9007201646090535,
+            "avg_outcome": 0.9007201646090535
+          },
+          "0.6": {
+            "total": 6906,
+            "removed_pct": 0.7185056472632494,
+            "baseline_loss_rate": 0.7298001737619462,
+            "veto_loss_rate": 0.09927983539094651,
+            "kept_winrate": 0.9007201646090535,
+            "avg_outcome": 0.9007201646090535
+          },
+          "0.65": {
+            "total": 6906,
+            "removed_pct": 0.7185056472632494,
+            "baseline_loss_rate": 0.7298001737619462,
+            "veto_loss_rate": 0.09927983539094651,
+            "kept_winrate": 0.9007201646090535,
+            "avg_outcome": 0.9007201646090535
+          },
+          "0.7": {
+            "total": 6906,
+            "removed_pct": 0.7164784245583551,
+            "baseline_loss_rate": 0.7298001737619462,
+            "veto_loss_rate": 0.10572012257405516,
+            "kept_winrate": 0.8942798774259448,
+            "avg_outcome": 0.8942798774259448
+          },
+          "0.75": {
+            "total": 6906,
+            "removed_pct": 0.7135823921227917,
+            "baseline_loss_rate": 0.7298001737619462,
+            "veto_loss_rate": 0.1147623862487361,
+            "kept_winrate": 0.8852376137512639,
+            "avg_outcome": 0.8852376137512639
+          },
+          "0.8": {
+            "total": 6906,
+            "removed_pct": 0.709383145091225,
+            "baseline_loss_rate": 0.7298001737619462,
+            "veto_loss_rate": 0.12556053811659193,
+            "kept_winrate": 0.874439461883408,
+            "avg_outcome": 0.874439461883408
+          }
+        }
+      },
+      {
+        "split": 50,
+        "train_start": "2015-02-01T00:00:00-05:00",
+        "train_end": "2017-02-01T00:00:00-05:00",
+        "test_start": "2017-02-01T00:00:00-05:00",
+        "test_end": "2017-03-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 9467,
+            "removed_pct": 0.7108904616034647,
+            "baseline_loss_rate": 0.7219816203654801,
+            "veto_loss_rate": 0.0792838874680307,
+            "kept_winrate": 0.9207161125319693,
+            "avg_outcome": 0.9207161125319693
+          },
+          "0.55": {
+            "total": 9467,
+            "removed_pct": 0.7108904616034647,
+            "baseline_loss_rate": 0.7219816203654801,
+            "veto_loss_rate": 0.0792838874680307,
+            "kept_winrate": 0.9207161125319693,
+            "avg_outcome": 0.9207161125319693
+          },
+          "0.6": {
+            "total": 9467,
+            "removed_pct": 0.7108904616034647,
+            "baseline_loss_rate": 0.7219816203654801,
+            "veto_loss_rate": 0.0792838874680307,
+            "kept_winrate": 0.9207161125319693,
+            "avg_outcome": 0.9207161125319693
+          },
+          "0.65": {
+            "total": 9467,
+            "removed_pct": 0.7107848315200169,
+            "baseline_loss_rate": 0.7219816203654801,
+            "veto_loss_rate": 0.07962016070124178,
+            "kept_winrate": 0.9203798392987582,
+            "avg_outcome": 0.9203798392987582
+          },
+          "0.7": {
+            "total": 9467,
+            "removed_pct": 0.7104679412696736,
+            "baseline_loss_rate": 0.7219816203654801,
+            "veto_loss_rate": 0.08062750820868296,
+            "kept_winrate": 0.9193724917913171,
+            "avg_outcome": 0.9193724917913171
+          },
+          "0.75": {
+            "total": 9467,
+            "removed_pct": 0.6986373719235238,
+            "baseline_loss_rate": 0.7219816203654801,
+            "veto_loss_rate": 0.10900806168944971,
+            "kept_winrate": 0.8909919383105502,
+            "avg_outcome": 0.8909919383105502
+          },
+          "0.8": {
+            "total": 9467,
+            "removed_pct": 0.6819478187387769,
+            "baseline_loss_rate": 0.7219816203654801,
+            "veto_loss_rate": 0.1477914314181335,
+            "kept_winrate": 0.8522085685818666,
+            "avg_outcome": 0.8522085685818666
+          }
+        }
+      },
+      {
+        "split": 51,
+        "train_start": "2015-03-01T00:00:00-05:00",
+        "train_end": "2017-03-01T00:00:00-05:00",
+        "test_start": "2017-03-01T00:00:00-05:00",
+        "test_end": "2017-04-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 18943,
+            "removed_pct": 0.5915113762339651,
+            "baseline_loss_rate": 0.60312516496859,
+            "veto_loss_rate": 0.15753424657534246,
+            "kept_winrate": 0.8424657534246576,
+            "avg_outcome": 0.8424657534246576
+          },
+          "0.55": {
+            "total": 18943,
+            "removed_pct": 0.5765190307765401,
+            "baseline_loss_rate": 0.60312516496859,
+            "veto_loss_rate": 0.168661181750187,
+            "kept_winrate": 0.831338818249813,
+            "avg_outcome": 0.831338818249813
+          },
+          "0.6": {
+            "total": 18943,
+            "removed_pct": 0.5618962149606714,
+            "baseline_loss_rate": 0.60312516496859,
+            "veto_loss_rate": 0.18207012893119653,
+            "kept_winrate": 0.8179298710688034,
+            "avg_outcome": 0.8179298710688034
+          },
+          "0.65": {
+            "total": 18943,
+            "removed_pct": 0.5503352161748403,
+            "baseline_loss_rate": 0.60312516496859,
+            "veto_loss_rate": 0.1949988260154966,
+            "kept_winrate": 0.8050011739845034,
+            "avg_outcome": 0.8050011739845034
+          },
+          "0.7": {
+            "total": 18943,
+            "removed_pct": 0.5351317109222404,
+            "baseline_loss_rate": 0.60312516496859,
+            "veto_loss_rate": 0.21269588916647741,
+            "kept_winrate": 0.7873041108335226,
+            "avg_outcome": 0.7873041108335226
+          },
+          "0.75": {
+            "total": 18943,
+            "removed_pct": 0.5081560470886344,
+            "baseline_loss_rate": 0.60312516496859,
+            "veto_loss_rate": 0.24492862509391436,
+            "kept_winrate": 0.7550713749060857,
+            "avg_outcome": 0.7550713749060857
+          },
+          "0.8": {
+            "total": 18943,
+            "removed_pct": 0.47331468088475953,
+            "baseline_loss_rate": 0.60312516496859,
+            "veto_loss_rate": 0.28545655006514986,
+            "kept_winrate": 0.7145434499348502,
+            "avg_outcome": 0.7145434499348502
+          }
+        }
+      },
+      {
+        "split": 52,
+        "train_start": "2015-04-01T00:00:00-04:00",
+        "train_end": "2017-04-01T00:00:00-04:00",
+        "test_start": "2017-04-01T00:00:00-04:00",
+        "test_end": "2017-05-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 7310,
+            "removed_pct": 0.6906976744186046,
+            "baseline_loss_rate": 0.6924760601915184,
+            "veto_loss_rate": 0.04688191065900044,
+            "kept_winrate": 0.9531180893409995,
+            "avg_outcome": 0.9531180893409995
+          },
+          "0.55": {
+            "total": 7310,
+            "removed_pct": 0.6906976744186046,
+            "baseline_loss_rate": 0.6924760601915184,
+            "veto_loss_rate": 0.04688191065900044,
+            "kept_winrate": 0.9531180893409995,
+            "avg_outcome": 0.9531180893409995
+          },
+          "0.6": {
+            "total": 7310,
+            "removed_pct": 0.6893296853625172,
+            "baseline_loss_rate": 0.6924760601915184,
+            "veto_loss_rate": 0.05107881990312638,
+            "kept_winrate": 0.9489211800968737,
+            "avg_outcome": 0.9489211800968737
+          },
+          "0.65": {
+            "total": 7310,
+            "removed_pct": 0.688782489740082,
+            "baseline_loss_rate": 0.6924760601915184,
+            "veto_loss_rate": 0.05274725274725275,
+            "kept_winrate": 0.9472527472527472,
+            "avg_outcome": 0.9472527472527472
+          },
+          "0.7": {
+            "total": 7310,
+            "removed_pct": 0.688782489740082,
+            "baseline_loss_rate": 0.6924760601915184,
+            "veto_loss_rate": 0.05274725274725275,
+            "kept_winrate": 0.9472527472527472,
+            "avg_outcome": 0.9472527472527472
+          },
+          "0.75": {
+            "total": 7310,
+            "removed_pct": 0.685499316005472,
+            "baseline_loss_rate": 0.6924760601915184,
+            "veto_loss_rate": 0.06220095693779904,
+            "kept_winrate": 0.937799043062201,
+            "avg_outcome": 0.937799043062201
+          },
+          "0.8": {
+            "total": 7310,
+            "removed_pct": 0.6585499316005472,
+            "baseline_loss_rate": 0.6924760601915184,
+            "veto_loss_rate": 0.12580128205128205,
+            "kept_winrate": 0.874198717948718,
+            "avg_outcome": 0.874198717948718
+          }
+        }
+      },
+      {
+        "split": 53,
+        "train_start": "2015-05-01T00:00:00-04:00",
+        "train_end": "2017-05-01T00:00:00-04:00",
+        "test_start": "2017-05-01T00:00:00-04:00",
+        "test_end": "2017-06-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 8051,
+            "removed_pct": 0.6705999254750963,
+            "baseline_loss_rate": 0.6737051297975407,
+            "veto_loss_rate": 0.03092006033182504,
+            "kept_winrate": 0.969079939668175,
+            "avg_outcome": 0.969079939668175
+          },
+          "0.55": {
+            "total": 8051,
+            "removed_pct": 0.6704757173021985,
+            "baseline_loss_rate": 0.6737051297975407,
+            "veto_loss_rate": 0.03128533735393894,
+            "kept_winrate": 0.9687146626460611,
+            "avg_outcome": 0.9687146626460611
+          },
+          "0.6": {
+            "total": 8051,
+            "removed_pct": 0.6702273009564029,
+            "baseline_loss_rate": 0.6737051297975407,
+            "veto_loss_rate": 0.032015065913371,
+            "kept_winrate": 0.967984934086629,
+            "avg_outcome": 0.967984934086629
+          },
+          "0.65": {
+            "total": 8051,
+            "removed_pct": 0.6702273009564029,
+            "baseline_loss_rate": 0.6737051297975407,
+            "veto_loss_rate": 0.032015065913371,
+            "kept_winrate": 0.967984934086629,
+            "avg_outcome": 0.967984934086629
+          },
+          "0.7": {
+            "total": 8051,
+            "removed_pct": 0.6701030927835051,
+            "baseline_loss_rate": 0.6737051297975407,
+            "veto_loss_rate": 0.03237951807228916,
+            "kept_winrate": 0.9676204819277109,
+            "avg_outcome": 0.9676204819277109
+          },
+          "0.75": {
+            "total": 8051,
+            "removed_pct": 0.6697304682648119,
+            "baseline_loss_rate": 0.6737051297975407,
+            "veto_loss_rate": 0.033471229785633695,
+            "kept_winrate": 0.9665287702143663,
+            "avg_outcome": 0.9665287702143663
+          },
+          "0.8": {
+            "total": 8051,
+            "removed_pct": 0.6614085206806608,
+            "baseline_loss_rate": 0.6737051297975407,
+            "veto_loss_rate": 0.0553925165077036,
+            "kept_winrate": 0.9446074834922964,
+            "avg_outcome": 0.9446074834922964
+          }
+        }
+      },
+      {
+        "split": 54,
+        "train_start": "2015-06-01T00:00:00-04:00",
+        "train_end": "2017-06-01T00:00:00-04:00",
+        "test_start": "2017-06-01T00:00:00-04:00",
+        "test_end": "2017-07-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 16707,
+            "removed_pct": 0.6007062907763213,
+            "baseline_loss_rate": 0.5891542467229305,
+            "veto_loss_rate": 0.050966871533503225,
+            "kept_winrate": 0.9490331284664968,
+            "avg_outcome": 0.9490331284664968
+          },
+          "0.55": {
+            "total": 16707,
+            "removed_pct": 0.5901717842820374,
+            "baseline_loss_rate": 0.5891542467229305,
+            "veto_loss_rate": 0.0606104863443844,
+            "kept_winrate": 0.9393895136556156,
+            "avg_outcome": 0.9393895136556156
+          },
+          "0.6": {
+            "total": 16707,
+            "removed_pct": 0.580774525647932,
+            "baseline_loss_rate": 0.5891542467229305,
+            "veto_loss_rate": 0.06996002284408909,
+            "kept_winrate": 0.9300399771559109,
+            "avg_outcome": 0.9300399771559109
+          },
+          "0.65": {
+            "total": 16707,
+            "removed_pct": 0.5651523313581134,
+            "baseline_loss_rate": 0.5891542467229305,
+            "veto_loss_rate": 0.0956641431520991,
+            "kept_winrate": 0.9043358568479009,
+            "avg_outcome": 0.9043358568479009
+          },
+          "0.7": {
+            "total": 16707,
+            "removed_pct": 0.5433052014125815,
+            "baseline_loss_rate": 0.5891542467229305,
+            "veto_loss_rate": 0.13197903014416776,
+            "kept_winrate": 0.8680209698558322,
+            "avg_outcome": 0.8680209698558322
+          },
+          "0.75": {
+            "total": 16707,
+            "removed_pct": 0.5207398096606213,
+            "baseline_loss_rate": 0.5891542467229305,
+            "veto_loss_rate": 0.16947670788060448,
+            "kept_winrate": 0.8305232921193955,
+            "avg_outcome": 0.8305232921193955
+          },
+          "0.8": {
+            "total": 16707,
+            "removed_pct": 0.49015382773687677,
+            "baseline_loss_rate": 0.5891542467229305,
+            "veto_loss_rate": 0.2102606245597558,
+            "kept_winrate": 0.7897393754402442,
+            "avg_outcome": 0.7897393754402442
+          }
+        }
+      },
+      {
+        "split": 55,
+        "train_start": "2015-07-01T00:00:00-04:00",
+        "train_end": "2017-07-01T00:00:00-04:00",
+        "test_start": "2017-07-01T00:00:00-04:00",
+        "test_end": "2017-08-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 3441,
+            "removed_pct": 0.7599535018889858,
+            "baseline_loss_rate": 0.7608253414705027,
+            "veto_loss_rate": 0.020581113801452784,
+            "kept_winrate": 0.9794188861985472,
+            "avg_outcome": 0.9794188861985472
+          },
+          "0.55": {
+            "total": 3441,
+            "removed_pct": 0.7599535018889858,
+            "baseline_loss_rate": 0.7608253414705027,
+            "veto_loss_rate": 0.020581113801452784,
+            "kept_winrate": 0.9794188861985472,
+            "avg_outcome": 0.9794188861985472
+          },
+          "0.6": {
+            "total": 3441,
+            "removed_pct": 0.7599535018889858,
+            "baseline_loss_rate": 0.7608253414705027,
+            "veto_loss_rate": 0.020581113801452784,
+            "kept_winrate": 0.9794188861985472,
+            "avg_outcome": 0.9794188861985472
+          },
+          "0.65": {
+            "total": 3441,
+            "removed_pct": 0.7599535018889858,
+            "baseline_loss_rate": 0.7608253414705027,
+            "veto_loss_rate": 0.020581113801452784,
+            "kept_winrate": 0.9794188861985472,
+            "avg_outcome": 0.9794188861985472
+          },
+          "0.7": {
+            "total": 3441,
+            "removed_pct": 0.7596628886951468,
+            "baseline_loss_rate": 0.7608253414705027,
+            "veto_loss_rate": 0.02176541717049577,
+            "kept_winrate": 0.9782345828295043,
+            "avg_outcome": 0.9782345828295043
+          },
+          "0.75": {
+            "total": 3441,
+            "removed_pct": 0.7596628886951468,
+            "baseline_loss_rate": 0.7608253414705027,
+            "veto_loss_rate": 0.02176541717049577,
+            "kept_winrate": 0.9782345828295043,
+            "avg_outcome": 0.9782345828295043
+          },
+          "0.8": {
+            "total": 3441,
+            "removed_pct": 0.7532693984306887,
+            "baseline_loss_rate": 0.7608253414705027,
+            "veto_loss_rate": 0.045936395759717315,
+            "kept_winrate": 0.9540636042402827,
+            "avg_outcome": 0.9540636042402827
+          }
+        }
+      },
+      {
+        "split": 56,
+        "train_start": "2015-08-01T00:00:00-04:00",
+        "train_end": "2017-08-01T00:00:00-04:00",
+        "test_start": "2017-08-01T00:00:00-04:00",
+        "test_end": "2017-09-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 7490,
+            "removed_pct": 0.6568758344459279,
+            "baseline_loss_rate": 0.6567423230974633,
+            "veto_loss_rate": 0.02762645914396887,
+            "kept_winrate": 0.9723735408560311,
+            "avg_outcome": 0.9723735408560311
+          },
+          "0.55": {
+            "total": 7490,
+            "removed_pct": 0.6568758344459279,
+            "baseline_loss_rate": 0.6567423230974633,
+            "veto_loss_rate": 0.02762645914396887,
+            "kept_winrate": 0.9723735408560311,
+            "avg_outcome": 0.9723735408560311
+          },
+          "0.6": {
+            "total": 7490,
+            "removed_pct": 0.6568758344459279,
+            "baseline_loss_rate": 0.6567423230974633,
+            "veto_loss_rate": 0.02762645914396887,
+            "kept_winrate": 0.9723735408560311,
+            "avg_outcome": 0.9723735408560311
+          },
+          "0.65": {
+            "total": 7490,
+            "removed_pct": 0.6568758344459279,
+            "baseline_loss_rate": 0.6567423230974633,
+            "veto_loss_rate": 0.02762645914396887,
+            "kept_winrate": 0.9723735408560311,
+            "avg_outcome": 0.9723735408560311
+          },
+          "0.7": {
+            "total": 7490,
+            "removed_pct": 0.6563417890520694,
+            "baseline_loss_rate": 0.6567423230974633,
+            "veto_loss_rate": 0.027583527583527584,
+            "kept_winrate": 0.9724164724164724,
+            "avg_outcome": 0.9724164724164724
+          },
+          "0.75": {
+            "total": 7490,
+            "removed_pct": 0.6555407209612817,
+            "baseline_loss_rate": 0.6567423230974633,
+            "veto_loss_rate": 0.029844961240310077,
+            "kept_winrate": 0.9701550387596899,
+            "avg_outcome": 0.9701550387596899
+          },
+          "0.8": {
+            "total": 7490,
+            "removed_pct": 0.636849132176235,
+            "baseline_loss_rate": 0.6567423230974633,
+            "veto_loss_rate": 0.07941176470588235,
+            "kept_winrate": 0.9205882352941177,
+            "avg_outcome": 0.9205882352941177
+          }
+        }
+      },
+      {
+        "split": 57,
+        "train_start": "2015-09-01T00:00:00-04:00",
+        "train_end": "2017-09-01T00:00:00-04:00",
+        "test_start": "2017-09-01T00:00:00-04:00",
+        "test_end": "2017-10-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 13327,
+            "removed_pct": 0.5761986943798304,
+            "baseline_loss_rate": 0.5660688827192917,
+            "veto_loss_rate": 0.046211048158640224,
+            "kept_winrate": 0.9537889518413598,
+            "avg_outcome": 0.9537889518413598
+          },
+          "0.55": {
+            "total": 13327,
+            "removed_pct": 0.5628423501163052,
+            "baseline_loss_rate": 0.5660688827192917,
+            "veto_loss_rate": 0.06333676622039135,
+            "kept_winrate": 0.9366632337796087,
+            "avg_outcome": 0.9366632337796087
+          },
+          "0.6": {
+            "total": 13327,
+            "removed_pct": 0.5469347940271629,
+            "baseline_loss_rate": 0.5660688827192917,
+            "veto_loss_rate": 0.08678370321298443,
+            "kept_winrate": 0.9132162967870155,
+            "avg_outcome": 0.9132162967870155
+          },
+          "0.65": {
+            "total": 13327,
+            "removed_pct": 0.5338035566894275,
+            "baseline_loss_rate": 0.5660688827192917,
+            "veto_loss_rate": 0.10461934653146628,
+            "kept_winrate": 0.8953806534685337,
+            "avg_outcome": 0.8953806534685337
+          },
+          "0.7": {
+            "total": 13327,
+            "removed_pct": 0.5148195392811585,
+            "baseline_loss_rate": 0.5660688827192917,
+            "veto_loss_rate": 0.1323847819362821,
+            "kept_winrate": 0.8676152180637179,
+            "avg_outcome": 0.8676152180637179
+          },
+          "0.75": {
+            "total": 13327,
+            "removed_pct": 0.49133338335709464,
+            "baseline_loss_rate": 0.5660688827192917,
+            "veto_loss_rate": 0.1647735654226287,
+            "kept_winrate": 0.8352264345773713,
+            "avg_outcome": 0.8352264345773713
+          },
+          "0.8": {
+            "total": 13327,
+            "removed_pct": 0.4637953027688152,
+            "baseline_loss_rate": 0.5660688827192917,
+            "veto_loss_rate": 0.2026308424293311,
+            "kept_winrate": 0.797369157570669,
+            "avg_outcome": 0.797369157570669
+          }
+        }
+      },
+      {
+        "split": 58,
+        "train_start": "2015-10-01T00:00:00-04:00",
+        "train_end": "2017-10-01T00:00:00-04:00",
+        "test_start": "2017-10-01T00:00:00-04:00",
+        "test_end": "2017-11-01T00:00:00-04:00",
+        "thresholds": {
+          "0.5": {
+            "total": 2275,
+            "removed_pct": 0.665054945054945,
+            "baseline_loss_rate": 0.6545054945054946,
+            "veto_loss_rate": 0.048556430446194225,
+            "kept_winrate": 0.9514435695538058,
+            "avg_outcome": 0.9514435695538058
+          },
+          "0.55": {
+            "total": 2275,
+            "removed_pct": 0.665054945054945,
+            "baseline_loss_rate": 0.6545054945054946,
+            "veto_loss_rate": 0.048556430446194225,
+            "kept_winrate": 0.9514435695538058,
+            "avg_outcome": 0.9514435695538058
+          },
+          "0.6": {
+            "total": 2275,
+            "removed_pct": 0.665054945054945,
+            "baseline_loss_rate": 0.6545054945054946,
+            "veto_loss_rate": 0.048556430446194225,
+            "kept_winrate": 0.9514435695538058,
+            "avg_outcome": 0.9514435695538058
+          },
+          "0.65": {
+            "total": 2275,
+            "removed_pct": 0.665054945054945,
+            "baseline_loss_rate": 0.6545054945054946,
+            "veto_loss_rate": 0.048556430446194225,
+            "kept_winrate": 0.9514435695538058,
+            "avg_outcome": 0.9514435695538058
+          },
+          "0.7": {
+            "total": 2275,
+            "removed_pct": 0.6646153846153846,
+            "baseline_loss_rate": 0.6545054945054946,
+            "veto_loss_rate": 0.04980340760157274,
+            "kept_winrate": 0.9501965923984272,
+            "avg_outcome": 0.9501965923984272
+          },
+          "0.75": {
+            "total": 2275,
+            "removed_pct": 0.6624175824175824,
+            "baseline_loss_rate": 0.6545054945054946,
+            "veto_loss_rate": 0.052083333333333336,
+            "kept_winrate": 0.9479166666666666,
+            "avg_outcome": 0.9479166666666666
+          },
+          "0.8": {
+            "total": 2275,
+            "removed_pct": 0.661978021978022,
+            "baseline_loss_rate": 0.6545054945054946,
+            "veto_loss_rate": 0.05201560468140442,
+            "kept_winrate": 0.9479843953185956,
+            "avg_outcome": 0.9479843953185956
+          }
+        }
+      },
+      {
+        "split": 59,
+        "train_start": "2015-11-01T00:00:00-04:00",
+        "train_end": "2017-11-01T00:00:00-04:00",
+        "test_start": "2017-11-01T00:00:00-04:00",
+        "test_end": "2017-12-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 6071,
+            "removed_pct": 0.6231263383297645,
+            "baseline_loss_rate": 0.6265854060286609,
+            "veto_loss_rate": 0.01791958041958042,
+            "kept_winrate": 0.9820804195804196,
+            "avg_outcome": 0.9820804195804196
+          },
+          "0.55": {
+            "total": 6071,
+            "removed_pct": 0.6223027507824082,
+            "baseline_loss_rate": 0.6265854060286609,
+            "veto_loss_rate": 0.017880505887483647,
+            "kept_winrate": 0.9821194941125163,
+            "avg_outcome": 0.9821194941125163
+          },
+          "0.6": {
+            "total": 6071,
+            "removed_pct": 0.6223027507824082,
+            "baseline_loss_rate": 0.6265854060286609,
+            "veto_loss_rate": 0.017880505887483647,
+            "kept_winrate": 0.9821194941125163,
+            "avg_outcome": 0.9821194941125163
+          },
+          "0.65": {
+            "total": 6071,
+            "removed_pct": 0.6223027507824082,
+            "baseline_loss_rate": 0.6265854060286609,
+            "veto_loss_rate": 0.017880505887483647,
+            "kept_winrate": 0.9821194941125163,
+            "avg_outcome": 0.9821194941125163
+          },
+          "0.7": {
+            "total": 6071,
+            "removed_pct": 0.6223027507824082,
+            "baseline_loss_rate": 0.6265854060286609,
+            "veto_loss_rate": 0.017880505887483647,
+            "kept_winrate": 0.9821194941125163,
+            "avg_outcome": 0.9821194941125163
+          },
+          "0.75": {
+            "total": 6071,
+            "removed_pct": 0.6214791632350519,
+            "baseline_loss_rate": 0.6265854060286609,
+            "veto_loss_rate": 0.0195822454308094,
+            "kept_winrate": 0.9804177545691906,
+            "avg_outcome": 0.9804177545691906
+          },
+          "0.8": {
+            "total": 6071,
+            "removed_pct": 0.6165376379509142,
+            "baseline_loss_rate": 0.6265854060286609,
+            "veto_loss_rate": 0.0313573883161512,
+            "kept_winrate": 0.9686426116838488,
+            "avg_outcome": 0.9686426116838488
+          }
+        }
+      },
+      {
+        "split": 60,
+        "train_start": "2015-12-01T00:00:00-05:00",
+        "train_end": "2017-12-01T00:00:00-05:00",
+        "test_start": "2017-12-01T00:00:00-05:00",
+        "test_end": "2018-01-01T00:00:00-05:00",
+        "thresholds": {
+          "0.5": {
+            "total": 17961,
+            "removed_pct": 0.5803685763598909,
+            "baseline_loss_rate": 0.5762485385000835,
+            "veto_loss_rate": 0.10720445800716466,
+            "kept_winrate": 0.8927955419928353,
+            "avg_outcome": 0.8927955419928353
+          },
+          "0.55": {
+            "total": 17961,
+            "removed_pct": 0.5694003674628362,
+            "baseline_loss_rate": 0.5762485385000835,
+            "veto_loss_rate": 0.11714507370054306,
+            "kept_winrate": 0.8828549262994569,
+            "avg_outcome": 0.8828549262994569
+          },
+          "0.6": {
+            "total": 17961,
+            "removed_pct": 0.552307777963365,
+            "baseline_loss_rate": 0.5762485385000835,
+            "veto_loss_rate": 0.13779380674045516,
+            "kept_winrate": 0.8622061932595448,
+            "avg_outcome": 0.8622061932595448
+          },
+          "0.65": {
+            "total": 17961,
+            "removed_pct": 0.5389454930126385,
+            "baseline_loss_rate": 0.5762485385000835,
+            "veto_loss_rate": 0.15155174495833837,
+            "kept_winrate": 0.8484482550416617,
+            "avg_outcome": 0.8484482550416617
+          },
+          "0.7": {
+            "total": 17961,
+            "removed_pct": 0.5256388842492066,
+            "baseline_loss_rate": 0.5762485385000835,
+            "veto_loss_rate": 0.16408450704225352,
+            "kept_winrate": 0.8359154929577465,
+            "avg_outcome": 0.8359154929577465
+          },
+          "0.75": {
+            "total": 17961,
+            "removed_pct": 0.5096598184956295,
+            "baseline_loss_rate": 0.5762485385000835,
+            "veto_loss_rate": 0.18144657658680596,
+            "kept_winrate": 0.818553423413194,
+            "avg_outcome": 0.818553423413194
+          },
+          "0.8": {
+            "total": 17961,
+            "removed_pct": 0.4865542007683314,
+            "baseline_loss_rate": 0.5762485385000835,
+            "veto_loss_rate": 0.20960746042073303,
+            "kept_winrate": 0.790392539579267,
+            "avg_outcome": 0.790392539579267
+          }
+        }
+      }
+    ],
+    "threshold_scores": {
+      "0.5": {
+        "total": 864371,
+        "kept_wins": 279212,
+        "kept_trades": 323266,
+        "removed": 541105
+      },
+      "0.55": {
+        "total": 864371,
+        "kept_wins": 281987,
+        "kept_trades": 328632,
+        "removed": 535739
+      },
+      "0.6": {
+        "total": 864371,
+        "kept_wins": 284159,
+        "kept_trades": 333852,
+        "removed": 530519
+      },
+      "0.65": {
+        "total": 864371,
+        "kept_wins": 286175,
+        "kept_trades": 339710,
+        "removed": 524661
+      },
+      "0.7": {
+        "total": 864371,
+        "kept_wins": 288387,
+        "kept_trades": 347181,
+        "removed": 517190
+      },
+      "0.75": {
+        "total": 864371,
+        "kept_wins": 291574,
+        "kept_trades": 359414,
+        "removed": 504957
+      },
+      "0.8": {
+        "total": 864371,
+        "kept_wins": 294683,
+        "kept_trades": 374715,
+        "removed": 489656
+      }
+    },
+    "chosen_threshold": 0.8
+  },
+  "lodo": {
+    "window_start": "2011-01-01",
+    "window_end": "2017-12-31",
+    "available_days": 2147,
+    "evaluated_days": 2147,
+    "day_step": 1,
+    "max_days": 0,
+    "mean_daily_removed_pct": 0.6193672226937107,
+    "mean_daily_kept_winrate": 0.8338668512125113,
+    "mean_daily_avg_outcome": 0.8338668512125113,
+    "mean_daily_baseline_loss": 0.6620416890537848,
+    "mean_daily_veto_loss": 0.16194125311911428
+  },
+  "bucket_coverage": 432,
+  "bucket_coverage_by_level": {
+    "full": 165,
+    "no_thresh": 59,
+    "no_regime": 150,
+    "coarse": 58
+  },
+  "bucket_schema": [
+    "session_bucket",
+    "timeframe",
+    "strategy_type",
+    "vol_regime",
+    "thresh_bucket"
+  ],
+  "threshold": 0.8
+}

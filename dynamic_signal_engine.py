@@ -13,6 +13,8 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import pandas as pd  # Ensure pandas is imported for rolling calculation
 
+from config import CONFIG
+
 
 # ============================================================================
 # HARDCODED STRATEGY DATABASE - ALL 235 STRATEGIES FROM CSV
@@ -409,7 +411,9 @@ class DynamicSignalEngine:
                     signal = 'SHORT'
 
                 if signal:
-                    sl_value = max(4.0, float(strategy['Best_SL']))
+                    min_cfg = CONFIG.get("SLTP_MIN", {}) or {}
+                    min_sl = float(min_cfg.get("sl", 1.25))
+                    sl_value = max(min_sl, float(strategy['Best_SL']))
                     triggered_signals.append({
                         'signal': signal,
                         'sl': sl_value,

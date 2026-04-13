@@ -1,0 +1,171 @@
+{
+  "variants": [
+    {
+      "name": "pair_cr0580_tb0550_plus_af_nyam0560_disp_nypm0570_disp_nypm0580_tg",
+      "description": "Reference multislice winner.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.58,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0,
+      "policy_rules": [
+        {
+          "name": "nypm_disp",
+          "match_session_ids": [3],
+          "match_regimes": ["DISPERSED"],
+          "threshold": 0.57,
+          "allowed_session_ids": [3],
+          "allowed_regimes": ["DISPERSED"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "entry_mode": "market_next_bar",
+          "min_setup_strength": 0.0,
+          "max_directional_vwap_dist_atr": 6.0,
+          "max_flow_mag_slow": 1.0
+        },
+        {
+          "name": "nypm_tg",
+          "match_session_ids": [3],
+          "match_regimes": ["TREND_GEODESIC"],
+          "threshold": 0.58,
+          "allowed_session_ids": [3],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "entry_mode": "market_next_bar",
+          "min_setup_strength": 0.0,
+          "max_directional_vwap_dist_atr": 6.0,
+          "max_flow_mag_slow": 1.0
+        }
+      ]
+    },
+    {
+      "name": "pair_cr0580_tb0550_plus_af_nyam0560_disp_da002_nypm0570_disp_nypm0580_tg",
+      "description": "Multislice winner with mild d_alignment_3 filter on NY_AM dispersed AF.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.58,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "min_d_alignment_3": 0.02,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0,
+      "policy_rules": [
+        {
+          "name": "nypm_disp",
+          "match_session_ids": [3],
+          "match_regimes": ["DISPERSED"],
+          "threshold": 0.57,
+          "allowed_session_ids": [3],
+          "allowed_regimes": ["DISPERSED"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "entry_mode": "market_next_bar",
+          "min_setup_strength": 0.0,
+          "max_directional_vwap_dist_atr": 6.0,
+          "max_flow_mag_slow": 1.0
+        },
+        {
+          "name": "nypm_tg",
+          "match_session_ids": [3],
+          "match_regimes": ["TREND_GEODESIC"],
+          "threshold": 0.58,
+          "allowed_session_ids": [3],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "entry_mode": "market_next_bar",
+          "min_setup_strength": 0.0,
+          "max_directional_vwap_dist_atr": 6.0,
+          "max_flow_mag_slow": 1.0
+        }
+      ]
+    },
+    {
+      "name": "pair_cr0580_tb0550_plus_af_nyam0560_disp_da005_nypm0570_disp_nypm0580_tg",
+      "description": "Multislice winner with stronger d_alignment_3 filter on NY_AM dispersed AF.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.58,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "min_d_alignment_3": 0.05,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0,
+      "policy_rules": [
+        {
+          "name": "nypm_disp",
+          "match_session_ids": [3],
+          "match_regimes": ["DISPERSED"],
+          "threshold": 0.57,
+          "allowed_session_ids": [3],
+          "allowed_regimes": ["DISPERSED"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "entry_mode": "market_next_bar",
+          "min_setup_strength": 0.0,
+          "max_directional_vwap_dist_atr": 6.0,
+          "max_flow_mag_slow": 1.0
+        },
+        {
+          "name": "nypm_tg",
+          "match_session_ids": [3],
+          "match_regimes": ["TREND_GEODESIC"],
+          "threshold": 0.58,
+          "allowed_session_ids": [3],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "entry_mode": "market_next_bar",
+          "min_setup_strength": 0.0,
+          "max_directional_vwap_dist_atr": 6.0,
+          "max_flow_mag_slow": 1.0
+        }
+      ]
+    }
+  ]
+}

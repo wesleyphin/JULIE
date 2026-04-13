@@ -1,0 +1,78 @@
+{
+  "version": "aetherflow_v1",
+  "trained_at": "2026-03-21T05:46:02.557844+00:00",
+  "model_type": "hgb",
+  "workers": 6,
+  "calibrated": false,
+  "input": "es_master_outrights.parquet",
+  "base_features": "manifold_strategy_features_clean_full_robust.parquet",
+  "rows": 14269,
+  "feature_rows": 185854,
+  "candidate_coverage": 0.07677531826057013,
+  "setup_mix_all": {
+    "aligned_flow": 7549,
+    "compression_release": 3611,
+    "transition_burst": 1654,
+    "exhaustion_reversal": 1455
+  },
+  "setup_mix_train": {
+    "aligned_flow": 5418,
+    "compression_release": 2336,
+    "transition_burst": 1174,
+    "exhaustion_reversal": 1060
+  },
+  "setup_mix_val": {
+    "aligned_flow": 1081,
+    "compression_release": 684,
+    "transition_burst": 208,
+    "exhaustion_reversal": 167
+  },
+  "setup_mix_test": {
+    "aligned_flow": 1050,
+    "compression_release": 591,
+    "transition_burst": 272,
+    "exhaustion_reversal": 228
+  },
+  "train_rows": 9988,
+  "val_rows": 2140,
+  "test_rows": 2141,
+  "train_positive_rate": 0.38606327593111733,
+  "val_positive_rate": 0.38317757009345793,
+  "test_positive_rate": 0.3755254553946754,
+  "threshold": 0.6400000000000001,
+  "validation": {
+    "threshold": 0.6400000000000001,
+    "score": -0.7653699726777946,
+    "coverage": 0.021962616822429906,
+    "mean_fold_avg_pnl": -0.6156756189783108,
+    "worst_fold_avg_pnl": -0.6156756189783108,
+    "fold_std_avg_pnl": 0.0,
+    "positive_folds": 0,
+    "evaluated_folds": 0,
+    "trade_count": 47,
+    "avg_pnl": -0.6156756189783108,
+    "total_pnl": -28.936754091980607,
+    "win_rate": 0.3617021276595745,
+    "long_share": 0.723404255319149,
+    "short_share": 0.2765957446808511
+  },
+  "test": {
+    "trade_count": 56,
+    "avg_pnl": 0.5603755009509632,
+    "total_pnl": 31.38102805325394,
+    "win_rate": 0.44642857142857145,
+    "long_share": 0.6964285714285714,
+    "short_share": 0.30357142857142855,
+    "accuracy": 0.5235871088276506,
+    "precision": 0.3833693304535637,
+    "recall": 0.44154228855721395,
+    "f1": 0.41040462427745666,
+    "roc_auc": 0.5176278294391915
+  },
+  "artifacts": {
+    "model_file": "model_aetherflow_smoke.pkl",
+    "thresholds_file": "aetherflow_thresholds_smoke.json",
+    "metrics_file": "aetherflow_metrics_smoke.json",
+    "features_parquet": "aetherflow_features_smoke.parquet"
+  }
+}

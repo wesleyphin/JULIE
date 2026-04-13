@@ -1,0 +1,291 @@
+{
+  "variants": [
+    {
+      "name": "cr_asia_pair_plus_af_current_bias0010",
+      "description": "Reference current winner: CR ASIA pair plus London-only AF runner with small bias.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.58,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.40,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 6,
+        "max_profit_crosses": 99
+      }
+    },
+    {
+      "name": "cr_asia_pair_plus_af_london_nyam_thr058_setup58_dirvwap45_flow40_bias0010",
+      "description": "Expand current AF runner to London plus NY_AM without changing the core filter geometry.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.58,
+      "allowed_session_ids": [1, 2],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.40,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 6,
+        "max_profit_crosses": 99
+      }
+    },
+    {
+      "name": "cr_asia_pair_plus_af_london_nyam_thr058_setup60_dirvwap45_flow35_bias0010",
+      "description": "London plus NY_AM AF with slightly cleaner setup-strength and slow-flow caps.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.58,
+      "allowed_session_ids": [1, 2],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.60,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.35,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 6,
+        "max_profit_crosses": 99
+      }
+    },
+    {
+      "name": "cr_asia_pair_plus_af_london_nyam_thr060_setup60_dirvwap45_flow35_bias0010",
+      "description": "Tighter London plus NY_AM AF variant to protect quality while opening NY_AM.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.60,
+      "allowed_session_ids": [1, 2],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.60,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.35,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 6,
+        "max_profit_crosses": 99
+      }
+    },
+    {
+      "name": "cr_asia_pair_plus_af_london_nyam_thr060_setup65_dirvwap5_flow35_bias0010",
+      "description": "Stronger AF quality filters across London plus NY_AM.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.60,
+      "allowed_session_ids": [1, 2],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.65,
+      "max_directional_vwap_dist_atr": 5.0,
+      "max_flow_mag_slow": 0.35,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 6,
+        "max_profit_crosses": 99
+      }
+    },
+    {
+      "name": "cr_asia_pair_plus_af_nyam_only_thr060_setup65_dirvwap5_flow35_bias0010",
+      "description": "Test whether AF can work as a narrowly filtered NY_AM specialist.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.60,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.65,
+      "max_directional_vwap_dist_atr": 5.0,
+      "max_flow_mag_slow": 0.35,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 6,
+        "max_profit_crosses": 99
+      }
+    },
+    {
+      "name": "cr_asia_pair_plus_af_all_live_thr060_setup65_dirvwap45_flow35_bias0010",
+      "description": "Test a broad all-live-session AF only under strong runner-quality filters.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.60,
+      "allowed_session_ids": [1, 2, 3],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.65,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.35,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 6,
+        "max_profit_crosses": 99
+      }
+    },
+    {
+      "name": "cr_asia_pair_plus_af_london_nyam_thr060_stress30_flow35_bias0010",
+      "description": "London plus NY_AM AF with stress cap instead of stronger setup-strength floor.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [0, 1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.60,
+      "allowed_session_ids": [1, 2],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "max_stress_pct": 0.30,
+      "max_flow_mag_slow": 0.35,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 6,
+        "max_profit_crosses": 99
+      }
+    }
+  ]
+}

@@ -370,6 +370,10 @@ class ChopFilter:
         self.highs = deque(maxlen=lookback)
         self.lows = deque(maxlen=lookback)
         self.closes = deque(maxlen=lookback)
+        # O(1) rolling-window extrema for range calculations.
+        self._rolling_highs = deque()  # (seq, value), monotonically decreasing by value
+        self._rolling_lows = deque()   # (seq, value), monotonically increasing by value
+        self._range_seq = 0
 
         # Chop range tracking
         self.chop_high = None
@@ -395,6 +399,33 @@ class ChopFilter:
         # State
         self.state = 'NORMAL'
         self.current_threshold = None
+
+    def _append_rolling_extrema(self, high: float, low: float) -> None:
+        """Maintain rolling max/min queues for current lookback window."""
+        self._range_seq += 1
+        seq = self._range_seq
+
+        while self._rolling_highs and self._rolling_highs[-1][1] <= high:
+            self._rolling_highs.pop()
+        self._rolling_highs.append((seq, high))
+
+        while self._rolling_lows and self._rolling_lows[-1][1] >= low:
+            self._rolling_lows.pop()
+        self._rolling_lows.append((seq, low))
+
+        window_start_seq = seq - self.lookback + 1
+        while self._rolling_highs and self._rolling_highs[0][0] < window_start_seq:
+            self._rolling_highs.popleft()
+        while self._rolling_lows and self._rolling_lows[0][0] < window_start_seq:
+            self._rolling_lows.popleft()
+
+    def _rebuild_rolling_extrema(self) -> None:
+        """Rebuild rolling extrema from restored state."""
+        self._rolling_highs.clear()
+        self._rolling_lows.clear()
+        self._range_seq = 0
+        for high, low in zip(self.highs, self.lows):
+            self._append_rolling_extrema(float(high), float(low))
         
     def _get_session(self, dt: datetime) -> str:
         """Determine trading session from datetime."""
@@ -613,14 +644,15 @@ class ChopFilter:
         self.highs.append(high)
         self.lows.append(low)
         self.closes.append(close)
+        self._append_rolling_extrema(float(high), float(low))
         self._update_swings(high, low)
 
         if len(self.highs) < self.lookback:
             return 'NORMAL'
 
         # Calculate current range
-        range_high = max(self.highs)
-        range_low = min(self.lows)
+        range_high = self._rolling_highs[0][1] if self._rolling_highs else max(self.highs)
+        range_low = self._rolling_lows[0][1] if self._rolling_lows else min(self.lows)
         current_range = range_high - range_low
 
         # ==========================================
@@ -901,6 +933,7 @@ class ChopFilter:
             "highs": list(self.highs),
             "lows": list(self.lows),
             "closes": list(self.closes),
+            "range_seq": self._range_seq,
             "last_dt": self.last_dt.isoformat() if self.last_dt else None,
             "current_threshold": self.current_threshold,
         }
@@ -920,6 +953,7 @@ class ChopFilter:
         self.highs = deque(state.get("highs", []), maxlen=self.lookback)
         self.lows = deque(state.get("lows", []), maxlen=self.lookback)
         self.closes = deque(state.get("closes", []), maxlen=self.lookback)
+        self._rebuild_rolling_extrema()
         last_dt = state.get("last_dt")
         if last_dt:
             try:
@@ -939,6 +973,9 @@ class ChopFilter:
         self.chop_low = None
         self.breakout_level = None
         self.breakout_direction = None
+        self._rolling_highs.clear()
+        self._rolling_lows.clear()
+        self._range_seq = 0
         self.state = 'NORMAL'
         self.bar_count = 0
         self.bars_in_chop = 0  # NEW: Reset time decay counter

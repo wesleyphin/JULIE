@@ -1,0 +1,15 @@
+{
+  "enabled": false,
+  "reason": "disabled_for_raw_threshold_edge",
+  "selected_threshold": 0.62,
+  "selected_short_threshold": 0.38,
+  "validation": {
+    "trade_count": 231,
+    "win_rate": 0.6753246753246753,
+    "avg_pnl": 0.9840346320346323,
+    "total_pnl": 227.31200000000004,
+    "long_share": 0.5627705627705628,
+    "short_share": 0.43722943722943725,
+    "score": 0.9840346320346323
+  }
+}

@@ -2,6 +2,7 @@ import datetime
 import logging
 import requests
 import pandas as pd
+from bisect import bisect_right
 from datetime import timezone as dt_timezone
 from zoneinfo import ZoneInfo
 from pandas.tseries.holiday import USFederalHolidayCalendar
@@ -26,12 +27,78 @@ class NewsFilter:
         # 2. Event Containers
         self.calendar_blackouts = [] # Future/Active events (for blocking trades)
         self.recent_events = []      # All events in current month (for Gemini context)
+        self._news_windows_utc = []  # Sorted blackout windows in UTC
+        self._news_window_starts_utc = []
+        self._news_window_cursor = 0
+        self._last_news_query_utc = None
 
         # 3. Holiday Calendar
         self.holiday_cal = USFederalHolidayCalendar()
+        self._thanksgiving_cache = {}
 
         # Load the calendar immediately
         self.refresh_calendar()
+
+    def _get_thanksgiving_day(self, year: int) -> int:
+        cached = self._thanksgiving_cache.get(year)
+        if cached is not None:
+            return cached
+        first_nov = datetime.date(year, 11, 1)
+        offset = (3 - first_nov.weekday()) % 7
+        thanksgiving_day = 1 + offset + 21
+        self._thanksgiving_cache[year] = thanksgiving_day
+        return thanksgiving_day
+
+    def _rebuild_news_windows(self) -> None:
+        windows = []
+        for event in self.calendar_blackouts:
+            event_time = event['time']
+            event_time_utc = event.get('time_utc') or event_time.astimezone(dt_timezone.utc)
+            start_utc = event_time_utc - datetime.timedelta(minutes=int(event.get('pre_buffer', 0)))
+            end_utc = event_time_utc + datetime.timedelta(minutes=int(event.get('duration', 0)))
+            windows.append(
+                {
+                    "start_utc": start_utc,
+                    "end_utc": end_utc,
+                    "title": event.get('title', ''),
+                    "time_et": event_time,
+                }
+            )
+        windows.sort(key=lambda e: e["start_utc"])
+        self._news_windows_utc = windows
+        self._news_window_starts_utc = [w["start_utc"] for w in windows]
+        self._news_window_cursor = 0
+        self._last_news_query_utc = None
+
+    def _find_active_news_window(self, current_time_utc: datetime.datetime):
+        if not self._news_windows_utc:
+            return None
+
+        # Handle non-monotonic queries by resetting cursor with binary search.
+        if (
+            self._last_news_query_utc is None
+            or current_time_utc < self._last_news_query_utc
+        ):
+            idx = bisect_right(self._news_window_starts_utc, current_time_utc) - 1
+            self._news_window_cursor = max(0, idx)
+            while (
+                self._news_window_cursor > 0
+                and self._news_windows_utc[self._news_window_cursor - 1]["end_utc"] >= current_time_utc
+            ):
+                self._news_window_cursor -= 1
+
+        windows = self._news_windows_utc
+        cursor = self._news_window_cursor
+        while cursor < len(windows) and windows[cursor]["end_utc"] < current_time_utc:
+            cursor += 1
+        self._news_window_cursor = cursor
+        self._last_news_query_utc = current_time_utc
+
+        if cursor < len(windows):
+            window = windows[cursor]
+            if window["start_utc"] <= current_time_utc <= window["end_utc"]:
+                return window
+        return None
 
     def refresh_calendar(self):
         """Fetches 'Red Folder' (High Impact) USD news from ForexFactory."""
@@ -128,10 +195,15 @@ class NewsFilter:
 
             logging.info(f"✅ Calendar updated: {count} upcoming blocking events.")
             logging.info(f"📋 Gemini Context: {len(self.recent_events)} events stored for analysis.")
+            self._rebuild_news_windows()
 
         except Exception as e:
             logging.error(f"❌ Failed to fetch news calendar: {e}")
             logging.warning("⚠️ Running with NO dynamic news filters! Be careful.")
+            self._news_windows_utc = []
+            self._news_window_starts_utc = []
+            self._news_window_cursor = 0
+            self._last_news_query_utc = None
 
     def fetch_news(self) -> list[str]:
         """
@@ -319,12 +391,7 @@ class NewsFilter:
 
         # A. Thanksgiving Week (4th Thursday of November)
         if month == 11:
-            # Calculate Thanksgiving date dynamically
-            # Find first day of November
-            first_nov = datetime.date(current_time.year, 11, 1)
-            # Find first Thursday (weekday 3)
-            offset = (3 - first_nov.weekday()) % 7
-            thanksgiving_day = 1 + offset + 21  # Add 3 weeks to get 4th Thursday
+            thanksgiving_day = self._get_thanksgiving_day(current_time.year)
 
             # BLACKOUT: Wednesday after 12:00 PM
             if day == (thanksgiving_day - 1) and hour >= 12:
@@ -358,13 +425,8 @@ class NewsFilter:
                 return True, "MARKET_CLOSE: daily blackout window (news filter bypassed)"
 
         # === 3. DYNAMIC NEWS CALENDAR EVENTS ===
-        for event in self.calendar_blackouts:
-            event_time = event['time']
-            event_time_utc = event.get('time_utc') or event_time.astimezone(dt_timezone.utc)
-            block_start = event_time_utc - datetime.timedelta(minutes=event['pre_buffer'])
-            block_end = event_time_utc + datetime.timedelta(minutes=event['duration'])
-
-            if block_start <= current_time_utc <= block_end:
-                return True, f"NEWS: {event['title']} ({event_time.strftime('%H:%M')})"
+        active_window = self._find_active_news_window(current_time_utc)
+        if active_window is not None:
+            return True, f"NEWS: {active_window['title']} ({active_window['time_et'].strftime('%H:%M')})"
 
         return False, ""

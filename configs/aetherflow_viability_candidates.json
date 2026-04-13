@@ -1,0 +1,401 @@
+{
+  "variants": [
+    {
+      "name": "deploy_live_pair",
+      "description": "Current live-style pair: compression_release and transition_burst at the repaired 0.55 gate.",
+      "family_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "compression_release_only",
+      "description": "Single-family compression_release with the repaired live threshold.",
+      "family_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "transition_burst_only",
+      "description": "Single-family transition_burst with the repaired live threshold.",
+      "family_policies": {
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "aligned_flow_trend_london",
+      "description": "Aligned-flow constrained to TREND_GEODESIC during LONDON only.",
+      "family_policies": {
+        "aligned_flow": {
+          "threshold": 0.60,
+          "allowed_session_ids": [1],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "aligned_flow_trend_nyam",
+      "description": "Aligned-flow constrained to TREND_GEODESIC during NY_AM only.",
+      "family_policies": {
+        "aligned_flow": {
+          "threshold": 0.60,
+          "allowed_session_ids": [2],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "aligned_flow_trend_london_nyam",
+      "description": "Aligned-flow constrained to TREND_GEODESIC during LONDON and NY_AM.",
+      "family_policies": {
+        "aligned_flow": {
+          "threshold": 0.60,
+          "allowed_session_ids": [1, 2],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "aligned_flow_trend_all_live_thr063",
+      "description": "Aligned-flow constrained to TREND_GEODESIC during all live sessions with a tighter 0.63 gate.",
+      "family_policies": {
+        "aligned_flow": {
+          "threshold": 0.63,
+          "allowed_session_ids": [1, 2, 3],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "aligned_flow_trend_all_live_thr066",
+      "description": "Aligned-flow constrained to TREND_GEODESIC during all live sessions with a very tight 0.66 gate.",
+      "family_policies": {
+        "aligned_flow": {
+          "threshold": 0.66,
+          "allowed_session_ids": [1, 2, 3],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "aligned_flow_trend_london_nyam_thr063",
+      "description": "Aligned-flow constrained to TREND_GEODESIC during LONDON and NY_AM with a tighter 0.63 gate.",
+      "family_policies": {
+        "aligned_flow": {
+          "threshold": 0.63,
+          "allowed_session_ids": [1, 2],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "aligned_flow_trend_london_nyam_thr066",
+      "description": "Aligned-flow constrained to TREND_GEODESIC during LONDON and NY_AM with a very tight 0.66 gate.",
+      "family_policies": {
+        "aligned_flow": {
+          "threshold": 0.66,
+          "allowed_session_ids": [1, 2],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "exhaustion_reversal_chop_london",
+      "description": "Exhaustion-reversal constrained to CHOP_SPIRAL during LONDON only.",
+      "family_policies": {
+        "exhaustion_reversal": {
+          "threshold": 0.60,
+          "allowed_session_ids": [1],
+          "allowed_regimes": ["CHOP_SPIRAL"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "exhaustion_reversal_chop_nyam",
+      "description": "Exhaustion-reversal constrained to CHOP_SPIRAL during NY_AM only.",
+      "family_policies": {
+        "exhaustion_reversal": {
+          "threshold": 0.60,
+          "allowed_session_ids": [2],
+          "allowed_regimes": ["CHOP_SPIRAL"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "exhaustion_reversal_chop_nypm",
+      "description": "Exhaustion-reversal constrained to CHOP_SPIRAL during NY_PM only.",
+      "family_policies": {
+        "exhaustion_reversal": {
+          "threshold": 0.60,
+          "allowed_session_ids": [3],
+          "allowed_regimes": ["CHOP_SPIRAL"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "exhaustion_reversal_chop_all_live_thr063",
+      "description": "Exhaustion-reversal constrained to CHOP_SPIRAL during all live sessions with a tighter 0.63 gate.",
+      "family_policies": {
+        "exhaustion_reversal": {
+          "threshold": 0.63,
+          "allowed_session_ids": [1, 2, 3],
+          "allowed_regimes": ["CHOP_SPIRAL"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "exhaustion_reversal_chop_all_live_thr066",
+      "description": "Exhaustion-reversal constrained to CHOP_SPIRAL during all live sessions with a very tight 0.66 gate.",
+      "family_policies": {
+        "exhaustion_reversal": {
+          "threshold": 0.66,
+          "allowed_session_ids": [1, 2, 3],
+          "allowed_regimes": ["CHOP_SPIRAL"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "exhaustion_reversal_chop_nyam_thr063",
+      "description": "Exhaustion-reversal constrained to CHOP_SPIRAL during NY_AM with a tighter 0.63 gate.",
+      "family_policies": {
+        "exhaustion_reversal": {
+          "threshold": 0.63,
+          "allowed_session_ids": [2],
+          "allowed_regimes": ["CHOP_SPIRAL"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "exhaustion_reversal_chop_nypm_thr063",
+      "description": "Exhaustion-reversal constrained to CHOP_SPIRAL during NY_PM with a tighter 0.63 gate.",
+      "family_policies": {
+        "exhaustion_reversal": {
+          "threshold": 0.63,
+          "allowed_session_ids": [3],
+          "allowed_regimes": ["CHOP_SPIRAL"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "aligned_flow_trend_london_be35",
+      "description": "Aligned-flow in LONDON with break-even armed after 35% TP progress.",
+      "family_policies": {
+        "aligned_flow": {
+          "threshold": 0.60,
+          "allowed_session_ids": [1],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "break_even": {
+            "enabled": true,
+            "trigger_pct": 0.35,
+            "buffer_ticks": 0,
+            "trail_pct": 0.0,
+            "activate_on_next_bar": true
+          }
+        }
+      }
+    },
+    {
+      "name": "aligned_flow_trend_london_early4",
+      "description": "Aligned-flow in LONDON with a fail-fast early exit if not green by bar 4.",
+      "family_policies": {
+        "aligned_flow": {
+          "threshold": 0.60,
+          "allowed_session_ids": [1],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "early_exit": {
+            "enabled": true,
+            "exit_if_not_green_by": 4,
+            "max_profit_crosses": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "aligned_flow_trend_london_be35_early4",
+      "description": "Aligned-flow in LONDON with both 35% break-even and fail-fast early exit.",
+      "family_policies": {
+        "aligned_flow": {
+          "threshold": 0.60,
+          "allowed_session_ids": [1],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "break_even": {
+            "enabled": true,
+            "trigger_pct": 0.35,
+            "buffer_ticks": 0,
+            "trail_pct": 0.0,
+            "activate_on_next_bar": true
+          },
+          "early_exit": {
+            "enabled": true,
+            "exit_if_not_green_by": 4,
+            "max_profit_crosses": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "aligned_flow_trend_london_nyam_be25trail",
+      "description": "Aligned-flow in LONDON and NY_AM with earlier trailing break-even promotion.",
+      "family_policies": {
+        "aligned_flow": {
+          "threshold": 0.60,
+          "allowed_session_ids": [1, 2],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "break_even": {
+            "enabled": true,
+            "trigger_pct": 0.25,
+            "buffer_ticks": 1,
+            "trail_pct": 0.25,
+            "activate_on_next_bar": true
+          }
+        }
+      }
+    },
+    {
+      "name": "exhaustion_reversal_chop_nyam_be20",
+      "description": "Exhaustion-reversal in NY_AM with break-even armed after 20% TP progress.",
+      "family_policies": {
+        "exhaustion_reversal": {
+          "threshold": 0.60,
+          "allowed_session_ids": [2],
+          "allowed_regimes": ["CHOP_SPIRAL"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "break_even": {
+            "enabled": true,
+            "trigger_pct": 0.20,
+            "buffer_ticks": 1,
+            "trail_pct": 0.0,
+            "activate_on_next_bar": true
+          }
+        }
+      }
+    },
+    {
+      "name": "exhaustion_reversal_chop_nyam_early2",
+      "description": "Exhaustion-reversal in NY_AM with fail-fast early exit if not green by bar 2.",
+      "family_policies": {
+        "exhaustion_reversal": {
+          "threshold": 0.60,
+          "allowed_session_ids": [2],
+          "allowed_regimes": ["CHOP_SPIRAL"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "early_exit": {
+            "enabled": true,
+            "exit_if_not_green_by": 2,
+            "max_profit_crosses": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "exhaustion_reversal_chop_nyam_be20_early2",
+      "description": "Exhaustion-reversal in NY_AM with both 20% break-even and fail-fast early exit.",
+      "family_policies": {
+        "exhaustion_reversal": {
+          "threshold": 0.60,
+          "allowed_session_ids": [2],
+          "allowed_regimes": ["CHOP_SPIRAL"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "break_even": {
+            "enabled": true,
+            "trigger_pct": 0.20,
+            "buffer_ticks": 1,
+            "trail_pct": 0.0,
+            "activate_on_next_bar": true
+          },
+          "early_exit": {
+            "enabled": true,
+            "exit_if_not_green_by": 2,
+            "max_profit_crosses": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "exhaustion_reversal_chop_all_live_be20_early2",
+      "description": "Exhaustion-reversal across all live sessions with 20% break-even and fail-fast early exit.",
+      "family_policies": {
+        "exhaustion_reversal": {
+          "threshold": 0.60,
+          "allowed_session_ids": [1, 2, 3],
+          "allowed_regimes": ["CHOP_SPIRAL"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "break_even": {
+            "enabled": true,
+            "trigger_pct": 0.20,
+            "buffer_ticks": 1,
+            "trail_pct": 0.0,
+            "activate_on_next_bar": true
+          },
+          "early_exit": {
+            "enabled": true,
+            "exit_if_not_green_by": 2,
+            "max_profit_crosses": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "all_families_contextual_v1",
+      "description": "Contextual all-family candidate: live pair plus tighter aligned-flow and exhaustion-reversal windows.",
+      "family_policies": {
+        "compression_release": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "aligned_flow": {
+          "threshold": 0.60,
+          "allowed_session_ids": [1, 2],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "exhaustion_reversal": {
+          "threshold": 0.60,
+          "allowed_session_ids": [2],
+          "allowed_regimes": ["CHOP_SPIRAL"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    }
+  ]
+}

@@ -139,7 +139,7 @@ class DynamicChopAnalyzer:
 
             current_price = df_1m_current["close"].iloc[-1]
 
-            # [FIX] Only enforce Range Rule if the box is large enough (e.g., > 12 points)
+            # [FIX] Only enforce Range Rule if the box is large enough
             # This prevents blocking trades inside tight micro-consolidations
             MIN_RANGE_FOR_FADE = 12.0
 
@@ -192,8 +192,9 @@ class DynamicChopAnalyzer:
         recent_15_low = df_1m["low"].iloc[-15:].min()
         recent_15_vol = recent_15_high - recent_15_low
 
-        # Threshold: If 15-min range is < 7 points, it's a "Loaded Spring"
-        if recent_15_vol < 7.0:
+        # Threshold: If 15-min range is small, it's a "Loaded Spring"
+        loaded_spring_thresh = 7.0
+        if recent_15_vol < loaded_spring_thresh:
             return True, f"⚡ LOADED SPRING: 15m Range only {recent_15_vol:.2f}pts. Allowing Breakout Attempt."
 
         # =========================================================
@@ -218,7 +219,8 @@ class DynamicChopAnalyzer:
         micro_low = df_1m["low"].iloc[-2:].min()
         micro_vol = micro_high - micro_low
 
-        if micro_vol <= 5.0:
+        micro_vol_thresh = 5.0
+        if micro_vol <= micro_vol_thresh:
             # --- NEW LOGIC: Allow Fading the Edges ---
             # Calculate position in range (0.0 = Low, 1.0 = High)
             if micro_vol > 0:

@@ -1,0 +1,156 @@
+{
+  "variants": [
+    {
+      "name": "pair_base_0620",
+      "description": "Corrected pair-only baseline.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.62,
+          "allowed_session_ids": [
+            1,
+            2,
+            3
+          ],
+          "blocked_regimes": [
+            "ROTATIONAL_TURBULENCE"
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.62,
+          "allowed_session_ids": [
+            1,
+            2,
+            3
+          ],
+          "blocked_regimes": [
+            "ROTATIONAL_TURBULENCE"
+          ]
+        }
+      }
+    },
+    {
+      "name": "pair_cr_london0615_cr_nypm0615_tb_nyam0605",
+      "description": "Current corrected repaired winner on the deploy-model search.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.62,
+          "allowed_session_ids": [
+            1,
+            2,
+            3
+          ],
+          "blocked_regimes": [
+            "ROTATIONAL_TURBULENCE"
+          ],
+          "policy_rules": [
+            {
+              "name": "cr_london_0615",
+              "match_session_ids": [
+                1
+              ],
+              "threshold": 0.615
+            },
+            {
+              "name": "cr_nypm_0615",
+              "match_session_ids": [
+                3
+              ],
+              "threshold": 0.615
+            }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.62,
+          "allowed_session_ids": [
+            1,
+            2,
+            3
+          ],
+          "blocked_regimes": [
+            "ROTATIONAL_TURBULENCE"
+          ],
+          "policy_rules": [
+            {
+              "name": "tb_nyam_0605",
+              "match_session_ids": [
+                2
+              ],
+              "threshold": 0.605
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "pair_repaired_plus_af_london_baseline",
+      "description": "Repair winner plus London-only aligned-flow baseline.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.62,
+          "allowed_session_ids": [
+            1,
+            2,
+            3
+          ],
+          "blocked_regimes": [
+            "ROTATIONAL_TURBULENCE"
+          ],
+          "policy_rules": [
+            {
+              "name": "cr_london_0615",
+              "match_session_ids": [
+                1
+              ],
+              "threshold": 0.615
+            },
+            {
+              "name": "cr_nypm_0615",
+              "match_session_ids": [
+                3
+              ],
+              "threshold": 0.615
+            }
+          ]
+        },
+        "transition_burst": {
+          "threshold": 0.62,
+          "allowed_session_ids": [
+            1,
+            2,
+            3
+          ],
+          "blocked_regimes": [
+            "ROTATIONAL_TURBULENCE"
+          ],
+          "policy_rules": [
+            {
+              "name": "tb_nyam_0605",
+              "match_session_ids": [
+                2
+              ],
+              "threshold": 0.605
+            }
+          ]
+        }
+      },
+      "threshold": 0.6,
+      "allowed_session_ids": [
+        1
+      ],
+      "allowed_regimes": [
+        "TREND_GEODESIC"
+      ],
+      "blocked_regimes": [
+        "ROTATIONAL_TURBULENCE"
+      ],
+      "entry_mode": "market_next_bar"
+    }
+  ]
+}

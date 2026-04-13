@@ -4,6 +4,8 @@ import datetime
 from datetime import timezone as dt_timezone
 import logging
 
+from dynamic_sltp_params import dynamic_sltp_engine
+
 # Session name mapping for logging
 SESSION_NAMES = {0: "AM", 1: "Mid", 2: "PM", 3: "Close"}
 DAY_NAMES = {0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri"}
@@ -187,6 +189,10 @@ class VIXReversionStrategy:
             logging.debug("VIXReversion: Insufficient VIX data (need 21 bars)")
             return None
 
+        # Runtime-cost guard: the logic only needs recent VIX bars.
+        if len(vix_df) > 64:
+            vix_df = vix_df.iloc[-64:]
+
         # 1. Determine Current Segment
         current_time = vix_df.index[-1]
         quarter = (current_time.month - 1) // 3 + 1
@@ -252,11 +258,27 @@ class VIXReversionStrategy:
 
             self.bars_since_signal = 0
 
+            try:
+                sltp = dynamic_sltp_engine.calculate_sltp(
+                    "VIXMeanReversion_LONG",
+                    es_df,
+                    ts=es_df.index[-1] if es_df is not None and not es_df.empty else current_time,
+                )
+                sl_dist = float(sltp.get("sl_dist", 0.0))
+                tp_dist = float(sltp.get("tp_dist", 0.0))
+                if sl_dist <= 0 or tp_dist <= 0:
+                    logging.warning("VIXReversion dynamic SL/TP invalid; skipping signal")
+                    return None
+                dynamic_sltp_engine.log_params(sltp, "VIXMeanReversion_LONG")
+            except Exception as e:
+                logging.warning(f"VIXReversion dynamic SL/TP calc failed: {e}")
+                return None
+
             return {
                 'strategy': self.strategy_name,
                 'side': 'LONG',
-                'sl_dist': 4.0,
-                'tp_dist': 6.0,
+                'sl_dist': sl_dist,
+                'tp_dist': tp_dist,
                 'size': 5,
                 'reason': f"VIX Reversion (Z={z_score}) Q{quarter} M{month} W{week} D{day_of_week} S{session_id}"
             }
