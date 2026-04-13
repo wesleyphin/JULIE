@@ -1,0 +1,3296 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-04-13T14:35:42.349149-04:00",
+  "meta": {
+    "log_path": "C:\\Users\\timot\\OneDrive\\Desktop\\topstep2\\topstep_live_bot.log",
+    "state_path": "C:\\Users\\timot\\OneDrive\\Desktop\\topstep2\\bot_state.json",
+    "trade_factors_path": "C:\\Users\\timot\\OneDrive\\Desktop\\topstep2\\live_trade_factors.csv"
+  },
+  "bot": {
+    "status": "online",
+    "session": "NY_PM",
+    "price": 6886.0,
+    "trading_day_start": "2026-04-12T18:00:00-04:00",
+    "last_bar_time": "2026-04-13T14:07:00-04:00",
+    "last_ready_time": "2026-04-13T14:07:17.643000-04:00",
+    "last_heartbeat_time": "2026-04-13T14:35:21.702000-04:00",
+    "heartbeat_age_seconds": 20.6,
+    "session_connection_ok": false,
+    "last_position_sync_time": "2026-04-13T14:31:53.217000-04:00",
+    "position_sync_status": "LONG 2 @ 6883.25",
+    "current_position": {
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "LONG",
+      "entry_price": 6883.25,
+      "tp_price": 6907.25,
+      "sl_price": 6872.25,
+      "size": 2,
+      "order_id": "8ed8e665-6bb7-437f-a02b-3ff3625ea9f6",
+      "opened_at": "2026-04-13T13:46:24.318000-04:00",
+      "entry_mode": "standard",
+      "base_session": "NY_PM",
+      "current_session": "NY_PM",
+      "sub_strategy": "15min_12-15_Long_Rev_T2_SL10_TP25",
+      "combo_key": "15min_12-15_Long_Rev_T2_SL10_TP25",
+      "rule_id": null,
+      "early_exit_enabled": null,
+      "gate_prob": null,
+      "gate_threshold": null,
+      "vol_regime": "normal",
+      "source": "projectx_api",
+      "avg_price": 6883.25,
+      "signal_entry_price": 6882.25,
+      "open_pnl_points": 2.75,
+      "open_pnl_dollars": 27.5,
+      "stop_price": 6872.25,
+      "target_price": 6907.25
+    },
+    "price_history": [
+      {
+        "time": "2026-04-13T09:49:00-04:00",
+        "price": 6849.25
+      },
+      {
+        "time": "2026-04-13T09:50:00-04:00",
+        "price": 6854.0
+      },
+      {
+        "time": "2026-04-13T09:51:00-04:00",
+        "price": 6845.0
+      },
+      {
+        "time": "2026-04-13T09:52:00-04:00",
+        "price": 6843.25
+      },
+      {
+        "time": "2026-04-13T09:53:00-04:00",
+        "price": 6844.0
+      },
+      {
+        "time": "2026-04-13T09:54:00-04:00",
+        "price": 6848.0
+      },
+      {
+        "time": "2026-04-13T09:55:00-04:00",
+        "price": 6846.75
+      },
+      {
+        "time": "2026-04-13T09:56:00-04:00",
+        "price": 6849.25
+      },
+      {
+        "time": "2026-04-13T09:57:00-04:00",
+        "price": 6851.0
+      },
+      {
+        "time": "2026-04-13T09:58:00-04:00",
+        "price": 6853.0
+      },
+      {
+        "time": "2026-04-13T09:59:00-04:00",
+        "price": 6858.5
+      },
+      {
+        "time": "2026-04-13T10:00:00-04:00",
+        "price": 6860.75
+      },
+      {
+        "time": "2026-04-13T10:01:00-04:00",
+        "price": 6854.75
+      },
+      {
+        "time": "2026-04-13T10:02:00-04:00",
+        "price": 6853.25
+      },
+      {
+        "time": "2026-04-13T10:03:00-04:00",
+        "price": 6852.25
+      },
+      {
+        "time": "2026-04-13T10:04:00-04:00",
+        "price": 6854.5
+      },
+      {
+        "time": "2026-04-13T10:05:00-04:00",
+        "price": 6855.75
+      },
+      {
+        "time": "2026-04-13T10:06:00-04:00",
+        "price": 6857.25
+      },
+      {
+        "time": "2026-04-13T10:07:00-04:00",
+        "price": 6856.75
+      },
+      {
+        "time": "2026-04-13T10:08:00-04:00",
+        "price": 6855.75
+      },
+      {
+        "time": "2026-04-13T10:09:00-04:00",
+        "price": 6854.75
+      },
+      {
+        "time": "2026-04-13T10:10:00-04:00",
+        "price": 6853.75
+      },
+      {
+        "time": "2026-04-13T10:11:00-04:00",
+        "price": 6852.75
+      },
+      {
+        "time": "2026-04-13T10:12:00-04:00",
+        "price": 6851.5
+      },
+      {
+        "time": "2026-04-13T10:13:00-04:00",
+        "price": 6851.25
+      },
+      {
+        "time": "2026-04-13T10:14:00-04:00",
+        "price": 6852.5
+      },
+      {
+        "time": "2026-04-13T10:15:00-04:00",
+        "price": 6848.5
+      },
+      {
+        "time": "2026-04-13T10:16:00-04:00",
+        "price": 6848.25
+      },
+      {
+        "time": "2026-04-13T10:17:00-04:00",
+        "price": 6847.25
+      },
+      {
+        "time": "2026-04-13T10:18:00-04:00",
+        "price": 6847.25
+      },
+      {
+        "time": "2026-04-13T10:19:00-04:00",
+        "price": 6851.25
+      },
+      {
+        "time": "2026-04-13T10:20:00-04:00",
+        "price": 6850.75
+      },
+      {
+        "time": "2026-04-13T10:21:00-04:00",
+        "price": 6854.25
+      },
+      {
+        "time": "2026-04-13T10:22:00-04:00",
+        "price": 6853.5
+      },
+      {
+        "time": "2026-04-13T10:23:00-04:00",
+        "price": 6851.75
+      },
+      {
+        "time": "2026-04-13T10:24:00-04:00",
+        "price": 6856.25
+      },
+      {
+        "time": "2026-04-13T10:25:00-04:00",
+        "price": 6855.5
+      },
+      {
+        "time": "2026-04-13T10:26:00-04:00",
+        "price": 6854.5
+      },
+      {
+        "time": "2026-04-13T10:27:00-04:00",
+        "price": 6854.75
+      },
+      {
+        "time": "2026-04-13T10:28:00-04:00",
+        "price": 6854.5
+      },
+      {
+        "time": "2026-04-13T10:29:00-04:00",
+        "price": 6857.25
+      },
+      {
+        "time": "2026-04-13T10:30:00-04:00",
+        "price": 6857.25
+      },
+      {
+        "time": "2026-04-13T10:31:00-04:00",
+        "price": 6860.0
+      },
+      {
+        "time": "2026-04-13T10:32:00-04:00",
+        "price": 6857.25
+      },
+      {
+        "time": "2026-04-13T10:33:00-04:00",
+        "price": 6858.0
+      },
+      {
+        "time": "2026-04-13T10:34:00-04:00",
+        "price": 6859.0
+      },
+      {
+        "time": "2026-04-13T10:35:00-04:00",
+        "price": 6857.0
+      },
+      {
+        "time": "2026-04-13T10:36:00-04:00",
+        "price": 6855.5
+      },
+      {
+        "time": "2026-04-13T10:37:00-04:00",
+        "price": 6855.5
+      },
+      {
+        "time": "2026-04-13T10:38:00-04:00",
+        "price": 6856.5
+      },
+      {
+        "time": "2026-04-13T10:39:00-04:00",
+        "price": 6856.5
+      },
+      {
+        "time": "2026-04-13T10:40:00-04:00",
+        "price": 6857.5
+      },
+      {
+        "time": "2026-04-13T10:41:00-04:00",
+        "price": 6857.25
+      },
+      {
+        "time": "2026-04-13T10:42:00-04:00",
+        "price": 6858.5
+      },
+      {
+        "time": "2026-04-13T10:43:00-04:00",
+        "price": 6858.5
+      },
+      {
+        "time": "2026-04-13T10:44:00-04:00",
+        "price": 6861.0
+      },
+      {
+        "time": "2026-04-13T10:45:00-04:00",
+        "price": 6861.75
+      },
+      {
+        "time": "2026-04-13T10:46:00-04:00",
+        "price": 6860.25
+      },
+      {
+        "time": "2026-04-13T10:47:00-04:00",
+        "price": 6857.5
+      },
+      {
+        "time": "2026-04-13T10:48:00-04:00",
+        "price": 6857.25
+      },
+      {
+        "time": "2026-04-13T10:49:00-04:00",
+        "price": 6857.25
+      },
+      {
+        "time": "2026-04-13T10:50:00-04:00",
+        "price": 6857.75
+      },
+      {
+        "time": "2026-04-13T10:51:00-04:00",
+        "price": 6859.0
+      },
+      {
+        "time": "2026-04-13T10:52:00-04:00",
+        "price": 6860.5
+      },
+      {
+        "time": "2026-04-13T10:53:00-04:00",
+        "price": 6862.0
+      },
+      {
+        "time": "2026-04-13T10:54:00-04:00",
+        "price": 6862.75
+      },
+      {
+        "time": "2026-04-13T10:55:00-04:00",
+        "price": 6861.75
+      },
+      {
+        "time": "2026-04-13T10:56:00-04:00",
+        "price": 6862.75
+      },
+      {
+        "time": "2026-04-13T10:57:00-04:00",
+        "price": 6865.5
+      },
+      {
+        "time": "2026-04-13T10:58:00-04:00",
+        "price": 6867.5
+      },
+      {
+        "time": "2026-04-13T10:59:00-04:00",
+        "price": 6866.75
+      },
+      {
+        "time": "2026-04-13T11:00:00-04:00",
+        "price": 6860.5
+      },
+      {
+        "time": "2026-04-13T11:01:00-04:00",
+        "price": 6863.25
+      },
+      {
+        "time": "2026-04-13T11:02:00-04:00",
+        "price": 6861.0
+      },
+      {
+        "time": "2026-04-13T11:03:00-04:00",
+        "price": 6860.5
+      },
+      {
+        "time": "2026-04-13T11:04:00-04:00",
+        "price": 6859.75
+      },
+      {
+        "time": "2026-04-13T11:05:00-04:00",
+        "price": 6859.0
+      },
+      {
+        "time": "2026-04-13T11:06:00-04:00",
+        "price": 6860.25
+      },
+      {
+        "time": "2026-04-13T11:07:00-04:00",
+        "price": 6860.75
+      },
+      {
+        "time": "2026-04-13T11:08:00-04:00",
+        "price": 6859.0
+      },
+      {
+        "time": "2026-04-13T11:09:00-04:00",
+        "price": 6861.25
+      },
+      {
+        "time": "2026-04-13T11:10:00-04:00",
+        "price": 6860.75
+      },
+      {
+        "time": "2026-04-13T11:11:00-04:00",
+        "price": 6864.25
+      },
+      {
+        "time": "2026-04-13T11:12:00-04:00",
+        "price": 6863.5
+      },
+      {
+        "time": "2026-04-13T11:13:00-04:00",
+        "price": 6862.25
+      },
+      {
+        "time": "2026-04-13T11:14:00-04:00",
+        "price": 6861.25
+      },
+      {
+        "time": "2026-04-13T11:15:00-04:00",
+        "price": 6860.25
+      },
+      {
+        "time": "2026-04-13T11:16:00-04:00",
+        "price": 6860.75
+      },
+      {
+        "time": "2026-04-13T11:17:00-04:00",
+        "price": 6859.25
+      },
+      {
+        "time": "2026-04-13T11:18:00-04:00",
+        "price": 6858.5
+      },
+      {
+        "time": "2026-04-13T11:19:00-04:00",
+        "price": 6858.0
+      },
+      {
+        "time": "2026-04-13T11:20:00-04:00",
+        "price": 6861.0
+      },
+      {
+        "time": "2026-04-13T11:21:00-04:00",
+        "price": 6860.25
+      },
+      {
+        "time": "2026-04-13T11:22:00-04:00",
+        "price": 6860.75
+      },
+      {
+        "time": "2026-04-13T11:23:00-04:00",
+        "price": 6860.0
+      },
+      {
+        "time": "2026-04-13T11:24:00-04:00",
+        "price": 6857.75
+      },
+      {
+        "time": "2026-04-13T11:25:00-04:00",
+        "price": 6858.25
+      },
+      {
+        "time": "2026-04-13T11:26:00-04:00",
+        "price": 6857.25
+      },
+      {
+        "time": "2026-04-13T11:27:00-04:00",
+        "price": 6858.25
+      },
+      {
+        "time": "2026-04-13T11:28:00-04:00",
+        "price": 6858.5
+      },
+      {
+        "time": "2026-04-13T11:29:00-04:00",
+        "price": 6856.25
+      },
+      {
+        "time": "2026-04-13T11:30:00-04:00",
+        "price": 6855.5
+      },
+      {
+        "time": "2026-04-13T11:31:00-04:00",
+        "price": 6854.75
+      },
+      {
+        "time": "2026-04-13T11:32:00-04:00",
+        "price": 6854.75
+      },
+      {
+        "time": "2026-04-13T11:33:00-04:00",
+        "price": 6857.25
+      },
+      {
+        "time": "2026-04-13T11:34:00-04:00",
+        "price": 6856.0
+      },
+      {
+        "time": "2026-04-13T11:35:00-04:00",
+        "price": 6856.75
+      },
+      {
+        "time": "2026-04-13T11:36:00-04:00",
+        "price": 6858.25
+      },
+      {
+        "time": "2026-04-13T11:37:00-04:00",
+        "price": 6859.5
+      },
+      {
+        "time": "2026-04-13T11:38:00-04:00",
+        "price": 6859.25
+      },
+      {
+        "time": "2026-04-13T11:39:00-04:00",
+        "price": 6861.0
+      },
+      {
+        "time": "2026-04-13T11:40:00-04:00",
+        "price": 6861.5
+      },
+      {
+        "time": "2026-04-13T11:41:00-04:00",
+        "price": 6860.25
+      },
+      {
+        "time": "2026-04-13T11:42:00-04:00",
+        "price": 6857.25
+      },
+      {
+        "time": "2026-04-13T11:43:00-04:00",
+        "price": 6857.25
+      },
+      {
+        "time": "2026-04-13T11:44:00-04:00",
+        "price": 6856.5
+      },
+      {
+        "time": "2026-04-13T11:45:00-04:00",
+        "price": 6856.5
+      },
+      {
+        "time": "2026-04-13T11:46:00-04:00",
+        "price": 6857.0
+      },
+      {
+        "time": "2026-04-13T11:47:00-04:00",
+        "price": 6856.75
+      },
+      {
+        "time": "2026-04-13T11:48:00-04:00",
+        "price": 6855.25
+      },
+      {
+        "time": "2026-04-13T11:49:00-04:00",
+        "price": 6856.25
+      },
+      {
+        "time": "2026-04-13T11:50:00-04:00",
+        "price": 6856.5
+      },
+      {
+        "time": "2026-04-13T11:51:00-04:00",
+        "price": 6855.25
+      },
+      {
+        "time": "2026-04-13T11:52:00-04:00",
+        "price": 6856.25
+      },
+      {
+        "time": "2026-04-13T11:53:00-04:00",
+        "price": 6856.25
+      },
+      {
+        "time": "2026-04-13T11:54:00-04:00",
+        "price": 6854.75
+      },
+      {
+        "time": "2026-04-13T11:55:00-04:00",
+        "price": 6856.0
+      },
+      {
+        "time": "2026-04-13T11:56:00-04:00",
+        "price": 6856.25
+      },
+      {
+        "time": "2026-04-13T11:57:00-04:00",
+        "price": 6855.75
+      },
+      {
+        "time": "2026-04-13T11:58:00-04:00",
+        "price": 6856.25
+      },
+      {
+        "time": "2026-04-13T11:59:00-04:00",
+        "price": 6856.0
+      },
+      {
+        "time": "2026-04-13T12:00:00-04:00",
+        "price": 6855.0
+      },
+      {
+        "time": "2026-04-13T12:01:00-04:00",
+        "price": 6853.75
+      },
+      {
+        "time": "2026-04-13T12:02:00-04:00",
+        "price": 6852.0
+      },
+      {
+        "time": "2026-04-13T12:03:00-04:00",
+        "price": 6852.0
+      },
+      {
+        "time": "2026-04-13T12:04:00-04:00",
+        "price": 6853.5
+      },
+      {
+        "time": "2026-04-13T12:05:00-04:00",
+        "price": 6852.75
+      },
+      {
+        "time": "2026-04-13T12:06:00-04:00",
+        "price": 6861.25
+      },
+      {
+        "time": "2026-04-13T12:07:00-04:00",
+        "price": 6857.75
+      },
+      {
+        "time": "2026-04-13T12:08:00-04:00",
+        "price": 6857.25
+      },
+      {
+        "time": "2026-04-13T12:09:00-04:00",
+        "price": 6858.25
+      },
+      {
+        "time": "2026-04-13T12:10:00-04:00",
+        "price": 6859.5
+      },
+      {
+        "time": "2026-04-13T12:11:00-04:00",
+        "price": 6860.5
+      },
+      {
+        "time": "2026-04-13T12:12:00-04:00",
+        "price": 6859.0
+      },
+      {
+        "time": "2026-04-13T12:13:00-04:00",
+        "price": 6859.75
+      },
+      {
+        "time": "2026-04-13T12:14:00-04:00",
+        "price": 6860.25
+      },
+      {
+        "time": "2026-04-13T12:15:00-04:00",
+        "price": 6859.0
+      },
+      {
+        "time": "2026-04-13T12:16:00-04:00",
+        "price": 6861.25
+      },
+      {
+        "time": "2026-04-13T12:17:00-04:00",
+        "price": 6862.25
+      },
+      {
+        "time": "2026-04-13T12:18:00-04:00",
+        "price": 6863.25
+      },
+      {
+        "time": "2026-04-13T12:19:00-04:00",
+        "price": 6863.5
+      },
+      {
+        "time": "2026-04-13T12:20:00-04:00",
+        "price": 6864.75
+      },
+      {
+        "time": "2026-04-13T12:21:00-04:00",
+        "price": 6867.25
+      },
+      {
+        "time": "2026-04-13T12:22:00-04:00",
+        "price": 6865.5
+      },
+      {
+        "time": "2026-04-13T12:23:00-04:00",
+        "price": 6866.5
+      },
+      {
+        "time": "2026-04-13T12:24:00-04:00",
+        "price": 6868.75
+      },
+      {
+        "time": "2026-04-13T12:25:00-04:00",
+        "price": 6870.5
+      },
+      {
+        "time": "2026-04-13T12:26:00-04:00",
+        "price": 6868.0
+      },
+      {
+        "time": "2026-04-13T12:27:00-04:00",
+        "price": 6870.0
+      },
+      {
+        "time": "2026-04-13T12:28:00-04:00",
+        "price": 6872.5
+      },
+      {
+        "time": "2026-04-13T12:29:00-04:00",
+        "price": 6875.25
+      },
+      {
+        "time": "2026-04-13T12:30:00-04:00",
+        "price": 6876.0
+      },
+      {
+        "time": "2026-04-13T12:31:00-04:00",
+        "price": 6876.0
+      },
+      {
+        "time": "2026-04-13T12:32:00-04:00",
+        "price": 6873.25
+      },
+      {
+        "time": "2026-04-13T12:33:00-04:00",
+        "price": 6875.5
+      },
+      {
+        "time": "2026-04-13T12:34:00-04:00",
+        "price": 6875.0
+      },
+      {
+        "time": "2026-04-13T12:35:00-04:00",
+        "price": 6881.25
+      },
+      {
+        "time": "2026-04-13T12:36:00-04:00",
+        "price": 6877.25
+      },
+      {
+        "time": "2026-04-13T12:37:00-04:00",
+        "price": 6877.25
+      },
+      {
+        "time": "2026-04-13T12:38:00-04:00",
+        "price": 6876.5
+      },
+      {
+        "time": "2026-04-13T12:39:00-04:00",
+        "price": 6876.5
+      },
+      {
+        "time": "2026-04-13T12:40:00-04:00",
+        "price": 6876.25
+      },
+      {
+        "time": "2026-04-13T12:41:00-04:00",
+        "price": 6872.5
+      },
+      {
+        "time": "2026-04-13T12:42:00-04:00",
+        "price": 6871.0
+      },
+      {
+        "time": "2026-04-13T12:43:00-04:00",
+        "price": 6877.25
+      },
+      {
+        "time": "2026-04-13T12:44:00-04:00",
+        "price": 6877.25
+      },
+      {
+        "time": "2026-04-13T12:45:00-04:00",
+        "price": 6877.5
+      },
+      {
+        "time": "2026-04-13T12:46:00-04:00",
+        "price": 6877.25
+      },
+      {
+        "time": "2026-04-13T12:47:00-04:00",
+        "price": 6883.0
+      },
+      {
+        "time": "2026-04-13T12:48:00-04:00",
+        "price": 6882.25
+      },
+      {
+        "time": "2026-04-13T12:49:00-04:00",
+        "price": 6882.0
+      },
+      {
+        "time": "2026-04-13T12:50:00-04:00",
+        "price": 6887.25
+      },
+      {
+        "time": "2026-04-13T12:51:00-04:00",
+        "price": 6885.0
+      },
+      {
+        "time": "2026-04-13T12:52:00-04:00",
+        "price": 6883.25
+      },
+      {
+        "time": "2026-04-13T12:53:00-04:00",
+        "price": 6881.75
+      },
+      {
+        "time": "2026-04-13T12:54:00-04:00",
+        "price": 6882.5
+      },
+      {
+        "time": "2026-04-13T12:55:00-04:00",
+        "price": 6881.25
+      },
+      {
+        "time": "2026-04-13T12:56:00-04:00",
+        "price": 6883.25
+      },
+      {
+        "time": "2026-04-13T12:57:00-04:00",
+        "price": 6883.25
+      },
+      {
+        "time": "2026-04-13T13:18:00-04:00",
+        "price": 6888.25
+      },
+      {
+        "time": "2026-04-13T13:19:00-04:00",
+        "price": 6887.5
+      },
+      {
+        "time": "2026-04-13T13:20:00-04:00",
+        "price": 6886.25
+      },
+      {
+        "time": "2026-04-13T13:21:00-04:00",
+        "price": 6886.75
+      },
+      {
+        "time": "2026-04-13T13:22:00-04:00",
+        "price": 6885.5
+      },
+      {
+        "time": "2026-04-13T13:23:00-04:00",
+        "price": 6885.75
+      },
+      {
+        "time": "2026-04-13T13:24:00-04:00",
+        "price": 6884.5
+      },
+      {
+        "time": "2026-04-13T13:25:00-04:00",
+        "price": 6885.75
+      },
+      {
+        "time": "2026-04-13T13:26:00-04:00",
+        "price": 6885.75
+      },
+      {
+        "time": "2026-04-13T13:27:00-04:00",
+        "price": 6885.75
+      },
+      {
+        "time": "2026-04-13T13:28:00-04:00",
+        "price": 6885.75
+      },
+      {
+        "time": "2026-04-13T13:29:00-04:00",
+        "price": 6886.5
+      },
+      {
+        "time": "2026-04-13T13:30:00-04:00",
+        "price": 6887.25
+      },
+      {
+        "time": "2026-04-13T13:31:00-04:00",
+        "price": 6886.75
+      },
+      {
+        "time": "2026-04-13T13:32:00-04:00",
+        "price": 6887.25
+      },
+      {
+        "time": "2026-04-13T13:33:00-04:00",
+        "price": 6885.5
+      },
+      {
+        "time": "2026-04-13T13:34:00-04:00",
+        "price": 6885.0
+      },
+      {
+        "time": "2026-04-13T13:35:00-04:00",
+        "price": 6884.0
+      },
+      {
+        "time": "2026-04-13T13:36:00-04:00",
+        "price": 6883.5
+      },
+      {
+        "time": "2026-04-13T13:37:00-04:00",
+        "price": 6884.5
+      },
+      {
+        "time": "2026-04-13T13:38:00-04:00",
+        "price": 6885.5
+      },
+      {
+        "time": "2026-04-13T13:39:00-04:00",
+        "price": 6884.0
+      },
+      {
+        "time": "2026-04-13T13:40:00-04:00",
+        "price": 6883.5
+      },
+      {
+        "time": "2026-04-13T13:41:00-04:00",
+        "price": 6884.25
+      },
+      {
+        "time": "2026-04-13T13:42:00-04:00",
+        "price": 6884.5
+      },
+      {
+        "time": "2026-04-13T13:43:00-04:00",
+        "price": 6884.25
+      },
+      {
+        "time": "2026-04-13T13:44:00-04:00",
+        "price": 6883.0
+      },
+      {
+        "time": "2026-04-13T13:45:00-04:00",
+        "price": 6882.25
+      },
+      {
+        "time": "2026-04-13T13:46:00-04:00",
+        "price": 6883.5
+      },
+      {
+        "time": "2026-04-13T13:47:00-04:00",
+        "price": 6882.5
+      },
+      {
+        "time": "2026-04-13T13:47:00-04:00",
+        "price": 6882.5
+      },
+      {
+        "time": "2026-04-13T13:48:00-04:00",
+        "price": 6882.5
+      },
+      {
+        "time": "2026-04-13T13:49:00-04:00",
+        "price": 6882.25
+      },
+      {
+        "time": "2026-04-13T13:50:00-04:00",
+        "price": 6880.5
+      },
+      {
+        "time": "2026-04-13T13:51:00-04:00",
+        "price": 6881.75
+      },
+      {
+        "time": "2026-04-13T13:52:00-04:00",
+        "price": 6882.25
+      },
+      {
+        "time": "2026-04-13T13:53:00-04:00",
+        "price": 6883.0
+      },
+      {
+        "time": "2026-04-13T13:54:00-04:00",
+        "price": 6883.5
+      },
+      {
+        "time": "2026-04-13T13:55:00-04:00",
+        "price": 6884.75
+      },
+      {
+        "time": "2026-04-13T13:56:00-04:00",
+        "price": 6883.25
+      },
+      {
+        "time": "2026-04-13T13:57:00-04:00",
+        "price": 6883.5
+      },
+      {
+        "time": "2026-04-13T13:58:00-04:00",
+        "price": 6883.0
+      },
+      {
+        "time": "2026-04-13T13:59:00-04:00",
+        "price": 6883.25
+      },
+      {
+        "time": "2026-04-13T14:00:00-04:00",
+        "price": 6885.5
+      },
+      {
+        "time": "2026-04-13T14:01:00-04:00",
+        "price": 6885.0
+      },
+      {
+        "time": "2026-04-13T14:02:00-04:00",
+        "price": 6886.75
+      },
+      {
+        "time": "2026-04-13T14:03:00-04:00",
+        "price": 6887.0
+      },
+      {
+        "time": "2026-04-13T14:04:00-04:00",
+        "price": 6885.75
+      },
+      {
+        "time": "2026-04-13T14:05:00-04:00",
+        "price": 6885.25
+      },
+      {
+        "time": "2026-04-13T14:06:00-04:00",
+        "price": 6885.25
+      },
+      {
+        "time": "2026-04-13T14:07:00-04:00",
+        "price": 6886.0
+      }
+    ],
+    "risk": {
+      "daily_pnl": 114.84,
+      "circuit_consecutive_losses": 0,
+      "circuit_tripped": false,
+      "long_consecutive_losses": null,
+      "short_consecutive_losses": null,
+      "long_blocked_until": null,
+      "short_blocked_until": null,
+      "reversed_bias": null,
+      "hostile_day_active": false,
+      "hostile_day_reason": ""
+    },
+    "warnings": [
+      "Ignoring stale live_position snapshot older than latest broker position sync"
+    ]
+  },
+  "strategies": [
+    {
+      "id": "dynamic_engine3",
+      "label": "Dynamic Engine 3",
+      "status": "ready",
+      "updated_at": "2026-04-13T14:07:15.791000-04:00",
+      "last_signal_time": "2026-04-13T14:00:00.464000-04:00",
+      "last_signal_side": "LONG",
+      "last_signal_price": 6883.25,
+      "tp_dist": 25.0,
+      "sl_dist": 10.0,
+      "priority": "FAST",
+      "last_reason": "DE3 ready | v4 | 62 setups",
+      "last_block_reason": null,
+      "latest_activity": "DE3 ready | v4 | 62 setups",
+      "latest_activity_time": "2026-04-13T14:07:15.791000-04:00",
+      "latest_activity_type": "SYSTEM",
+      "latest_activity_severity": "info",
+      "last_trade_pnl": 3.78,
+      "last_trade_points": 0.5,
+      "last_trade_time": "2026-04-10T13:02:21.216000-04:00",
+      "last_trade_side": "SHORT",
+      "last_trade_entry": 6856.75,
+      "last_trade_exit": 6853.75,
+      "sub_strategy": null,
+      "combo_key": null,
+      "rule_id": null,
+      "early_exit_enabled": null,
+      "gate_prob": null,
+      "gate_threshold": null,
+      "entry_mode": "standard",
+      "base_session": "NY_PM",
+      "current_session": "NY_PM",
+      "vol_regime": "normal"
+    },
+    {
+      "id": "regime_adaptive",
+      "label": "RegimeAdaptive",
+      "status": "ready",
+      "updated_at": "2026-04-13T14:07:15.785000-04:00",
+      "last_signal_time": "2026-04-09T06:49:01.975000-04:00",
+      "last_signal_side": "SHORT",
+      "last_signal_price": 6803.25,
+      "tp_dist": 6.0,
+      "sl_dist": 4.0,
+      "priority": "FAST",
+      "last_reason": "RegimeAdaptive ready",
+      "last_block_reason": null,
+      "latest_activity": "RegimeAdaptive ready",
+      "latest_activity_time": "2026-04-13T14:07:15.785000-04:00",
+      "latest_activity_type": "SYSTEM",
+      "latest_activity_severity": "info",
+      "last_trade_pnl": 115.04,
+      "last_trade_points": 6.0,
+      "last_trade_time": "2026-04-09T07:00:14.269000-04:00",
+      "last_trade_side": "SHORT",
+      "last_trade_entry": 6800.75,
+      "last_trade_exit": 6794.75,
+      "sub_strategy": "Q2_W2_THU_LONDON",
+      "combo_key": "Q2_W2_THU_LONDON",
+      "rule_id": "f13_s34_x0p0",
+      "early_exit_enabled": true,
+      "gate_prob": 0.6068547710524126,
+      "gate_threshold": 0.55,
+      "entry_mode": "standard",
+      "base_session": "LONDON",
+      "current_session": "LONDON",
+      "vol_regime": "ultra_low"
+    },
+    {
+      "id": "ml_physics",
+      "label": "ML Physics",
+      "status": "disabled",
+      "updated_at": "2026-04-09T13:15:19.839000-04:00",
+      "last_signal_time": "2026-02-25T07:01:05.973000-05:00",
+      "last_signal_side": "SHORT",
+      "last_signal_price": 6922.25,
+      "tp_dist": 0.75,
+      "sl_dist": 0.5,
+      "priority": "STANDARD",
+      "last_reason": "ML Physics disabled in filterless live config",
+      "last_block_reason": "ML Physics disabled in filterless live config",
+      "latest_activity": "ML Physics disabled in filterless live config",
+      "latest_activity_time": "2026-04-13T14:07:13.925000-04:00",
+      "latest_activity_type": "SYSTEM",
+      "latest_activity_severity": "info",
+      "last_trade_pnl": -76.24,
+      "last_trade_points": -3.0,
+      "last_trade_time": "2026-02-03T10:25:06.300000-05:00",
+      "last_trade_side": "LONG",
+      "last_trade_entry": 6965.75,
+      "last_trade_exit": 6962.75,
+      "sub_strategy": null,
+      "combo_key": null,
+      "rule_id": null,
+      "early_exit_enabled": null,
+      "gate_prob": null,
+      "gate_threshold": null,
+      "entry_mode": null,
+      "base_session": null,
+      "current_session": null,
+      "vol_regime": null
+    },
+    {
+      "id": "aetherflow",
+      "label": "AetherFlow",
+      "status": "ready",
+      "updated_at": "2026-04-13T14:07:15.802000-04:00",
+      "last_signal_time": "2026-04-13T12:30:20.668000-04:00",
+      "last_signal_side": "LONG",
+      "last_signal_price": 6875.25,
+      "tp_dist": 0.0,
+      "sl_dist": 0.0,
+      "priority": null,
+      "last_reason": "AetherFlow ready",
+      "last_block_reason": null,
+      "latest_activity": "AetherFlow ready",
+      "latest_activity_time": "2026-04-13T14:07:15.802000-04:00",
+      "latest_activity_type": "SYSTEM",
+      "latest_activity_severity": "info",
+      "last_trade_pnl": -62.45,
+      "last_trade_points": -2.25,
+      "last_trade_time": "2026-04-08T07:00:09.931000-04:00",
+      "last_trade_side": "LONG",
+      "last_trade_entry": 6835.0,
+      "last_trade_exit": 6832.75,
+      "sub_strategy": null,
+      "combo_key": "aligned_flow",
+      "rule_id": null,
+      "early_exit_enabled": false,
+      "gate_prob": 0.4898658878087614,
+      "gate_threshold": 0.57,
+      "entry_mode": "market_next_bar",
+      "base_session": "LONDON",
+      "current_session": "LONDON",
+      "vol_regime": "DISPERSED"
+    }
+  ],
+  "events": [
+    {
+      "time": "2026-04-13T14:07:17.643000-04:00",
+      "event_type": "SYSTEM",
+      "severity": "info",
+      "strategy_id": null,
+      "strategy_label": null,
+      "message": "\u2705 State restored. Bot is ready.",
+      "details": {
+        "status": "READY"
+      }
+    },
+    {
+      "time": "2026-04-13T14:07:13.925000-04:00",
+      "event_type": "SYSTEM",
+      "severity": "info",
+      "strategy_id": "ml_physics",
+      "strategy_label": "ML Physics",
+      "message": "ML Physics ready",
+      "details": {
+        "strategy": "MLPhysicsStrategy",
+        "status": "DISABLED",
+        "reason": "disabled in filterless live config"
+      }
+    },
+    {
+      "time": "2026-04-13T14:00:00.464000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6883.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6883.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T13:59:02.265000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6883.00 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6883.00",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T13:58:00.502000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6883.50 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6883.50",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T13:57:00.219000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6883.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6883.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T13:56:02.231000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6884.75 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6884.75",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T13:55:01.248000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6883.50 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6883.50",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T13:54:01.876000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6883.00 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6883.00",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T13:53:00.508000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6882.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6882.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T13:52:01.654000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6881.75 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6881.75",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T13:51:00.987000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6880.50 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6880.50",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T13:50:00.305000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6882.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6882.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T13:49:16.378000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6882.50 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6882.50",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T13:48:50.437000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6882.50 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6882.50",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T13:48:50.155000-04:00",
+      "event_type": "SYSTEM",
+      "severity": "info",
+      "strategy_id": null,
+      "strategy_label": null,
+      "message": "\u2705 State restored. Bot is ready.",
+      "details": {
+        "status": "READY"
+      }
+    },
+    {
+      "time": "2026-04-13T13:48:46.472000-04:00",
+      "event_type": "SYSTEM",
+      "severity": "info",
+      "strategy_id": "ml_physics",
+      "strategy_label": "ML Physics",
+      "message": "ML Physics ready",
+      "details": {
+        "strategy": "MLPhysicsStrategy",
+        "status": "DISABLED",
+        "reason": "disabled in filterless live config"
+      }
+    },
+    {
+      "time": "2026-04-13T13:48:01.400000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6882.50 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6882.50",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T13:47:01.203000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6883.50 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6883.50",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T13:46:24.318000-04:00",
+      "event_type": "TRADE_PLACED",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Trade placed LONG | @ 6882.25 | TP 6907.25 | SL 6872.25",
+      "details": {
+        "order_id": "8ed8e665-6bb7-437f-a02b-3ff3625ea9f6",
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "entry": "6882.25",
+        "tp": "6907.25",
+        "sl": "6872.25"
+      }
+    },
+    {
+      "time": "2026-04-13T13:46:24.258000-04:00",
+      "event_type": "TRADE_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "\ud83c\udfaf Valid trade signal: DynamicEngine3 LONG",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6882.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00"
+      }
+    },
+    {
+      "time": "2026-04-13T13:46:00.945000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6882.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6882.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T13:19:18.126000-04:00",
+      "event_type": "SYSTEM",
+      "severity": "info",
+      "strategy_id": null,
+      "strategy_label": null,
+      "message": "\u2705 State restored. Bot is ready.",
+      "details": {
+        "status": "READY"
+      }
+    },
+    {
+      "time": "2026-04-13T13:19:14.044000-04:00",
+      "event_type": "SYSTEM",
+      "severity": "info",
+      "strategy_id": "ml_physics",
+      "strategy_label": "ML Physics",
+      "message": "ML Physics ready",
+      "details": {
+        "strategy": "MLPhysicsStrategy",
+        "status": "DISABLED",
+        "reason": "disabled in filterless live config"
+      }
+    },
+    {
+      "time": "2026-04-13T12:52:56.294000-04:00",
+      "event_type": "SYSTEM",
+      "severity": "info",
+      "strategy_id": null,
+      "strategy_label": null,
+      "message": "\u2705 State restored. Bot is ready.",
+      "details": {
+        "status": "READY"
+      }
+    },
+    {
+      "time": "2026-04-13T12:52:52.696000-04:00",
+      "event_type": "SYSTEM",
+      "severity": "info",
+      "strategy_id": "ml_physics",
+      "strategy_label": "ML Physics",
+      "message": "ML Physics ready",
+      "details": {
+        "strategy": "MLPhysicsStrategy",
+        "status": "DISABLED",
+        "reason": "disabled in filterless live config"
+      }
+    },
+    {
+      "time": "2026-04-13T12:45:00.371000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6877.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6877.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:44:01.917000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6877.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6877.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:43:24.144000-04:00",
+      "event_type": "TRADE_PLACED",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Trade placed LONG | @ 6871.00 | TP 6896.00 | SL 6861.00",
+      "details": {
+        "order_id": "3f6d7e15-1bb7-49f5-96c2-e78a5e7638c5",
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "entry": "6871.00",
+        "tp": "6896.00",
+        "sl": "6861.00"
+      }
+    },
+    {
+      "time": "2026-04-13T12:43:24.078000-04:00",
+      "event_type": "TRADE_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "\ud83c\udfaf Valid trade signal: DynamicEngine3 LONG",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6871.00",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00"
+      }
+    },
+    {
+      "time": "2026-04-13T12:43:00.157000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6871.00 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6871.00",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:42:02.050000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6872.50 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6872.50",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:41:00.736000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6876.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6876.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:40:01.379000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6876.50 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6876.50",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:39:01.630000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6876.50 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6876.50",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:38:01.841000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6877.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6877.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:37:01.212000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6877.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6877.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:36:23.467000-04:00",
+      "event_type": "TRADE_PLACED",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Trade placed LONG | @ 6881.25 | TP 6906.25 | SL 6871.25",
+      "details": {
+        "order_id": "8dbc08f1-f680-4052-a19a-5805324fb4e4",
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "entry": "6881.25",
+        "tp": "6906.25",
+        "sl": "6871.25"
+      }
+    },
+    {
+      "time": "2026-04-13T12:36:23.403000-04:00",
+      "event_type": "TRADE_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "\ud83c\udfaf Valid trade signal: DynamicEngine3 LONG",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6881.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00"
+      }
+    },
+    {
+      "time": "2026-04-13T12:36:01.678000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6881.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6881.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:35:02.200000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6875.00 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6875.00",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:34:01.149000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6875.50 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6875.50",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:33:02.232000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6873.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6873.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:32:02.098000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6876.00 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6876.00",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:31:01.349000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6876.00 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6876.00",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:30:20.668000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "aetherflow",
+      "strategy_label": "AetherFlow",
+      "message": "Decision blocked LONG @ 6875.25 | below_threshold",
+      "details": {
+        "strategy": "AetherFlow",
+        "side": "LONG",
+        "price": "6875.25",
+        "tp_dist": "0.00",
+        "sl_dist": "0.00",
+        "status": "BLOCKED",
+        "decision": "blocked",
+        "reason": "below_threshold",
+        "combo_key": "aligned_flow",
+        "vol_regime": "DISPERSED",
+        "gate_prob": "0.4898658878087614",
+        "gate_threshold": "0.57",
+        "session_id": "3"
+      }
+    },
+    {
+      "time": "2026-04-13T12:30:01.168000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6875.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6875.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:29:20.486000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "aetherflow",
+      "strategy_label": "AetherFlow",
+      "message": "Decision blocked LONG @ 6872.50 | below_threshold",
+      "details": {
+        "strategy": "AetherFlow",
+        "side": "LONG",
+        "price": "6872.50",
+        "tp_dist": "0.00",
+        "sl_dist": "0.00",
+        "status": "BLOCKED",
+        "decision": "blocked",
+        "reason": "below_threshold",
+        "combo_key": "aligned_flow",
+        "vol_regime": "DISPERSED",
+        "gate_prob": "0.4751557743216787",
+        "gate_threshold": "0.57",
+        "session_id": "3"
+      }
+    },
+    {
+      "time": "2026-04-13T12:29:00.999000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6872.50 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6872.50",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:28:01.410000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6870.00 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6870.00",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:27:00.304000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6868.00 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6868.00",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:26:01.470000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6870.50 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6870.50",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:25:22.998000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "aetherflow",
+      "strategy_label": "AetherFlow",
+      "message": "Decision blocked LONG @ 6868.75 | below_threshold",
+      "details": {
+        "strategy": "AetherFlow",
+        "side": "LONG",
+        "price": "6868.75",
+        "tp_dist": "0.00",
+        "sl_dist": "0.00",
+        "status": "BLOCKED",
+        "decision": "blocked",
+        "reason": "below_threshold",
+        "combo_key": "aligned_flow",
+        "vol_regime": "DISPERSED",
+        "gate_prob": "0.5058534756376684",
+        "gate_threshold": "0.57",
+        "session_id": "3"
+      }
+    },
+    {
+      "time": "2026-04-13T12:25:01.696000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6868.75 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6868.75",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:24:01.370000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6866.50 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6866.50",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:23:01.493000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6865.50 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6865.50",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:22:22.999000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "aetherflow",
+      "strategy_label": "AetherFlow",
+      "message": "Decision blocked LONG @ 6867.25 | below_threshold",
+      "details": {
+        "strategy": "AetherFlow",
+        "side": "LONG",
+        "price": "6867.25",
+        "tp_dist": "0.00",
+        "sl_dist": "0.00",
+        "status": "BLOCKED",
+        "decision": "blocked",
+        "reason": "below_threshold",
+        "combo_key": "aligned_flow",
+        "vol_regime": "DISPERSED",
+        "gate_prob": "0.49817869173145335",
+        "gate_threshold": "0.57",
+        "session_id": "3"
+      }
+    },
+    {
+      "time": "2026-04-13T12:22:01.760000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6867.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6867.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:21:01.990000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6864.75 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6864.75",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:20:02.094000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6863.50 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6863.50",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:19:01.766000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6863.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6863.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:18:01.664000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6862.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6862.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:17:01.550000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6861.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6861.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:16:00.180000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6859.00 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6859.00",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T12:08:06.209000-04:00",
+      "event_type": "SYSTEM",
+      "severity": "info",
+      "strategy_id": null,
+      "strategy_label": null,
+      "message": "\u2705 State restored. Bot is ready.",
+      "details": {
+        "status": "READY"
+      }
+    },
+    {
+      "time": "2026-04-13T12:08:02.552000-04:00",
+      "event_type": "SYSTEM",
+      "severity": "info",
+      "strategy_id": "ml_physics",
+      "strategy_label": "ML Physics",
+      "message": "ML Physics ready",
+      "details": {
+        "strategy": "MLPhysicsStrategy",
+        "status": "DISABLED",
+        "reason": "disabled in filterless live config"
+      }
+    },
+    {
+      "time": "2026-04-13T11:49:19.225000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "aetherflow",
+      "strategy_label": "AetherFlow",
+      "message": "Decision blocked SHORT @ 6855.25 | below_threshold",
+      "details": {
+        "strategy": "AetherFlow",
+        "side": "SHORT",
+        "price": "6855.25",
+        "tp_dist": "0.00",
+        "sl_dist": "0.00",
+        "status": "BLOCKED",
+        "decision": "blocked",
+        "reason": "below_threshold",
+        "combo_key": "aligned_flow",
+        "vol_regime": "DISPERSED",
+        "gate_prob": "0.4853882848974492",
+        "gate_threshold": "0.56",
+        "session_id": "2"
+      }
+    },
+    {
+      "time": "2026-04-13T11:15:01.644000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6861.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6861.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T11:14:01.465000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6862.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6862.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T11:13:01.550000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6863.50 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6863.50",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T11:12:01.259000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6864.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6864.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T11:11:00.468000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6860.75 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6860.75",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T11:10:00.638000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6861.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6861.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T11:09:00.659000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6859.00 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6859.00",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T11:08:00.836000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6860.75 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6860.75",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T11:07:00.631000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6860.25 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6860.25",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T11:06:00.958000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6859.00 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6859.00",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T11:05:01.110000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6859.75 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6859.75",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T11:04:00.647000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6860.50 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6860.50",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    },
+    {
+      "time": "2026-04-13T11:03:00.229000-04:00",
+      "event_type": "STRATEGY_SIGNAL",
+      "severity": "info",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "message": "Candidate LONG @ 6861.00 | TP 25.00 | SL 10.00",
+      "details": {
+        "strategy": "DynamicEngine3",
+        "side": "LONG",
+        "price": "6861.00",
+        "tp_dist": "25.00",
+        "sl_dist": "10.00",
+        "status": "CANDIDATE",
+        "priority": "FAST"
+      }
+    }
+  ],
+  "trades": [
+    {
+      "time": "2026-04-13T12:54:10.786018-04:00",
+      "strategy_id": "recovered_projectx_backfill",
+      "strategy_label": "ProjectX Backfill",
+      "side": "LONG",
+      "size": 3,
+      "entry_price": 6875.25,
+      "signal_entry_price": null,
+      "exit_price": 6882.25,
+      "pnl_points": 7.0,
+      "pnl_dollars": 101.64,
+      "pnl_dollars_gross": 105.0,
+      "pnl_fee_dollars": 3.36,
+      "pnl_dollars_net": 101.64,
+      "result": "win",
+      "source": "projectx_trade_history",
+      "order_id": 2812076420,
+      "entry_order_id": 2811964045,
+      "opened_at": "2026-04-13T12:43:24.484511-04:00",
+      "close_source": "projectx_trade_history",
+      "close_details": {
+        "entry_order_ids": [
+          2811964045
+        ],
+        "raw_close_rows": [
+          {
+            "accountId": 21492869,
+            "commissions": 0.75,
+            "contractId": "CON.F.US.MES.M26",
+            "creationTimestamp": "2026-04-13T16:54:10.786018+00:00",
+            "fees": 1.11,
+            "id": 2443598933,
+            "orderId": 2812076420,
+            "price": 6882.25,
+            "profitAndLoss": 105.0,
+            "side": 1,
+            "size": 3,
+            "voided": false
+          }
+        ],
+        "source": "projectx_trade_history"
+      }
+    },
+    {
+      "time": "2026-04-13T12:42:03.557470-04:00",
+      "strategy_id": "recovered_projectx_backfill",
+      "strategy_label": "ProjectX Backfill",
+      "side": "LONG",
+      "size": 3,
+      "entry_price": 6879.75,
+      "signal_entry_price": null,
+      "exit_price": 6870.0,
+      "pnl_points": -9.75,
+      "pnl_dollars": -149.61,
+      "pnl_dollars_gross": -146.25,
+      "pnl_fee_dollars": 3.36,
+      "pnl_dollars_net": -149.61,
+      "result": "loss",
+      "source": "projectx_trade_history",
+      "order_id": 2811885365,
+      "entry_order_id": 2811885364,
+      "opened_at": "2026-04-13T12:36:23.803534-04:00",
+      "close_source": "projectx_trade_history",
+      "close_details": {
+        "entry_order_ids": [
+          2811885364
+        ],
+        "raw_close_rows": [
+          {
+            "accountId": 21492869,
+            "commissions": 0.75,
+            "contractId": "CON.F.US.MES.M26",
+            "creationTimestamp": "2026-04-13T16:42:03.55747+00:00",
+            "fees": 1.11,
+            "id": 2443479829,
+            "orderId": 2811885365,
+            "price": 6870.0,
+            "profitAndLoss": -146.25,
+            "side": 1,
+            "size": 3,
+            "voided": false
+          }
+        ],
+        "source": "projectx_trade_history"
+      }
+    },
+    {
+      "time": "2026-04-13T12:35:55.551155-04:00",
+      "strategy_id": "recovered_projectx_backfill",
+      "strategy_label": "ProjectX Backfill",
+      "side": "LONG",
+      "size": 1,
+      "entry_price": 6859.25,
+      "signal_entry_price": null,
+      "exit_price": 6884.25,
+      "pnl_points": 25.0,
+      "pnl_dollars": 123.88,
+      "pnl_dollars_gross": 125.0,
+      "pnl_fee_dollars": 1.12,
+      "pnl_dollars_net": 123.88,
+      "result": "win",
+      "source": "projectx_trade_history",
+      "order_id": 2810343714,
+      "entry_order_id": 2810343711,
+      "opened_at": "2026-04-13T10:31:19.785821-04:00",
+      "close_source": "projectx_trade_history",
+      "close_details": {
+        "entry_order_ids": [
+          2810343711
+        ],
+        "raw_close_rows": [
+          {
+            "accountId": 21492869,
+            "commissions": 0.25,
+            "contractId": "CON.F.US.MES.M26",
+            "creationTimestamp": "2026-04-13T16:35:55.551155+00:00",
+            "fees": 0.37,
+            "id": 2443416124,
+            "orderId": 2810343714,
+            "price": 6884.25,
+            "profitAndLoss": 125.0,
+            "side": 1,
+            "size": 1,
+            "voided": false
+          }
+        ],
+        "source": "projectx_trade_history"
+      }
+    },
+    {
+      "time": "2026-04-13T10:17:51.970527-04:00",
+      "strategy_id": "recovered_projectx_backfill",
+      "strategy_label": "ProjectX Backfill",
+      "side": "LONG",
+      "size": 1,
+      "entry_price": 6856.75,
+      "signal_entry_price": null,
+      "exit_price": 6846.75,
+      "pnl_points": -10.0,
+      "pnl_dollars": -51.12,
+      "pnl_dollars_gross": -50.0,
+      "pnl_fee_dollars": 1.12,
+      "pnl_dollars_net": -51.12,
+      "result": "loss",
+      "source": "projectx_trade_history",
+      "order_id": 2809858741,
+      "entry_order_id": 2809858737,
+      "opened_at": "2026-04-13T10:06:21.390449-04:00",
+      "close_source": "projectx_trade_history",
+      "close_details": {
+        "entry_order_ids": [
+          2809858737
+        ],
+        "raw_close_rows": [
+          {
+            "accountId": 21492869,
+            "commissions": 0.25,
+            "contractId": "CON.F.US.MES.M26",
+            "creationTimestamp": "2026-04-13T14:17:51.970527+00:00",
+            "fees": 0.37,
+            "id": 2441753130,
+            "orderId": 2809858741,
+            "price": 6846.75,
+            "profitAndLoss": -50.0,
+            "side": 1,
+            "size": 1,
+            "voided": false
+          }
+        ],
+        "source": "projectx_trade_history"
+      }
+    },
+    {
+      "time": "2026-04-13T10:06:19.923587-04:00",
+      "strategy_id": "recovered_projectx_backfill",
+      "strategy_label": "ProjectX Backfill",
+      "side": "SHORT",
+      "size": 2,
+      "entry_price": 6855.75,
+      "signal_entry_price": null,
+      "exit_price": 6856.25,
+      "pnl_points": -0.5,
+      "pnl_dollars": -7.24,
+      "pnl_dollars_gross": -5.0,
+      "pnl_fee_dollars": 2.24,
+      "pnl_dollars_net": -7.24,
+      "result": "loss",
+      "source": "projectx_trade_history",
+      "order_id": 2809858371,
+      "entry_order_id": 2809839958,
+      "opened_at": "2026-04-13T10:05:22.007887-04:00",
+      "close_source": "projectx_trade_history",
+      "close_details": {
+        "entry_order_ids": [
+          2809839958
+        ],
+        "raw_close_rows": [
+          {
+            "accountId": 21492869,
+            "commissions": 0.5,
+            "contractId": "CON.F.US.MES.M26",
+            "creationTimestamp": "2026-04-13T14:06:19.923587+00:00",
+            "fees": 0.74,
+            "id": 2441553844,
+            "orderId": 2809858371,
+            "price": 6856.25,
+            "profitAndLoss": -5.0,
+            "side": 0,
+            "size": 2,
+            "voided": false
+          }
+        ],
+        "source": "projectx_trade_history"
+      }
+    },
+    {
+      "time": "2026-04-13T10:05:20.547605-04:00",
+      "strategy_id": "recovered_projectx_backfill",
+      "strategy_label": "ProjectX Backfill",
+      "side": "LONG",
+      "size": 1,
+      "entry_price": 6855.25,
+      "signal_entry_price": null,
+      "exit_price": 6855.0,
+      "pnl_points": -0.25,
+      "pnl_dollars": -2.37,
+      "pnl_dollars_gross": -1.25,
+      "pnl_fee_dollars": 1.12,
+      "pnl_dollars_net": -2.37,
+      "result": "loss",
+      "source": "projectx_trade_history",
+      "order_id": 2809839416,
+      "entry_order_id": 2809818387,
+      "opened_at": "2026-04-13T10:04:22.478939-04:00",
+      "close_source": "projectx_trade_history",
+      "close_details": {
+        "entry_order_ids": [
+          2809818387
+        ],
+        "raw_close_rows": [
+          {
+            "accountId": 21492869,
+            "commissions": 0.25,
+            "contractId": "CON.F.US.MES.M26",
+            "creationTimestamp": "2026-04-13T14:05:20.547605+00:00",
+            "fees": 0.37,
+            "id": 2441539244,
+            "orderId": 2809839416,
+            "price": 6855.0,
+            "profitAndLoss": -1.25,
+            "side": 1,
+            "size": 1,
+            "voided": false
+          }
+        ],
+        "source": "projectx_trade_history"
+      }
+    },
+    {
+      "time": "2026-04-13T10:04:21.012572-04:00",
+      "strategy_id": "recovered_projectx_backfill",
+      "strategy_label": "ProjectX Backfill",
+      "side": "SHORT",
+      "size": 2,
+      "entry_price": 6857.0,
+      "signal_entry_price": null,
+      "exit_price": 6855.0,
+      "pnl_points": 2.0,
+      "pnl_dollars": 17.76,
+      "pnl_dollars_gross": 20.0,
+      "pnl_fee_dollars": 2.24,
+      "pnl_dollars_net": 17.76,
+      "result": "win",
+      "source": "projectx_trade_history",
+      "order_id": 2809817739,
+      "entry_order_id": 2809742411,
+      "opened_at": "2026-04-13T10:01:20.749853-04:00",
+      "close_source": "projectx_trade_history",
+      "close_details": {
+        "entry_order_ids": [
+          2809742411
+        ],
+        "raw_close_rows": [
+          {
+            "accountId": 21492869,
+            "commissions": 0.5,
+            "contractId": "CON.F.US.MES.M26",
+            "creationTimestamp": "2026-04-13T14:04:21.012572+00:00",
+            "fees": 0.74,
+            "id": 2441522046,
+            "orderId": 2809817739,
+            "price": 6855.0,
+            "profitAndLoss": 20.0,
+            "side": 0,
+            "size": 2,
+            "voided": false
+          }
+        ],
+        "source": "projectx_trade_history"
+      }
+    },
+    {
+      "time": "2026-04-13T09:59:57.433683-04:00",
+      "strategy_id": "recovered_projectx_backfill",
+      "strategy_label": "ProjectX Backfill",
+      "side": "SHORT",
+      "size": 2,
+      "entry_price": 6848.75,
+      "signal_entry_price": null,
+      "exit_price": 6858.5,
+      "pnl_points": -9.75,
+      "pnl_dollars": -99.74,
+      "pnl_dollars_gross": -97.5,
+      "pnl_fee_dollars": 2.24,
+      "pnl_dollars_net": -99.74,
+      "result": "loss",
+      "source": "projectx_trade_history",
+      "order_id": 2809466167,
+      "entry_order_id": 2809466166,
+      "opened_at": "2026-04-13T09:51:19.999504-04:00",
+      "close_source": "projectx_trade_history",
+      "close_details": {
+        "entry_order_ids": [
+          2809466166
+        ],
+        "raw_close_rows": [
+          {
+            "accountId": 21492869,
+            "commissions": 0.5,
+            "contractId": "CON.F.US.MES.M26",
+            "creationTimestamp": "2026-04-13T13:59:57.433683+00:00",
+            "fees": 0.74,
+            "id": 2441418277,
+            "orderId": 2809466167,
+            "price": 6858.5,
+            "profitAndLoss": -97.5,
+            "side": 0,
+            "size": 2,
+            "voided": false
+          }
+        ],
+        "source": "projectx_trade_history"
+      }
+    },
+    {
+      "time": "2026-04-13T09:49:50.601729-04:00",
+      "strategy_id": "recovered_projectx_backfill",
+      "strategy_label": "ProjectX Backfill",
+      "side": "LONG",
+      "size": 1,
+      "entry_price": 6830.25,
+      "signal_entry_price": null,
+      "exit_price": 6850.25,
+      "pnl_points": 20.0,
+      "pnl_dollars": 98.88,
+      "pnl_dollars_gross": 100.0,
+      "pnl_fee_dollars": 1.12,
+      "pnl_dollars_net": 98.88,
+      "result": "win",
+      "source": "projectx_trade_history",
+      "order_id": 2808973814,
+      "entry_order_id": 2808973808,
+      "opened_at": "2026-04-13T09:36:21.764241-04:00",
+      "close_source": "projectx_trade_history",
+      "close_details": {
+        "entry_order_ids": [
+          2808973808
+        ],
+        "raw_close_rows": [
+          {
+            "accountId": 21492869,
+            "commissions": 0.25,
+            "contractId": "CON.F.US.MES.M26",
+            "creationTimestamp": "2026-04-13T13:49:50.601729+00:00",
+            "fees": 0.37,
+            "id": 2441154907,
+            "orderId": 2808973814,
+            "price": 6850.25,
+            "profitAndLoss": 100.0,
+            "side": 1,
+            "size": 1,
+            "voided": false
+          }
+        ],
+        "source": "projectx_trade_history"
+      }
+    },
+    {
+      "time": "2026-04-13T09:36:18.600613-04:00",
+      "strategy_id": "recovered_projectx_backfill",
+      "strategy_label": "ProjectX Backfill",
+      "side": "LONG",
+      "size": 1,
+      "entry_price": 6838.25,
+      "signal_entry_price": null,
+      "exit_price": 6830.25,
+      "pnl_points": -8.0,
+      "pnl_dollars": -41.12,
+      "pnl_dollars_gross": -40.0,
+      "pnl_fee_dollars": 1.12,
+      "pnl_dollars_net": -41.12,
+      "result": "loss",
+      "source": "projectx_trade_history",
+      "order_id": 2808809798,
+      "entry_order_id": 2808809796,
+      "opened_at": "2026-04-13T09:30:20.634874-04:00",
+      "close_source": "projectx_trade_history",
+      "close_details": {
+        "entry_order_ids": [
+          2808809796
+        ],
+        "raw_close_rows": [
+          {
+            "accountId": 21492869,
+            "commissions": 0.25,
+            "contractId": "CON.F.US.MES.M26",
+            "creationTimestamp": "2026-04-13T13:36:18.600613+00:00",
+            "fees": 0.37,
+            "id": 2440763514,
+            "orderId": 2808809798,
+            "price": 6830.25,
+            "profitAndLoss": -40.0,
+            "side": 1,
+            "size": 1,
+            "voided": false
+          }
+        ],
+        "source": "projectx_trade_history"
+      }
+    },
+    {
+      "time": "2026-04-13T09:30:01.045648-04:00",
+      "strategy_id": "recovered_projectx_backfill",
+      "strategy_label": "ProjectX Backfill",
+      "side": "LONG",
+      "size": 1,
+      "entry_price": 6811.75,
+      "signal_entry_price": null,
+      "exit_price": 6836.75,
+      "pnl_points": 25.0,
+      "pnl_dollars": 123.88,
+      "pnl_dollars_gross": 125.0,
+      "pnl_fee_dollars": 1.12,
+      "pnl_dollars_net": 123.88,
+      "result": "win",
+      "source": "projectx_trade_history",
+      "order_id": 2807654448,
+      "entry_order_id": 2807654446,
+      "opened_at": "2026-04-13T03:26:20.000385-04:00",
+      "close_source": "projectx_trade_history",
+      "close_details": {
+        "entry_order_ids": [
+          2807654446
+        ],
+        "raw_close_rows": [
+          {
+            "accountId": 21492869,
+            "commissions": 0.25,
+            "contractId": "CON.F.US.MES.M26",
+            "creationTimestamp": "2026-04-13T13:30:01.045648+00:00",
+            "fees": 0.37,
+            "id": 2440611471,
+            "orderId": 2807654448,
+            "price": 6836.75,
+            "profitAndLoss": 125.0,
+            "side": 1,
+            "size": 1,
+            "voided": false
+          }
+        ],
+        "source": "projectx_trade_history"
+      }
+    },
+    {
+      "time": "2026-04-10T13:02:21.216000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "SHORT",
+      "size": 3,
+      "entry_price": 6856.75,
+      "exit_price": 6853.75,
+      "pnl_points": 0.5,
+      "pnl_dollars": 3.78,
+      "result": "win",
+      "order_id": "2803989402",
+      "entry_order_id": "2803921426",
+      "pnl_dollars_gross": 7.5,
+      "pnl_fee_dollars": 3.72,
+      "pnl_dollars_net": 3.78
+    },
+    {
+      "time": "2026-04-10T12:53:22.775000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "LONG",
+      "size": 2,
+      "entry_price": 6850.25,
+      "exit_price": 6856.75,
+      "pnl_points": 7.5,
+      "pnl_dollars": 72.52,
+      "result": "win",
+      "order_id": "2803921426",
+      "entry_order_id": "2803812713",
+      "pnl_dollars_gross": 75.0,
+      "pnl_fee_dollars": 2.48,
+      "pnl_dollars_net": 72.52
+    },
+    {
+      "time": "2026-04-10T12:41:27.109000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "LONG",
+      "size": 3,
+      "entry_price": 6860.5,
+      "exit_price": 6850.5,
+      "pnl_points": -10.0,
+      "pnl_dollars": -153.72,
+      "result": "loss",
+      "order_id": "2803583372",
+      "entry_order_id": "2803583371",
+      "pnl_dollars_gross": -150.0,
+      "pnl_fee_dollars": 3.72,
+      "pnl_dollars_net": -153.72
+    },
+    {
+      "time": "2026-04-10T12:18:22.200000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "SHORT",
+      "size": 3,
+      "entry_price": 6854.75,
+      "exit_price": 6860.5,
+      "pnl_points": -5.5,
+      "pnl_dollars": -86.22,
+      "result": "loss",
+      "order_id": "2803583371",
+      "entry_order_id": "2803390451",
+      "pnl_dollars_gross": -82.5,
+      "pnl_fee_dollars": 3.72,
+      "pnl_dollars_net": -86.22
+    },
+    {
+      "time": "2026-04-10T11:40:55.552000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "LONG",
+      "size": 3,
+      "entry_price": 6873.0,
+      "exit_price": 6863.0,
+      "pnl_points": -10.0,
+      "pnl_dollars": -153.72,
+      "result": "loss",
+      "order_id": "2802982308",
+      "entry_order_id": "2802982307",
+      "pnl_dollars_gross": -150.0,
+      "pnl_fee_dollars": 3.72,
+      "pnl_dollars_net": -153.72
+    },
+    {
+      "time": "2026-04-10T11:31:23.020000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "LONG",
+      "size": 3,
+      "entry_price": 6872.25,
+      "exit_price": 6873.5,
+      "pnl_points": 1.25,
+      "pnl_dollars": 15.03,
+      "result": "win",
+      "order_id": "2802362945",
+      "entry_order_id": "2802362944",
+      "pnl_dollars_gross": 18.75,
+      "pnl_fee_dollars": 3.72,
+      "pnl_dollars_net": 15.03
+    },
+    {
+      "time": "2026-04-10T10:48:22.609000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "SHORT",
+      "size": 2,
+      "entry_price": 6874.25,
+      "exit_price": 6872.25,
+      "pnl_points": 2.75,
+      "pnl_dollars": 25.02,
+      "result": "win",
+      "order_id": "2802362944",
+      "entry_order_id": "2801776158",
+      "pnl_dollars_gross": 27.5,
+      "pnl_fee_dollars": 2.48,
+      "pnl_dollars_net": 25.02
+    },
+    {
+      "time": "2026-04-10T08:32:46.119000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "LONG",
+      "size": 3,
+      "entry_price": 6867.0,
+      "exit_price": 6872.75,
+      "pnl_points": 5.75,
+      "pnl_dollars": 82.53,
+      "result": "win",
+      "order_id": "2799867385",
+      "entry_order_id": "2799867384",
+      "pnl_dollars_gross": 86.25,
+      "pnl_fee_dollars": 3.72,
+      "pnl_dollars_net": 82.53
+    },
+    {
+      "time": "2026-04-10T07:23:24.497000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "SHORT",
+      "size": 3,
+      "entry_price": 6859.75,
+      "exit_price": 6869.75,
+      "pnl_points": -10.0,
+      "pnl_dollars": -153.72,
+      "result": "loss",
+      "order_id": "2799664695",
+      "entry_order_id": "2799664694",
+      "pnl_dollars_gross": -150.0,
+      "pnl_fee_dollars": 3.72,
+      "pnl_dollars_net": -153.72
+    },
+    {
+      "time": "2026-04-10T06:18:23.213000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "LONG",
+      "size": 1,
+      "entry_price": 6856.75,
+      "exit_price": 6859.75,
+      "pnl_points": 2.5,
+      "pnl_dollars": 11.26,
+      "result": "win",
+      "order_id": "2799664694",
+      "entry_order_id": "2799556978",
+      "pnl_dollars_gross": 12.5,
+      "pnl_fee_dollars": 1.24,
+      "pnl_dollars_net": 11.26
+    },
+    {
+      "time": "2026-04-10T04:03:43.676000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "LONG",
+      "size": 3,
+      "entry_price": 6857.0,
+      "exit_price": 6858.25,
+      "pnl_points": 1.25,
+      "pnl_dollars": 15.03,
+      "result": "win",
+      "order_id": "2799220334",
+      "entry_order_id": "2799220333",
+      "pnl_dollars_gross": 18.75,
+      "pnl_fee_dollars": 3.72,
+      "pnl_dollars_net": 15.03
+    },
+    {
+      "time": "2026-04-10T02:12:35.343000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "LONG",
+      "size": 3,
+      "entry_price": 6855.5,
+      "exit_price": 6858.5,
+      "pnl_points": 3.0,
+      "pnl_dollars": 41.28,
+      "result": "win",
+      "order_id": "2798103868",
+      "entry_order_id": "2797784790",
+      "pnl_dollars_gross": 45.0,
+      "pnl_fee_dollars": 3.72,
+      "pnl_dollars_net": 41.28
+    },
+    {
+      "time": "2026-04-09T19:02:55.614000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "SHORT",
+      "size": 3,
+      "entry_price": 6857.0,
+      "exit_price": 6851.0,
+      "pnl_points": 6.0,
+      "pnl_dollars": 86.28,
+      "result": "win",
+      "order_id": "2797421852",
+      "entry_order_id": "2797421850",
+      "pnl_dollars_gross": 90.0,
+      "pnl_fee_dollars": 3.72,
+      "pnl_dollars_net": 86.28
+    },
+    {
+      "time": "2026-04-09T16:12:28.203000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "SHORT",
+      "size": 3,
+      "entry_price": 6859.5,
+      "exit_price": 6859.5,
+      "pnl_points": 0.0,
+      "pnl_dollars": -3.72,
+      "result": "loss",
+      "order_id": "2797246065",
+      "entry_order_id": "2797212218",
+      "pnl_dollars_gross": 0.0,
+      "pnl_fee_dollars": 3.72,
+      "pnl_dollars_net": -3.72
+    },
+    {
+      "time": "2026-04-09T16:03:21.436000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "LONG",
+      "size": 2,
+      "entry_price": 6855.25,
+      "exit_price": 6859.5,
+      "pnl_points": 4.0,
+      "pnl_dollars": 37.52,
+      "result": "win",
+      "order_id": "2797212218",
+      "entry_order_id": "2796550297",
+      "pnl_dollars_gross": 40.0,
+      "pnl_fee_dollars": 2.48,
+      "pnl_dollars_net": 37.52
+    },
+    {
+      "time": "2026-04-09T14:03:38.939000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "LONG",
+      "size": 3,
+      "entry_price": 6870.0,
+      "exit_price": 6860.25,
+      "pnl_points": -9.75,
+      "pnl_dollars": -149.97,
+      "result": "loss",
+      "order_id": "2796090361",
+      "entry_order_id": "2796090360",
+      "pnl_dollars_gross": -146.25,
+      "pnl_fee_dollars": 3.72,
+      "pnl_dollars_net": -149.97
+    },
+    {
+      "time": "2026-04-09T13:12:24.383000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "LONG",
+      "size": 3,
+      "entry_price": 6863.25,
+      "exit_price": 6869.5,
+      "pnl_points": 6.25,
+      "pnl_dollars": 90.03,
+      "result": "win",
+      "order_id": "2796062105",
+      "entry_order_id": "2795609107",
+      "pnl_dollars_gross": 93.75,
+      "pnl_fee_dollars": 3.72,
+      "pnl_dollars_net": 90.03
+    },
+    {
+      "time": "2026-04-09T12:15:34.691000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "LONG",
+      "size": 3,
+      "entry_price": 6856.0,
+      "exit_price": 6859.0,
+      "pnl_points": 3.0,
+      "pnl_dollars": 41.28,
+      "result": "win",
+      "order_id": "2795472574",
+      "entry_order_id": "2795411322",
+      "pnl_dollars_gross": 45.0,
+      "pnl_fee_dollars": 3.72,
+      "pnl_dollars_net": 41.28
+    },
+    {
+      "time": "2026-04-09T11:48:14.010000-04:00",
+      "strategy_id": "dynamic_engine3",
+      "strategy_label": "Dynamic Engine 3",
+      "side": "SHORT",
+      "size": 2,
+      "entry_price": 6837.5,
+      "exit_price": 6847.5,
+      "pnl_points": -10.0,
+      "pnl_dollars": -102.48,
+      "result": "loss",
+      "order_id": "2795157887",
+      "entry_order_id": "2795157886",
+      "pnl_dollars_gross": -100.0,
+      "pnl_fee_dollars": 2.48,
+      "pnl_dollars_net": -102.48
+    }
+  ]
+}

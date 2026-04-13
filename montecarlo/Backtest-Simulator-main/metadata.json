@@ -1,0 +1,5 @@
+{
+  "name": "Monte Carlo Trade Simulator",
+  "description": "A robust Monte Carlo simulation tool for analyzing TradingView strategy exports. Visualize equity curves, drawdown distributions, and risk metrics based on historical trade data.",
+  "requestFramePermissions": []
+}
