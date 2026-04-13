@@ -5550,7 +5550,7 @@ async def run_bot():
     print("=" * 60)
 
     client = ProjectXClient()
-    
+
     # Step 1: Authenticate
     try:
         client.login()
@@ -5564,14 +5564,14 @@ async def run_bot():
     if account_id is None:
         print("CRITICAL: Could not retrieve account ID")
         return
-    
+
     # Step 3: Fetch Contract ID
     print("\n📋 Fetching available contracts...")
     contract_id = client.fetch_contracts()
     if contract_id is None:
         print("CRITICAL: Could not retrieve contract ID")
         return
-    
+
     print(f"\n✅ Setup complete:")
     print(f"   Account ID: {client.account_id}")
     print(f"   Contract ID: {client.contract_id}")
@@ -5789,7 +5789,7 @@ async def run_bot():
             logging.info("AetherFlowStrategy initialized for live execution")
         else:
             logging.warning("⚠️ AetherFlowStrategy enabled_live but model artifact is missing.")
-    
+
     # LOW PRIORITY / LOOSE EXECUTION - Wait for next bar
     loose_strategies = [] if filterless_only_mode else [OrbStrategy()]
     ict_cfg = CONFIG.get("ICT_MODEL", {}) or {}
@@ -5846,7 +5846,7 @@ async def run_bot():
                 filter_label,
                 strategy=strategy_label,
             )
-     
+
     # Initialize filters
     BankLevelQuarterFilter = None
     MemorySRFilter = None
@@ -6066,7 +6066,7 @@ async def run_bot():
 
     # === TRACKING VARIABLES ===
     # Position sync now handled by independent async task - removed manual tracking
-    
+
     # Track pending signals for delayed execution
     pending_loose_signals = {}
     last_processed_bar = None
@@ -12216,7 +12216,7 @@ async def run_bot():
                                 del pending_loose_signals[s_name]
                                 signal_executed = True
                                 break
-                        
+
                         # Check New Loose Signals
                         if not signal_executed:
                             for strat in loose_strategies:
