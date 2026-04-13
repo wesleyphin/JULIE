@@ -5550,7 +5550,7 @@ async def run_bot():
     print("=" * 60)
 
     client = ProjectXClient()
-
+    
     # Step 1: Authenticate
     try:
         client.login()
@@ -5564,14 +5564,14 @@ async def run_bot():
     if account_id is None:
         print("CRITICAL: Could not retrieve account ID")
         return
-
+    
     # Step 3: Fetch Contract ID
     print("\n📋 Fetching available contracts...")
     contract_id = client.fetch_contracts()
     if contract_id is None:
         print("CRITICAL: Could not retrieve contract ID")
         return
-
+    
     print(f"\n✅ Setup complete:")
     print(f"   Account ID: {client.account_id}")
     print(f"   Contract ID: {client.contract_id}")
@@ -5789,7 +5789,7 @@ async def run_bot():
             logging.info("AetherFlowStrategy initialized for live execution")
         else:
             logging.warning("⚠️ AetherFlowStrategy enabled_live but model artifact is missing.")
-
+    
     # LOW PRIORITY / LOOSE EXECUTION - Wait for next bar
     loose_strategies = [] if filterless_only_mode else [OrbStrategy()]
     ict_cfg = CONFIG.get("ICT_MODEL", {}) or {}
@@ -5846,7 +5846,7 @@ async def run_bot():
                 filter_label,
                 strategy=strategy_label,
             )
-
+     
     # Initialize filters
     BankLevelQuarterFilter = None
     MemorySRFilter = None
@@ -6066,7 +6066,7 @@ async def run_bot():
 
     # === TRACKING VARIABLES ===
     # Position sync now handled by independent async task - removed manual tracking
-
+    
     # Track pending signals for delayed execution
     pending_loose_signals = {}
     last_processed_bar = None
@@ -7497,29 +7497,73 @@ async def run_bot():
         trend_day_max_sigma = 0.0
 
     def build_live_position_snapshot(current_time: datetime.datetime) -> Optional[dict]:
+        tracked_trades = tracked_live_trades()
+        tracked_trade = tracked_trades[0] if tracked_trades else None
         broker_position = client._local_position if isinstance(client._local_position, dict) else {}
         broker_open_pnl = _coerce_float(broker_position.get("open_pnl"), math.nan)
         side = str(broker_position.get("side") or "").strip().upper()
         size = max(0, _coerce_int(broker_position.get("size", 0), 0))
-        if side in {"LONG", "SHORT"} and size > 0 and not math.isfinite(broker_open_pnl):
-            refreshed_position = client.get_position(require_open_pnl=True)
-            if isinstance(refreshed_position, dict):
-                broker_position = refreshed_position
-                broker_open_pnl = _coerce_float(broker_position.get("open_pnl"), math.nan)
-                side = str(broker_position.get("side") or "").strip().upper()
-                size = max(0, _coerce_int(broker_position.get("size", 0), 0))
+        snapshot_source = "projectx_api"
+
+        if (side not in {"LONG", "SHORT"} or size <= 0) and isinstance(tracked_trade, dict):
+            tracked_side = str(tracked_trade.get("side") or "").strip().upper()
+            tracked_size = max(0, _coerce_int(tracked_trade.get("size"), 0))
+            tracked_entry = _coerce_float(
+                tracked_trade.get("broker_entry_price", tracked_trade.get("entry_price")),
+                math.nan,
+            )
+            if tracked_side in {"LONG", "SHORT"} and tracked_size > 0:
+                side = tracked_side
+                size = tracked_size
+                broker_position = {
+                    **broker_position,
+                    "side": tracked_side,
+                    "size": tracked_size,
+                    "avg_price": float(tracked_entry) if math.isfinite(tracked_entry) else broker_position.get("avg_price"),
+                    "stale": True,
+                }
+                snapshot_source = "tracked_live_state"
+
         if side not in {"LONG", "SHORT"} or size <= 0:
             return None
 
         current_time = current_time.astimezone(NY_TZ)
         base_session_name, current_session_name = _runtime_session_labels_from_ts(current_time)
         avg_price = _coerce_float(broker_position.get("avg_price"), math.nan)
+        if not math.isfinite(avg_price) and isinstance(tracked_trade, dict):
+            avg_price = _coerce_float(
+                tracked_trade.get("broker_entry_price", tracked_trade.get("entry_price")),
+                math.nan,
+            )
+
+        current_price = float("nan")
+        if hasattr(client, "cached_df") and getattr(client, "cached_df", None) is not None:
+            try:
+                if not client.cached_df.empty:
+                    current_price = _coerce_float(client.cached_df.iloc[-1]["close"], math.nan)
+            except Exception:
+                current_price = float("nan")
+
         open_pnl_dollars = broker_open_pnl
+        if (
+            not math.isfinite(open_pnl_dollars)
+            and math.isfinite(avg_price)
+            and math.isfinite(current_price)
+            and side in {"LONG", "SHORT"}
+            and size > 0
+        ):
+            pnl_points = (
+                float(current_price - avg_price)
+                if side == "LONG"
+                else float(avg_price - current_price)
+            )
+            open_pnl_dollars = pnl_points * float(_trade_point_value()) * float(size)
+
         point_value = max(0.01, _trade_point_value())
         live_bracket_state: dict[str, Any] = {}
 
         snapshot = {
-            "source": "projectx_api",
+            "source": snapshot_source,
             "updated_at": current_time.isoformat(),
             "base_session": base_session_name,
             "current_session": current_session_name,
@@ -7528,6 +7572,7 @@ async def run_bot():
             "size": int(size),
             "avg_price": float(avg_price) if math.isfinite(avg_price) else None,
             "entry_price": float(avg_price) if math.isfinite(avg_price) else None,
+            "current_price": float(current_price) if math.isfinite(current_price) else None,
             "open_pnl_dollars": float(open_pnl_dollars) if math.isfinite(open_pnl_dollars) else None,
             "open_pnl_points": (
                 float(open_pnl_dollars) / float(point_value * size)
@@ -7544,47 +7589,47 @@ async def run_bot():
         sl_dist = float("nan")
         prefer_stop_order_id = None
         prefer_target_order_id = None
-        if isinstance(active_trade, dict):
-            signal_entry_price = _coerce_float(active_trade.get("entry_price"), math.nan)
-            tp_dist = _coerce_float(active_trade.get("tp_dist"), math.nan)
-            current_stop_price = _coerce_float(active_trade.get("current_stop_price"), math.nan)
-            current_target_price = _coerce_float(active_trade.get("current_target_price"), math.nan)
-            sl_dist = _coerce_float(active_trade.get("sl_dist"), math.nan)
-            prefer_stop_order_id = _coerce_int(active_trade.get("stop_order_id"), None)
-            prefer_target_order_id = _coerce_int(active_trade.get("target_order_id"), None)
-            entry_time = active_trade.get("entry_time")
+        if isinstance(tracked_trade, dict):
+            signal_entry_price = _coerce_float(tracked_trade.get("entry_price"), math.nan)
+            tp_dist = _coerce_float(tracked_trade.get("tp_dist"), math.nan)
+            current_stop_price = _coerce_float(tracked_trade.get("current_stop_price"), math.nan)
+            current_target_price = _coerce_float(tracked_trade.get("current_target_price"), math.nan)
+            sl_dist = _coerce_float(tracked_trade.get("sl_dist"), math.nan)
+            prefer_stop_order_id = _coerce_int(tracked_trade.get("stop_order_id"), None)
+            prefer_target_order_id = _coerce_int(tracked_trade.get("target_order_id"), None)
+            entry_time = tracked_trade.get("entry_time")
             if isinstance(entry_time, datetime.datetime):
                 if entry_time.tzinfo is None:
                     entry_time = entry_time.replace(tzinfo=NY_TZ)
                 snapshot["opened_at"] = entry_time.astimezone(NY_TZ).isoformat()
             snapshot.update(
                 {
-                    "strategy": active_trade.get("strategy"),
-                    "sub_strategy": active_trade.get("sub_strategy"),
-                    "combo_key": active_trade.get("combo_key") or active_trade.get("sub_strategy"),
-                    "entry_mode": active_trade.get("entry_mode"),
-                    "order_id": active_trade.get("entry_order_id"),
-                    "entry_order_id": active_trade.get("entry_order_id"),
-                    "stop_order_id": active_trade.get("stop_order_id"),
-                    "target_order_id": active_trade.get("target_order_id"),
-                    "bars_held": int(_coerce_int(active_trade.get("bars_held"), 0)),
-                    "tracking_restored": bool(active_trade.get("tracking_restored", False)),
-                    "rule_id": active_trade.get("rule_id") or active_trade.get("de3_v4_selected_route_id"),
+                    "strategy": tracked_trade.get("strategy"),
+                    "sub_strategy": tracked_trade.get("sub_strategy"),
+                    "combo_key": tracked_trade.get("combo_key") or tracked_trade.get("sub_strategy"),
+                    "entry_mode": tracked_trade.get("entry_mode"),
+                    "order_id": tracked_trade.get("entry_order_id"),
+                    "entry_order_id": tracked_trade.get("entry_order_id"),
+                    "stop_order_id": tracked_trade.get("stop_order_id"),
+                    "target_order_id": tracked_trade.get("target_order_id"),
+                    "bars_held": int(_coerce_int(tracked_trade.get("bars_held"), 0)),
+                    "tracking_restored": bool(tracked_trade.get("tracking_restored", False)),
+                    "rule_id": tracked_trade.get("rule_id") or tracked_trade.get("de3_v4_selected_route_id"),
                     "early_exit_enabled": (
-                        active_trade.get("early_exit_enabled")
-                        if active_trade.get("early_exit_enabled") is not None
-                        else active_trade.get("de3_early_exit_enabled")
+                        tracked_trade.get("early_exit_enabled")
+                        if tracked_trade.get("early_exit_enabled") is not None
+                        else tracked_trade.get("de3_early_exit_enabled")
                     ),
-                    "vol_regime": active_trade.get("vol_regime"),
-                    "gate_prob": _coerce_float(active_trade.get("gate_prob"), math.nan),
-                    "gate_threshold": _coerce_float(active_trade.get("gate_threshold"), math.nan),
+                    "vol_regime": tracked_trade.get("vol_regime"),
+                    "gate_prob": _coerce_float(tracked_trade.get("gate_prob"), math.nan),
+                    "gate_threshold": _coerce_float(tracked_trade.get("gate_threshold"), math.nan),
                     "signal_entry_price": float(signal_entry_price) if math.isfinite(signal_entry_price) else None,
-                    "signal_side": active_trade.get("side"),
+                    "signal_side": tracked_trade.get("side"),
                 }
             )
-            if _is_de3_v4_trade_management_payload(active_trade):
+            if _is_de3_v4_trade_management_payload(tracked_trade):
                 _copy_present_keys(
-                    active_trade,
+                    tracked_trade,
                     snapshot,
                     DE3_LIVE_POSITION_SNAPSHOT_KEYS,
                 )
@@ -12216,7 +12261,7 @@ async def run_bot():
                                 del pending_loose_signals[s_name]
                                 signal_executed = True
                                 break
-
+                        
                         # Check New Loose Signals
                         if not signal_executed:
                             for strat in loose_strategies:
