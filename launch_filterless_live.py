@@ -1,8 +1,11 @@
 import asyncio
+import atexit
 import json
 import os
 import platform
 import socket
+import signal
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -116,6 +119,9 @@ if LIVE_LOCK is None:
 NY_TZ = ZoneInfo("America/New_York")
 ROOT = Path(__file__).resolve().parent
 BRIDGE_SCRIPT = ROOT / "tools" / "filterless_dashboard_bridge.py"
+BRIDGE_LOG_PATH = ROOT / "logs" / "dashboard_bridge.log"
+BRIDGE_PROCESS: Optional[subprocess.Popen[Any]] = None
+BRIDGE_LOG_HANDLE = None
 
 
 def _coerce_price_from_state() -> Optional[float]:
@@ -185,29 +191,67 @@ async def _kalshi_snapshot_loop(path: Path, interval_seconds: float = 10.0) -> N
         await asyncio.sleep(interval_seconds)
 
 
-async def _bridge_follow_loop(path: Path) -> None:
-    process = await asyncio.create_subprocess_exec(
+def _start_bridge_process(path: Path) -> None:
+    global BRIDGE_PROCESS, BRIDGE_LOG_HANDLE
+    if BRIDGE_PROCESS is not None and BRIDGE_PROCESS.poll() is None:
+        return
+
+    BRIDGE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    BRIDGE_LOG_HANDLE = BRIDGE_LOG_PATH.open("a", encoding="utf-8", buffering=1)
+    cmd = [
         sys.executable,
         str(BRIDGE_SCRIPT),
         "--follow",
-        "--poll-seconds",
-        "1",
         "--kalshi-snapshot-path",
         str(path),
-    )
-    try:
-        await process.wait()
-    finally:
-        if process.returncode is None:
-            process.terminate()
-            await process.wait()
+    ]
+    if os.name == "nt":
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        BRIDGE_PROCESS = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=BRIDGE_LOG_HANDLE,
+            stderr=subprocess.STDOUT,
+            creationflags=creationflags,
+            close_fds=True,
+        )
+    else:
+        BRIDGE_PROCESS = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=BRIDGE_LOG_HANDLE,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            close_fds=True,
+        )
+
+
+def _cleanup_bridge_process() -> None:
+    global BRIDGE_PROCESS, BRIDGE_LOG_HANDLE
+    process = BRIDGE_PROCESS
+    if process is not None and process.poll() is None:
+        try:
+            if os.name == "nt":
+                process.terminate()
+            else:
+                os.killpg(process.pid, signal.SIGTERM)
+        except Exception:
+            pass
+    if BRIDGE_LOG_HANDLE is not None:
+        try:
+            BRIDGE_LOG_HANDLE.flush()
+            BRIDGE_LOG_HANDLE.close()
+        except Exception:
+            pass
+    BRIDGE_PROCESS = None
+    BRIDGE_LOG_HANDLE = None
 
 
 async def _run_all() -> None:
     kalshi_snapshot_path = DEFAULT_KALSHI_SNAPSHOT_PATH
+    _start_bridge_process(kalshi_snapshot_path)
     tasks = [
         asyncio.create_task(_kalshi_snapshot_loop(kalshi_snapshot_path)),
-        asyncio.create_task(_bridge_follow_loop(kalshi_snapshot_path)),
         asyncio.create_task(run_bot()),
     ]
     done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -221,4 +265,5 @@ async def _run_all() -> None:
 
 
 if __name__ == "__main__":
+    atexit.register(_cleanup_bridge_process)
     asyncio.run(_run_all())
