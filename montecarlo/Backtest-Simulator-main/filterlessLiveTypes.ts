@@ -149,6 +149,29 @@ export interface FilterlessKalshiMetrics {
   daily_contracts?: FilterlessKalshiDailyContract[] | null;
 }
 
+export interface FilterlessSentimentMetrics {
+  enabled: boolean;
+  active?: boolean | null;
+  healthy?: boolean | null;
+  model_loaded?: boolean | null;
+  quantized_8bit?: boolean | null;
+  target_handle?: string | null;
+  source?: string | null;
+  last_poll_at?: string | null;
+  last_analysis_at?: string | null;
+  latest_post_id?: string | null;
+  latest_post_created_at?: string | null;
+  latest_post_url?: string | null;
+  latest_post_text?: string | null;
+  sentiment_label?: string | null;
+  sentiment_score?: number | null;
+  finbert_confidence?: number | null;
+  trigger_side?: string | null;
+  trigger_reason?: string | null;
+  last_error?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
 export interface FilterlessLiveState {
   schema_version: number;
   generated_at: string;
@@ -177,4 +200,5 @@ export interface FilterlessLiveState {
   events: FilterlessEvent[];
   trades: FilterlessTrade[];
   kalshi_metrics?: FilterlessKalshiMetrics | null;
+  sentiment_metrics?: FilterlessSentimentMetrics | null;
 }

@@ -75,6 +75,12 @@ class OptimizedTPEngine:
             return False, ""
         if int(getattr(current_time, "minute", 99)) > 2:
             return False, ""
+        try:
+            settlement_hour = kalshi.active_settlement_hour_et(current_time)
+        except Exception:
+            settlement_hour = None
+        if settlement_hour not in {12, 13, 14, 15, 16}:
+            return False, ""
 
         profitable = False
         if hasattr(position, "is_profitable"):

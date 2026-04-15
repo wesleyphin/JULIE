@@ -70,15 +70,29 @@ from circuit_breaker import CircuitBreaker
 from news_filter import NewsFilter
 from client import ProjectXClient
 import param_scaler
-from bot_state import STATE_PATH, STATE_VERSION, load_bot_state, save_bot_state, trading_day_start, parse_dt
+from bot_state import (
+    STATE_PATH,
+    STATE_VERSION,
+    load_bot_state,
+    normalize_sentiment_state,
+    parse_dt,
+    save_bot_state,
+    trading_day_start,
+)
 from regime_manifold_engine import get_kalshi_gate_decision
+from services.sentiment_service import (
+    build_truth_social_sentiment_service,
+    get_sentiment_state,
+    set_sentiment_state,
+)
+from truth_social_engine import TruthSocialEngine
 
 # --- ASYNCIO IMPORTS ---
 try:
     from async_market_stream import AsyncMarketDataManager
 except Exception:
     AsyncMarketDataManager = None
-from async_tasks import heartbeat_task, position_sync_task, htf_structure_task
+from async_tasks import heartbeat_task, htf_structure_task, position_sync_task, sentiment_monitor_task
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +140,68 @@ def _get_kalshi_provider():
         logging.warning("Kalshi provider not available for trade gating: %s", exc)
         _KALSHI_PROVIDER = None
     return _KALSHI_PROVIDER
+
+
+def _truth_social_cfg() -> Dict[str, Any]:
+    cfg = CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) if isinstance(CONFIG, dict) else {}
+    return dict(cfg) if isinstance(cfg, dict) else {}
+
+
+def _truth_social_signal_enabled() -> bool:
+    return bool(_truth_social_cfg().get("enabled", False))
+
+
+def _sentiment_snapshot_age_seconds(snapshot: Optional[Dict[str, Any]]) -> Optional[float]:
+    if not isinstance(snapshot, dict):
+        return None
+    analyzed_at = parse_dt(snapshot.get("last_analysis_at"))
+    if not isinstance(analyzed_at, datetime.datetime):
+        return None
+    if analyzed_at.tzinfo is None:
+        analyzed_at = analyzed_at.replace(tzinfo=dt_timezone.utc)
+    now_utc = datetime.datetime.now(dt_timezone.utc)
+    return max(0.0, (now_utc - analyzed_at.astimezone(dt_timezone.utc)).total_seconds())
+
+
+def _evaluate_truth_social_emergency_exit(snapshot: Optional[Dict[str, Any]], side: Optional[str]) -> Optional[str]:
+    normalized_side = str(side or "").strip().upper()
+    if normalized_side not in {"LONG", "SHORT"}:
+        return None
+    if not isinstance(snapshot, dict):
+        return None
+    if not bool(snapshot.get("enabled")) or not bool(snapshot.get("healthy")):
+        return None
+
+    cfg = _truth_social_cfg()
+    try:
+        threshold = float(cfg.get("emergency_exit_threshold", -0.75) or -0.75)
+    except Exception:
+        threshold = -0.75
+    max_age_seconds = max(
+        60,
+        int(cfg.get("emergency_exit_max_age_seconds", 3600) or 3600),
+    )
+    age_seconds = _sentiment_snapshot_age_seconds(snapshot)
+    if age_seconds is None or age_seconds > float(max_age_seconds):
+        return None
+
+    score = _coerce_float(snapshot.get("sentiment_score"), math.nan)
+    confidence = _coerce_float(snapshot.get("finbert_confidence"), math.nan)
+    if not math.isfinite(score):
+        return None
+
+    if normalized_side == "LONG" and score <= threshold:
+        return (
+            f"TRUTH SOCIAL EMERGENCY EXIT: sentiment {score:.2f} <= {threshold:.2f}"
+            + (f" (FinBERT {confidence:.2%})" if math.isfinite(confidence) else "")
+        )
+    short_threshold = abs(float(threshold))
+    if normalized_side == "SHORT" and score >= short_threshold:
+        return (
+            f"TRUTH SOCIAL EMERGENCY EXIT: sentiment {score:.2f} >= {short_threshold:.2f}"
+            + (f" (FinBERT {confidence:.2%})" if math.isfinite(confidence) else "")
+        )
+    return None
 
 
 def _load_non_filterless_runtime() -> tuple[Any, ...]:
@@ -3676,6 +3752,7 @@ LOG_STRATEGY_ALIASES: Dict[str, Tuple[str, Optional[str]]] = {
     "DynamicEngine": ("DynamicEngine", None),
     "DynamicEngine2": ("DynamicEngine", "Dynamic Engine 2"),
     "DynamicEngine3": ("DynamicEngine3", None),
+    "TruthSocialEngine": ("Truth Social", None),
 }
 
 
@@ -5807,8 +5884,14 @@ async def run_bot():
         return
 
     # Initialize all strategies
+    truth_social_cfg = _truth_social_cfg()
+    truth_social_filterless_disabled = filterless_only_mode and "truth_social" in filterless_disabled
+    truth_social_enabled = bool(truth_social_cfg.get("enabled", False)) and not truth_social_filterless_disabled
+    sentiment_service = build_truth_social_sentiment_service(truth_social_cfg) if truth_social_enabled else None
     if filterless_only_mode:
         filterless_roster = ["DynamicEngine3", "RegimeAdaptive"]
+        if truth_social_enabled:
+            filterless_roster.insert(0, "TruthSocial")
         if "ml_physics" not in filterless_disabled:
             filterless_roster.append("MLPhysics")
         filterless_roster.append("AetherFlow")
@@ -5835,6 +5918,17 @@ async def run_bot():
                 "Filterless live strategy disabled",
                 {
                     "strategy": "MLPhysicsStrategy",
+                    "status": "DISABLED",
+                    "reason": "disabled in filterless live config",
+                },
+            )
+        if truth_social_filterless_disabled:
+            logging.info("🧪 FILTERLESS ONLY MODE: TruthSocialEngine disabled by filterless live config")
+            event_logger.log_system_event(
+                "MODE",
+                "Filterless live strategy disabled",
+                {
+                    "strategy": "TruthSocialEngine",
                     "status": "DISABLED",
                     "reason": "disabled in filterless live config",
                 },
@@ -5884,6 +5978,24 @@ async def run_bot():
     # HIGH PRIORITY - Execute immediately on signal
     # CHANGED: Dynamic Engine stays here. VIX added. Intraday Dip removed.
     fast_strategies = [regimeadaptive_strategy]
+    truth_social_strategy = None
+    if truth_social_enabled:
+        truth_social_strategy = TruthSocialEngine()
+        fast_strategies.insert(0, truth_social_strategy)
+        event_logger.log_system_event(
+            "SYSTEM",
+            "Truth Social sentiment engine initialized",
+            {
+                "strategy": "TruthSocialEngine",
+                "status": "READY",
+                "target_handle": truth_social_cfg.get("target_handle", "realDonaldTrump"),
+            },
+        )
+        logging.info(
+            "TruthSocialEngine initialized for live execution | handle=%s threshold=%.2f",
+            truth_social_cfg.get("target_handle", "realDonaldTrump"),
+            float(truth_social_cfg.get("pump_threshold", 0.85) or 0.85),
+        )
     if not filterless_only_mode:
         vix_strategy = VIXReversionStrategy()
         fast_strategies.extend([
@@ -6209,6 +6321,9 @@ async def run_bot():
     client._runtime_state_persist_ready = False
     heartbeat = asyncio.create_task(heartbeat_task(client, interval=60))
     position_sync = asyncio.create_task(position_sync_task(client, interval=30))
+    sentiment_updater = None
+    if sentiment_service is not None and getattr(sentiment_service, "enabled", False):
+        sentiment_updater = asyncio.create_task(sentiment_monitor_task(sentiment_service))
 
     # NEW: Background HTF Updater
     # This keeps your FVG memory fresh without pausing the bot
@@ -6410,6 +6525,7 @@ async def run_bot():
     sticky_opposite_count = 0
     last_trend_session = None
     persisted_state = load_bot_state(STATE_PATH)
+    set_sentiment_state(normalize_sentiment_state(persisted_state.get("sentiment")))
     live_drawdown_state = _normalize_live_drawdown_state(persisted_state.get("live_drawdown"))
     last_state_save = 0.0
     last_live_drawdown_refresh = 0.0
@@ -7922,6 +8038,7 @@ async def run_bot():
                 "hostile_engine_stats": hostile_engine_stats,
             },
             "live_drawdown": dict(_current_live_drawdown_metrics(live_drawdown_state)),
+            "sentiment": dict(get_sentiment_state()),
             "live_position": build_live_position_snapshot(current_time),
             "tracked_live_trades": [
                 row
@@ -7960,6 +8077,116 @@ async def run_bot():
         )
 
     client._persist_runtime_state = _persist_runtime_state_from_position_sync
+
+    async def process_truth_social_emergency_exit(
+        current_time: datetime.datetime,
+        current_price: float,
+    ) -> bool:
+        nonlocal active_trade, parallel_active_trades
+
+        snapshot = get_sentiment_state()
+        broker_position = (
+            client._local_position.copy()
+            if isinstance(getattr(client, "_local_position", None), dict)
+            else {}
+        )
+        position_side = _normalize_live_side(broker_position.get("side"))
+        if position_side is None:
+            tracked = tracked_live_trades()
+            if tracked:
+                position_side = _normalize_live_side(tracked[0].get("side"))
+                broker_position = {
+                    "side": position_side,
+                    "size": sum(max(0, _coerce_int(trade.get("size"), 0)) for trade in tracked),
+                    "avg_price": _coerce_float(tracked[0].get("entry_price"), 0.0),
+                }
+        exit_reason = _evaluate_truth_social_emergency_exit(snapshot, position_side)
+        if not exit_reason:
+            return False
+
+        tracked_before_exit = [dict(trade) for trade in tracked_live_trades()]
+        entry_price_for_log = (
+            _coerce_float(tracked_before_exit[0].get("entry_price"), current_price)
+            if tracked_before_exit
+            else _coerce_float(broker_position.get("avg_price"), current_price)
+        )
+        try:
+            finbert_conf = _coerce_float(snapshot.get("finbert_confidence"), math.nan)
+            event_logger.log_sentiment_event(
+                "Truth Social emergency exit triggered",
+                {
+                    "strategy": "TruthSocialEngine",
+                    "side": position_side,
+                    "sentiment_score": snapshot.get("sentiment_score"),
+                    "finbert_confidence": round(finbert_conf, 4) if math.isfinite(finbert_conf) else None,
+                    "post_id": snapshot.get("latest_post_id"),
+                    "reason": exit_reason,
+                },
+                level="WARNING",
+            )
+        except Exception:
+            pass
+        event_logger.log_early_exit(
+            reason=exit_reason,
+            bars_held=max(
+                [_coerce_int(trade.get("bars_held"), 0) for trade in tracked_before_exit] or [0]
+            ),
+            current_price=current_price,
+            entry_price=entry_price_for_log,
+        )
+
+        position = await client.async_get_position(prefer_stream=True, require_open_pnl=False)
+        if not isinstance(position, dict):
+            position = {}
+        if _normalize_live_side(position.get("side")) is None:
+            position = broker_position
+        if _normalize_live_side(position.get("side")) is None:
+            logging.warning("Truth Social emergency exit fired but no broker position was available to flatten.")
+            return False
+
+        if not await client.async_emergency_flatten_position(position, exit_reason):
+            logging.warning("Truth Social emergency exit flatten failed; keeping tracked trades intact.")
+            return False
+
+        close_order_details = getattr(client, "_last_close_order_details", {}) or {}
+        shared_exit_price = _coerce_float(close_order_details.get("exit_price"), current_price)
+        for tracked_trade in tracked_before_exit:
+            close_order_id = close_order_details.get("order_id")
+            if len(tracked_before_exit) == 1:
+                close_metrics = _reconcile_live_trade_close(
+                    client,
+                    tracked_trade,
+                    current_time,
+                    fallback_exit_price=shared_exit_price,
+                    close_order_id=close_order_id,
+                )
+            else:
+                close_metrics = _calculate_live_trade_close_metrics_from_price(
+                    tracked_trade,
+                    shared_exit_price,
+                    source="truth_social_emergency_exit",
+                    exit_time=current_time,
+                    order_id=_coerce_int(close_order_id, None),
+                )
+            if not isinstance(close_metrics, dict):
+                close_metrics = _calculate_live_trade_close_metrics_from_price(
+                    tracked_trade,
+                    shared_exit_price,
+                    source="truth_social_emergency_exit_fallback",
+                    exit_time=current_time,
+                    order_id=_coerce_int(close_order_id, None),
+                )
+            finalize_live_trade_close(
+                tracked_trade,
+                close_metrics,
+                current_time,
+                log_prefix="📊 Truth Social emergency exit closed",
+            )
+
+        active_trade = None
+        parallel_active_trades = []
+        persist_runtime_state(current_time, reason="truth_social_emergency_exit")
+        return True
 
     def reset_mom_rescues(day: date) -> None:
         nonlocal mom_rescue_date, mom_rescue_scores
@@ -9397,6 +9624,10 @@ async def run_bot():
                     if trade_state_changed:
                         persist_runtime_state(current_time, reason="trade_management_close")
 
+                if await process_truth_social_emergency_exit(current_time, current_price):
+                    await asyncio.sleep(2.0)
+                    continue
+
                 # === STRATEGY EXECUTION ===
                 if news_blocked:
                     logging.info("📰 NEWS BLACKOUT: Skipping trade execution (data continues)")
@@ -9775,14 +10006,22 @@ async def run_bot():
                                 signal,
                                 fallback=strat_name,
                             )
-                            candidate_signals.append((1, strat, signal, strat_name))
+                            candidate_priority = (
+                                0
+                                if str(signal.get("strategy", strat_name) or strat_name).startswith("TruthSocial")
+                                else 1
+                            )
+                            candidate_signals.append((candidate_priority, strat, signal, strat_name))
 
                             # Log as candidate
                             log_strategy, log_sub = get_log_strategy_info(
                                 signal.get('strategy', strat_name),
                                 signal
                             )
-                            log_info = {"status": "CANDIDATE", "priority": "FAST"}
+                            log_info = {
+                                "status": "CANDIDATE",
+                                "priority": "SENTIMENT" if candidate_priority == 0 else "FAST",
+                            }
                             if log_sub:
                                 log_info["sub_strategy"] = log_sub
                             for extra_key in (
@@ -9805,7 +10044,10 @@ async def run_bot():
                                 price=current_price,
                                 additional_info=log_info
                             )
-                            logging.info(f"📊 CANDIDATE (FAST): {strat_name} {signal['side']} @ {current_price:.2f}")
+                            if candidate_priority == 0:
+                                logging.info(f"📊 CANDIDATE (SENTIMENT): {strat_name} {signal['side']} @ {current_price:.2f}")
+                            else:
+                                logging.info(f"📊 CANDIDATE (FAST): {strat_name} {signal['side']} @ {current_price:.2f}")
 
                     except Exception as e:
                         logging.exception("Error in %s", strat_name)
@@ -10078,6 +10320,19 @@ async def run_bot():
                             continue
                         active_candidates.append((priority, strat, sig, s_name))
                     candidate_signals = active_candidates
+
+                truth_social_candidates = [
+                    (priority, strat, sig, s_name)
+                    for priority, strat, sig, s_name in candidate_signals
+                    if str(sig.get("strategy", s_name) or s_name).startswith("TruthSocial")
+                ]
+                if truth_social_candidates:
+                    candidate_signals = truth_social_candidates
+                    logging.info(
+                        "Truth Social sentiment candidate overrides technical candidates for this bar (%s candidate%s)",
+                        len(candidate_signals),
+                        "" if len(candidate_signals) == 1 else "s",
+                    )
 
                 def ml_soft_gate_eligible(sig: dict, strat_name: Optional[str] = None) -> bool:
                     if not consensus_ml_ok(sig, strat_name):
@@ -10369,7 +10624,7 @@ async def run_bot():
                         candidate_signals = []
                 for priority, strat, sig, strat_name in candidate_signals:
                     signal = sig
-                    priority_label = "FAST" if priority == 1 else "STANDARD"
+                    priority_label = "SENTIMENT" if priority == 0 else ("FAST" if priority == 1 else "STANDARD")
                     do_execute = False
                     signal.setdefault("strategy", strat_name)
                     trend_day_counter = False
@@ -12795,6 +13050,11 @@ async def run_bot():
                 save_bot_state(build_persisted_state(now_et), STATE_PATH)
             except Exception as e:
                 logging.warning(f"State save on shutdown failed: {e}")
+            try:
+                if sentiment_service is not None:
+                    sentiment_service.stop()
+            except Exception:
+                pass
             try:
                 await client.stop_user_stream()
             except Exception:

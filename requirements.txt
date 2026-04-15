@@ -4,6 +4,10 @@
 aiohttp==3.13.3
 click==8.3.1
 colorama==0.4.6
+accelerate>=0.34,<2
+bitsandbytes>=0.45,<1
+torch>=2.4,<3
+transformers>=4.48,<5
 joblib==1.5.3
 lightgbm==4.6.0
 numpy==2.4.3
@@ -20,5 +24,6 @@ rich==14.3.3
 scikit-learn==1.8.0
 signalrcore-async==0.5.4
 simple-websocket==1.1.0
+truthbrush==0.2.5
 xgboost==3.2.0
 yfinance==1.2.0

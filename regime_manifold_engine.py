@@ -168,14 +168,13 @@ def apply_kalshi_gate(signal_direction: int, es_price: float, kalshi, config: Di
     if not getattr(kalshi, "enabled", False) or not getattr(kalshi, "is_healthy", False):
         return True, "Kalshi unavailable — ML-only mode", 1.0
 
-    # Skip gating during 10-11 AM ET: crowd is contrarian (39.5% accuracy)
+    # Skip gating during the 10-11 AM ET settlement windows: crowd is contrarian.
     try:
-        from zoneinfo import ZoneInfo
-        et_hour = datetime.now(ZoneInfo("America/New_York")).hour
-        if et_hour in (10, 11):
-            return True, f"MORNING SKIP: Crowd unreliable at {et_hour}:00 ET — ML-only", 1.0
+        settlement_hour = kalshi.active_settlement_hour_et()
     except Exception:
-        pass
+        settlement_hour = None
+    if settlement_hour in (10, 11):
+        return True, f"MORNING SKIP: Crowd unreliable for {settlement_hour}:00 ET settlement — ML-only", 1.0
 
     sentiment = kalshi.get_sentiment(es_price)
     probability = sentiment.get("probability")
@@ -194,8 +193,12 @@ def apply_kalshi_gate(signal_direction: int, es_price: float, kalshi, config: Di
     mild_bear = float(thresholds.get("mild_bear", 0.40))
     strong_bear = float(thresholds.get("strong_bear", 0.30))
     veto_mode = str(config.get("veto_mode", "soft") or "soft").lower()
+    extreme_hard_veto_low = float(config.get("extreme_hard_veto_low", 0.10) or 0.10)
+    extreme_hard_veto_high = float(config.get("extreme_hard_veto_high", 0.90) or 0.90)
 
     if signal_direction == 1:
+        if probability <= extreme_hard_veto_low:
+            return False, f"HARD VETO: Extreme bearish crowd divergence (prob={probability:.2f})", 0.0
         if probability < neutral_low:
             # Crowd disagrees — when crowd is wrong, moves avg 14 pts (vs 11.5 right)
             if veto_mode == "hard":
@@ -211,6 +214,8 @@ def apply_kalshi_gate(signal_direction: int, es_price: float, kalshi, config: Di
         return True, f"NEUTRAL: Crowd undecided (prob={probability:.2f}), 1x", 1.0
 
     if signal_direction == -1:
+        if probability >= extreme_hard_veto_high:
+            return False, f"HARD VETO: Extreme bullish crowd divergence (prob={probability:.2f})", 0.0
         if probability > neutral_high:
             if veto_mode == "hard":
                 return False, f"VETO: Bullish crowd divergence (prob={probability:.2f})", 0.0

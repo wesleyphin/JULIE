@@ -1926,6 +1926,111 @@ class ProjectXClient:
             event_logger.log_error("POSITION_CLOSE_EXCEPTION", f"Exception closing position: {e}", exception=e)
             return False
 
+    def emergency_flatten_position(self, position: Dict, reason: str = "") -> bool:
+        """
+        Emergency flatten path:
+        1. Cancel working exit orders immediately.
+        2. Submit an opposing market order.
+        3. Clean up any orphaned exit orders after the fill request.
+        """
+        if position.get('side') is None or int(position.get('size', 0) or 0) == 0:
+            return True
+
+        if not self._check_general_rate_limit():
+            logging.error("Rate limit reached, cannot emergency-flatten position")
+            return False
+
+        self._last_close_order_details = None
+        reason_text = str(reason or "emergency_exit").strip() or "emergency_exit"
+        cancelled = self.cancel_open_exit_orders(side=None, reason=f"{reason_text} pre-close")
+        if cancelled:
+            logging.info("Emergency exit cancelled %s open exit order(s) before flatten", cancelled)
+        self._order_cache = {}
+        self._order_cache_ts = 0.0
+        time.sleep(0.15)
+
+        side_name = str(position.get('side') or '').strip().upper()
+        if side_name not in {'LONG', 'SHORT'}:
+            return False
+        side_code = 1 if side_name == 'LONG' else 0
+        action = "SELL" if side_name == 'LONG' else "BUY"
+        size = int(position.get('size', 0) or 0)
+        if size <= 0:
+            return True
+
+        url = f"{self.base_url}/api/Order/place"
+        payload = {
+            "accountId": self.account_id,
+            "contractId": self.contract_id,
+            "clOrdId": str(uuid.uuid4()),
+            "type": 2,
+            "side": side_code,
+            "size": size,
+        }
+
+        try:
+            logging.warning(
+                "EMERGENCY FLATTEN: %s %s contract(s) to close %s | reason=%s",
+                action,
+                size,
+                side_name,
+                reason_text,
+            )
+            resp = self.session.post(url, json=payload)
+            self._track_general_request()
+
+            if resp.status_code == 429:
+                logging.error("Rate limited on emergency flatten!")
+                event_logger.log_error("RATE_LIMIT", "Emergency flatten rate limited")
+                return False
+            if resp.status_code != 200:
+                logging.error(
+                    "Emergency flatten HTTP Error %s: %s",
+                    resp.status_code,
+                    resp.text[:500] if resp.text else 'Empty response',
+                )
+                event_logger.log_error("EMERGENCY_FLATTEN_FAILED", f"HTTP {resp.status_code}")
+                return False
+
+            data = resp.json()
+            if not data.get('success', False):
+                logging.error("Emergency flatten rejected: %s", data)
+                event_logger.log_error("EMERGENCY_FLATTEN_FAILED", f"Failed to flatten position: {data}")
+                return False
+
+            close_price = self._extract_execution_price(data, None)
+            close_order_id = self._coerce_int(data.get('orderId', data.get('id')), None)
+            self._last_close_order_details = {
+                "order_id": close_order_id,
+                "side": side_name,
+                "size": size,
+                "exit_price": close_price,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc),
+                "method": "market_emergency_exit",
+                "reason": reason_text,
+            }
+            event_logger.log_trade_closed(
+                side=side_name,
+                entry_price=position.get('avg_price', 0.0),
+                exit_price=close_price if close_price is not None else position.get('avg_price', 0.0),
+                pnl=0.0,
+                reason=f"Emergency Exit: {reason_text}",
+            )
+            time.sleep(0.35)
+            self.cancel_open_exit_orders(side=None, reason=f"{reason_text} cleanup")
+            self._local_position = {'side': None, 'size': 0, 'avg_price': 0.0}
+            self._active_stop_order_id = None
+            self._active_target_order_id = None
+            return True
+        except Exception as exc:
+            logging.error("Emergency flatten exception: %s", exc)
+            event_logger.log_error(
+                "EMERGENCY_FLATTEN_EXCEPTION",
+                f"Exception flattening position: {exc}",
+                exception=exc,
+            )
+            return False
+
     def close_trade_leg(self, trade: Dict) -> bool:
         """
         Close a specific tracked same-side leg without flattening the entire position.
@@ -3619,6 +3724,14 @@ class ProjectXClient:
         return await asyncio.to_thread(
             self.close_trade_leg,
             trade,
+        )
+
+    async def async_emergency_flatten_position(self, position: Dict, reason: str = "") -> bool:
+        """Async wrapper for emergency_flatten_position() to avoid blocking the event loop."""
+        return await asyncio.to_thread(
+            self.emergency_flatten_position,
+            position,
+            reason,
         )
 
     async def async_get_position(

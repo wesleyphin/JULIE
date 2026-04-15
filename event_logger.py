@@ -316,6 +316,10 @@ class EventLogger:
         """Log general system events"""
         self._log_event("INFO", "SYSTEM", message, details)
 
+    def log_sentiment_event(self, message: str, details: Optional[Dict[str, Any]] = None, level: str = "INFO"):
+        """Log structured Truth Social / FinBERT sentiment activity."""
+        self._log_event(level.upper(), "SYSTEM_SENTIMENT_EVENT", message, details)
+
     def log_error(self, error_type: str, message: str, exception: Optional[Exception] = None):
         """Log errors"""
         details = {"error_type": error_type}

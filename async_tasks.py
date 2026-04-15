@@ -163,3 +163,20 @@ async def htf_structure_task(client, htf_filter, interval: int = 60):
 
         # Wait for next update interval
         await asyncio.sleep(interval)
+
+
+async def sentiment_monitor_task(sentiment_service):
+    """
+    Run the Truth Social sentiment polling loop without blocking the bot.
+    """
+    if sentiment_service is None:
+        return
+    while True:
+        try:
+            await sentiment_service.run_forever()
+            return
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logging.error("❌ Sentiment monitor task error: %s", exc)
+            await asyncio.sleep(5)

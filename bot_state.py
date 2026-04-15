@@ -7,8 +7,39 @@ from zoneinfo import ZoneInfo
 from typing import Any, Dict, Optional
 
 NY_TZ = ZoneInfo("America/New_York")
-STATE_VERSION = 2
+STATE_VERSION = 3
 STATE_PATH = Path(__file__).with_name("bot_state.json")
+
+
+def empty_sentiment_state() -> Dict[str, Any]:
+    return {
+        "enabled": False,
+        "active": False,
+        "healthy": False,
+        "model_loaded": False,
+        "quantized_8bit": False,
+        "target_handle": None,
+        "last_poll_at": None,
+        "last_analysis_at": None,
+        "latest_post_id": None,
+        "latest_post_created_at": None,
+        "latest_post_url": None,
+        "latest_post_text": None,
+        "sentiment_label": None,
+        "sentiment_score": None,
+        "finbert_confidence": None,
+        "trigger_side": None,
+        "trigger_reason": None,
+        "last_error": None,
+    }
+
+
+def normalize_sentiment_state(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        return empty_sentiment_state()
+    normalized = empty_sentiment_state()
+    normalized.update({key: value.get(key) for key in normalized.keys()})
+    return normalized
 
 
 def trading_day_start(ts: datetime.datetime, tz: ZoneInfo = NY_TZ) -> datetime.datetime:

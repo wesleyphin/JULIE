@@ -47,8 +47,9 @@ MES_ROUND_TURN_FEE = round(
     2,
 )
 
-STRATEGY_ORDER = ["dynamic_engine3", "regime_adaptive", "ml_physics", "aetherflow"]
+STRATEGY_ORDER = ["truth_social", "dynamic_engine3", "regime_adaptive", "ml_physics", "aetherflow"]
 STRATEGY_LABELS = {
+    "truth_social": "Truth Social",
     "dynamic_engine3": "Dynamic Engine 3",
     "regime_adaptive": "RegimeAdaptive",
     "ml_physics": "ML Physics",
@@ -145,6 +146,8 @@ def canonical_strategy_id(raw_strategy: Optional[str]) -> Optional[str]:
     normalized = re.sub(r"[^a-z0-9]+", "", raw.lower())
     if normalized.startswith("dynamicengine"):
         return "dynamic_engine3"
+    if normalized.startswith("truthsocial"):
+        return "truth_social"
     if normalized.startswith("regimeadaptive"):
         return "regime_adaptive"
     if normalized.startswith("mlphysics"):
@@ -589,6 +592,34 @@ def build_empty_state(log_path: Path, state_path: Path, trade_factors_path: Path
         "events": [],
         "trades": [],
         "kalshi_metrics": None,
+        "sentiment_metrics": None,
+    }
+
+
+def build_sentiment_metrics_from_snapshot(snapshot: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(snapshot, dict):
+        return None
+    return {
+        "enabled": bool(snapshot.get("enabled", False)),
+        "active": bool(snapshot.get("active", False)),
+        "healthy": bool(snapshot.get("healthy", False)),
+        "model_loaded": bool(snapshot.get("model_loaded", False)),
+        "quantized_8bit": bool(snapshot.get("quantized_8bit", False)),
+        "target_handle": snapshot.get("target_handle"),
+        "source": snapshot.get("source"),
+        "last_poll_at": snapshot.get("last_poll_at"),
+        "last_analysis_at": snapshot.get("last_analysis_at"),
+        "latest_post_id": snapshot.get("latest_post_id"),
+        "latest_post_created_at": snapshot.get("latest_post_created_at"),
+        "latest_post_url": snapshot.get("latest_post_url"),
+        "latest_post_text": snapshot.get("latest_post_text"),
+        "sentiment_label": snapshot.get("sentiment_label"),
+        "sentiment_score": safe_float(snapshot.get("sentiment_score")),
+        "finbert_confidence": safe_float(snapshot.get("finbert_confidence")),
+        "trigger_side": snapshot.get("trigger_side"),
+        "trigger_reason": snapshot.get("trigger_reason"),
+        "last_error": snapshot.get("last_error"),
+        "metadata": parse_json_object(snapshot.get("metadata")) if not isinstance(snapshot.get("metadata"), dict) else dict(snapshot.get("metadata")),
     }
 
 
@@ -986,6 +1017,38 @@ def apply_bot_state_snapshot(
         "hostile_day_active": hostile.get("hostile_day_active"),
         "hostile_day_reason": hostile.get("hostile_day_reason"),
     }
+    sentiment_snapshot = build_sentiment_metrics_from_snapshot(persisted_state.get("sentiment"))
+    dashboard["sentiment_metrics"] = sentiment_snapshot
+    truth_social_strategy = dashboard["strategies"].get("truth_social")
+    if sentiment_snapshot is not None and truth_social_strategy is not None:
+        strategy_updated_at = (
+            sentiment_snapshot.get("last_analysis_at")
+            or sentiment_snapshot.get("last_poll_at")
+            or iso_or_none(persisted_ts)
+        )
+        truth_social_strategy["updated_at"] = strategy_updated_at
+        truth_social_strategy["status"] = (
+            "candidate"
+            if sentiment_snapshot.get("trigger_side")
+            else "ready" if sentiment_snapshot.get("healthy") else "blocked"
+        )
+        truth_social_strategy["last_signal_time"] = sentiment_snapshot.get("last_analysis_at")
+        truth_social_strategy["last_signal_side"] = sentiment_snapshot.get("trigger_side")
+        truth_social_strategy["priority"] = "SENTIMENT"
+        truth_social_strategy["last_reason"] = (
+            sentiment_snapshot.get("trigger_reason")
+            or sentiment_snapshot.get("last_error")
+            or "Watching Truth Social sentiment."
+        )
+        excerpt = str(sentiment_snapshot.get("latest_post_text") or "").strip()
+        activity_message = sentiment_snapshot.get("trigger_reason") or excerpt or "Awaiting the next Truth Social post."
+        set_strategy_activity(
+            truth_social_strategy,
+            parse_iso(sentiment_snapshot.get("last_analysis_at") or sentiment_snapshot.get("last_poll_at")),
+            "SYSTEM_SENTIMENT_EVENT",
+            activity_message[:220] if isinstance(activity_message, str) else "Truth Social sentiment updated.",
+            severity="warning" if sentiment_snapshot.get("last_error") else "info",
+        )
 
     live_position = persisted_state.get("live_position")
     live_position_ts = None
@@ -1465,6 +1528,24 @@ def build_dashboard_state(
                         if strategy is not None:
                             set_strategy_activity(strategy, logged_at, event_type, event_message, severity=level)
                         record_event(dashboard, max_events, logged_at, event_type, event_message, level, strategy_id, details)
+                        continue
+
+                    if event_type == "SYSTEM_SENTIMENT_EVENT":
+                        severity = level if level in {"warning", "error"} else "info"
+                        if strategy_id is not None:
+                            strategy = dashboard["strategies"].get(strategy_id)
+                            if strategy is not None:
+                                strategy["updated_at"] = iso_or_none(logged_at)
+                                strategy["last_reason"] = event_message
+                                if details.get("trigger_side"):
+                                    strategy["status"] = "candidate"
+                                    strategy["last_signal_time"] = iso_or_none(logged_at)
+                                    strategy["last_signal_side"] = details.get("trigger_side")
+                                    strategy["priority"] = "SENTIMENT"
+                                set_strategy_activity(strategy, logged_at, event_type, event_message, severity=severity)
+                            record_event(dashboard, max_events, logged_at, event_type, event_message, severity, strategy_id, details)
+                        else:
+                            record_event(dashboard, max_events, logged_at, event_type, event_message, severity, None, details)
                         continue
 
                     if event_type in {"TRADE_SIGNAL", "STRATEGY_EXEC", "SYSTEM"}:

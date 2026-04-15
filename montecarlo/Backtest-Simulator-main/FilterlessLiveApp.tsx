@@ -31,6 +31,7 @@ import {
   FilterlessKalshiStrike,
   FilterlessLiveState,
   FilterlessPosition,
+  FilterlessSentimentMetrics,
   FilterlessStrategyState,
   FilterlessTrade,
 } from './filterlessLiveTypes';
@@ -66,6 +67,7 @@ const EMPTY_STATE: FilterlessLiveState = {
   events: [],
   trades: [],
   kalshi_metrics: null,
+  sentiment_metrics: null,
 };
 
 function formatMoney(value?: number | null): string {
@@ -165,6 +167,12 @@ function strategyTone(strategyId: string): { shell: string; badge: string; accen
         badge: 'bg-sky-500/10 text-sky-300 border-sky-500/30',
         accent: 'text-sky-300',
       };
+    case 'truth_social':
+      return {
+        shell: 'border-rose-500/20 bg-gradient-to-b from-rose-500/10 via-surface to-surface',
+        badge: 'bg-rose-500/10 text-rose-200 border-rose-500/30',
+        accent: 'text-rose-200',
+      };
     case 'regime_adaptive':
       return {
         shell: 'border-amber-500/20 bg-gradient-to-b from-amber-500/10 via-surface to-surface',
@@ -218,6 +226,14 @@ function formatCompactNumber(value?: number | null): string {
     notation: 'compact',
     maximumFractionDigits: value >= 1000 ? 1 : 0,
   }).format(value);
+}
+
+function sentimentScoreClasses(metrics?: FilterlessSentimentMetrics | null): string {
+  const score = metrics?.sentiment_score;
+  if (score == null || Number.isNaN(score)) return 'text-neutral-100';
+  if (score >= 0.25) return 'text-emerald-300';
+  if (score <= -0.25) return 'text-rose-300';
+  return 'text-neutral-100';
 }
 
 function hasText(value?: string | null): boolean {
@@ -726,6 +742,7 @@ function FilterlessLiveApp() {
   const openPnlColor = (openPosition?.open_pnl_dollars || 0) >= 0 ? 'success' : 'danger';
   const kalshiMetrics = state.kalshi_metrics ?? null;
   const kalshiVisible = kalshiMetrics != null;
+  const sentimentMetrics = state.sentiment_metrics ?? null;
   const kalshiOpenSide = String(openPosition?.side || '').toUpperCase();
   const kalshiPredictionLabel = kalshiOpenSide === 'SHORT' ? 'NO' : 'YES';
   const kalshiSpxReferencePrice =
@@ -806,6 +823,11 @@ function FilterlessLiveApp() {
         ? 'Feed is stale. Recent state is still visible while the launcher catches up.'
         : 'Feed is offline. The launcher may still be starting, or the workspace needs attention.';
   const kalshiMode = kalshiModeLabel(kalshiMetrics);
+  const sentimentExcerpt = useMemo(() => {
+    const raw = String(sentimentMetrics?.latest_post_text || '').trim();
+    if (!raw) return '';
+    return raw.length > 360 ? `${raw.slice(0, 357)}...` : raw;
+  }, [sentimentMetrics?.latest_post_text]);
 
   return (
     <div className="min-h-screen bg-background text-neutral-100 pb-16">
@@ -815,7 +837,7 @@ function FilterlessLiveApp() {
             <Radar className="w-6 h-6 text-white" />
             <div>
               <h1 className="text-xl font-bold tracking-tight">Filterless Live Desk</h1>
-              <p className="text-xs text-neutral-500">Dynamic Engine 3, RegimeAdaptive, ML Physics, AetherFlow</p>
+              <p className="text-xs text-neutral-500">Truth Social, Dynamic Engine 3, RegimeAdaptive, ML Physics, AetherFlow</p>
             </div>
           </div>
           <div className="flex items-center gap-4 text-sm">
@@ -896,6 +918,91 @@ function FilterlessLiveApp() {
             <StrategyCard key={strategy.id} strategy={strategy} />
           ))}
         </div>
+
+        {sentimentMetrics && (
+          <Panel
+            title="Truth Social Sentiment"
+            right={
+              <span className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${statusChipClasses(
+                sentimentMetrics.last_error
+                  ? 'blocked'
+                  : sentimentMetrics.trigger_side
+                    ? 'candidate'
+                    : sentimentMetrics.healthy
+                      ? 'ready'
+                      : 'stale',
+              )}`}>
+                {sentimentMetrics.last_error
+                  ? 'Issue'
+                  : sentimentMetrics.trigger_side
+                    ? `${sentimentMetrics.trigger_side} Armed`
+                    : sentimentMetrics.healthy
+                      ? 'Watching'
+                      : 'Idle'}
+              </span>
+            }
+          >
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+              <div>
+                <p className="text-neutral-500">Sentiment Score</p>
+                <p className={`mt-1 text-lg font-semibold ${sentimentScoreClasses(sentimentMetrics)}`}>
+                  {sentimentMetrics.sentiment_score == null ? '--' : sentimentMetrics.sentiment_score.toFixed(2)}
+                </p>
+              </div>
+              <div>
+                <p className="text-neutral-500">FinBERT Confidence</p>
+                <p className="mt-1 text-lg font-semibold text-neutral-100">
+                  {formatPercent(sentimentMetrics.finbert_confidence, 1)}
+                </p>
+              </div>
+              <div>
+                <p className="text-neutral-500">Bias / Action</p>
+                <p className="mt-1 text-lg font-semibold text-neutral-100">
+                  {sentimentMetrics.trigger_side || (sentimentMetrics.sentiment_label || '--').toUpperCase()}
+                </p>
+              </div>
+              <div>
+                <p className="text-neutral-500">Latest Post</p>
+                <p className="mt-1 text-lg font-semibold text-neutral-100">
+                  {formatRelativeTime(sentimentMetrics.latest_post_created_at || sentimentMetrics.last_analysis_at)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-lg border border-neutral-800 bg-neutral-950/70 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">
+                  @{sentimentMetrics.target_handle || 'realDonaldTrump'}
+                </p>
+                <p className="text-[11px] text-neutral-500">
+                  {sentimentMetrics.quantized_8bit ? '8-bit FinBERT' : 'FinBERT'}
+                  {sentimentMetrics.model_loaded ? ' loaded' : ' pending'}
+                </p>
+              </div>
+              <p className={`mt-3 text-sm leading-6 ${sentimentMetrics.last_error ? 'text-rose-300' : 'text-neutral-300'}`}>
+                {sentimentMetrics.last_error
+                  ? sentimentMetrics.last_error
+                  : sentimentMetrics.trigger_reason
+                    ? `${sentimentMetrics.trigger_reason}. ${sentimentExcerpt || ''}`.trim()
+                    : sentimentExcerpt || 'No Truth Social post has been analyzed yet.'}
+              </p>
+              <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-neutral-500">
+                <span>Poll {formatRelativeTime(sentimentMetrics.last_poll_at)}</span>
+                <span>Analysis {formatRelativeTime(sentimentMetrics.last_analysis_at)}</span>
+                {sentimentMetrics.latest_post_url && (
+                  <a
+                    className="text-sky-300 hover:text-sky-200 transition-colors"
+                    href={sentimentMetrics.latest_post_url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Open Post
+                  </a>
+                )}
+              </div>
+            </div>
+          </Panel>
+        )}
 
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-stretch">
           <Panel

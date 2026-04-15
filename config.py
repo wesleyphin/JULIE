@@ -753,6 +753,20 @@ CONFIG = {
             "strong_bear": 0.30,
         },
         "veto_mode": "soft",
+        "extreme_hard_veto_low": 0.10,
+        "extreme_hard_veto_high": 0.90,
+    },
+    "TRUTH_SOCIAL_SENTIMENT": {
+        "enabled": True,
+        "poll_interval": 30,
+        "pump_threshold": 0.85,
+        "emergency_exit_threshold": -0.75,
+        "finbert_local_path": "./models/finbert",
+        "target_handle": str(os.environ.get("TRUTH_SOCIAL_TARGET_HANDLE", "realDonaldTrump") or "realDonaldTrump"),
+        "signal_max_age_seconds": 1800,
+        "emergency_exit_max_age_seconds": 3600,
+        "quick_pump_tp_points": 4.0,
+        "quick_pump_sl_points": 2.0,
     },
     # Optional macro-regime feature (disabled by default for robustness)
     "ML_PHYSICS_USE_MACRO_REGIME": False,
@@ -4800,3 +4814,15 @@ _apply_runtime_experimental_artifacts()
 
 # Initialize TARGET_SYMBOL at import time
 refresh_target_symbol()
+
+
+SENTIMENT_ENABLED = bool((CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {}).get("enabled", True))
+SENTIMENT_POLL_INTERVAL = int((CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {}).get("poll_interval", 30) or 30)
+SENTIMENT_PUMP_THRESHOLD = float((CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {}).get("pump_threshold", 0.85) or 0.85)
+EMERGENCY_EXIT_THRESHOLD = float(
+    (CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {}).get("emergency_exit_threshold", -0.75) or -0.75
+)
+FINBERT_LOCAL_PATH = str(
+    (CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {}).get("finbert_local_path", "./models/finbert")
+    or "./models/finbert"
+)
