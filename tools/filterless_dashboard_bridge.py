@@ -1058,6 +1058,7 @@ def apply_bot_state_snapshot(
                 "session",
                 "sub_strategy",
                 "vol_regime",
+                "current_price",
                 "open_pnl_points",
                 "open_pnl_dollars",
                 "point_value",
@@ -1740,7 +1741,6 @@ def build_dashboard_state(
         kalshi_snapshot=kalshi_snapshot,
         kalshi_provider=kalshi_provider,
     )
-    update_state(dashboard, kalshi_snapshot=kalshi_snapshot)
     dashboard["bot"]["risk"]["daily_pnl"] = compute_session_realized_pnl(
         dashboard["trades"],
         trading_day_start_dt,
