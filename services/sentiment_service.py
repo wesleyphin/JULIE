@@ -6,8 +6,11 @@ import logging
 import os
 import re
 import threading
+import urllib.request
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
@@ -22,6 +25,13 @@ except Exception:
 logger = logging.getLogger("truth_social_sentiment")
 HTML_TAG_RE = re.compile(r"<[^>]+>")
 WHITESPACE_RE = re.compile(r"\s+")
+
+TRUTH_RSS_URL = "https://trumpstruth.org/feed"
+TRUTH_RSS_NS = {"truth": "https://truthsocial.com/ns"}
+TRUTH_RSS_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 12_2_1) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+)
 
 
 def _utc_now() -> datetime:
@@ -170,6 +180,8 @@ class TruthSocialSentimentService:
         self._poll_backoff_until: Optional[datetime] = None
         self._poll_backoff_message: Optional[str] = None
 
+        self._source = "rss_finbert"
+
         update_sentiment_state(
             enabled=self.enabled,
             active=False,
@@ -177,7 +189,7 @@ class TruthSocialSentimentService:
             model_loaded=False,
             quantized_8bit=False,
             target_handle=self.target_handle,
-            source="truthbrush_finbert",
+            source="rss_finbert",
             last_error=None,
             metadata={"quantization_mode": self._quantization_mode},
         )
@@ -338,40 +350,61 @@ class TruthSocialSentimentService:
         )
 
     def _post_url(self, post: Dict[str, Any]) -> Optional[str]:
+        url = str(post.get("url") or "").strip()
+        if url:
+            return url
         handle = str(self.target_handle or "").strip()
         post_id = str(post.get("id") or "").strip()
         if not handle or not post_id:
             return None
         return f"https://truthsocial.com/@{handle}/{post_id}"
 
+    def _fetch_posts_rss(self) -> list[Dict[str, Any]]:
+        """Fetch today's posts from the trumpstruth.org RSS feed (no auth, no Cloudflare)."""
+        req = urllib.request.Request(
+            TRUTH_RSS_URL, headers={"User-Agent": TRUTH_RSS_USER_AGENT}
+        )
+        with urllib.request.urlopen(req, timeout=20) as resp:
+            root = ET.fromstring(resp.read())
+
+        today = _utc_now().date()
+        posts: list[Dict[str, Any]] = []
+        for item in root.findall(".//item"):
+            pub_date_str = item.findtext("pubDate", "").strip()
+            if not pub_date_str:
+                continue
+            try:
+                dt = parsedate_to_datetime(pub_date_str)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+            if dt.date() != today:
+                continue
+
+            original_url = item.findtext("truth:originalUrl", "", TRUTH_RSS_NS)
+            post_id = original_url.rsplit("/", 1)[-1] if original_url else ""
+
+            title = (item.findtext("title", "") or "").strip()
+            description = (item.findtext("description", "") or "").strip()
+            content = title if title and title.lower() != "[no title]" else description
+            if not post_id or not content:
+                continue
+
+            posts.append({
+                "id": post_id,
+                "created_at": dt.astimezone(timezone.utc).isoformat(),
+                "content": content,
+                "url": original_url or "",
+            })
+        return posts
+
     def _iter_new_posts(self) -> Iterable[Dict[str, Any]]:
-        api = self._ensure_truthbrush_api()
         created_after = self._last_seen_created_at
-        # Pre-flight: verify Truth Social API is reachable.  truthbrush
-        # silently swallows Cloudflare blocks on the status endpoint
-        # (returns empty) while the lookup may or may not pass.  A failed
-        # lookup surfaces the block explicitly so we can enter backoff.
         try:
-            user_info = api.lookup(self.target_handle)
+            posts = self._fetch_posts_rss()
         except Exception as exc:
-            raise RuntimeError(self._normalize_truthbrush_error(exc)) from exc
-        if not isinstance(user_info, dict) or "id" not in user_info:
-            raise RuntimeError(
-                self._normalize_truthbrush_error(
-                    "Truth Social lookup returned empty — likely a Cloudflare block"
-                )
-            )
-        try:
-            posts = list(
-                api.pull_statuses(
-                    self.target_handle,
-                    replies=False,
-                    created_after=created_after,
-                    pinned=False,
-                )
-            )
-        except Exception as exc:
-            raise RuntimeError(self._normalize_truthbrush_error(exc)) from exc
+            raise RuntimeError(f"Truth Social RSS feed error: {exc}") from exc
         if not posts:
             return []
 
@@ -381,6 +414,9 @@ class TruthSocialSentimentService:
                 continue
             post_id = str(post.get("id") or "").strip()
             if not post_id or post_id in self._seen_post_ids:
+                continue
+            post_dt = _parse_iso(post.get("created_at"))
+            if created_after is not None and post_dt is not None and post_dt <= created_after:
                 continue
             items.append(post)
         items.sort(
@@ -477,36 +513,10 @@ class TruthSocialSentimentService:
             )
             return get_sentiment_state()
 
-        was_in_cloudflare_backoff = (
-            self._poll_backoff_until is not None
-            and self._poll_backoff_message is not None
-            and "cloudflare" in str(self._poll_backoff_message).lower()
-        )
-
         try:
             posts = await asyncio.to_thread(lambda: list(self._iter_new_posts()))
         except Exception as exc:
             self._mark_error(str(exc), active=True)
-            return get_sentiment_state()
-
-        # If we just exited a Cloudflare backoff and got no posts, require one
-        # more clean poll before declaring healthy.  This prevents the status
-        # from flickering between "blocked" and "ready" when truthbrush
-        # silently swallows a Cloudflare block on the status endpoint.
-        if was_in_cloudflare_backoff and not posts:
-            self._poll_backoff_until = _utc_now() + timedelta(seconds=min(self.poll_interval * 2, 120))
-            self._poll_backoff_message = None  # cleared so next clean poll goes through
-            update_sentiment_state(
-                enabled=True,
-                active=True,
-                healthy=False,
-                model_loaded=self._model is not None,
-                quantized_8bit=self._quantized_8bit,
-                target_handle=self.target_handle,
-                last_poll_at=_iso_or_none(now),
-                last_error="Truth Social recovering from Cloudflare block — verifying connectivity.",
-                metadata={"quantization_mode": self._quantization_mode},
-            )
             return get_sentiment_state()
 
         self._poll_backoff_until = None
