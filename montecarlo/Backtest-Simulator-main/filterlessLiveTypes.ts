@@ -105,6 +105,25 @@ export interface FilterlessPricePoint {
   price: number | null;
 }
 
+export interface FilterlessKalshiStrike {
+  strike: number;
+  probability: number;
+  volume?: number | null;
+  status?: string | null;
+  result?: string | null;
+}
+
+export interface FilterlessKalshiMetrics {
+  enabled: boolean;
+  healthy?: boolean;
+  updated_at?: string | null;
+  basis_offset?: number | null;
+  probability_60m?: number | null;
+  event_ticker?: string | null;
+  spx_reference_price?: number | null;
+  strikes: FilterlessKalshiStrike[];
+}
+
 export interface FilterlessLiveState {
   schema_version: number;
   generated_at: string;
@@ -132,4 +151,5 @@ export interface FilterlessLiveState {
   strategies: FilterlessStrategyState[];
   events: FilterlessEvent[];
   trades: FilterlessTrade[];
+  kalshi_metrics?: FilterlessKalshiMetrics | null;
 }

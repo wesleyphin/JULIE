@@ -24,6 +24,7 @@ DEFAULT_LOG_PATH = ROOT / "topstep_live_bot.log"
 DEFAULT_STATE_PATH = ROOT / "bot_state.json"
 DEFAULT_TRADE_FACTORS_PATH = ROOT / "live_trade_factors.csv"
 DEFAULT_OUTPUT_PATH = ROOT / "montecarlo" / "Backtest-Simulator-main" / "public" / "filterless_live_state.json"
+DEFAULT_KALSHI_SNAPSHOT_PATH = ROOT / "kalshi_live_snapshot.json"
 
 
 def _config_float(value: Any, default: float) -> float:
@@ -586,7 +587,64 @@ def build_empty_state(log_path: Path, state_path: Path, trade_factors_path: Path
         "strategies": {strategy_id: strategy_state_template(strategy_id) for strategy_id in STRATEGY_ORDER},
         "events": [],
         "trades": [],
+        "kalshi_metrics": None,
     }
+
+
+def build_kalshi_metrics_from_snapshot(snapshot: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(snapshot, dict):
+        return None
+    enabled = bool(snapshot.get("enabled", False))
+    if not enabled:
+        return {
+            "enabled": False,
+            "healthy": False,
+            "updated_at": snapshot.get("updated_at"),
+            "basis_offset": safe_float(snapshot.get("basis_offset")) or 0.0,
+            "probability_60m": None,
+            "event_ticker": None,
+            "strikes": [],
+        }
+
+    strikes: list[Dict[str, Any]] = []
+    raw_strikes = snapshot.get("strikes")
+    if isinstance(raw_strikes, list):
+        for row in raw_strikes:
+            if not isinstance(row, dict):
+                continue
+            strike = safe_float(row.get("strike"))
+            probability = safe_float(row.get("probability"))
+            if strike is None or probability is None:
+                continue
+            strikes.append(
+                {
+                    "strike": strike,
+                    "probability": probability,
+                    "volume": safe_float(row.get("volume")),
+                    "status": row.get("status"),
+                    "result": row.get("result"),
+                }
+            )
+
+    return {
+        "enabled": True,
+        "healthy": bool(snapshot.get("healthy", True)),
+        "updated_at": snapshot.get("updated_at"),
+        "basis_offset": safe_float(snapshot.get("basis_offset")) or 0.0,
+        "probability_60m": safe_float(snapshot.get("probability_60m")),
+        "event_ticker": snapshot.get("event_ticker"),
+        "spx_reference_price": safe_float(snapshot.get("spx_reference_price")),
+        "strikes": strikes,
+    }
+
+
+def update_state(
+    dashboard: Dict[str, Any],
+    *,
+    kalshi_snapshot: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    dashboard["kalshi_metrics"] = build_kalshi_metrics_from_snapshot(kalshi_snapshot)
+    return dashboard
 
 
 def load_trade_factor_index(path: Path) -> Dict[str, Dict[str, Any]]:
@@ -1164,6 +1222,7 @@ def build_dashboard_state(
     max_events: int,
     max_trades: int,
     max_price_points: int,
+    kalshi_snapshot_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     dashboard = build_empty_state(log_path, state_path, trade_factors_path)
     trade_factor_index = load_trade_factor_index(trade_factors_path)
@@ -1557,6 +1616,15 @@ def build_dashboard_state(
         trade_close_index=trade_close_index,
         daily_tracker=daily_tracker,
     )
+    kalshi_snapshot: Dict[str, Any] = {}
+    if isinstance(kalshi_snapshot_path, Path) and kalshi_snapshot_path.exists():
+        try:
+            parsed = json.loads(kalshi_snapshot_path.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict):
+                kalshi_snapshot = parsed
+        except (OSError, json.JSONDecodeError):
+            kalshi_snapshot = {}
+    update_state(dashboard, kalshi_snapshot=kalshi_snapshot)
     dashboard["bot"]["risk"]["daily_pnl"] = compute_session_realized_pnl(
         dashboard["trades"],
         trading_day_start_dt,
@@ -1612,6 +1680,7 @@ def run_once(args: argparse.Namespace) -> None:
         max_events=args.max_events,
         max_trades=args.max_trades,
         max_price_points=args.max_price_points,
+        kalshi_snapshot_path=args.kalshi_snapshot_path,
     )
     write_json_atomic(args.output, dashboard)
     if args.output.parent.name == "public":
@@ -1622,7 +1691,7 @@ def run_once(args: argparse.Namespace) -> None:
 
 
 def run_follow(args: argparse.Namespace) -> None:
-    watched = [args.log_path, args.state_path, args.trade_factors_path]
+    watched = [args.log_path, args.state_path, args.trade_factors_path, args.kalshi_snapshot_path]
     last_seen: Optional[tuple[tuple[str, Optional[int], Optional[int]], ...]] = None
     while True:
         current = path_signature(watched)
@@ -1638,6 +1707,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--state-path", type=Path, default=DEFAULT_STATE_PATH)
     parser.add_argument("--trade-factors-path", type=Path, default=DEFAULT_TRADE_FACTORS_PATH)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT_PATH)
+    parser.add_argument("--kalshi-snapshot-path", type=Path, default=DEFAULT_KALSHI_SNAPSHOT_PATH)
     parser.add_argument("--max-events", type=int, default=80)
     parser.add_argument("--max-trades", type=int, default=30)
     parser.add_argument("--max-price-points", type=int, default=240)
