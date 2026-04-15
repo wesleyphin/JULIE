@@ -71,6 +71,7 @@ from news_filter import NewsFilter
 from client import ProjectXClient
 import param_scaler
 from bot_state import STATE_PATH, STATE_VERSION, load_bot_state, save_bot_state, trading_day_start, parse_dt
+from regime_manifold_engine import get_kalshi_gate_decision
 
 # --- ASYNCIO IMPORTS ---
 try:
@@ -78,6 +79,40 @@ try:
 except Exception:
     AsyncMarketDataManager = None
 from async_tasks import heartbeat_task, position_sync_task, htf_structure_task
+
+
+# ---------------------------------------------------------------------------
+# Kalshi provider — lazy singleton for trade-gating during settlement hours.
+# Built on first access; returns None if credentials are missing/disabled.
+# ---------------------------------------------------------------------------
+_KALSHI_PROVIDER: Optional[Any] = None
+_KALSHI_PROVIDER_INIT_DONE = False
+# Settlement hours (ET) when trade gating is active with 3x sizing
+_KALSHI_SETTLEMENT_HOURS_ET = [10, 11, 12, 13, 14, 15, 16]
+
+
+def _get_kalshi_provider():
+    global _KALSHI_PROVIDER, _KALSHI_PROVIDER_INIT_DONE
+    if _KALSHI_PROVIDER_INIT_DONE:
+        return _KALSHI_PROVIDER
+    _KALSHI_PROVIDER_INIT_DONE = True
+    try:
+        from config_secrets import SECRETS
+        from services.kalshi_provider import KalshiProvider
+
+        kalshi_cfg = CONFIG.get("KALSHI", {}) if isinstance(CONFIG, dict) else {}
+        if not isinstance(kalshi_cfg, dict):
+            return None
+        provider_cfg = dict(kalshi_cfg)
+        provider_cfg["key_id"] = str(SECRETS.get("KALSHI_KEY_ID", provider_cfg.get("key_id", "")) or "")
+        provider_cfg["private_key_path"] = str(
+            SECRETS.get("KALSHI_PRIVATE_KEY_PATH", provider_cfg.get("private_key_path", "")) or ""
+        )
+        _KALSHI_PROVIDER = KalshiProvider(provider_cfg)
+    except Exception as exc:
+        logging.warning("Kalshi provider not available for trade gating: %s", exc)
+        _KALSHI_PROVIDER = None
+    return _KALSHI_PROVIDER
 
 
 def _load_non_filterless_runtime() -> tuple[Any, ...]:
@@ -888,6 +923,60 @@ def _apply_aetherflow_live_conditional_size(
     return int(target_size)
 
 
+def _apply_kalshi_gate_size(signal: Optional[dict], size: int) -> int:
+    """Apply Kalshi crowd-sentiment trade gating during settlement hours.
+
+    During 10 AM - 4 PM ET, if Kalshi probability aligns with the ML signal
+    direction, the contract size is multiplied by up to 3x.  Outside those
+    hours (or if Kalshi is unavailable) the size is returned unchanged.
+    """
+    if not isinstance(signal, dict):
+        return size
+
+    # Only gate during settlement hours
+    try:
+        et_now = datetime.datetime.now(ZoneInfo("America/New_York"))
+        if et_now.hour not in _KALSHI_SETTLEMENT_HOURS_ET:
+            if isinstance(signal, dict):
+                signal["kalshi_gate_applied"] = False
+                signal["kalshi_gate_reason"] = "Outside settlement hours"
+            return size
+    except Exception:
+        return size
+
+    kalshi = _get_kalshi_provider()
+    if kalshi is None or not getattr(kalshi, "enabled", False):
+        if isinstance(signal, dict):
+            signal["kalshi_gate_applied"] = False
+            signal["kalshi_gate_reason"] = "Kalshi unavailable"
+        return size
+
+    side = str(signal.get("side", "") or "").strip().upper()
+    direction = 1 if side == "LONG" else (-1 if side == "SHORT" else 0)
+    if direction == 0:
+        return size
+
+    es_price = float(signal.get("entry_price", 0) or signal.get("price", 0) or 0)
+    if es_price <= 0:
+        return size
+
+    allowed, reason, multiplier = get_kalshi_gate_decision(direction, es_price, kalshi, CONFIG)
+
+    if isinstance(signal, dict):
+        signal["kalshi_gate_applied"] = True
+        signal["kalshi_gate_reason"] = reason
+        signal["kalshi_gate_multiplier"] = float(multiplier)
+
+    if not allowed:
+        logging.info("Kalshi VETO: %s — size set to 0", reason)
+        return 0
+
+    gated_size = max(1, int(size * multiplier))
+    if multiplier != 1.0:
+        logging.info("Kalshi gate: %s — size %d → %d (%.1fx)", reason, size, gated_size, multiplier)
+    return gated_size
+
+
 def _apply_live_execution_size(
     signal: Optional[dict],
     fallback_size: int,
@@ -901,6 +990,7 @@ def _apply_live_execution_size(
     size = _apply_regimeadaptive_live_growth_size(signal, size, live_drawdown_state)
     size = _apply_aetherflow_live_conditional_size(signal, size, tracked_live_trades)
     size = _apply_live_drawdown_size(signal, size, live_drawdown_state)
+    size = _apply_kalshi_gate_size(signal, size)
     if isinstance(signal, dict):
         signal["size"] = int(size)
     return int(size)
