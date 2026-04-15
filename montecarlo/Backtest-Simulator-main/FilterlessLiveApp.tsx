@@ -27,6 +27,7 @@ import {
 import StatsCard from './components/StatsCard';
 import {
   FilterlessEvent,
+  FilterlessKalshiStrike,
   FilterlessLiveState,
   FilterlessPosition,
   FilterlessStrategyState,
@@ -63,6 +64,7 @@ const EMPTY_STATE: FilterlessLiveState = {
   strategies: [],
   events: [],
   trades: [],
+  kalshi_metrics: null,
 };
 
 function formatMoney(value?: number | null): string {
@@ -202,6 +204,11 @@ function formatBooleanLabel(value?: boolean | null, trueLabel = 'On', falseLabel
 function formatPercent(value?: number | null, digits = 1): string {
   if (value == null || Number.isNaN(value)) return '--';
   return `${(value * 100).toFixed(digits)}%`;
+}
+
+function formatStrikeLabel(value?: number | null): string {
+  if (value == null || Number.isNaN(value)) return '--';
+  return value.toFixed(0);
 }
 
 function formatGateSummary(prob?: number | null, threshold?: number | null): string {
@@ -522,6 +529,15 @@ function FilterlessLiveApp() {
   const botStatusColor = heartbeatOk ? 'success' : effectiveBotStatus === 'stale' ? 'warning' : 'danger';
   const dailyPnlColor = (state.bot.risk.daily_pnl || 0) >= 0 ? 'success' : 'danger';
   const openPnlColor = (openPosition?.open_pnl_dollars || 0) >= 0 ? 'success' : 'danger';
+  const kalshiMetrics = state.kalshi_metrics ?? null;
+  const kalshiEnabled = Boolean(kalshiMetrics?.enabled);
+  const kalshiStrikes = useMemo(
+    () =>
+      (kalshiMetrics?.strikes || [])
+        .filter((row): row is FilterlessKalshiStrike => row != null && row.strike != null && row.probability != null)
+        .slice(0, 8),
+    [kalshiMetrics],
+  );
 
   return (
     <div className="min-h-screen bg-background text-neutral-100 pb-16">
@@ -770,6 +786,53 @@ function FilterlessLiveApp() {
             )}
           </Panel>
         </div>
+
+        {kalshiEnabled && (
+          <Panel
+            title="Kalshi Market Sentiment"
+            right={<span className="text-xs text-neutral-500">{formatTimestamp(kalshiMetrics?.updated_at)}</span>}
+          >
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">60-Min Probability</p>
+                <p className="mt-1 text-lg font-semibold text-sky-300">{formatPercent(kalshiMetrics?.probability_60m, 2)}</p>
+              </div>
+              <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Basis Offset</p>
+                <p className="mt-1 text-lg font-semibold text-neutral-100">{formatPrice(kalshiMetrics?.basis_offset)}</p>
+              </div>
+              <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Event</p>
+                <p className="mt-1 text-sm font-medium text-neutral-200">{kalshiMetrics?.event_ticker || '--'}</p>
+              </div>
+            </div>
+
+            {kalshiStrikes.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="text-left text-neutral-500 border-b border-neutral-800">
+                    <tr>
+                      <th className="py-2 pr-4 font-medium">S&amp;P 500 Strike</th>
+                      <th className="py-2 pr-4 font-medium">Probability</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {kalshiStrikes.map((strike, index) => (
+                      <tr key={`${strike.strike}-${index}`} className="border-b border-neutral-900 last:border-b-0">
+                        <td className="py-2 pr-4 text-neutral-200">{formatStrikeLabel(strike.strike)}</td>
+                        <td className="py-2 pr-4 text-sky-300 font-medium">{formatPercent(strike.probability, 2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-dashed border-neutral-800 px-4 py-6 text-center text-sm text-neutral-500">
+                Kalshi strike ladder is not available yet.
+              </div>
+            )}
+          </Panel>
+        )}
 
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
           <Panel title="Recent Events" right={<span className="text-xs text-neutral-500">{state.events.length} items</span>}>
