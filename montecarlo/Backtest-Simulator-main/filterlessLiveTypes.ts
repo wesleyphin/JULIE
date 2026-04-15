@@ -114,7 +114,7 @@ export interface FilterlessKalshiStrike {
 }
 
 export interface FilterlessKalshiDailyContract {
-  pt_hour: number;
+  et_hour: number;
   event_ticker: string;
   settled: boolean;
   strike_count: number;

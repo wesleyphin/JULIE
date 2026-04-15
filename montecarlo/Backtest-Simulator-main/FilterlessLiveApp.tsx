@@ -302,35 +302,31 @@ function tzHourToLocalLabel(hour: number, timeZone: string): string {
   return target.toLocaleTimeString([], { hour: 'numeric', hour12: true });
 }
 
-/** Convert a PT hour to a label in the user's local timezone. */
-function ptHourToLocalLabel(ptHour: number): string {
-  return tzHourToLocalLabel(ptHour, 'America/Los_Angeles');
-}
-
 /** Convert an ET hour to a label in the user's local timezone. */
 function etHourToLocalLabel(etHour: number): string {
   return tzHourToLocalLabel(etHour, 'America/New_York');
 }
 
 /**
- * Get the current hour in PT for Kalshi availability calculations.
+ * Get the current hour in ET for availability calculations.
  */
-function currentPTHour(): number {
-  const nowPT = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
-  return nowPT.getHours();
+function currentETHour(): number {
+  const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  return nowET.getHours();
 }
 
 /**
- * Kalshi KXINXU contracts predict Pacific Time hours (10 AM - 4 PM PT).
+ * KXINXU contracts settle at each hour 10 AM - 4 PM ET (per CFTC filing:
+ * "Time will be measured in Eastern Time (ET)" covering "traditional
+ * market hours 9:30 AM - 4 PM ET").
  *
- * Each contract becomes tradable 4 hours before its PT prediction hour
- * and closes 1 hour later (3 hours before the prediction hour):
- *   - 10 AM PT contract: tradable 6-7 AM PT, prediction at 10 AM PT
- *   - 11 AM PT contract: tradable 7-8 AM PT, prediction at 11 AM PT
- *   - etc.
+ * A contract is:
+ *   - "available" if the settlement hour has not yet passed
+ *   - "settled" once the settlement hour has passed
+ *   - never "upcoming/not yet" once Kalshi has data for it (renderable)
  *
- * Trade gating activates during the prediction hour itself (10 AM - 4 PM PT).
- * The backend sends trade_gating_hour in ET; we convert to PT by subtracting 3.
+ * Trade gating activates during each settlement hour with 3x sizing.
+ * The backend sends trade_gating_hour in ET matching these hours.
  *
  * UI labels are displayed in the viewer's local timezone.
  */
@@ -338,33 +334,44 @@ function buildKalshiHourlyContracts(
   eventTicker?: string | null,
   strikes?: FilterlessKalshiStrike[],
   tradeGatingHour?: number | null,
+  dailyContracts?: { et_hour: number; strike_count: number; settled: boolean }[] | null,
 ): KalshiHourlyContract[] {
   const tickerPrefix = eventTicker?.replace(/H\d+$/, '') || null;
   const activeHourMatch = eventTicker?.match(/H(\d+)$/);
   const activeHourCode = activeHourMatch ? parseInt(activeHourMatch[1], 10) : null;
 
-  const ptHour = currentPTHour();
-  // Backend sends trade_gating_hour in ET; convert to PT (always 3 hours behind)
-  const tradeGatingPTHour = tradeGatingHour != null ? tradeGatingHour - 3 : null;
+  const etHour = currentETHour();
+
+  // Build a lookup of which hours have data from the backend backfill
+  const renderableHours = new Set<number>();
+  if (dailyContracts) {
+    for (const dc of dailyContracts) {
+      if (dc.strike_count > 0) {
+        renderableHours.add(dc.et_hour);
+      }
+    }
+  }
 
   return KALSHI_SETTLEMENT_HOURS.map((hour) => {
-    // hour is a PT prediction hour (10, 11, 12, 13, 14, 15, 16)
+    // hour is an ET settlement hour (10, 11, 12, 13, 14, 15, 16)
     const hourCode = hour * 100;
     const ticker = tickerPrefix ? `${tickerPrefix}H${hourCode}` : `H${hourCode}`;
     const isActive = activeHourCode === hourCode;
 
-    // Tradable from 4 hours before prediction, closes 1 hour later (3 hours before prediction)
-    const tradableFrom = hour - 4; // PT hour when trading opens
-    const tradableUntil = hour - 3; // PT hour when trading closes
-    const isAvailable = ptHour >= tradableFrom && ptHour < tradableUntil;
-    const isSettled = ptHour >= tradableUntil;
-    const isUpcoming = ptHour < tradableFrom;
+    // Contract is settled once the ET hour has passed
+    const isSettled = etHour >= hour;
+    // Contract has data from Kalshi (renderable) — never show as "NOT YET"
+    const hasData = renderableHours.has(hour) || isActive;
+    // Available = not settled, or has data and not settled
+    const isAvailable = !isSettled;
+    // Only "upcoming" if no data AND before settlement — once renderable, skip this state
+    const isUpcoming = !isSettled && !isAvailable && !hasData;
 
     const strikeCount = isActive ? (strikes?.length || 0) : 0;
-    const tradeGating = tradeGatingPTHour === hour;
+    const tradeGating = tradeGatingHour === hour;
 
-    // Display in user's local timezone (convert from PT)
-    const localLabel = ptHourToLocalLabel(hour);
+    // Display in user's local timezone (convert from ET)
+    const localLabel = etHourToLocalLabel(hour);
 
     return {
       hour,
@@ -728,8 +735,8 @@ function FilterlessLiveApp() {
     ));
   }, [kalshiReferencePrice, kalshiStrikes]);
   const kalshiHourlyContracts = useMemo(
-    () => buildKalshiHourlyContracts(kalshiMetrics?.event_ticker, kalshiStrikes, kalshiMetrics?.trade_gating_hour),
-    [kalshiMetrics?.event_ticker, kalshiStrikes, kalshiMetrics?.trade_gating_hour],
+    () => buildKalshiHourlyContracts(kalshiMetrics?.event_ticker, kalshiStrikes, kalshiMetrics?.trade_gating_hour, kalshiMetrics?.daily_contracts as any),
+    [kalshiMetrics?.event_ticker, kalshiStrikes, kalshiMetrics?.trade_gating_hour, kalshiMetrics?.daily_contracts],
   );
   // When selectedKalshiHour is set, show that contract's info; otherwise show the active one
   const viewedKalshiContract = useMemo(() => {
@@ -1079,7 +1086,7 @@ function FilterlessLiveApp() {
                     : 'Observe Only'}
                 </p>
                 <p className="mt-1 text-xs text-neutral-500">
-                  {kalshiMetrics?.status_reason || 'Gating activates during 10 AM – 4 PM PT prediction hours with 3x sizing.'}
+                  {kalshiMetrics?.status_reason || 'Gating activates during 10 AM – 4 PM ET settlement hours with 3x sizing.'}
                 </p>
               </div>
             </div>
@@ -1087,7 +1094,7 @@ function FilterlessLiveApp() {
             {/* Hourly contract schedule — clickable buttons */}
             <div className="mb-5">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Hourly Contract Schedule — PT Prediction Hours (Local Time)</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Hourly Contract Schedule — 10 AM – 4 PM ET (Your Local Time)</p>
                 {selectedKalshiHour != null && (
                   <button
                     onClick={() => setSelectedKalshiHour(null)}
@@ -1172,12 +1179,10 @@ function FilterlessLiveApp() {
                     </p>
                     <p className="mt-1 text-xs text-neutral-500">
                       {viewedKalshiContract.tradeGating
-                        ? 'Trade gating is active with 3x sizing for this prediction hour.'
+                        ? 'Trade gating is active with 3x sizing for this settlement hour.'
                         : viewedKalshiContract.available
-                          ? `Tradable now. Gating activates at ${ptHourToLocalLabel(viewedKalshiContract.hour)} with 3x sizing.`
-                          : viewedKalshiContract.upcoming
-                            ? `Not tradable yet. Opens at ${ptHourToLocalLabel(viewedKalshiContract.hour - 4)}, closes at ${ptHourToLocalLabel(viewedKalshiContract.hour - 3)}.`
-                            : 'Trading has closed on this contract.'}
+                          ? `Tradable now. Settles at ${etHourToLocalLabel(viewedKalshiContract.hour)} with 3x trade gating.`
+                          : 'This contract has settled.'}
                     </p>
                   </div>
                   <span className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide ${

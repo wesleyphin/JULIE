@@ -116,49 +116,51 @@ class KalshiProvider:
                 time.sleep(2)
         return {}
 
-    # Kalshi KXINXU contracts predict Pacific Time hours
-    _PREDICTION_HOURS_PT = [10, 11, 12, 13, 14, 15, 16]
+    # KXINXU settlement hours are Eastern Time (per CFTC filing: "Time will
+    # be measured in Eastern Time (ET)" covering "traditional market hours
+    # 9:30 AM - 4 PM ET").  Hourly contracts settle at 10-16 ET.
+    _SETTLEMENT_HOURS_ET = [10, 11, 12, 13, 14, 15, 16]
 
     def _current_event_ticker(self) -> str:
-        pt = pytz.timezone("US/Pacific")
-        now = datetime.now(pt)
+        et = pytz.timezone("US/Eastern")
+        now = datetime.now(et)
 
         next_hour = None
-        for hour in self._PREDICTION_HOURS_PT:
+        for hour in self._SETTLEMENT_HOURS_ET:
             if hour > now.hour or (hour == now.hour and now.minute < 5):
                 next_hour = hour
                 break
         if next_hour is None:
-            next_hour = self._PREDICTION_HOURS_PT[-1]
+            next_hour = self._SETTLEMENT_HOURS_ET[-1]
         return f"{self.series}-{now.strftime('%y%b%d').upper()}H{next_hour * 100}"
 
-    def event_ticker_for_hour(self, pt_hour: int, ref_date: Optional[datetime] = None) -> str:
-        """Build an event ticker for a specific PT prediction hour."""
-        pt = pytz.timezone("US/Pacific")
+    def event_ticker_for_hour(self, et_hour: int, ref_date: Optional[datetime] = None) -> str:
+        """Build an event ticker for a specific ET settlement hour."""
+        et = pytz.timezone("US/Eastern")
         if ref_date is None:
-            ref_date = datetime.now(pt)
-        return f"{self.series}-{ref_date.strftime('%y%b%d').upper()}H{pt_hour * 100}"
+            ref_date = datetime.now(et)
+        return f"{self.series}-{ref_date.strftime('%y%b%d').upper()}H{et_hour * 100}"
 
     def fetch_daily_contracts(self) -> List[Dict]:
         """Fetch all of today's hourly contracts for historical backfill.
 
-        Each contract becomes tradable 4 hours before its PT prediction hour
-        and closes 1 hour later (3 hours before the prediction hour).
+        Contracts settle at each hour 10 AM - 4 PM ET.  On startup, this
+        pre-populates the cache so the ML pipeline has data even for
+        contracts that already settled before the bot started.
         """
         if not self.enabled:
             return []
-        pt = pytz.timezone("US/Pacific")
-        now = datetime.now(pt)
+        et = pytz.timezone("US/Eastern")
+        now = datetime.now(et)
         results = []
-        for hour in self._PREDICTION_HOURS_PT:
+        for hour in self._SETTLEMENT_HOURS_ET:
             ticker = self.event_ticker_for_hour(hour, now)
             markets = self._fetch_event_markets(event_ticker=ticker)
-            close_hour = hour - 3  # Trading closes 3 hours before prediction
             results.append({
-                "pt_hour": hour,
+                "et_hour": hour,
                 "event_ticker": ticker,
                 "strikes": markets,
-                "settled": now.hour >= close_hour,
+                "settled": now.hour >= hour,
                 "strike_count": len(markets),
             })
         return results
