@@ -1,9 +1,14 @@
 import asyncio
+import json
 import os
 import platform
 import socket
 import sys
+from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, Optional
+
+from zoneinfo import ZoneInfo
 
 
 def _force_utf8_stdio() -> None:
@@ -82,7 +87,13 @@ _stabilize_windows_platform_queries()
 os.environ.setdefault("JULIE_FILTERLESS_ONLY", "1")
 os.environ.setdefault("JULIE_DISABLE_STRATEGY_FILTERS", "1")
 
+from bot_state import load_bot_state
+from config import CONFIG
+from config_secrets import SECRETS
+from julie001 import run_bot
 from process_singleton import acquire_singleton_lock
+from services.kalshi_provider import KalshiProvider
+from tools.filterless_dashboard_bridge import DEFAULT_KALSHI_SNAPSHOT_PATH, write_json_atomic
 
 
 LIVE_LOCK_PATH = Path(__file__).resolve().parent / "logs" / "filterless_live.lock"
@@ -101,8 +112,113 @@ if LIVE_LOCK is None:
         print(existing)
     raise SystemExit(0)
 
-from julie001 import run_bot
+
+NY_TZ = ZoneInfo("America/New_York")
+ROOT = Path(__file__).resolve().parent
+BRIDGE_SCRIPT = ROOT / "tools" / "filterless_dashboard_bridge.py"
+
+
+def _coerce_price_from_state() -> Optional[float]:
+    state = load_bot_state(ROOT / "bot_state.json")
+    if not isinstance(state, dict):
+        return None
+    live_position = state.get("live_position")
+    if isinstance(live_position, dict):
+        for key in ("current_price", "avg_price", "entry_price"):
+            value = live_position.get(key)
+            if value is None:
+                continue
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def _build_kalshi_provider() -> Optional[KalshiProvider]:
+    kalshi_cfg = CONFIG.get("KALSHI", {}) if isinstance(CONFIG, dict) else {}
+    if not isinstance(kalshi_cfg, dict):
+        return None
+    provider_cfg = dict(kalshi_cfg)
+    provider_cfg["key_id"] = str(SECRETS.get("KALSHI_KEY_ID", provider_cfg.get("key_id", "")) or "")
+    provider_cfg["private_key_path"] = str(
+        SECRETS.get("KALSHI_PRIVATE_KEY_PATH", provider_cfg.get("private_key_path", "")) or ""
+    )
+    provider = KalshiProvider(provider_cfg)
+    return provider
+
+
+def _kalshi_disabled_payload() -> Dict[str, Any]:
+    return {
+        "enabled": False,
+        "healthy": False,
+        "updated_at": datetime.now(NY_TZ).isoformat(),
+        "basis_offset": 0.0,
+        "probability_60m": None,
+        "event_ticker": None,
+        "spx_reference_price": None,
+        "strikes": [],
+    }
+
+
+async def _kalshi_snapshot_loop(path: Path, interval_seconds: float = 10.0) -> None:
+    provider = _build_kalshi_provider()
+    while True:
+        if provider is None or not getattr(provider, "enabled", False):
+            write_json_atomic(path, _kalshi_disabled_payload())
+            await asyncio.sleep(interval_seconds)
+            continue
+        price = _coerce_price_from_state()
+        sentiment = provider.get_sentiment(price) if price is not None else {}
+        strikes = provider._fetch_event_markets()  # noqa: SLF001 - intentionally surfacing full ladder to UI
+        payload: Dict[str, Any] = {
+            "enabled": True,
+            "healthy": bool(getattr(provider, "is_healthy", False)),
+            "updated_at": datetime.now(NY_TZ).isoformat(),
+            "basis_offset": float(getattr(provider, "basis_offset", 0.0) or 0.0),
+            "probability_60m": sentiment.get("probability"),
+            "event_ticker": provider._current_event_ticker(),  # noqa: SLF001 - informational only
+            "spx_reference_price": (float(price) - float(provider.basis_offset)) if price is not None else None,
+            "strikes": strikes if isinstance(strikes, list) else [],
+        }
+        write_json_atomic(path, payload)
+        await asyncio.sleep(interval_seconds)
+
+
+async def _bridge_follow_loop(path: Path) -> None:
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        str(BRIDGE_SCRIPT),
+        "--follow",
+        "--poll-seconds",
+        "1",
+        "--kalshi-snapshot-path",
+        str(path),
+    )
+    try:
+        await process.wait()
+    finally:
+        if process.returncode is None:
+            process.terminate()
+            await process.wait()
+
+
+async def _run_all() -> None:
+    kalshi_snapshot_path = DEFAULT_KALSHI_SNAPSHOT_PATH
+    tasks = [
+        asyncio.create_task(_kalshi_snapshot_loop(kalshi_snapshot_path)),
+        asyncio.create_task(_bridge_follow_loop(kalshi_snapshot_path)),
+        asyncio.create_task(run_bot()),
+    ]
+    done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    for task in pending:
+        task.cancel()
+    await asyncio.gather(*pending, return_exceptions=True)
+    for task in done:
+        exc = task.exception()
+        if exc is not None:
+            raise exc
 
 
 if __name__ == "__main__":
-    asyncio.run(run_bot())
+    asyncio.run(_run_all())
