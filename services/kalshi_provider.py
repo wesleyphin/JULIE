@@ -55,6 +55,12 @@ class KalshiProvider:
         self.is_healthy = True
         self.last_resolved_ticker: Optional[str] = None
 
+    def es_to_spx(self, es_price: float) -> float:
+        return float(es_price) - float(self.basis_offset)
+
+    def spx_to_es(self, spx_price: float) -> float:
+        return float(spx_price) + float(self.basis_offset)
+
     def _sign(self, method: str, path: str, timestamp_str: str) -> str:
         if self.private_key is None:
             raise RuntimeError("Kalshi private key is not loaded")
@@ -401,6 +407,132 @@ class KalshiProvider:
             return {}
         return {m["strike"]: m["probability"] for m in self._fetch_event_markets()}
 
+    def get_nearest_market(self, strike_price: float) -> Optional[Dict]:
+        if not self.enabled or not self.is_healthy:
+            return None
+        markets = self._fetch_event_markets()
+        if not markets:
+            return None
+        return min(markets, key=lambda market: abs(float(market["strike"]) - float(strike_price)))
+
+    def get_nearest_market_for_es_price(self, es_price: float) -> Optional[Dict]:
+        if not self.enabled or not self.is_healthy:
+            return None
+        spx_price = self.es_to_spx(es_price)
+        market = self.get_nearest_market(spx_price)
+        if market is None:
+            return None
+        strike_spx = float(market["strike"])
+        strike_es = self.spx_to_es(strike_spx)
+        return {
+            **market,
+            "strike_spx": round(strike_spx, 2),
+            "strike_es": round(strike_es, 2),
+            "reference_spx": round(float(spx_price), 2),
+            "reference_es": round(float(es_price), 2),
+            "distance_spx": round(strike_spx - float(spx_price), 2),
+            "distance_es": round(strike_es - float(es_price), 2),
+        }
+
+    def get_relative_markets_for_ui(self, es_prices: Optional[List[float]] = None, window_size: int = 30) -> List[Dict]:
+        if not self.enabled or not self.is_healthy:
+            return []
+        markets = self._fetch_event_markets()
+        if not markets:
+            return []
+        if len(markets) <= int(window_size):
+            return markets
+
+        reference_spx_prices: List[float] = []
+        for es_price in es_prices or []:
+            if es_price is None:
+                continue
+            try:
+                reference_spx_prices.append(self.es_to_spx(float(es_price)))
+            except (TypeError, ValueError):
+                continue
+
+        if not reference_spx_prices:
+            implied_level = self.get_implied_level()
+            if implied_level is not None:
+                reference_spx_prices.append(float(implied_level))
+
+        window_size = max(1, int(window_size))
+        if not reference_spx_prices:
+            midpoint = len(markets) // 2
+            start = max(0, midpoint - (window_size // 2))
+            end = min(len(markets), start + window_size)
+            return markets[max(0, end - window_size):end]
+
+        nearest_indices = [
+            min(
+                range(len(markets)),
+                key=lambda idx: abs(float(markets[idx]["strike"]) - reference_spx_price),
+            )
+            for reference_spx_price in reference_spx_prices
+        ]
+        low_idx = min(nearest_indices)
+        high_idx = max(nearest_indices)
+        span = (high_idx - low_idx) + 1
+
+        if span >= window_size:
+            midpoint = (low_idx + high_idx) // 2
+            start = max(0, midpoint - (window_size // 2))
+            end = min(len(markets), start + window_size)
+            return markets[max(0, end - window_size):end]
+
+        padding = window_size - span
+        start = max(0, low_idx - (padding // 2))
+        end = min(len(markets), high_idx + 1 + (padding - (padding // 2)))
+        if (end - start) < window_size:
+            if start == 0:
+                end = min(len(markets), window_size)
+            else:
+                start = max(0, end - window_size)
+        return markets[start:end]
+
+    def get_target_probability(self, es_price: float, side: Optional[str] = None) -> Dict:
+        payload = {
+            "probability": None,
+            "market_probability": None,
+            "outcome_side": None,
+            "strike_spx": None,
+            "strike_es": None,
+            "reference_spx": None,
+            "reference_es": None,
+            "distance_spx": None,
+            "distance_es": None,
+            "status": None,
+            "result": None,
+        }
+        market = self.get_nearest_market_for_es_price(es_price)
+        if market is None:
+            return payload
+
+        market_probability = market.get("probability")
+        if market_probability is None:
+            return payload
+        raw_probability = float(market_probability)
+        normalized_side = str(side or "").strip().upper()
+        outcome_side = "below" if normalized_side == "SHORT" else "above"
+        probability = 1.0 - raw_probability if outcome_side == "below" else raw_probability
+        payload.update(
+            {
+                "probability": round(float(probability), 4),
+                "market_probability": round(raw_probability, 4),
+                "outcome_side": outcome_side,
+                "strike_spx": market.get("strike_spx"),
+                "strike_es": market.get("strike_es"),
+                "reference_spx": market.get("reference_spx"),
+                "reference_es": market.get("reference_es"),
+                "distance_spx": market.get("distance_spx"),
+                "distance_es": market.get("distance_es"),
+                "status": market.get("status"),
+                "result": market.get("result"),
+            }
+        )
+        return payload
+
     def get_implied_level(self) -> Optional[float]:
         if not self.enabled or not self.is_healthy:
             return None
@@ -423,14 +555,19 @@ class KalshiProvider:
             "classification": "unavailable",
             "implied_level": None,
             "distance": None,
+            "implied_level_es": None,
+            "distance_es": None,
+            "implied_level_spx": None,
+            "distance_spx": None,
             "healthy": self.is_healthy,
         }
         if not self.enabled or not self.is_healthy:
             return payload
 
-        spx_price = float(es_price) - self.basis_offset
+        es_price = float(es_price)
+        spx_price = self.es_to_spx(es_price)
         probability = self.get_probability(spx_price)
-        implied_level = self.get_implied_level()
+        implied_level_spx = self.get_implied_level()
         if probability is None:
             return payload
 
@@ -445,13 +582,21 @@ class KalshiProvider:
         else:
             classification = "strong_bear"
 
-        distance = implied_level - spx_price if implied_level is not None else None
+        implied_level_es = self.spx_to_es(implied_level_spx) if implied_level_spx is not None else None
+        distance_spx = implied_level_spx - spx_price if implied_level_spx is not None else None
+        distance_es = implied_level_es - es_price if implied_level_es is not None else None
         payload.update(
             {
                 "probability": round(float(probability), 4),
                 "classification": classification,
-                "implied_level": round(float(implied_level), 2) if implied_level is not None else None,
-                "distance": round(float(distance), 2) if distance is not None else None,
+                # Expose ES-space values by default so callers can compare
+                # Kalshi context directly against MES/ES live prices.
+                "implied_level": round(float(implied_level_es), 2) if implied_level_es is not None else None,
+                "distance": round(float(distance_es), 2) if distance_es is not None else None,
+                "implied_level_es": round(float(implied_level_es), 2) if implied_level_es is not None else None,
+                "distance_es": round(float(distance_es), 2) if distance_es is not None else None,
+                "implied_level_spx": round(float(implied_level_spx), 2) if implied_level_spx is not None else None,
+                "distance_spx": round(float(distance_spx), 2) if distance_spx is not None else None,
                 "healthy": True,
             }
         )
@@ -460,7 +605,7 @@ class KalshiProvider:
     def get_probability_gradient(self, es_price: float) -> Optional[float]:
         if not self.enabled or not self.is_healthy:
             return None
-        spx_price = float(es_price) - self.basis_offset
+        spx_price = self.es_to_spx(es_price)
         markets = self._fetch_event_markets()
         if len(markets) < 3:
             return None
@@ -505,7 +650,7 @@ class KalshiProvider:
         }
 
     def get_sentiment_momentum(self, es_price: float, lookback: int = 3) -> Optional[float]:
-        probability = self.get_probability(float(es_price) - self.basis_offset)
+        probability = self.get_probability(self.es_to_spx(es_price))
         if probability is None:
             return None
         self._sentiment_history.append((time.time(), probability))

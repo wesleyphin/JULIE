@@ -552,11 +552,13 @@ def generate_kalshi_features(df: pd.DataFrame, kalshi, es_price: float) -> pd.Da
         return df
     sentiment = kalshi.get_sentiment(es_price) if kalshi is not None else {}
     distribution = kalshi.get_implied_distribution(es_price) if kalshi is not None else None
+    implied_level = sentiment.get("implied_level_es", sentiment.get("implied_level"))
+    distance = sentiment.get("distance_es", sentiment.get("distance"))
 
     idx = df.index[-1]
     df.loc[idx, "kalshi_prob_at_price"] = sentiment.get("probability")
-    df.loc[idx, "kalshi_implied_level"] = sentiment.get("implied_level")
-    df.loc[idx, "kalshi_distance"] = sentiment.get("distance")
+    df.loc[idx, "kalshi_implied_level"] = implied_level
+    df.loc[idx, "kalshi_distance"] = distance
     gradient = kalshi.get_probability_gradient(es_price) if kalshi is not None else None
     df.loc[idx, "kalshi_gradient"] = gradient
 
@@ -564,7 +566,6 @@ def generate_kalshi_features(df: pd.DataFrame, kalshi, es_price: float) -> pd.Da
         implied_vol = float(distribution.get("implied_std", 0.0) or 0.0)
         df.loc[idx, "kalshi_implied_vol"] = implied_vol
         df.loc[idx, "kalshi_skew"] = distribution.get("implied_skew")
-        distance = sentiment.get("distance")
         if distance is not None and implied_vol > 0:
             df.loc[idx, "kalshi_distance_z"] = float(distance) / implied_vol
     return df

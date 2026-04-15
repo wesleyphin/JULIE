@@ -747,6 +747,30 @@ function FilterlessLiveApp() {
     () => buildKalshiHourlyContracts(kalshiMetrics?.event_ticker, kalshiStrikes, kalshiMetrics?.trade_gating_hour, kalshiMetrics?.daily_contracts as any),
     [kalshiMetrics?.event_ticker, kalshiStrikes, kalshiMetrics?.trade_gating_hour, kalshiMetrics?.daily_contracts],
   );
+  const kalshiProbabilityCaption = useMemo(() => {
+    const referenceKind = kalshiMetrics?.probability_reference_kind;
+    const referenceEsPrice = kalshiMetrics?.probability_reference_es_price;
+    const contractEsPrice = kalshiMetrics?.probability_contract_es_price;
+    const contractOutcome = kalshiMetrics?.probability_contract_outcome;
+    const referenceSide = kalshiMetrics?.probability_reference_side;
+
+    if (referenceKind === 'open_position_target' && referenceEsPrice != null && contractEsPrice != null) {
+      const tpLabel = referenceSide ? `${referenceSide} TP` : 'Open TP';
+      const outcomeLabel = contractOutcome === 'below' ? 'Below' : 'Above';
+      return `${tpLabel} ${formatPrice(referenceEsPrice)} -> ${outcomeLabel} ${formatPrice(contractEsPrice)} ES contract`;
+    }
+    if (referenceEsPrice != null) {
+      return `Using current ES price ${formatPrice(referenceEsPrice)}`;
+    }
+    return kalshiMetrics?.healthy ? 'Event ladder is reachable.' : 'Waiting for a healthy snapshot.';
+  }, [
+    kalshiMetrics?.healthy,
+    kalshiMetrics?.probability_contract_es_price,
+    kalshiMetrics?.probability_contract_outcome,
+    kalshiMetrics?.probability_reference_es_price,
+    kalshiMetrics?.probability_reference_kind,
+    kalshiMetrics?.probability_reference_side,
+  ]);
   // When selectedKalshiHour is set, show that contract's info; otherwise show the active one
   const viewedKalshiContract = useMemo(() => {
     if (selectedKalshiHour != null) {
@@ -1076,7 +1100,7 @@ function FilterlessLiveApp() {
               <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-3">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">60-Min Probability</p>
                 <p className="mt-1 text-lg font-semibold text-sky-300">{formatPercent(kalshiMetrics?.probability_60m, 2)}</p>
-                <p className="mt-1 text-xs text-neutral-500">{kalshiMetrics?.healthy ? 'Event ladder is reachable.' : 'Waiting for a healthy snapshot.'}</p>
+                <p className="mt-1 text-xs text-neutral-500">{kalshiProbabilityCaption}</p>
               </div>
               <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-3">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">ES Reference</p>

@@ -124,21 +124,47 @@ BRIDGE_PROCESS: Optional[subprocess.Popen[Any]] = None
 BRIDGE_LOG_HANDLE = None
 
 
-def _coerce_price_from_state() -> Optional[float]:
+def _load_live_position_from_state() -> Optional[Dict[str, Any]]:
     state = load_bot_state(ROOT / "bot_state.json")
     if not isinstance(state, dict):
         return None
     live_position = state.get("live_position")
-    if isinstance(live_position, dict):
-        for key in ("current_price", "avg_price", "entry_price"):
-            value = live_position.get(key)
-            if value is None:
-                continue
-            try:
-                return float(value)
-            except (TypeError, ValueError):
-                continue
+    return live_position if isinstance(live_position, dict) else None
+
+
+def _coerce_price_from_live_position(live_position: Optional[Dict[str, Any]]) -> Optional[float]:
+    if not isinstance(live_position, dict):
+        return None
+    for key in ("current_price", "avg_price", "entry_price"):
+        value = live_position.get(key)
+        if value is None:
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
     return None
+
+
+def _coerce_target_price_from_live_position(live_position: Optional[Dict[str, Any]]) -> Optional[float]:
+    if not isinstance(live_position, dict):
+        return None
+    for key in ("target_price", "tp_price"):
+        value = live_position.get(key)
+        if value is None:
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _coerce_side_from_live_position(live_position: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not isinstance(live_position, dict):
+        return None
+    side = str(live_position.get("side") or "").strip().upper()
+    return side if side in {"LONG", "SHORT"} else None
 
 
 def _build_kalshi_provider() -> Optional[KalshiProvider]:
@@ -161,6 +187,14 @@ def _kalshi_disabled_payload() -> Dict[str, Any]:
         "updated_at": datetime.now(NY_TZ).isoformat(),
         "basis_offset": 0.0,
         "probability_60m": None,
+        "probability_reference_kind": None,
+        "probability_reference_side": None,
+        "probability_reference_es_price": None,
+        "probability_contract_es_price": None,
+        "probability_contract_spx_price": None,
+        "probability_contract_probability": None,
+        "probability_contract_outcome": None,
+        "probability_contract_distance_es": None,
         "event_ticker": None,
         "es_reference_price": None,
         "spx_reference_price": None,
@@ -221,22 +255,19 @@ async def _kalshi_snapshot_loop(path: Path, interval_seconds: float = 10.0) -> N
             except Exception:
                 pass
 
-        price = _coerce_price_from_state()
+        live_position = _load_live_position_from_state()
+        price = _coerce_price_from_live_position(live_position)
+        target_price = _coerce_target_price_from_live_position(live_position)
+        target_side = _coerce_side_from_live_position(live_position)
         sentiment = provider.get_sentiment(price) if price is not None else {}
-        all_strikes = provider._fetch_event_markets()  # noqa: SLF001 - intentionally surfacing full ladder to UI
-        # Show up to 30 strikes: prioritize those with volume, pad with
-        # nearby strikes (by probability near 0.50 = ATM) to fill to 30.
-        TARGET_STRIKE_COUNT = 30
-        with_vol = [s for s in all_strikes if isinstance(s, dict) and float(s.get("volume", 0) or 0) > 0]
-        if len(with_vol) >= TARGET_STRIKE_COUNT:
-            strikes = with_vol[:TARGET_STRIKE_COUNT]
-        else:
-            vol_strikes = set(s["strike"] for s in with_vol)
-            remaining = [s for s in all_strikes if isinstance(s, dict) and s["strike"] not in vol_strikes]
-            # Sort by proximity to ATM (probability closest to 0.50)
-            remaining.sort(key=lambda s: abs(float(s.get("probability", 0) or 0) - 0.50))
-            pad = remaining[: TARGET_STRIKE_COUNT - len(with_vol)]
-            strikes = sorted(with_vol + pad, key=lambda s: s["strike"])
+        target_probability = (
+            provider.get_target_probability(target_price, target_side)
+            if target_price is not None
+            else {}
+        )
+        target_probability_value = target_probability.get("probability")
+        ui_reference_prices = [ref for ref in (price, target_price) if ref is not None]
+        strikes = provider.get_relative_markets_for_ui(ui_reference_prices, window_size=30)
 
         trade_gating_active, trade_gating_hour = _kalshi_trade_gating_status()
 
@@ -274,7 +305,27 @@ async def _kalshi_snapshot_loop(path: Path, interval_seconds: float = 10.0) -> N
             "healthy": bool(getattr(provider, "is_healthy", False)),
             "updated_at": datetime.now(NY_TZ).isoformat(),
             "basis_offset": float(getattr(provider, "basis_offset", 0.0) or 0.0),
-            "probability_60m": sentiment.get("probability"),
+            "probability_60m": (
+                target_probability_value
+                if target_probability_value is not None
+                else sentiment.get("probability")
+            ),
+            "probability_reference_kind": (
+                "open_position_target"
+                if target_probability_value is not None
+                else "current_price"
+            ),
+            "probability_reference_side": target_side if target_probability_value is not None else None,
+            "probability_reference_es_price": (
+                target_probability.get("reference_es")
+                if target_probability_value is not None
+                else (float(price) if price is not None else None)
+            ),
+            "probability_contract_es_price": target_probability.get("strike_es"),
+            "probability_contract_spx_price": target_probability.get("strike_spx"),
+            "probability_contract_probability": target_probability.get("market_probability"),
+            "probability_contract_outcome": target_probability.get("outcome_side"),
+            "probability_contract_distance_es": target_probability.get("distance_es"),
             "event_ticker": getattr(provider, "last_resolved_ticker", None) or provider._current_event_ticker(),  # noqa: SLF001
             "es_reference_price": float(price) if price is not None else None,
             "spx_reference_price": (float(price) - float(provider.basis_offset)) if price is not None else None,

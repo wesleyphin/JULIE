@@ -132,6 +132,14 @@ export interface FilterlessKalshiMetrics {
   updated_at?: string | null;
   basis_offset?: number | null;
   probability_60m?: number | null;
+  probability_reference_kind?: string | null;
+  probability_reference_side?: string | null;
+  probability_reference_es_price?: number | null;
+  probability_contract_es_price?: number | null;
+  probability_contract_spx_price?: number | null;
+  probability_contract_probability?: number | null;
+  probability_contract_outcome?: string | null;
+  probability_contract_distance_es?: number | null;
   event_ticker?: string | null;
   es_reference_price?: number | null;
   spx_reference_price?: number | null;

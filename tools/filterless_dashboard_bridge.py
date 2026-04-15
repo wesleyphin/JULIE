@@ -603,6 +603,14 @@ def build_kalshi_metrics_from_snapshot(snapshot: Any) -> Optional[Dict[str, Any]
             "updated_at": snapshot.get("updated_at"),
             "basis_offset": safe_float(snapshot.get("basis_offset")) or 0.0,
             "probability_60m": None,
+            "probability_reference_kind": None,
+            "probability_reference_side": None,
+            "probability_reference_es_price": None,
+            "probability_contract_es_price": None,
+            "probability_contract_spx_price": None,
+            "probability_contract_probability": None,
+            "probability_contract_outcome": None,
+            "probability_contract_distance_es": None,
             "event_ticker": None,
             "es_reference_price": None,
             "strikes": [],
@@ -646,6 +654,14 @@ def build_kalshi_metrics_from_snapshot(snapshot: Any) -> Optional[Dict[str, Any]
         "updated_at": snapshot.get("updated_at"),
         "basis_offset": basis_offset,
         "probability_60m": safe_float(snapshot.get("probability_60m")),
+        "probability_reference_kind": snapshot.get("probability_reference_kind"),
+        "probability_reference_side": snapshot.get("probability_reference_side"),
+        "probability_reference_es_price": safe_float(snapshot.get("probability_reference_es_price")),
+        "probability_contract_es_price": safe_float(snapshot.get("probability_contract_es_price")),
+        "probability_contract_spx_price": safe_float(snapshot.get("probability_contract_spx_price")),
+        "probability_contract_probability": safe_float(snapshot.get("probability_contract_probability")),
+        "probability_contract_outcome": snapshot.get("probability_contract_outcome"),
+        "probability_contract_distance_es": safe_float(snapshot.get("probability_contract_distance_es")),
         "event_ticker": snapshot.get("event_ticker"),
         "es_reference_price": es_reference_price,
         "spx_reference_price": spx_reference_price,
@@ -664,15 +680,54 @@ def update_state(
 ) -> Dict[str, Any]:
     if kalshi_provider is not None:
         bot_price = safe_float((dashboard.get("bot") or {}).get("price"))
+        current_position = (dashboard.get("bot") or {}).get("current_position")
+        target_price = None
+        target_side = None
+        if isinstance(current_position, dict):
+            target_price = safe_float(current_position.get("target_price"))
+            if target_price is None:
+                target_price = safe_float(current_position.get("tp_price"))
+            side = str(current_position.get("side") or "").strip().upper()
+            target_side = side if side in {"LONG", "SHORT"} else None
         sentiment = kalshi_provider.get_sentiment(bot_price) if bot_price is not None else {}
-        strikes = kalshi_provider._fetch_event_markets() if getattr(kalshi_provider, "enabled", False) else []  # noqa: SLF001
+        target_probability = (
+            kalshi_provider.get_target_probability(target_price, target_side)
+            if target_price is not None
+            else {}
+        )
+        ui_reference_prices = [ref for ref in (bot_price, target_price) if ref is not None]
+        strikes = (
+            kalshi_provider.get_relative_markets_for_ui(ui_reference_prices, window_size=30)
+            if getattr(kalshi_provider, "enabled", False)
+            else []
+        )
         basis_offset = float(getattr(kalshi_provider, "basis_offset", 0.0) or 0.0)
         dashboard["kalshi_metrics"] = {
             "enabled": bool(getattr(kalshi_provider, "enabled", False)),
             "healthy": bool(getattr(kalshi_provider, "is_healthy", False)),
             "updated_at": datetime.now(NY_TZ).isoformat(),
             "basis_offset": basis_offset,
-            "probability_60m": safe_float((sentiment or {}).get("probability")),
+            "probability_60m": (
+                safe_float((target_probability or {}).get("probability"))
+                if safe_float((target_probability or {}).get("probability")) is not None
+                else safe_float((sentiment or {}).get("probability"))
+            ),
+            "probability_reference_kind": (
+                "open_position_target"
+                if safe_float((target_probability or {}).get("probability")) is not None
+                else "current_price"
+            ),
+            "probability_reference_side": target_side if safe_float((target_probability or {}).get("probability")) is not None else None,
+            "probability_reference_es_price": (
+                safe_float((target_probability or {}).get("reference_es"))
+                if safe_float((target_probability or {}).get("probability")) is not None
+                else bot_price
+            ),
+            "probability_contract_es_price": safe_float((target_probability or {}).get("strike_es")),
+            "probability_contract_spx_price": safe_float((target_probability or {}).get("strike_spx")),
+            "probability_contract_probability": safe_float((target_probability or {}).get("market_probability")),
+            "probability_contract_outcome": (target_probability or {}).get("outcome_side"),
+            "probability_contract_distance_es": safe_float((target_probability or {}).get("distance_es")),
             "event_ticker": kalshi_provider._current_event_ticker() if getattr(kalshi_provider, "enabled", False) else None,  # noqa: SLF001
             "es_reference_price": bot_price,
             "spx_reference_price": (
