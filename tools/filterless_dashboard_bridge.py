@@ -664,7 +664,6 @@ def update_state(
             "strikes": strikes if isinstance(strikes, list) else [],
         }
         return dashboard
-) -> Dict[str, Any]:
     dashboard["kalshi_metrics"] = build_kalshi_metrics_from_snapshot(kalshi_snapshot)
     return dashboard
 
