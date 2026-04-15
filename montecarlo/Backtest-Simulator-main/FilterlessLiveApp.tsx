@@ -629,6 +629,7 @@ function FilterlessLiveApp() {
   const inFlightRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const lastGeneratedAtRef = useRef<string | null>(null);
+  const lastGoodSentimentRef = useRef<FilterlessSentimentMetrics>(DEFAULT_SENTIMENT_METRICS);
 
   useEffect(() => {
     let cancelled = false;
@@ -760,7 +761,17 @@ function FilterlessLiveApp() {
   const openPnlColor = (openPosition?.open_pnl_dollars || 0) >= 0 ? 'success' : 'danger';
   const kalshiMetrics = state.kalshi_metrics ?? null;
   const kalshiVisible = kalshiMetrics != null;
-  const sentimentMetrics = state.sentiment_metrics ?? DEFAULT_SENTIMENT_METRICS;
+  const sentimentMetrics = useMemo(() => {
+    const incoming = state.sentiment_metrics;
+    if (incoming && incoming.sentiment_score != null) {
+      lastGoodSentimentRef.current = incoming;
+      return incoming;
+    }
+    if (incoming && incoming.last_poll_at) {
+      return { ...lastGoodSentimentRef.current, last_poll_at: incoming.last_poll_at, healthy: incoming.healthy };
+    }
+    return lastGoodSentimentRef.current;
+  }, [state.sentiment_metrics]);
   const kalshiOpenSide = String(openPosition?.side || '').toUpperCase();
   const kalshiPredictionLabel = kalshiOpenSide === 'SHORT' ? 'NO' : 'YES';
   const kalshiSpxReferencePrice =
@@ -1341,7 +1352,7 @@ function FilterlessLiveApp() {
         )}
 
         <Panel
-          title="Sentiment Monitor"
+          title="TruthSocial Monitor"
           right={
             <span className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${statusChipClasses(
               sentimentMetrics.last_error
