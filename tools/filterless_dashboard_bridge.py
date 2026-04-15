@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import importlib
 import json
 import os
 import re
@@ -642,9 +643,45 @@ def update_state(
     dashboard: Dict[str, Any],
     *,
     kalshi_snapshot: Optional[Dict[str, Any]] = None,
+    kalshi_provider: Optional[Any] = None,
+) -> Dict[str, Any]:
+    if kalshi_provider is not None:
+        bot_price = safe_float((dashboard.get("bot") or {}).get("price"))
+        sentiment = kalshi_provider.get_sentiment(bot_price) if bot_price is not None else {}
+        strikes = kalshi_provider._fetch_event_markets() if getattr(kalshi_provider, "enabled", False) else []  # noqa: SLF001
+        dashboard["kalshi_metrics"] = {
+            "enabled": bool(getattr(kalshi_provider, "enabled", False)),
+            "healthy": bool(getattr(kalshi_provider, "is_healthy", False)),
+            "updated_at": datetime.now(NY_TZ).isoformat(),
+            "basis_offset": float(getattr(kalshi_provider, "basis_offset", 0.0) or 0.0),
+            "probability_60m": safe_float((sentiment or {}).get("probability")),
+            "event_ticker": kalshi_provider._current_event_ticker() if getattr(kalshi_provider, "enabled", False) else None,  # noqa: SLF001
+            "spx_reference_price": (
+                (bot_price - float(getattr(kalshi_provider, "basis_offset", 0.0) or 0.0))
+                if bot_price is not None
+                else None
+            ),
+            "strikes": strikes if isinstance(strikes, list) else [],
+        }
+        return dashboard
 ) -> Dict[str, Any]:
     dashboard["kalshi_metrics"] = build_kalshi_metrics_from_snapshot(kalshi_snapshot)
     return dashboard
+
+
+def build_kalshi_provider() -> Optional[Any]:
+    kalshi_cfg = dict(CONFIG.get("KALSHI", {}) or {})
+    if not kalshi_cfg:
+        return None
+    try:
+        module = importlib.import_module("services.kalshi_provider")
+        provider_class = getattr(module, "KalshiProvider", None)
+        if provider_class is None:
+            return None
+        provider = provider_class(kalshi_cfg)
+    except Exception:
+        return None
+    return provider
 
 
 def load_trade_factor_index(path: Path) -> Dict[str, Dict[str, Any]]:
@@ -1225,6 +1262,7 @@ def build_dashboard_state(
     kalshi_snapshot_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     dashboard = build_empty_state(log_path, state_path, trade_factors_path)
+    kalshi_provider = build_kalshi_provider()
     trade_factor_index = load_trade_factor_index(trade_factors_path)
     trade_close_index = load_trade_close_index(trade_factors_path)
     persisted_state = load_bot_state(state_path)
@@ -1624,6 +1662,11 @@ def build_dashboard_state(
                 kalshi_snapshot = parsed
         except (OSError, json.JSONDecodeError):
             kalshi_snapshot = {}
+    update_state(
+        dashboard,
+        kalshi_snapshot=kalshi_snapshot,
+        kalshi_provider=kalshi_provider,
+    )
     update_state(dashboard, kalshi_snapshot=kalshi_snapshot)
     dashboard["bot"]["risk"]["daily_pnl"] = compute_session_realized_pnl(
         dashboard["trades"],
