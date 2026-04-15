@@ -267,6 +267,8 @@ interface KalshiHourlyContract {
 }
 
 const KALSHI_SETTLEMENT_HOURS = [10, 11, 12, 13, 14, 15, 16] as const;
+// Hours where trade gating (3x sizing) is active — 10-11 AM excluded due to contrarian crowd
+const KALSHI_GATING_HOURS = [12, 13, 14, 15, 16] as const;
 
 function formatHourLabel(hour: number): string {
   if (hour === 12) return '12 PM';
@@ -1179,10 +1181,12 @@ function FilterlessLiveApp() {
                     </p>
                     <p className="mt-1 text-xs text-neutral-500">
                       {viewedKalshiContract.tradeGating
-                        ? 'Trade gating is active with 3x sizing for this settlement hour.'
-                        : viewedKalshiContract.available
+                        ? 'Trade gating is active with 3x sizing for this settlement hour (70% accuracy).'
+                        : viewedKalshiContract.available && (KALSHI_GATING_HOURS as readonly number[]).includes(viewedKalshiContract.hour)
                           ? `Tradable now. Settles at ${etHourToLocalLabel(viewedKalshiContract.hour)} with 3x trade gating.`
-                          : 'This contract has settled.'}
+                          : viewedKalshiContract.available && [10, 11].includes(viewedKalshiContract.hour)
+                            ? `Tradable now. Observe only — crowd unreliable in morning hours.`
+                            : 'This contract has settled.'}
                     </p>
                   </div>
                   <span className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide ${

@@ -238,11 +238,25 @@ class KalshiProvider:
                 continue
             last_price = market.get("last_price_dollars")
             if last_price is None:
+                last_price = market.get("last_price")
+            if last_price is None:
+                yes_bid = market.get("yes_bid")
+                yes_ask = market.get("yes_ask")
+                if yes_bid is not None and yes_ask is not None:
+                    try:
+                        last_price = (float(yes_bid) + float(yes_ask)) / 2.0
+                    except (TypeError, ValueError):
+                        pass
+            if last_price is None:
                 continue
+            # Normalize cents (0-100) to probability (0-1)
+            price_val = float(last_price)
+            if price_val > 1.0:
+                price_val = price_val / 100.0
             parsed.append(
                 {
                     "strike": strike,
-                    "probability": float(last_price),
+                    "probability": price_val,
                     "volume": float(market.get("volume_fp", 0) or 0.0),
                     "status": str(market.get("status", "") or ""),
                     "result": str(market.get("result", "") or ""),

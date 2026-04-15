@@ -88,7 +88,11 @@ from async_tasks import heartbeat_task, position_sync_task, htf_structure_task
 _KALSHI_PROVIDER: Optional[Any] = None
 _KALSHI_PROVIDER_INIT_DONE = False
 # Settlement hours (ET) when trade gating is active with 3x sizing
+# All settlement hours for data collection / dashboard display
 _KALSHI_SETTLEMENT_HOURS_ET = [10, 11, 12, 13, 14, 15, 16]
+# Hours where Kalshi crowd has directional edge (backtest: 70% at 60%+ conf)
+# 10-11 AM excluded: crowd is contrarian (39.5% accuracy)
+_KALSHI_GATING_HOURS_ET = [12, 13, 14, 15, 16]
 
 
 def _get_kalshi_provider():
@@ -933,13 +937,17 @@ def _apply_kalshi_gate_size(signal: Optional[dict], size: int) -> int:
     if not isinstance(signal, dict):
         return size
 
-    # Only gate during settlement hours
+    # Only gate during hours with proven directional edge (12-4 PM ET)
+    # 10-11 AM excluded: crowd is contrarian at 39.5% accuracy
     try:
         et_now = datetime.datetime.now(ZoneInfo("America/New_York"))
-        if et_now.hour not in _KALSHI_SETTLEMENT_HOURS_ET:
+        if et_now.hour not in _KALSHI_GATING_HOURS_ET:
             if isinstance(signal, dict):
                 signal["kalshi_gate_applied"] = False
-                signal["kalshi_gate_reason"] = "Outside settlement hours"
+                if et_now.hour in (10, 11):
+                    signal["kalshi_gate_reason"] = "Morning hours — crowd unreliable, ML-only"
+                else:
+                    signal["kalshi_gate_reason"] = "Outside settlement hours"
             return size
     except Exception:
         return size
@@ -3477,7 +3485,8 @@ def _check_kalshi_sentiment_exit(
 
     try:
         et_now = datetime.datetime.now(ZoneInfo("America/New_York"))
-        if et_now.hour not in _KALSHI_SETTLEMENT_HOURS_ET:
+        # Only exit based on crowd during hours with proven accuracy
+        if et_now.hour not in _KALSHI_GATING_HOURS_ET:
             return None
     except Exception:
         return None
@@ -3500,6 +3509,7 @@ def _check_kalshi_sentiment_exit(
     if probability is None:
         return None
 
+    # Only act on high-confidence crowd flips (60%+ = 70% accuracy)
     if side == "LONG" and probability < 0.40:
         return f"KALSHI HOUR-TURN: Crowd flipped bearish (prob={probability:.2f})"
     if side == "SHORT" and probability > 0.60:

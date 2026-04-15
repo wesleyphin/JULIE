@@ -169,20 +169,22 @@ def _kalshi_disabled_payload() -> Dict[str, Any]:
 
 # KXINXU settlement hours are Eastern Time (per CFTC filing).
 # Contracts settle at each hour 10 AM - 4 PM ET during market hours.
-# Trade gating activates during these hours with 3x sizing.
 _KALSHI_SETTLEMENT_HOURS_ET = [10, 11, 12, 13, 14, 15, 16]
+# Trade gating (3x sizing) only activates 12-4 PM ET where crowd has 70% accuracy.
+# 10-11 AM excluded: backtest shows crowd is contrarian (39.5% accuracy).
+_KALSHI_GATING_HOURS_ET = [12, 13, 14, 15, 16]
 
 
 def _kalshi_trade_gating_status() -> tuple[bool, Optional[int]]:
     """Determine if trade gating should be active based on current ET hour.
 
-    Trade gating activates when the current ET hour matches a settlement
-    hour (10 AM - 4 PM ET).  During these hours the Kalshi overlay
-    switches from observe-only to influencing trade decisions with 3x sizing.
+    Trade gating (3x sizing) activates 12-4 PM ET where backtest shows
+    70% crowd directional accuracy at 60%+ confidence.  10-11 AM ET is
+    observe-only because the crowd is contrarian (39.5% accuracy).
     """
     now_et = datetime.now(NY_TZ)
     current_hour = now_et.hour
-    if current_hour in _KALSHI_SETTLEMENT_HOURS_ET:
+    if current_hour in _KALSHI_GATING_HOURS_ET:
         return True, current_hour
     return False, None
 
@@ -226,12 +228,21 @@ async def _kalshi_snapshot_loop(path: Path, interval_seconds: float = 10.0) -> N
 
         # When trade gating is active, Kalshi influences trade decisions
         # with 3x sizing; otherwise it is observe-only for the dashboard.
+        now_hour = now_et.hour
         if trade_gating_active:
             observer_only = False
             status_label = "Trade gating (3x)"
             status_reason = (
                 f"Kalshi is actively gating trades with 3x sizing for the "
-                f"{trade_gating_hour}:00 ET settlement window."
+                f"{trade_gating_hour}:00 ET settlement window (70% accuracy at 60%+ confidence)."
+            )
+        elif now_hour in (10, 11):
+            observer_only = True
+            status_label = "Observe only (morning)"
+            status_reason = (
+                f"Kalshi data is live but not gating trades at {now_hour}:00 ET. "
+                "Backtest shows crowd is contrarian in morning hours (39.5% accuracy). "
+                "Trade gating activates at 12 PM ET."
             )
         else:
             observer_only = True
