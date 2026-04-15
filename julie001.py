@@ -95,6 +95,15 @@ _KALSHI_SETTLEMENT_HOURS_ET = [10, 11, 12, 13, 14, 15, 16]
 _KALSHI_GATING_HOURS_ET = [12, 13, 14, 15, 16]
 
 
+def _active_kalshi_settlement_hour_et(kalshi: Optional[Any]) -> Optional[int]:
+    if kalshi is None:
+        return None
+    try:
+        return kalshi.active_settlement_hour_et()
+    except Exception:
+        return None
+
+
 def _get_kalshi_provider():
     global _KALSHI_PROVIDER, _KALSHI_PROVIDER_INIT_DONE
     if _KALSHI_PROVIDER_INIT_DONE:
@@ -937,26 +946,21 @@ def _apply_kalshi_gate_size(signal: Optional[dict], size: int) -> int:
     if not isinstance(signal, dict):
         return size
 
-    # Only gate during hours with proven directional edge (12-4 PM ET)
-    # 10-11 AM excluded: crowd is contrarian at 39.5% accuracy
-    try:
-        et_now = datetime.datetime.now(ZoneInfo("America/New_York"))
-        if et_now.hour not in _KALSHI_GATING_HOURS_ET:
-            if isinstance(signal, dict):
-                signal["kalshi_gate_applied"] = False
-                if et_now.hour in (10, 11):
-                    signal["kalshi_gate_reason"] = "Morning hours — crowd unreliable, ML-only"
-                else:
-                    signal["kalshi_gate_reason"] = "Outside settlement hours"
-            return size
-    except Exception:
-        return size
-
     kalshi = _get_kalshi_provider()
     if kalshi is None or not getattr(kalshi, "enabled", False):
         if isinstance(signal, dict):
             signal["kalshi_gate_applied"] = False
             signal["kalshi_gate_reason"] = "Kalshi unavailable"
+        return size
+
+    settlement_hour = _active_kalshi_settlement_hour_et(kalshi)
+    if settlement_hour not in _KALSHI_GATING_HOURS_ET:
+        if isinstance(signal, dict):
+            signal["kalshi_gate_applied"] = False
+            if settlement_hour in (10, 11):
+                signal["kalshi_gate_reason"] = "Morning settlement window — crowd unreliable, ML-only"
+            else:
+                signal["kalshi_gate_reason"] = "Outside settlement hours"
         return size
 
     side = str(signal.get("side", "") or "").strip().upper()
@@ -3483,16 +3487,12 @@ def _check_kalshi_sentiment_exit(
     if minute > 2:
         return None
 
-    try:
-        et_now = datetime.datetime.now(ZoneInfo("America/New_York"))
-        # Only exit based on crowd during hours with proven accuracy
-        if et_now.hour not in _KALSHI_GATING_HOURS_ET:
-            return None
-    except Exception:
-        return None
-
     kalshi = _get_kalshi_provider()
     if kalshi is None or not getattr(kalshi, "enabled", False) or not getattr(kalshi, "is_healthy", False):
+        return None
+
+    settlement_hour = _active_kalshi_settlement_hour_et(kalshi)
+    if settlement_hour not in _KALSHI_GATING_HOURS_ET:
         return None
 
     side = str(trade.get("side", "") or "").upper()

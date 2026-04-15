@@ -128,15 +128,24 @@ class KalshiProvider:
     # 9:30 AM - 4 PM ET").  Hourly contracts settle at 10-16 ET.
     _SETTLEMENT_HOURS_ET = [10, 11, 12, 13, 14, 15, 16]
 
+    def active_settlement_hour_et(self, ref_time: Optional[datetime] = None, rollover_minute: int = 5) -> Optional[int]:
+        et = pytz.timezone("US/Eastern")
+        if ref_time is None:
+            now = datetime.now(et)
+        elif ref_time.tzinfo is None:
+            now = et.localize(ref_time)
+        else:
+            now = ref_time.astimezone(et)
+
+        for hour in self._SETTLEMENT_HOURS_ET:
+            if hour > now.hour or (hour == now.hour and now.minute < int(rollover_minute)):
+                return hour
+        return None
+
     def _current_event_ticker(self) -> str:
         et = pytz.timezone("US/Eastern")
         now = datetime.now(et)
-
-        next_hour = None
-        for hour in self._SETTLEMENT_HOURS_ET:
-            if hour > now.hour or (hour == now.hour and now.minute < 5):
-                next_hour = hour
-                break
+        next_hour = self.active_settlement_hour_et(now, rollover_minute=5)
         if next_hour is None:
             next_hour = self._SETTLEMENT_HOURS_ET[-1]
         return f"{self.series}-{now.strftime('%y%b%d').upper()}H{next_hour * 100}"

@@ -310,11 +310,19 @@ function etHourToLocalLabel(etHour: number): string {
 }
 
 /**
- * Get the current hour in ET for availability calculations.
+ * Get the current ET minute-of-day for availability calculations.
  */
-function currentETHour(): number {
-  const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  return nowET.getHours();
+function currentETMinuteOfDay(): number {
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(now);
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value || '0');
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value || '0');
+  return (hour * 60) + minute;
 }
 
 /**
@@ -342,7 +350,7 @@ function buildKalshiHourlyContracts(
   const activeHourMatch = eventTicker?.match(/H(\d+)$/);
   const activeHourCode = activeHourMatch ? parseInt(activeHourMatch[1], 10) : null;
 
-  const etHour = currentETHour();
+  const etMinuteOfDay = currentETMinuteOfDay();
 
   // Build a lookup of which hours have data from the backend backfill
   const renderableHours = new Set<number>();
@@ -360,8 +368,8 @@ function buildKalshiHourlyContracts(
     const ticker = tickerPrefix ? `${tickerPrefix}H${hourCode}` : `H${hourCode}`;
     const isActive = activeHourCode === hourCode;
 
-    // Contract is settled once the ET hour has passed
-    const isSettled = etHour >= hour;
+    // The backend rolls to the next contract at :05 after settlement.
+    const isSettled = etMinuteOfDay >= ((hour * 60) + 5);
     // Contract has data from Kalshi (renderable) — never show as "NOT YET"
     const hasData = renderableHours.has(hour) || isActive;
     // Available = not settled, or has data and not settled

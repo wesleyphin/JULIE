@@ -210,17 +210,22 @@ _KALSHI_SETTLEMENT_HOURS_ET = [10, 11, 12, 13, 14, 15, 16]
 _KALSHI_GATING_HOURS_ET = [12, 13, 14, 15, 16]
 
 
-def _kalshi_trade_gating_status() -> tuple[bool, Optional[int]]:
-    """Determine if trade gating should be active based on current ET hour.
+def _kalshi_trade_gating_status(provider: Optional[KalshiProvider] = None) -> tuple[bool, Optional[int]]:
+    """Determine if trade gating should be active for the active settlement contract.
 
-    Trade gating (3x sizing) activates 12-4 PM ET where backtest shows
-    70% crowd directional accuracy at 60%+ confidence.  10-11 AM ET is
-    observe-only because the crowd is contrarian (39.5% accuracy).
+    Trade gating (3x sizing) activates for contracts settling 12-4 PM ET
+    where backtest shows 70% crowd directional accuracy at 60%+ confidence.
+    10-11 AM settlement contracts are observe-only because the crowd is
+    contrarian (39.5% accuracy).
     """
-    now_et = datetime.now(NY_TZ)
-    current_hour = now_et.hour
-    if current_hour in _KALSHI_GATING_HOURS_ET:
-        return True, current_hour
+    settlement_hour = None
+    if provider is not None:
+        try:
+            settlement_hour = provider.active_settlement_hour_et()
+        except Exception:
+            settlement_hour = None
+    if settlement_hour in _KALSHI_GATING_HOURS_ET:
+        return True, settlement_hour
     return False, None
 
 
@@ -269,11 +274,11 @@ async def _kalshi_snapshot_loop(path: Path, interval_seconds: float = 10.0) -> N
         ui_reference_prices = [ref for ref in (price, target_price) if ref is not None]
         strikes = provider.get_relative_markets_for_ui(ui_reference_prices, window_size=30)
 
-        trade_gating_active, trade_gating_hour = _kalshi_trade_gating_status()
+        active_settlement_hour = provider.active_settlement_hour_et() if provider is not None else None
+        trade_gating_active, trade_gating_hour = _kalshi_trade_gating_status(provider)
 
         # When trade gating is active, Kalshi influences trade decisions
         # with 3x sizing; otherwise it is observe-only for the dashboard.
-        now_hour = now_et.hour
         if trade_gating_active:
             observer_only = False
             status_label = "Trade gating (3x)"
@@ -281,11 +286,12 @@ async def _kalshi_snapshot_loop(path: Path, interval_seconds: float = 10.0) -> N
                 f"Kalshi is actively gating trades with 3x sizing for the "
                 f"{trade_gating_hour}:00 ET settlement window (70% accuracy at 60%+ confidence)."
             )
-        elif now_hour in (10, 11):
+        elif active_settlement_hour in (10, 11):
             observer_only = True
             status_label = "Observe only (morning)"
             status_reason = (
-                f"Kalshi data is live but not gating trades at {now_hour}:00 ET. "
+                f"Kalshi data is live but not gating trades for the "
+                f"{active_settlement_hour}:00 ET settlement window. "
                 "Backtest shows crowd is contrarian in morning hours (39.5% accuracy). "
                 "Trade gating activates at 12 PM ET."
             )
