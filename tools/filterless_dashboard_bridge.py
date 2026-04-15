@@ -664,6 +664,7 @@ def update_state(
             "strikes": strikes if isinstance(strikes, list) else [],
         }
         return dashboard
+) -> Dict[str, Any]:
     dashboard["kalshi_metrics"] = build_kalshi_metrics_from_snapshot(kalshi_snapshot)
     return dashboard
 
@@ -1666,6 +1667,7 @@ def build_dashboard_state(
         kalshi_snapshot=kalshi_snapshot,
         kalshi_provider=kalshi_provider,
     )
+    update_state(dashboard, kalshi_snapshot=kalshi_snapshot)
     dashboard["bot"]["risk"]["daily_pnl"] = compute_session_realized_pnl(
         dashboard["trades"],
         trading_day_start_dt,
