@@ -1741,9 +1741,13 @@ def build_dashboard_state(
         kalshi_snapshot=kalshi_snapshot,
         kalshi_provider=kalshi_provider,
     )
-    dashboard["bot"]["risk"]["daily_pnl"] = compute_session_realized_pnl(
+    circuit_daily_pnl = safe_float(dashboard["bot"]["risk"].get("daily_pnl"))
+    trade_daily_pnl = compute_session_realized_pnl(
         dashboard["trades"],
         trading_day_start_dt,
+    )
+    dashboard["bot"]["risk"]["daily_pnl"] = (
+        circuit_daily_pnl if circuit_daily_pnl is not None else trade_daily_pnl
     )
     return finalize_dashboard(dashboard)
 
