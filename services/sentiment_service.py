@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import html
 import logging
-import os
 import re
 import threading
 import urllib.request
@@ -16,10 +15,6 @@ from typing import Any, Dict, Iterable, Optional
 
 from config import CONFIG
 from event_logger import event_logger
-try:
-    from config_secrets import SECRETS as CONFIG_SECRETS
-except Exception:
-    CONFIG_SECRETS = {}
 
 
 logger = logging.getLogger("truth_social_sentiment")
@@ -67,9 +62,6 @@ def _clean_post_text(value: Any) -> str:
     text = WHITESPACE_RE.sub(" ", text).strip()
     return text
 
-
-def _secret_value(secret_key: str, env_name: str) -> str:
-    return str(CONFIG_SECRETS.get(secret_key, "") or os.environ.get(env_name, "") or "").strip()
 
 
 @dataclass
@@ -201,8 +193,8 @@ class TruthSocialSentimentService:
         return get_sentiment_state()
 
     def _mark_error(self, message: str, *, active: bool = False) -> None:
-        logger.warning("Truth Social sentiment service: %s", message)
-        normalized_message = self._normalize_truthbrush_error(message)
+        logger.warning("Sentiment service: %s", message)
+        normalized_message = str(message or "").strip() or "Sentiment polling failed."
         backoff_seconds = self._error_backoff_seconds(normalized_message)
         if backoff_seconds > 0:
             self._poll_backoff_until = _utc_now() + timedelta(seconds=backoff_seconds)
@@ -222,65 +214,11 @@ class TruthSocialSentimentService:
             },
         )
 
-    def _normalize_truthbrush_error(self, error: Any) -> str:
-        message = str(error or "").strip() or "Truth Social sentiment polling failed."
-        lowered = message.lower()
-        if "argument of type 'nonetype' is not iterable" in lowered:
-            return (
-                "Truth Social returned an empty or HTML response (Cloudflare access/rate-limit block). "
-                "Polling will resume after backoff."
-            )
-        if "'nonetype' object is not subscriptable" in lowered:
-            return (
-                "Truth Social returned an empty or HTML response (Cloudflare access/rate-limit block). "
-                "Polling will resume after backoff."
-            )
-        if "1015" in lowered or "rate limit" in lowered or "rate limited" in lowered:
-            return "Truth Social access is currently rate limited by Cloudflare (Error 1015)."
-        if "cloudflare" in lowered or "cf-error" in lowered:
-            return "Truth Social access is currently blocked by Cloudflare for this client."
-        if any(p in lowered for p in (
-            "expecting value", "jsondecodeerror", "json.decoder",
-            "json decode", "invalid json", "unterminated string",
-        )):
-            return (
-                "Truth Social returned a non-JSON response (likely Cloudflare block). "
-                "Polling will resume after backoff."
-            )
-        if any(p in lowered for p in ("<!doctype", "<html", "<head")):
-            return (
-                "Truth Social returned an HTML error page (likely Cloudflare block). "
-                "Polling will resume after backoff."
-            )
-        return message
-
     def _error_backoff_seconds(self, message: str) -> int:
         lowered = str(message or "").lower()
-        if any(p in lowered for p in (
-            "cloudflare", "rate limit", "rate limited",
-            "non-json response", "html error page",
-            "empty or html response", "polling will resume",
-        )):
-            return max(self.poll_interval * 10, 300)
+        if any(p in lowered for p in ("rss feed error", "timeout", "urlerror", "urlopen")):
+            return max(self.poll_interval * 5, 120)
         return 0
-
-    def _ensure_truthbrush_api(self):
-        if self._api is not None:
-            return self._api
-        try:
-            from truthbrush import Api
-        except Exception as exc:
-            raise RuntimeError(f"truthbrush import failed: {exc}") from exc
-
-        username = _secret_value("TRUTHSOCIAL_USERNAME", "TRUTHSOCIAL_USERNAME")
-        password = _secret_value("TRUTHSOCIAL_PASSWORD", "TRUTHSOCIAL_PASSWORD")
-        token = _secret_value("TRUTHSOCIAL_TOKEN", "TRUTHSOCIAL_TOKEN")
-        if not token and (not username or not password):
-            raise RuntimeError(
-                "Truth Social credentials missing. Add TRUTHSOCIAL_TOKEN or TRUTHSOCIAL_USERNAME/TRUTHSOCIAL_PASSWORD to config_secrets.py or the environment."
-            )
-        self._api = Api(username=username, password=password, token=token)
-        return self._api
 
     def _ensure_model(self) -> None:
         if self._model is not None and self._tokenizer is not None and self._torch is not None:
