@@ -9,8 +9,5 @@ SECRETS = {
     "GEMINI_API_KEY": os.environ.get("GEMINI_API_KEY", ""),
     "KALSHI_KEY_ID": os.environ.get("KALSHI_KEY_ID", "your-key-id-here"),
     "KALSHI_PRIVATE_KEY_PATH": os.environ.get("KALSHI_PRIVATE_KEY_PATH", "path/to/your/kalshi_key.pem"),
-    "TRUTHSOCIAL_TOKEN": os.environ.get("TRUTHSOCIAL_TOKEN", ""),
-    "TRUTHSOCIAL_USERNAME": os.environ.get("TRUTHSOCIAL_USERNAME", ""),
-    "TRUTHSOCIAL_PASSWORD": os.environ.get("TRUTHSOCIAL_PASSWORD", ""),
     "TRUTHSOCIAL_TARGET_HANDLE": os.environ.get("TRUTHSOCIAL_TARGET_HANDLE", "realDonaldTrump"),
 }
