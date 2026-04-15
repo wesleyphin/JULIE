@@ -80,7 +80,7 @@ class SentimentState:
     model_loaded: bool = False
     quantized_8bit: bool = False
     target_handle: Optional[str] = None
-    source: str = "truthbrush_finbert"
+    source: str = "rss_finbert"
     last_poll_at: Optional[str] = None
     last_analysis_at: Optional[str] = None
     latest_post_id: Optional[str] = None
@@ -608,7 +608,7 @@ class TruthSocialSentimentService:
 
         return latest_snapshot
 
-    async def run_forever(self) -> None:
+    async def run_forever(self, on_poll_complete=None) -> None:
         update_sentiment_state(
             enabled=self.enabled,
             active=bool(self.enabled),
@@ -623,6 +623,11 @@ class TruthSocialSentimentService:
                 raise
             except Exception as exc:
                 self._mark_error(str(exc), active=True)
+            if on_poll_complete is not None:
+                try:
+                    on_poll_complete()
+                except Exception:
+                    pass
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=self.poll_interval)
             except asyncio.TimeoutError:

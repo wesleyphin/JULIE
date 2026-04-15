@@ -6323,7 +6323,11 @@ async def run_bot():
     position_sync = asyncio.create_task(position_sync_task(client, interval=30))
     sentiment_updater = None
     if sentiment_service is not None and getattr(sentiment_service, "enabled", False):
-        sentiment_updater = asyncio.create_task(sentiment_monitor_task(sentiment_service))
+        def _persist_after_sentiment_poll():
+            persist_runtime_state(reason="sentiment_poll")
+        sentiment_updater = asyncio.create_task(
+            sentiment_monitor_task(sentiment_service, on_poll_complete=_persist_after_sentiment_poll)
+        )
 
     # NEW: Background HTF Updater
     # This keeps your FVG memory fresh without pausing the bot
