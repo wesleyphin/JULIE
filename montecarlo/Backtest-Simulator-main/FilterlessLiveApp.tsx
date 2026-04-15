@@ -275,30 +275,37 @@ function formatHourLabel(hour: number): string {
 }
 
 /**
- * Convert an ET hour to the user's local timezone hour for display.
- * Returns a formatted label like "7 AM", "1 PM" etc. in local time.
+ * Convert an ET hour (0-23) to a label in the user's local timezone.
+ *
+ * Approach: find today's date in ET, build an ISO string for that date at
+ * the target ET hour, then format the resulting Date in the browser's local
+ * timezone.  This handles DST correctly because we derive the ET date string
+ * from the Intl API and parse it back through a timezone-aware path.
  */
 function etHourToLocalLabel(etHour: number): string {
-  // Create a date at the given ET hour today
+  // Step 1: Get today's date components in ET
   const now = new Date();
-  const etDateStr = now.toLocaleDateString('en-US', { timeZone: 'America/New_York' });
-  const etDate = new Date(`${etDateStr} ${etHour}:00:00`);
-  // Get the ET offset vs UTC and local offset vs UTC to compute the shift
-  const etFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: true });
-  // Use a simpler approach: create a Date at that ET hour and format in local tz
-  const utcMs = etDate.getTime();
-  // etDate was parsed in local tz, we need to shift it to actually represent ET
-  const localOffsetMs = etDate.getTimezoneOffset() * 60_000;
-  const etOffsetMs = getTimezoneOffsetMs('America/New_York');
-  const corrected = new Date(utcMs + localOffsetMs - etOffsetMs);
-  return corrected.toLocaleTimeString([], { hour: 'numeric', hour12: true });
-}
+  const etParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(now);
+  const yy = etParts.find((p) => p.type === 'year')!.value;
+  const mm = etParts.find((p) => p.type === 'month')!.value;
+  const dd = etParts.find((p) => p.type === 'day')!.value;
 
-function getTimezoneOffsetMs(tz: string): number {
-  const now = new Date();
-  const utcStr = now.toLocaleString('en-US', { timeZone: 'UTC' });
-  const tzStr = now.toLocaleString('en-US', { timeZone: tz });
-  return new Date(tzStr).getTime() - new Date(utcStr).getTime();
+  // Step 2: Compute ET's current UTC offset by comparing two renderings of "now"
+  const utcMs = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' })).getTime();
+  const etMs = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' })).getTime();
+  const etOffsetHours = Math.round((etMs - utcMs) / 3_600_000); // e.g. -4 (EDT) or -5 (EST)
+
+  // Step 3: Build a UTC timestamp for "today at etHour:00 ET"
+  const utcHour = etHour - etOffsetHours;
+  const target = new Date(`${yy}-${mm}-${dd}T${String(utcHour).padStart(2, '0')}:00:00Z`);
+
+  // Step 4: Format in the browser's local timezone
+  return target.toLocaleTimeString([], { hour: 'numeric', hour12: true });
 }
 
 /**
