@@ -19,6 +19,7 @@ def empty_sentiment_state() -> Dict[str, Any]:
         "model_loaded": False,
         "quantized_8bit": False,
         "target_handle": None,
+        "source": None,
         "last_poll_at": None,
         "last_analysis_at": None,
         "latest_post_id": None,
@@ -31,6 +32,7 @@ def empty_sentiment_state() -> Dict[str, Any]:
         "trigger_side": None,
         "trigger_reason": None,
         "last_error": None,
+        "metadata": {},
     }
 
 

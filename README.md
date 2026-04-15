@@ -6,6 +6,9 @@ This document explains the current Julie bot from a technical perspective:
 - how the runtime is structured
 - how market data becomes orders
 - how the active strategy engines work
+- how the Truth Social sentiment stack and emergency exits fit into live trading
+- how the Kalshi gate interacts with execution and dashboard visibility
+- how to bootstrap the local workspace, FinBERT, and Truth Social dependencies
 - what the important artifacts and files are
 
 It is intentionally focused on the current filterless live stack, because that
@@ -18,12 +21,13 @@ Gateway. The codebase contains legacy strategies, research tooling, and many
 historical experiments, but the current live architecture is centered on a
 filterless execution stack.
 
-In the current live mode, Julie trades a compact roster of four engines:
+In the current live mode, Julie trades a compact roster of five engines:
 
 - DynamicEngine3
 - RegimeAdaptive
 - MLPhysics
 - AetherFlow
+- TruthSocial
 
 The design goal is not "no controls." Filterless means the bot avoids the older
 external strategy-filter stack and instead relies more directly on each active
@@ -34,6 +38,8 @@ At runtime, Julie combines:
 - REST market/history access through ProjectX
 - a ProjectX user stream for live account / position / trade updates
 - a per-bar strategy evaluation loop
+- an asynchronous Truth Social polling and FinBERT inference service
+- Kalshi crowd-probability gating during active settlement windows
 - structured logging and persisted state
 - a local dashboard bridge that turns bot state and logs into frontend JSON
 
@@ -73,6 +79,8 @@ It also:
 It handles:
 
 - Python interpreter discovery
+- workspace dependency bootstrap
+- local FinBERT bootstrap
 - stale-process cleanup
 - singleton locking at the workspace level
 - starting the bot
@@ -97,12 +105,15 @@ At a high level, the live stack looks like this:
                        v
                     julie001.py
                        |
-    -------------------------------------------------
-    |                  |               |             |
-    v                  v               v             v
-  DE3 v4        RegimeAdaptive     MLPhysics    AetherFlow
-    |                  |               |             |
-    ---------------- signal candidates --------------
+    --------------------------------------------------------------------
+    |                  |               |             |                  |
+    v                  v               v             v                  v
+  DE3 v4        RegimeAdaptive     MLPhysics    AetherFlow       TruthSocial
+    |                  |               |             |                  |
+    ------------------------- signal candidates -------------------------
+                       |
+                       v
+     emergency exits + Kalshi crowd veto / sizing overlay
                        |
                        v
             execution / sizing / bracket logic
@@ -118,6 +129,10 @@ At a high level, the live stack looks like this:
                        |
                        v
       filterless_live_state.json for the frontend
+
+ Truth Social polling path (runs asynchronously beside the bar loop):
+
+   truthbrush -> services/sentiment_service.py -> bot_state.json -> dashboard/UI
 ```
 
 The most important runtime files are:
@@ -128,6 +143,8 @@ The most important runtime files are:
 - `event_logger.py`: structured event logging
 - `bot_state.py`: persisted runtime state
 - `process_singleton.py`: process locks
+- `services/sentiment_service.py`: Truth Social polling + FinBERT inference
+- `truth_social_engine.py`: impulse engine driven by sentiment state
 - `tools/filterless_dashboard_bridge.py`: dashboard JSON builder
 
 ## 4. What Filterless Changes
@@ -143,6 +160,7 @@ The live roster is narrowed to:
 - RegimeAdaptive
 - MLPhysics
 - AetherFlow
+- TruthSocial
 
 Older modules like VIX, MNQ-dependent logic, and the broader legacy strategy
 mix are not part of the filterless live execution path.
@@ -178,7 +196,7 @@ At startup, the bot:
 2. selects the account
 3. resolves the active contract symbol and contract ID
 4. starts the ProjectX user stream
-5. loads strategy engines and artifacts
+5. loads strategy engines, the sentiment runtime, and model artifacts
 6. pulls historical bars for warmup
 7. restores persisted state
 8. enters the live loop
@@ -203,9 +221,11 @@ Once running, the bot repeatedly:
 1. fetches or updates market data
 2. identifies whether a new bar has formed
 3. updates session and risk context
-4. asks each active strategy whether it has a candidate
-5. evaluates candidate priority
-6. sends valid candidates to execution
+4. checks circuit-breaker style exits, including Truth Social emergency exits
+5. asks each active strategy whether it has a candidate
+6. evaluates candidate priority
+7. applies live crowd gating / sizing overlays
+8. sends valid candidates to execution
 
 In filterless mode, the external strategy filter chain is removed, but the bot
 still performs:
@@ -263,6 +283,146 @@ The trading day is anchored at 18:00 ET, not midnight. That matters for:
 - context keys used by RegimeAdaptive and DE3
 
 `bot_state.py` exposes `trading_day_start()` specifically for this reason.
+
+## 6A. Truth Social Sentiment and Emergency Exits
+
+Truth Social is now a first-class live engine in the filterless stack.
+
+The implementation is split into two parts:
+
+- `services/sentiment_service.py`: asynchronous polling, FinBERT inference, and shared state updates
+- `truth_social_engine.py`: strategy wrapper that converts fresh high-conviction posts into live candidates
+
+### 6A.1 Runtime model
+
+The sentiment monitor runs outside the main per-bar loop. That matters because
+it prevents Truth Social polling or model inference from stalling live market
+processing.
+
+The service is intentionally lazy:
+
+- truthbrush is only touched when the sentiment service is enabled
+- FinBERT only loads when the service actually needs to classify a post
+- the service writes a normalized `sentiment` block into `bot_state.json`
+
+This keeps the baseline filterless bot startup lighter while still letting the
+dashboard and trading loop read a shared truth-social snapshot.
+
+### 6A.2 FinBERT loading and quantization
+
+Julie prefers a local FinBERT snapshot under `./models/finbert`.
+
+The loader now uses a platform-aware fallback chain:
+
+1. `bitsandbytes` 8-bit loading where the runtime supports it
+2. dynamic int8 quantization through PyTorch when `bitsandbytes` is not viable
+3. standard precision only as the final fallback
+
+This is important on local 16 GB machines because it reduces memory pressure
+without making the live bot depend on one GPU-specific path.
+
+### 6A.3 Signal semantics
+
+Truth Social uses the latest analyzed post to compute:
+
+- `sentiment_score` in the `[-1.0, 1.0]` range
+- `finbert_confidence`
+- `trigger_side`
+- `trigger_reason`
+
+When the score exceeds `SENTIMENT_PUMP_THRESHOLD`, the engine emits a `LONG`
+candidate. When it drops below the negative threshold, it emits a `SHORT`
+candidate. The live payload also carries the post URL, text, and model
+confidence for operator visibility.
+
+### 6A.4 Emergency exit behavior
+
+Truth Social is also wired in as a circuit-breaker style veto against an
+already-open trade.
+
+Before normal strategy evaluation proceeds, `julie001.py` checks the fresh
+sentiment snapshot against the current shadow position:
+
+- if Julie is `LONG` and sentiment flips below `EMERGENCY_EXIT_THRESHOLD`, the bot flattens immediately
+- if Julie is `SHORT` and sentiment flips hard positive, the bot also flattens immediately
+
+That emergency flatten path bypasses the normal SL/TP wait logic. It cancels
+resting orders and sends a direct close order through `client.py`.
+
+## 6B. Kalshi Crowd Gating and Dashboard Semantics
+
+Kalshi is not just a passive dashboard add-on. In the current filterless stack
+it does three separate jobs:
+
+- crowd-based trade veto / sizing assistance
+- open-position probability mapping against the active TP contract
+- UI context for the current hourly settlement ladder
+
+### 6B.1 Hour alignment
+
+Kalshi hourly contracts roll on a `:05` boundary after each settlement hour.
+The bot, bridge, and frontend now share the same active-hour calculation so the
+dashboard does not drift one hour behind the actual gated contract.
+
+### 6B.2 Hard-veto behavior
+
+The gate is not purely cosmetic. During active settlement windows, extreme
+contradictory probabilities hard-block trades even when the broader Kalshi
+veto mode is otherwise soft.
+
+That specifically protects against trades that try to fire with crowd odds such
+as a `1%` probability against the intended path.
+
+### 6B.3 UI probability semantics
+
+The filterless dashboard converts the display side to match the open position:
+
+- longs display the relevant `YES` path
+- shorts display the relevant `NO` path
+
+The strike ladder still anchors itself in the SPX contract space that Kalshi
+quotes, but the operator-facing reference price is converted back into ES so it
+matches the futures position the bot is actually managing.
+
+## 6C. Local Setup and Bootstrap
+
+The supported local bootstrap path is now:
+
+1. run `LaunchFilterlessWorkspace.bat` or `Rose.bat`
+2. let `setup_topstep2.ps1` create or refresh `.venv`
+3. install `requirements.txt`
+4. download or verify the local FinBERT snapshot
+5. run import + FinBERT smoke checks
+
+### 6C.1 What the bootstrap now installs
+
+The workspace setup path now verifies:
+
+- `truthbrush`
+- `transformers`
+- `torch`
+- `accelerate`
+- the local `./models/finbert` snapshot
+
+`bitsandbytes` remains optional and platform-specific. On platforms where it is
+not available, Julie falls back to dynamic int8 quantization or standard
+precision so setup does not fail just because one acceleration path is missing.
+
+### 6C.2 Truth Social credentials
+
+truthbrush requires live Truth Social credentials. Julie looks for them in the
+environment, and truthbrush itself also loads `.env`.
+
+The repo now includes `.env.example` with the expected keys:
+
+- `TRUTHSOCIAL_TOKEN`
+- `TRUTHSOCIAL_USERNAME`
+- `TRUTHSOCIAL_PASSWORD`
+- `TRUTHSOCIAL_TARGET_HANDLE`
+
+If those credentials are not present, the sentiment runtime can still install
+and the local FinBERT smoke test can still pass, but live Truth Social polling
+will remain blocked until credentials are provided.
 
 ## 7. DynamicEngine3
 

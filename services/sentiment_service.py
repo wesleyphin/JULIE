@@ -153,6 +153,7 @@ class TruthSocialSentimentService:
         self._model = None
         self._torch = None
         self._quantized_8bit = False
+        self._quantization_mode = "none"
         self._stop_event = asyncio.Event()
         self._seen_post_ids: set[str] = set()
         self._seen_post_order: list[str] = []
@@ -168,6 +169,7 @@ class TruthSocialSentimentService:
             target_handle=self.target_handle,
             source="truthbrush_finbert",
             last_error=None,
+            metadata={"quantization_mode": self._quantization_mode},
         )
 
     def stop(self) -> None:
@@ -187,6 +189,7 @@ class TruthSocialSentimentService:
             target_handle=self.target_handle,
             last_poll_at=_iso_or_none(_utc_now()),
             last_error=str(message),
+            metadata={"quantization_mode": self._quantization_mode},
         )
 
     def _ensure_truthbrush_api(self):
@@ -223,6 +226,7 @@ class TruthSocialSentimentService:
         tokenizer = AutoTokenizer.from_pretrained(model_source, local_files_only=local_files_only)
 
         quantized_8bit = False
+        quantization_mode = "fp32"
         model = None
         try:
             from transformers import BitsAndBytesConfig
@@ -236,23 +240,41 @@ class TruthSocialSentimentService:
                 low_cpu_mem_usage=True,
             )
             quantized_8bit = True
+            quantization_mode = "bitsandbytes_8bit"
         except Exception as quant_exc:
             logger.warning("FinBERT 8-bit load failed, using standard precision fallback: %s", quant_exc)
             model = AutoModelForSequenceClassification.from_pretrained(
                 model_source,
                 local_files_only=local_files_only,
             )
+            try:
+                supported_engines = list(getattr(torch.backends.quantized, "supported_engines", []) or [])
+                if getattr(torch.backends.quantized, "engine", "none") == "none" and "qnnpack" in supported_engines:
+                    torch.backends.quantized.engine = "qnnpack"
+                quantize_dynamic = getattr(getattr(torch, "quantization", None), "quantize_dynamic", None)
+                if quantize_dynamic is None:
+                    quantize_dynamic = getattr(getattr(getattr(torch, "ao", None), "quantization", None), "quantize_dynamic", None)
+                if callable(quantize_dynamic):
+                    model = quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8)
+                    quantized_8bit = True
+                    quantization_mode = "dynamic_int8"
+            except Exception as dynamic_exc:
+                logger.warning("FinBERT dynamic int8 fallback failed, staying in standard precision: %s", dynamic_exc)
 
         model.eval()
         self._torch = torch
         self._tokenizer = tokenizer
         self._model = model
         self._quantized_8bit = bool(quantized_8bit)
+        self._quantization_mode = str(quantization_mode or "fp32")
         update_sentiment_state(
             model_loaded=True,
             quantized_8bit=self._quantized_8bit,
             last_error=None,
-            metadata={"model_source": model_source},
+            metadata={
+                "model_source": model_source,
+                "quantization_mode": self._quantization_mode,
+            },
         )
 
     def _post_url(self, post: Dict[str, Any]) -> Optional[str]:
@@ -420,6 +442,7 @@ class TruthSocialSentimentService:
                         if Path(self.finbert_local_path).exists()
                         else "ProsusAI/finbert"
                     ),
+                    "quantization_mode": self._quantization_mode,
                     **dict(analysis.get("probabilities") or {}),
                 },
             )

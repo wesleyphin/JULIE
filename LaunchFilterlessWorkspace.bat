@@ -3,7 +3,12 @@ setlocal EnableDelayedExpansion
 
 cd /d "%~dp0"
 
-if not exist ".venv\Scripts\python.exe" if exist "%~dp0setup_topstep2.ps1" (
+set "FILTERLESS_SETUP_NEEDED=0"
+if not exist ".venv\Scripts\python.exe" set "FILTERLESS_SETUP_NEEDED=1"
+if "!FILTERLESS_SETUP_NEEDED!"=="0" call :check_sentiment_runtime "%~dp0.venv\Scripts\python.exe"
+
+if "!FILTERLESS_SETUP_NEEDED!"=="1" if exist "%~dp0setup_topstep2.ps1" (
+    echo Bootstrapping workspace dependencies and Truth Social runtime...
     powershell -ExecutionPolicy Bypass -File "%~dp0setup_topstep2.ps1"
 )
 
@@ -56,4 +61,22 @@ if not exist "%FILTERLESS_CANDIDATE%" goto :eof
 "%FILTERLESS_CANDIDATE%" -V >nul 2>nul
 if errorlevel 1 goto :eof
 set "FILTERLESS_LAUNCH_PYTHON=%FILTERLESS_CANDIDATE%"
+goto :eof
+
+:check_sentiment_runtime
+set "FILTERLESS_RUNTIME_PY=%~1"
+if not defined FILTERLESS_RUNTIME_PY (
+    set "FILTERLESS_SETUP_NEEDED=1"
+    goto :eof
+)
+if not exist "%FILTERLESS_RUNTIME_PY%" (
+    set "FILTERLESS_SETUP_NEEDED=1"
+    goto :eof
+)
+if not exist "%~dp0models\finbert\config.json" (
+    set "FILTERLESS_SETUP_NEEDED=1"
+    goto :eof
+)
+"%FILTERLESS_RUNTIME_PY%" -c "import importlib.util, sys; mods=['truthbrush','transformers','torch','accelerate']; missing=[m for m in mods if importlib.util.find_spec(m) is None]; sys.exit(1 if missing else 0)" >nul 2>nul
+if errorlevel 1 set "FILTERLESS_SETUP_NEEDED=1"
 goto :eof

@@ -837,7 +837,7 @@ function FilterlessLiveApp() {
             <Radar className="w-6 h-6 text-white" />
             <div>
               <h1 className="text-xl font-bold tracking-tight">Filterless Live Desk</h1>
-              <p className="text-xs text-neutral-500">Truth Social, Dynamic Engine 3, RegimeAdaptive, ML Physics, AetherFlow</p>
+              <p className="text-xs text-neutral-500">Dynamic Engine 3, RegimeAdaptive, ML Physics, AetherFlow, Truth Social</p>
             </div>
           </div>
           <div className="flex items-center gap-4 text-sm">
@@ -913,7 +913,7 @@ function FilterlessLiveApp() {
 
         {/* System Pulse removed — Kalshi hourly contracts provide more actionable context */}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
           {displayStrategies.map((strategy) => (
             <StrategyCard key={strategy.id} strategy={strategy} />
           ))}
@@ -928,16 +928,16 @@ function FilterlessLiveApp() {
                   ? 'blocked'
                   : sentimentMetrics.trigger_side
                     ? 'candidate'
-                    : sentimentMetrics.healthy
+                    : sentimentMetrics.enabled
                       ? 'ready'
-                      : 'stale',
+                      : 'idle',
               )}`}>
                 {sentimentMetrics.last_error
                   ? 'Issue'
                   : sentimentMetrics.trigger_side
                     ? `${sentimentMetrics.trigger_side} Armed`
-                    : sentimentMetrics.healthy
-                      ? 'Watching'
+                    : sentimentMetrics.enabled
+                      ? 'Ready'
                       : 'Idle'}
               </span>
             }

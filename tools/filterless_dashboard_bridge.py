@@ -47,7 +47,7 @@ MES_ROUND_TURN_FEE = round(
     2,
 )
 
-STRATEGY_ORDER = ["truth_social", "dynamic_engine3", "regime_adaptive", "ml_physics", "aetherflow"]
+STRATEGY_ORDER = ["dynamic_engine3", "regime_adaptive", "ml_physics", "aetherflow", "truth_social"]
 STRATEGY_LABELS = {
     "truth_social": "Truth Social",
     "dynamic_engine3": "Dynamic Engine 3",
@@ -60,6 +60,15 @@ FILTERLESS_LIVE_DISABLED_STRATEGIES = {
     for value in (CONFIG.get("FILTERLESS_LIVE_DISABLED_STRATEGIES", []) or [])
     if str(value).strip()
 }
+TRUTH_SOCIAL_CONFIG = dict(CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {})
+TRUTH_SOCIAL_FILTERLESS_DISABLED = "truth_social" in FILTERLESS_LIVE_DISABLED_STRATEGIES
+TRUTH_SOCIAL_ENABLED = bool(TRUTH_SOCIAL_CONFIG.get("enabled", False)) and not TRUTH_SOCIAL_FILTERLESS_DISABLED
+TRUTH_SOCIAL_TARGET_HANDLE = str(
+    TRUTH_SOCIAL_CONFIG.get("target_handle", "realDonaldTrump") or "realDonaldTrump"
+).lstrip("@")
+TRUTH_SOCIAL_FINBERT_LOCAL_PATH = str(
+    TRUTH_SOCIAL_CONFIG.get("finbert_local_path", "./models/finbert") or "./models/finbert"
+)
 
 LOG_PREFIX_RE = re.compile(
     r"^(?P<logged_at>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) \[(?P<level>[^\]]+)\] (?P<message>.*)$"
@@ -216,6 +225,47 @@ def strategy_state_template(strategy_id: str) -> Dict[str, Any]:
         "current_session": None,
         "vol_regime": None,
     }
+
+
+def default_sentiment_metrics() -> Optional[Dict[str, Any]]:
+    if not TRUTH_SOCIAL_ENABLED:
+        return None
+    return {
+        "enabled": True,
+        "active": False,
+        "healthy": False,
+        "model_loaded": False,
+        "quantized_8bit": False,
+        "target_handle": TRUTH_SOCIAL_TARGET_HANDLE,
+        "source": "truthbrush_finbert",
+        "last_poll_at": None,
+        "last_analysis_at": None,
+        "latest_post_id": None,
+        "latest_post_created_at": None,
+        "latest_post_url": None,
+        "latest_post_text": None,
+        "sentiment_label": None,
+        "sentiment_score": None,
+        "finbert_confidence": None,
+        "trigger_side": None,
+        "trigger_reason": None,
+        "last_error": None,
+        "metadata": {
+            "finbert_local_path": TRUTH_SOCIAL_FINBERT_LOCAL_PATH,
+        },
+    }
+
+
+def truth_social_dashboard_status(snapshot: Optional[Dict[str, Any]]) -> str:
+    if not TRUTH_SOCIAL_ENABLED:
+        return "disabled"
+    if not isinstance(snapshot, dict):
+        return "ready"
+    if snapshot.get("last_error"):
+        return "blocked"
+    if snapshot.get("trigger_side"):
+        return "candidate"
+    return "ready"
 
 
 def disabled_strategy_message(strategy_id: str) -> str:
@@ -592,21 +642,28 @@ def build_empty_state(log_path: Path, state_path: Path, trade_factors_path: Path
         "events": [],
         "trades": [],
         "kalshi_metrics": None,
-        "sentiment_metrics": None,
+        "sentiment_metrics": default_sentiment_metrics(),
     }
 
 
 def build_sentiment_metrics_from_snapshot(snapshot: Any) -> Optional[Dict[str, Any]]:
+    base = default_sentiment_metrics()
     if not isinstance(snapshot, dict):
-        return None
+        return dict(base) if isinstance(base, dict) else None
+    base_metadata = dict((base or {}).get("metadata") or {})
+    snapshot_metadata = snapshot.get("metadata")
+    if isinstance(snapshot_metadata, dict):
+        base_metadata.update(snapshot_metadata)
+    else:
+        base_metadata.update(parse_json_object(snapshot_metadata))
     return {
-        "enabled": bool(snapshot.get("enabled", False)),
-        "active": bool(snapshot.get("active", False)),
-        "healthy": bool(snapshot.get("healthy", False)),
-        "model_loaded": bool(snapshot.get("model_loaded", False)),
-        "quantized_8bit": bool(snapshot.get("quantized_8bit", False)),
-        "target_handle": snapshot.get("target_handle"),
-        "source": snapshot.get("source"),
+        "enabled": bool(snapshot.get("enabled", (base or {}).get("enabled", False))),
+        "active": bool(snapshot.get("active", (base or {}).get("active", False))),
+        "healthy": bool(snapshot.get("healthy", (base or {}).get("healthy", False))),
+        "model_loaded": bool(snapshot.get("model_loaded", (base or {}).get("model_loaded", False))),
+        "quantized_8bit": bool(snapshot.get("quantized_8bit", (base or {}).get("quantized_8bit", False))),
+        "target_handle": snapshot.get("target_handle") or (base or {}).get("target_handle"),
+        "source": snapshot.get("source") or (base or {}).get("source"),
         "last_poll_at": snapshot.get("last_poll_at"),
         "last_analysis_at": snapshot.get("last_analysis_at"),
         "latest_post_id": snapshot.get("latest_post_id"),
@@ -619,7 +676,7 @@ def build_sentiment_metrics_from_snapshot(snapshot: Any) -> Optional[Dict[str, A
         "trigger_side": snapshot.get("trigger_side"),
         "trigger_reason": snapshot.get("trigger_reason"),
         "last_error": snapshot.get("last_error"),
-        "metadata": parse_json_object(snapshot.get("metadata")) if not isinstance(snapshot.get("metadata"), dict) else dict(snapshot.get("metadata")),
+        "metadata": base_metadata,
     }
 
 
@@ -1027,11 +1084,7 @@ def apply_bot_state_snapshot(
             or iso_or_none(persisted_ts)
         )
         truth_social_strategy["updated_at"] = strategy_updated_at
-        truth_social_strategy["status"] = (
-            "candidate"
-            if sentiment_snapshot.get("trigger_side")
-            else "ready" if sentiment_snapshot.get("healthy") else "blocked"
-        )
+        truth_social_strategy["status"] = truth_social_dashboard_status(sentiment_snapshot)
         truth_social_strategy["last_signal_time"] = sentiment_snapshot.get("last_analysis_at")
         truth_social_strategy["last_signal_side"] = sentiment_snapshot.get("trigger_side")
         truth_social_strategy["priority"] = "SENTIMENT"
@@ -1048,6 +1101,7 @@ def apply_bot_state_snapshot(
             "SYSTEM_SENTIMENT_EVENT",
             activity_message[:220] if isinstance(activity_message, str) else "Truth Social sentiment updated.",
             severity="warning" if sentiment_snapshot.get("last_error") else "info",
+            blocked=bool(sentiment_snapshot.get("last_error")),
         )
 
     live_position = persisted_state.get("live_position")
