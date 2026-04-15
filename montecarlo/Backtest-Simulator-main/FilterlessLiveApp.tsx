@@ -443,10 +443,12 @@ function positionMarkerPercent(position: FilterlessPosition, fallbackCurrentPric
   return 50;
 }
 
+const KALSHI_STRIKE_WINDOW_SIZE = 30;
+
 function pickKalshiWindow(
   strikes: FilterlessKalshiStrike[],
   referencePrice?: number | null,
-  windowSize = 10,
+  windowSize = KALSHI_STRIKE_WINDOW_SIZE,
 ): FilterlessKalshiStrike[] {
   if (strikes.length <= windowSize) return strikes;
   if (referencePrice == null || Number.isNaN(referencePrice)) {
@@ -726,7 +728,7 @@ function FilterlessLiveApp() {
       const rows = (kalshiMetrics?.strikes || [])
         .filter((row): row is FilterlessKalshiStrike => row != null && row.strike != null && row.probability != null)
         .sort((a, b) => a.strike - b.strike);
-      return pickKalshiWindow(rows, kalshiReferencePrice, 10);
+      return pickKalshiWindow(rows, kalshiReferencePrice, KALSHI_STRIKE_WINDOW_SIZE);
     },
     [kalshiMetrics, kalshiReferencePrice],
   );
