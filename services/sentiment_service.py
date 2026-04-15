@@ -7,7 +7,7 @@ import os
 import re
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
@@ -167,6 +167,8 @@ class TruthSocialSentimentService:
         self._seen_post_order: list[str] = []
         self._seen_limit = 128
         self._last_seen_created_at: Optional[datetime] = None
+        self._poll_backoff_until: Optional[datetime] = None
+        self._poll_backoff_message: Optional[str] = None
 
         update_sentiment_state(
             enabled=self.enabled,
@@ -188,6 +190,11 @@ class TruthSocialSentimentService:
 
     def _mark_error(self, message: str, *, active: bool = False) -> None:
         logger.warning("Truth Social sentiment service: %s", message)
+        normalized_message = self._normalize_truthbrush_error(message)
+        backoff_seconds = self._error_backoff_seconds(normalized_message)
+        if backoff_seconds > 0:
+            self._poll_backoff_until = _utc_now() + timedelta(seconds=backoff_seconds)
+            self._poll_backoff_message = normalized_message
         update_sentiment_state(
             enabled=self.enabled,
             active=active,
@@ -196,9 +203,32 @@ class TruthSocialSentimentService:
             quantized_8bit=self._quantized_8bit,
             target_handle=self.target_handle,
             last_poll_at=_iso_or_none(_utc_now()),
-            last_error=str(message),
-            metadata={"quantization_mode": self._quantization_mode},
+            last_error=normalized_message,
+            metadata={
+                "quantization_mode": self._quantization_mode,
+                "retry_after": _iso_or_none(self._poll_backoff_until),
+            },
         )
+
+    def _normalize_truthbrush_error(self, error: Any) -> str:
+        message = str(error or "").strip() or "Truth Social sentiment polling failed."
+        lowered = message.lower()
+        if "argument of type 'nonetype' is not iterable" in lowered:
+            return (
+                "Truth Social returned an empty or HTML response before truthbrush could decode it. "
+                "This is usually a Cloudflare access/rate-limit block, not a dashboard bug."
+            )
+        if "1015" in lowered or "rate limit" in lowered or "rate limited" in lowered:
+            return "Truth Social access is currently rate limited by Cloudflare (Error 1015)."
+        if "cloudflare" in lowered:
+            return "Truth Social access is currently blocked by Cloudflare for this client."
+        return message
+
+    def _error_backoff_seconds(self, message: str) -> int:
+        lowered = str(message or "").lower()
+        if "cloudflare" in lowered or "rate limit" in lowered or "rate limited" in lowered:
+            return max(self.poll_interval * 10, 300)
+        return 0
 
     def _ensure_truthbrush_api(self):
         if self._api is not None:
@@ -295,14 +325,17 @@ class TruthSocialSentimentService:
     def _iter_new_posts(self) -> Iterable[Dict[str, Any]]:
         api = self._ensure_truthbrush_api()
         created_after = self._last_seen_created_at
-        posts = list(
-            api.pull_statuses(
-                self.target_handle,
-                replies=False,
-                created_after=created_after,
-                pinned=False,
+        try:
+            posts = list(
+                api.pull_statuses(
+                    self.target_handle,
+                    replies=False,
+                    created_after=created_after,
+                    pinned=False,
+                )
             )
-        )
+        except TypeError as exc:
+            raise RuntimeError(self._normalize_truthbrush_error(exc)) from exc
         if not posts:
             return []
 
@@ -392,11 +425,30 @@ class TruthSocialSentimentService:
             )
             return get_sentiment_state()
 
+        if self._poll_backoff_until is not None and now < self._poll_backoff_until:
+            update_sentiment_state(
+                enabled=True,
+                active=True,
+                healthy=False,
+                model_loaded=self._model is not None,
+                quantized_8bit=self._quantized_8bit,
+                target_handle=self.target_handle,
+                last_error=self._poll_backoff_message,
+                metadata={
+                    "quantization_mode": self._quantization_mode,
+                    "retry_after": _iso_or_none(self._poll_backoff_until),
+                },
+            )
+            return get_sentiment_state()
+
         try:
             posts = await asyncio.to_thread(lambda: list(self._iter_new_posts()))
         except Exception as exc:
             self._mark_error(str(exc), active=True)
             return get_sentiment_state()
+
+        self._poll_backoff_until = None
+        self._poll_backoff_message = None
 
         update_sentiment_state(
             enabled=True,
@@ -405,6 +457,7 @@ class TruthSocialSentimentService:
             target_handle=self.target_handle,
             last_poll_at=_iso_or_none(now),
             last_error=None,
+            metadata={"quantization_mode": self._quantization_mode},
         )
 
         if not posts:
@@ -489,6 +542,7 @@ class TruthSocialSentimentService:
             active=bool(self.enabled),
             healthy=False,
             target_handle=self.target_handle,
+            metadata={"quantization_mode": self._quantization_mode},
         )
         while not self._stop_event.is_set():
             try:

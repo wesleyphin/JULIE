@@ -256,6 +256,18 @@ def default_sentiment_metrics() -> Optional[Dict[str, Any]]:
     }
 
 
+def normalize_sentiment_error_message(value: Any) -> Optional[str]:
+    message = str(value or "").strip()
+    if not message:
+        return None
+    lowered = message.lower()
+    if "argument of type 'nonetype' is not iterable" in lowered:
+        return "Truth Social access is currently blocked by Cloudflare for this client."
+    if "1015" in lowered or "rate limit" in lowered or "rate limited" in lowered:
+        return "Truth Social access is currently rate limited by Cloudflare (Error 1015)."
+    return message
+
+
 def truth_social_dashboard_status(snapshot: Optional[Dict[str, Any]]) -> str:
     if not TRUTH_SOCIAL_ENABLED:
         return "disabled"
@@ -675,7 +687,7 @@ def build_sentiment_metrics_from_snapshot(snapshot: Any) -> Optional[Dict[str, A
         "finbert_confidence": safe_float(snapshot.get("finbert_confidence")),
         "trigger_side": snapshot.get("trigger_side"),
         "trigger_reason": snapshot.get("trigger_reason"),
-        "last_error": snapshot.get("last_error"),
+        "last_error": normalize_sentiment_error_message(snapshot.get("last_error")),
         "metadata": base_metadata,
     }
 
@@ -1094,7 +1106,12 @@ def apply_bot_state_snapshot(
             or "Watching Truth Social sentiment."
         )
         excerpt = str(sentiment_snapshot.get("latest_post_text") or "").strip()
-        activity_message = sentiment_snapshot.get("trigger_reason") or excerpt or "Awaiting the next Truth Social post."
+        activity_message = (
+            sentiment_snapshot.get("trigger_reason")
+            or sentiment_snapshot.get("last_error")
+            or excerpt
+            or "Awaiting the next Truth Social post."
+        )
         set_strategy_activity(
             truth_social_strategy,
             parse_iso(sentiment_snapshot.get("last_analysis_at") or sentiment_snapshot.get("last_poll_at")),

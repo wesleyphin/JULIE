@@ -39,6 +39,28 @@ import {
 const REFRESH_MS = 3000;
 const FEED_STALE_SECONDS = 90;
 const FEED_OFFLINE_SECONDS = 300;
+const DEFAULT_SENTIMENT_METRICS: FilterlessSentimentMetrics = {
+  enabled: true,
+  active: false,
+  healthy: false,
+  model_loaded: false,
+  quantized_8bit: false,
+  target_handle: 'realDonaldTrump',
+  source: 'truthbrush_finbert',
+  last_poll_at: null,
+  last_analysis_at: null,
+  latest_post_id: null,
+  latest_post_created_at: null,
+  latest_post_url: null,
+  latest_post_text: null,
+  sentiment_label: null,
+  sentiment_score: null,
+  finbert_confidence: null,
+  trigger_side: null,
+  trigger_reason: null,
+  last_error: null,
+  metadata: null,
+};
 
 const EMPTY_STATE: FilterlessLiveState = {
   schema_version: 1,
@@ -67,7 +89,7 @@ const EMPTY_STATE: FilterlessLiveState = {
   events: [],
   trades: [],
   kalshi_metrics: null,
-  sentiment_metrics: null,
+  sentiment_metrics: DEFAULT_SENTIMENT_METRICS,
 };
 
 function formatMoney(value?: number | null): string {
@@ -742,7 +764,11 @@ function FilterlessLiveApp() {
   const openPnlColor = (openPosition?.open_pnl_dollars || 0) >= 0 ? 'success' : 'danger';
   const kalshiMetrics = state.kalshi_metrics ?? null;
   const kalshiVisible = kalshiMetrics != null;
-  const sentimentMetrics = state.sentiment_metrics ?? null;
+  const truthSocialConfigured = useMemo(
+    () => state.strategies.some((strategy) => strategy.id === 'truth_social'),
+    [state.strategies],
+  );
+  const sentimentMetrics = state.sentiment_metrics ?? (truthSocialConfigured ? DEFAULT_SENTIMENT_METRICS : null);
   const kalshiOpenSide = String(openPosition?.side || '').toUpperCase();
   const kalshiPredictionLabel = kalshiOpenSide === 'SHORT' ? 'NO' : 'YES';
   const kalshiSpxReferencePrice =
@@ -919,7 +945,7 @@ function FilterlessLiveApp() {
           ))}
         </div>
 
-        {sentimentMetrics && (
+        {truthSocialConfigured && sentimentMetrics && (
           <Panel
             title="Truth Social Sentiment"
             right={
