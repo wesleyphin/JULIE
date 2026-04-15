@@ -613,6 +613,7 @@ class JulieUI:
         self.market_log.tag_config('bank', foreground=self.colors['green_light'])
         self.market_log.tag_config('warning', foreground=self.colors['red'])
         self.market_log.tag_config('drift', foreground='#00d4ff')  # Cyan for drift/calibration
+        self.market_log.tag_config('kalshi', foreground='#b388ff')  # Purple for Kalshi context
         self.market_log.tag_config('info', foreground=self.colors['text_gray'])
 
         self.add_market_log("Waiting for bot market context...")
@@ -991,6 +992,8 @@ class JulieUI:
                 tag = 'warning'
             elif '🌊 DRIFT' in message or 'CALIBRATION' in message or 'Calibrated' in message:
                 tag = 'drift'
+            elif 'KALSHI' in message.upper() or 'MIVA' in message.upper():
+                tag = 'kalshi'
 
             self._append_log_line(self.market_log, message, tag)
 
@@ -1217,6 +1220,7 @@ class JulieUI:
             '📊 COMPOSITE EFFECT', '✅ FINAL TARGETS',  # Composite and final targets
             'TrendDay', 'TrendDayTier',  # Trend day activation/deactivation + tier/direction
             'TrendFilter Cooldown', 'impulse wick rejection',  # Wick-rejection cooldown logs
+            'KALSHI', 'MIVA', 'kalshi_prob', 'kalshi_class', 'kalshi_event',
         ])
 
         # Determine if this is a Continuation Strategy log

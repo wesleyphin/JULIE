@@ -1,4 +1,5 @@
 import math
+import logging
 from typing import Dict, Optional, Tuple
 
 import numpy as np
@@ -8,6 +9,7 @@ from manifold_regime_calibration import apply_calibration_to_meta, load_calibrat
 
 
 TWOPI = 2.0 * math.pi
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_MANIFOLD_CONFIG: Dict = {
@@ -93,6 +95,8 @@ def apply_meta_policy(
     fallback_name: Optional[str] = None,
     default_size: int = 1,
     enforce_side_bias: bool = True,
+    kalshi_context: Optional[Dict] = None,
+    session_name: Optional[str] = None,
 ) -> Tuple[bool, str, Dict]:
     """
     Attach manifold context to a signal.
@@ -132,7 +136,90 @@ def apply_meta_policy(
         "regime_manifold_allow_raw": allow,
         "regime_manifold_risk_mult": float(meta.get("risk_mult", 1.0) or 1.0),
     }
+    kalshi_updates = {}
+    if isinstance(kalshi_context, dict):
+        prob_above = kalshi_context.get("probability")
+        if prob_above is None:
+            prob_above = kalshi_context.get("prob_above")
+        classification = str(kalshi_context.get("classification", "unavailable") or "unavailable")
+        kalshi_updates = {
+            "kalshi_prob_above": float(prob_above) if prob_above is not None else None,
+            "kalshi_classification": classification,
+            "kalshi_session": str(session_name or signal.get("session_name") or ""),
+        }
+    updates.update(kalshi_updates)
     return True, "", updates
+
+
+def apply_kalshi_gate(signal_direction: int, es_price: float, kalshi, config: Dict) -> Tuple[bool, str, float]:
+    """
+    Strategy-agnostic Kalshi crowd confirmation gate.
+    """
+    _ = es_price
+    if kalshi is None:
+        return True, "Kalshi unavailable — ML-only mode", 1.0
+    if not getattr(kalshi, "enabled", False) or not getattr(kalshi, "is_healthy", False):
+        return True, "Kalshi unavailable — ML-only mode", 1.0
+
+    sentiment = kalshi.get_sentiment(es_price)
+    probability = sentiment.get("probability")
+    if probability is None:
+        return True, "Kalshi data unavailable — ML-only mode", 1.0
+
+    thresholds = dict(config.get("sentiment_thresholds", {}))
+    strong_bull = float(thresholds.get("strong_bull", 0.70))
+    mild_bull = float(thresholds.get("mild_bull", 0.55))
+    neutral_low = float(thresholds.get("neutral_low", 0.45))
+    neutral_high = float(thresholds.get("neutral_high", 0.55))
+    mild_bear = float(thresholds.get("mild_bear", 0.45))
+    strong_bear = float(thresholds.get("strong_bear", 0.30))
+    veto_mode = str(config.get("veto_mode", "soft") or "soft").lower()
+
+    if signal_direction == 1:
+        if probability < neutral_low:
+            if veto_mode == "hard":
+                return False, f"VETO: Bearish crowd divergence (prob={probability:.2f})", 0.0
+            return True, f"SOFT VETO: Bearish crowd (prob={probability:.2f}), half size", 0.5
+        if probability >= strong_bull:
+            return True, f"STRONG ALIGN: Bullish crowd (prob={probability:.2f}), full size", 1.2
+        if probability >= mild_bull:
+            return True, f"ALIGNED: Crowd agrees (prob={probability:.2f})", 1.0
+        return True, f"NEUTRAL: Crowd undecided (prob={probability:.2f})", 0.8
+
+    if signal_direction == -1:
+        if probability > neutral_high:
+            if veto_mode == "hard":
+                return False, f"VETO: Bullish crowd divergence (prob={probability:.2f})", 0.0
+            return True, f"SOFT VETO: Bullish crowd (prob={probability:.2f}), half size", 0.5
+        if probability <= strong_bear:
+            return True, f"STRONG ALIGN: Bearish crowd (prob={probability:.2f}), full size", 1.2
+        if probability <= mild_bear:
+            return True, f"ALIGNED: Crowd agrees (prob={probability:.2f})", 1.0
+        return True, f"NEUTRAL: Crowd undecided (prob={probability:.2f})", 0.8
+
+    return True, "No direction signal", 1.0
+
+
+def get_kalshi_gate_decision(signal_direction: int, es_price: float, kalshi, root_config: Dict) -> Tuple[bool, str, float]:
+    """
+    Wrapper around Kalshi gating with graceful fallback to ML-only flow.
+    """
+    try:
+        kalshi_cfg = dict((root_config or {}).get("KALSHI", {}))
+        if not kalshi_cfg.get("enabled", False):
+            return True, "Kalshi disabled", 1.0
+        if kalshi is None or not getattr(kalshi, "is_healthy", False):
+            logger.warning("Kalshi unhealthy — ML-only mode")
+            return True, "Kalshi unhealthy — ML-only fallback", 1.0
+        return apply_kalshi_gate(signal_direction, es_price, kalshi, kalshi_cfg)
+    except Exception as exc:
+        logger.error("Kalshi gate error: %s", exc)
+        if kalshi is not None:
+            current_failures = int(getattr(kalshi, "consecutive_failures", 0) or 0) + 1
+            setattr(kalshi, "consecutive_failures", current_failures)
+            if current_failures >= 5:
+                setattr(kalshi, "is_healthy", False)
+        return True, f"Kalshi error — ML-only fallback: {exc}", 1.0
 
 
 class RegimeManifoldEngine:
