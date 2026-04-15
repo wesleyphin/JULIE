@@ -53,6 +53,7 @@ class KalshiProvider:
         self.consecutive_failures = 0
         self.last_success: Optional[float] = None
         self.is_healthy = True
+        self.last_resolved_ticker: Optional[str] = None
 
     def _sign(self, method: str, path: str, timestamp_str: str) -> str:
         if self.private_key is None:
@@ -166,7 +167,8 @@ class KalshiProvider:
         return results
 
     def _event_sort_ts(self, event: Dict) -> float:
-        for key in ("expiration_time", "close_time", "settlement_time", "event_time", "open_time"):
+        # strike_date is on events; close_time is on markets (actual settlement time)
+        for key in ("strike_date", "close_time", "expected_expiration_time", "settlement_time", "expiration_time", "event_time", "open_time"):
             raw = event.get(key)
             if not raw:
                 continue
@@ -183,12 +185,17 @@ class KalshiProvider:
         return 0.0
 
     def _resolve_event_from_series(self) -> Optional[Dict]:
+        """Find the next upcoming event for this series.
+
+        The Kalshi /events API returns objects with these fields:
+          event_ticker, series_ticker, strike_date, title, sub_title, category
+        Note: no 'status' or 'close_time' on events — those are on markets.
+        """
         data = self._get(
             "/events",
             {
                 "series_ticker": self.series,
-                "with_nested_markets": "true",
-                "limit": 200,
+                "limit": 50,
             },
         )
         events = data.get("events", []) if isinstance(data, dict) else []
@@ -197,34 +204,33 @@ class KalshiProvider:
 
         et = pytz.timezone("US/Eastern")
         now_ts = datetime.now(et).timestamp()
-        preferred_statuses = {"open", "active", "initialized", "unsettled"}
         candidates: List[tuple[float, Dict]] = []
-        fallback: List[tuple[float, Dict]] = []
 
         for event in events:
             if not isinstance(event, dict):
                 continue
-            ticker = str(event.get("ticker", "") or "")
+            # Events use 'event_ticker', not 'ticker'
+            ticker = str(event.get("event_ticker", "") or event.get("ticker", "") or "")
             if not ticker.startswith(f"{self.series}-"):
                 continue
             ts = self._event_sort_ts(event)
-            status = str(event.get("status", "") or "").lower()
-            if ts >= now_ts and status in preferred_statuses:
+            if ts > 0 and ts >= now_ts:
                 candidates.append((ts, event))
-            elif status in preferred_statuses:
-                fallback.append((ts, event))
 
         if candidates:
             candidates.sort(key=lambda item: item[0])
             return candidates[0][1]
-        if fallback:
-            fallback.sort(key=lambda item: abs(item[0] - now_ts))
-            return fallback[0][1]
-        events = [evt for evt in events if isinstance(evt, dict)]
-        if not events:
-            return None
-        events.sort(key=self._event_sort_ts)
-        return events[-1]
+
+        # No future events — return the most recent one
+        all_valid = [
+            (self._event_sort_ts(evt), evt)
+            for evt in events
+            if isinstance(evt, dict) and self._event_sort_ts(evt) > 0
+        ]
+        if all_valid:
+            all_valid.sort(key=lambda item: item[0], reverse=True)
+            return all_valid[0][1]
+        return None
 
     def _parse_markets(self, markets: List[Dict]) -> List[Dict]:
         parsed = []
@@ -236,42 +242,72 @@ class KalshiProvider:
                 strike = float(ticker.split("-T")[-1])
             except ValueError:
                 continue
-            last_price = market.get("last_price_dollars")
-            if last_price is None:
-                last_price = market.get("last_price")
-            if last_price is None:
-                yes_bid = market.get("yes_bid")
-                yes_ask = market.get("yes_ask")
-                if yes_bid is not None and yes_ask is not None:
+
+            # Probability: use yes_bid midpoint (matches Kalshi website "Chance"),
+            # NOT last_price_dollars which is often 0 when no trades have occurred.
+            prob = None
+            yes_bid = market.get("yes_bid_dollars") or market.get("yes_bid")
+            yes_ask = market.get("yes_ask_dollars") or market.get("yes_ask")
+            if yes_bid is not None and yes_ask is not None:
+                try:
+                    bid_f = float(yes_bid)
+                    ask_f = float(yes_ask)
+                    prob = (bid_f + ask_f) / 2.0
+                except (TypeError, ValueError):
+                    pass
+            # Fall back to last_price if bid/ask unavailable
+            if prob is None or prob == 0:
+                for field in ("last_price_dollars", "last_price"):
+                    val = market.get(field)
+                    if val is not None:
+                        try:
+                            fv = float(val)
+                            if fv > 0:
+                                prob = fv
+                                break
+                        except (TypeError, ValueError):
+                            pass
+            if prob is None:
+                continue
+
+            # Normalize cents (0-100) to probability (0-1)
+            if prob > 1.0:
+                prob = prob / 100.0
+
+            volume = 0.0
+            for vol_field in ("volume_fp", "volume", "volume_24h_fp"):
+                vf = market.get(vol_field)
+                if vf is not None:
                     try:
-                        last_price = (float(yes_bid) + float(yes_ask)) / 2.0
+                        volume = float(vf)
+                        if volume > 0:
+                            break
                     except (TypeError, ValueError):
                         pass
-            if last_price is None:
-                continue
-            # Normalize cents (0-100) to probability (0-1)
-            price_val = float(last_price)
-            if price_val > 1.0:
-                price_val = price_val / 100.0
+
             parsed.append(
                 {
                     "strike": strike,
-                    "probability": price_val,
-                    "volume": float(market.get("volume_fp", 0) or 0.0),
+                    "probability": prob,
+                    "volume": volume,
                     "status": str(market.get("status", "") or ""),
                     "result": str(market.get("result", "") or ""),
                 }
             )
         return sorted(parsed, key=lambda row: row["strike"])
 
-    def _fetch_event_markets(self, event_ticker: Optional[str] = None) -> List[Dict]:
-        resolved_event = None
-        if event_ticker is None:
-            resolved_event = self._resolve_event_from_series()
-            event_ticker = (
-                str((resolved_event or {}).get("ticker", "") or "").strip()
-                or self._current_event_ticker()
-            )
+    def _all_finalized(self, parsed: List[Dict]) -> bool:
+        """Check if all parsed markets are settled/finalized."""
+        if not parsed:
+            return False
+        settled_statuses = {"finalized", "settled", "closed"}
+        return all(
+            str(m.get("status", "") or "").lower() in settled_statuses
+            for m in parsed
+        )
+
+    def _fetch_single_event(self, event_ticker: str, resolved_event: Optional[Dict] = None) -> List[Dict]:
+        """Fetch and parse markets for a single event ticker."""
         with self._cache_lock:
             cached = self._cache.get(event_ticker)
             if cached and (time.time() - float(cached.get("ts", 0))) < self.cache_ttl:
@@ -289,10 +325,53 @@ class KalshiProvider:
 
         parsed = self._parse_markets(markets)
         if not parsed:
-            logger.warning("No Kalshi markets parsed for %s", event_ticker)
             return []
+        # Don't cache finalized events for the full TTL — allow fast rotation
+        if self._all_finalized(parsed):
+            cache_ts = time.time() - self.cache_ttl + 10  # expires in 10s
+        else:
+            cache_ts = time.time()
         with self._cache_lock:
-            self._cache[event_ticker] = {"data": parsed, "ts": time.time()}
+            self._cache[event_ticker] = {"data": parsed, "ts": cache_ts}
+        return parsed
+
+    def _fetch_event_markets(self, event_ticker: Optional[str] = None) -> List[Dict]:
+        # If a specific ticker was requested, return it directly
+        if event_ticker is not None:
+            self.last_resolved_ticker = event_ticker
+            result = self._fetch_single_event(event_ticker)
+            if not result:
+                logger.warning("No Kalshi markets parsed for %s", event_ticker)
+            return result
+
+        # Try series resolution first, then current ticker
+        resolved_event = self._resolve_event_from_series()
+        event_ticker = (
+            str((resolved_event or {}).get("event_ticker", "") or
+                (resolved_event or {}).get("ticker", "") or "").strip()
+            or self._current_event_ticker()
+        )
+        self.last_resolved_ticker = event_ticker
+
+        parsed = self._fetch_single_event(event_ticker, resolved_event)
+
+        # If all markets are finalized, rotate to the next settlement hour
+        if self._all_finalized(parsed):
+            et = pytz.timezone("US/Eastern")
+            now = datetime.now(et)
+            for hour in self._SETTLEMENT_HOURS_ET:
+                if hour > now.hour or (hour == now.hour and now.minute < 5):
+                    next_ticker = self.event_ticker_for_hour(hour, now)
+                    if next_ticker != event_ticker:
+                        logger.info("Event %s is settled, rotating to %s", event_ticker, next_ticker)
+                        next_parsed = self._fetch_single_event(next_ticker)
+                        if next_parsed and not self._all_finalized(next_parsed):
+                            self.last_resolved_ticker = next_ticker
+                            return next_parsed
+            logger.info("All settlement hours finalized for today")
+
+        if not parsed:
+            logger.warning("No Kalshi markets parsed for %s", event_ticker)
         return parsed
 
     def get_probability(self, strike_price: float) -> Optional[float]:

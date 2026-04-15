@@ -222,7 +222,9 @@ async def _kalshi_snapshot_loop(path: Path, interval_seconds: float = 10.0) -> N
 
         price = _coerce_price_from_state()
         sentiment = provider.get_sentiment(price) if price is not None else {}
-        strikes = provider._fetch_event_markets()  # noqa: SLF001 - intentionally surfacing full ladder to UI
+        all_strikes = provider._fetch_event_markets()  # noqa: SLF001 - intentionally surfacing full ladder to UI
+        # Only send strikes with volume to the dashboard (matches Kalshi website display)
+        strikes = [s for s in all_strikes if isinstance(s, dict) and float(s.get("volume", 0) or 0) > 0]
 
         trade_gating_active, trade_gating_hour = _kalshi_trade_gating_status()
 
@@ -261,7 +263,7 @@ async def _kalshi_snapshot_loop(path: Path, interval_seconds: float = 10.0) -> N
             "updated_at": datetime.now(NY_TZ).isoformat(),
             "basis_offset": float(getattr(provider, "basis_offset", 0.0) or 0.0),
             "probability_60m": sentiment.get("probability"),
-            "event_ticker": provider._current_event_ticker(),  # noqa: SLF001 - informational only
+            "event_ticker": getattr(provider, "last_resolved_ticker", None) or provider._current_event_ticker(),  # noqa: SLF001
             "spx_reference_price": (float(price) - float(provider.basis_offset)) if price is not None else None,
             "trade_gating_active": trade_gating_active,
             "trade_gating_hour": trade_gating_hour,
