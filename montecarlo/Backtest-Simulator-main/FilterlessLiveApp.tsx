@@ -275,14 +275,52 @@ function formatHourLabel(hour: number): string {
 }
 
 /**
- * Each Kalshi hourly contract becomes available 4 hours before its settlement
- * hour and settles 1 hour before the next contract opens.
+ * Convert an ET hour to the user's local timezone hour for display.
+ * Returns a formatted label like "7 AM", "1 PM" etc. in local time.
+ */
+function etHourToLocalLabel(etHour: number): string {
+  // Create a date at the given ET hour today
+  const now = new Date();
+  const etDateStr = now.toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+  const etDate = new Date(`${etDateStr} ${etHour}:00:00`);
+  // Get the ET offset vs UTC and local offset vs UTC to compute the shift
+  const etFormatter = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour: 'numeric', hour12: true });
+  // Use a simpler approach: create a Date at that ET hour and format in local tz
+  const utcMs = etDate.getTime();
+  // etDate was parsed in local tz, we need to shift it to actually represent ET
+  const localOffsetMs = etDate.getTimezoneOffset() * 60_000;
+  const etOffsetMs = getTimezoneOffsetMs('America/New_York');
+  const corrected = new Date(utcMs + localOffsetMs - etOffsetMs);
+  return corrected.toLocaleTimeString([], { hour: 'numeric', hour12: true });
+}
+
+function getTimezoneOffsetMs(tz: string): number {
+  const now = new Date();
+  const utcStr = now.toLocaleString('en-US', { timeZone: 'UTC' });
+  const tzStr = now.toLocaleString('en-US', { timeZone: tz });
+  return new Date(tzStr).getTime() - new Date(utcStr).getTime();
+}
+
+/**
+ * Get the current hour in ET for availability calculations.
+ */
+function currentETHour(): number {
+  const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  return nowET.getHours();
+}
+
+/**
+ * Each Kalshi hourly contract becomes available 1 hour before its settlement
+ * hour (ET) and settles at the settlement hour.
  *
- * Example for the 10 AM contract:
- *   - Available from 6 AM ET
- *   - Settles at 7 AM ET (then 11 AM contract starts showing)
+ * The user specified Pacific Time availability windows which convert to ET as:
+ *   - 10 AM ET contract: available from 9 AM ET, settles at 10 AM ET
+ *   - 11 AM ET contract: available from 10 AM ET, settles at 11 AM ET
+ *   - etc.
  *
  * Trade gating activates when the current ET hour matches the settlement hour.
+ *
+ * The UI labels are displayed in the user's local timezone.
  */
 function buildKalshiHourlyContracts(
   eventTicker?: string | null,
@@ -293,43 +331,28 @@ function buildKalshiHourlyContracts(
   const activeHourMatch = eventTicker?.match(/H(\d+)$/);
   const activeHourCode = activeHourMatch ? parseInt(activeHourMatch[1], 10) : null;
 
-  const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const currentETHour = nowET.getHours();
+  const etHour = currentETHour();
 
   return KALSHI_SETTLEMENT_HOURS.map((hour) => {
     const hourCode = hour * 100;
     const ticker = tickerPrefix ? `${tickerPrefix}H${hourCode}` : `H${hourCode}`;
     const isActive = activeHourCode === hourCode;
 
-    // Contract becomes available 4 hours before settlement, settles 1 hour before
-    // the next contract opens (i.e., settlement_hour - 3 hours before settlement).
-    // 10 AM contract: available 6 AM, settles ~7 AM
-    // 11 AM contract: available 7 AM, settles ~8 AM  etc.
-    const availableFrom = hour - 4;  // 4 hours before settlement
-    const settlesAt = hour - 3;      // settles 1 hour after becoming available...
-    // Actually per user: "starts being shown at 6am and settles at 7am" for 10am contract
-    // So available window = [hour-4, hour-3), settled once current hour >= hour-3
-    const settled = currentETHour >= settlesAt && currentETHour < hour;
-    // Wait, re-reading: "10am starts being shown at 6am and settles at 7am"
-    // "then on 7am the 11am starts being shown and ends at 8am"
-    // So the 10am contract: shown 6am-7am, settles at 7am
-    // The 11am contract: shown 7am-8am, settles at 8am
-    // Pattern: shown from (hour - 4) to (hour - 3), settles at (hour - 3)
-    // But that's only a 1-hour window. Let me re-read...
-    // "they only become available 4 hours before the contract time schedule and ends after an hour"
-    // Available 4 hours before => 10am - 4 = 6am. Ends after an hour => 7am.
-    // So available window is [hour-4, hour-3)
-
-    const isAvailable = currentETHour >= availableFrom && currentETHour < settlesAt;
-    const isSettled = currentETHour >= settlesAt;
-    const isUpcoming = currentETHour < availableFrom;
+    // Available 1 hour before settlement (ET), settles at the settlement hour
+    const availableFrom = hour - 1;
+    const isAvailable = etHour >= availableFrom && etHour < hour;
+    const isSettled = etHour >= hour;
+    const isUpcoming = etHour < availableFrom;
 
     const strikeCount = isActive ? (strikes?.length || 0) : 0;
     const tradeGating = tradeGatingHour === hour;
 
+    // Display in user's local timezone
+    const localLabel = etHourToLocalLabel(hour);
+
     return {
       hour,
-      label: formatHourLabel(hour),
+      label: localLabel,
       eventTicker: ticker,
       available: isAvailable,
       settled: isSettled,
@@ -1036,7 +1059,7 @@ function FilterlessLiveApp() {
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Trade Gating</p>
                 <p className={`mt-1 text-lg font-semibold ${kalshiMetrics?.trade_gating_active ? 'text-amber-300' : 'text-neutral-400'}`}>
                   {kalshiMetrics?.trade_gating_active
-                    ? `Active — ${formatHourLabel(kalshiMetrics.trade_gating_hour!)}`
+                    ? `Active — ${etHourToLocalLabel(kalshiMetrics.trade_gating_hour!)}`
                     : 'Observe Only'}
                 </p>
                 <p className="mt-1 text-xs text-neutral-500">
@@ -1048,7 +1071,7 @@ function FilterlessLiveApp() {
             {/* Hourly contract schedule — clickable buttons */}
             <div className="mb-5">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Hourly Contract Schedule (ET)</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Hourly Contract Schedule (Local Time)</p>
                 {selectedKalshiHour != null && (
                   <button
                     onClick={() => setSelectedKalshiHour(null)}
@@ -1135,7 +1158,7 @@ function FilterlessLiveApp() {
                       {viewedKalshiContract.tradeGating
                         ? 'Trade gating is active for this contract hour.'
                         : viewedKalshiContract.available
-                          ? `Available now. Trade gating activates at ${formatHourLabel(viewedKalshiContract.hour)} ET.`
+                          ? `Available now. Trade gating activates at ${etHourToLocalLabel(viewedKalshiContract.hour)}.`
                           : viewedKalshiContract.upcoming
                             ? `Not available yet. Opens ${viewedKalshiContract.hour - 4} hours before settlement.`
                             : 'This contract has settled.'}
