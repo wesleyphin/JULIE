@@ -14,6 +14,8 @@ pydantic==2.12.5
 python-dotenv==1.2.2
 python-socketio==5.16.1
 requests==2.33.0
+cryptography>=42.0.0
+pytz>=2024.1
 rich==14.3.3
 scikit-learn==1.8.0
 signalrcore-async==0.5.4

@@ -14,6 +14,12 @@ from threading import Thread
 from config import CONFIG
 from terminal_ui import get_ui
 from account_selector import select_account_interactive
+from aetherflow_features import generate_daily_miva
+
+try:
+    from services.kalshi_provider import KalshiProvider
+except Exception:
+    KalshiProvider = None
 
 
 def get_current_session(dt):
@@ -384,6 +390,8 @@ def main():
 
     # Initialize API monitor
     api_monitor = APIMonitor()
+    kalshi = None
+    kalshi_cfg = CONFIG.get("KALSHI", {}) if isinstance(CONFIG, dict) else {}
 
     if not api_monitor.login():
         ui.add_event("ERROR", "Failed to authenticate - check config.py credentials")
@@ -412,6 +420,22 @@ def main():
     last_position_check = 0
     last_price_check = 0
     last_log_check = 0
+    last_kalshi_check = 0
+    kalshi_context = {
+        "kalshi_prob": None,
+        "kalshi_class": "disabled",
+        "kalshi_implied": None,
+        "kalshi_distance": None,
+        "kalshi_gradient": None,
+        "kalshi_miva_rank": None,
+    }
+
+    if KalshiProvider is not None and isinstance(kalshi_cfg, dict) and kalshi_cfg.get("enabled", False):
+        try:
+            kalshi = KalshiProvider(kalshi_cfg)
+            ui.add_event("SYSTEM", "Kalshi overlay enabled in monitor UI")
+        except Exception as exc:
+            ui.add_event("WARNING", f"Kalshi init failed: {exc}")
 
     try:
         while True:
@@ -456,9 +480,33 @@ def main():
                     current_time = datetime.now(ZoneInfo('America/New_York'))
                     session = get_current_session(current_time)
 
+                    if kalshi is not None and now - last_kalshi_check > 10.0:
+                        try:
+                            sentiment = kalshi.get_sentiment(price)
+                            gradient = kalshi.get_probability_gradient(price)
+                            miva = generate_daily_miva(kalshi, price)
+                            kalshi_context = {
+                                "kalshi_prob": sentiment.get("probability"),
+                                "kalshi_class": sentiment.get("classification"),
+                                "kalshi_implied": sentiment.get("implied_level"),
+                                "kalshi_distance": sentiment.get("distance"),
+                                "kalshi_gradient": gradient,
+                                "kalshi_miva_rank": (miva or {}).get("pct_rank_of_price"),
+                                "kalshi_event": kalshi._current_event_ticker(),
+                                "kalshi_healthy": sentiment.get("healthy"),
+                            }
+                        except Exception as exc:
+                            kalshi_context = {
+                                "kalshi_prob": None,
+                                "kalshi_class": "error",
+                                "kalshi_error": str(exc),
+                            }
+                        last_kalshi_check = now
+
                     ui.update_market_context({
                         'price': price,
-                        'session': session
+                        'session': session,
+                        **kalshi_context,
                     })
 
                 last_price_check = now

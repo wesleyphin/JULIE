@@ -542,3 +542,90 @@ def resolve_setup_params(feature_row: pd.Series) -> Dict[str, float]:
         "sl_mult": sl_mult,
         "tp_mult": tp_mult,
     }
+
+
+def generate_kalshi_features(df: pd.DataFrame, kalshi, es_price: float) -> pd.DataFrame:
+    """
+    Append single-row Kalshi structural sentiment features.
+    """
+    if df is None or df.empty:
+        return df
+    sentiment = kalshi.get_sentiment(es_price) if kalshi is not None else {}
+    distribution = kalshi.get_implied_distribution(es_price) if kalshi is not None else None
+
+    idx = df.index[-1]
+    df.loc[idx, "kalshi_prob_at_price"] = sentiment.get("probability")
+    df.loc[idx, "kalshi_implied_level"] = sentiment.get("implied_level")
+    df.loc[idx, "kalshi_distance"] = sentiment.get("distance")
+    gradient = kalshi.get_probability_gradient(es_price) if kalshi is not None else None
+    df.loc[idx, "kalshi_gradient"] = gradient
+
+    if distribution:
+        implied_vol = float(distribution.get("implied_std", 0.0) or 0.0)
+        df.loc[idx, "kalshi_implied_vol"] = implied_vol
+        df.loc[idx, "kalshi_skew"] = distribution.get("implied_skew")
+        distance = sentiment.get("distance")
+        if distance is not None and implied_vol > 0:
+            df.loc[idx, "kalshi_distance_z"] = float(distance) / implied_vol
+    return df
+
+
+def generate_daily_miva(kalshi, es_price: float) -> Optional[Dict[str, float]]:
+    """
+    Market-Implied Value Area (MIVA) from the 4pm ET KXINXU event.
+    """
+    if kalshi is None:
+        return None
+    from datetime import datetime
+
+    import pytz
+
+    et = pytz.timezone("US/Eastern")
+    now = datetime.now(et)
+    date_str = now.strftime("%y%b%d").upper()
+    daily_event_ticker = f"{kalshi.series}-{date_str}H1600"
+
+    markets = kalshi._fetch_event_markets(daily_event_ticker)
+    if len(markets) < 5:
+        return None
+
+    densities = []
+    midpoints = []
+    for i in range(len(markets) - 1):
+        ds = float(markets[i + 1]["strike"]) - float(markets[i]["strike"])
+        if ds <= 0:
+            continue
+        dp = float(markets[i]["probability"]) - float(markets[i + 1]["probability"])
+        densities.append(max(0.0, dp / ds))
+        midpoints.append((float(markets[i]["strike"]) + float(markets[i + 1]["strike"])) / 2.0)
+    if not densities:
+        return None
+
+    total = sum(densities)
+    if total <= 0:
+        return None
+    densities = [value / total for value in densities]
+
+    cumulative = 0.0
+    bottom = midpoints[0]
+    top = midpoints[-1]
+    bottom_set = False
+    for midpoint, density in zip(midpoints, densities):
+        cumulative += density
+        if cumulative >= 0.15 and not bottom_set:
+            bottom = midpoint
+            bottom_set = True
+        if cumulative >= 0.85:
+            top = midpoint
+            break
+
+    spx_price = float(es_price) - float(kalshi.basis_offset)
+    width = top - bottom
+    pct_rank = (spx_price - bottom) / width if width > 0 else 0.5
+    return {
+        "top": round(float(top), 2),
+        "bottom": round(float(bottom), 2),
+        "width": round(float(width), 2),
+        "midpoint": round((float(top) + float(bottom)) / 2.0, 2),
+        "pct_rank_of_price": round(min(max(float(pct_rank), 0.0), 1.0), 4),
+    }
