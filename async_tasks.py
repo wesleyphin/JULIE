@@ -61,7 +61,6 @@ async def position_sync_task(
     """
     sync_count = 0
     last_logged_signature = None
-    last_persisted_signature = None
 
     while True:
         try:
@@ -81,8 +80,6 @@ async def position_sync_task(
             open_pnl_value = round(float(open_pnl), 2) if isinstance(open_pnl, (int, float)) else None
             state_signature = (side, size, round(avg_price, 4), open_pnl_value)
 
-            persist_signature = (side, size, round(avg_price, 4))
-
             # Log immediately on first sync and any broker-side position change.
             should_log = sync_count == 1 or state_signature != last_logged_signature or sync_count % 10 == 0
             if should_log:
@@ -98,14 +95,14 @@ async def position_sync_task(
                         logging.info(f"🔄 Position Sync #{sync_count}: {current_time} | {side} {size} @ {avg_price:.2f}")
                 last_logged_signature = state_signature
 
+            # Always persist so the dashboard gets fresh P&L and current_price
+            # on every sync cycle (every 30s).
             callback = on_position_sync or getattr(client, "_persist_runtime_state", None)
-            should_persist = sync_count == 1 or persist_signature != last_persisted_signature
-            if callable(callback) and should_persist:
+            if callable(callback):
                 try:
                     callback_result = callback(broker_pos.copy())
                     if asyncio.iscoroutine(callback_result):
                         await callback_result
-                    last_persisted_signature = persist_signature
                 except Exception as exc:
                     logging.warning("Position sync persistence callback failed: %s", exc)
 
