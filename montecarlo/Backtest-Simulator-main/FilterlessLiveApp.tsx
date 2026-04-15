@@ -568,9 +568,9 @@ const StrategyCard: React.FC<{ strategy: FilterlessStrategyState }> = ({ strateg
   ].filter((item): item is string => item !== null);
 
   return (
-    <div className={`rounded-xl border p-5 shadow-sm transition-colors hover:border-neutral-600 ${tone.shell}`}>
+    <div className={`rounded-xl border p-5 shadow-sm hover:border-neutral-600 ${tone.shell}`}>
       <div className="flex items-start justify-between gap-4 mb-4">
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center gap-2">
             <p className="text-lg font-semibold text-neutral-100">{strategy.label}</p>
             <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${tone.badge}`}>
@@ -579,7 +579,7 @@ const StrategyCard: React.FC<{ strategy: FilterlessStrategyState }> = ({ strateg
           </div>
           <p className="text-xs text-neutral-500 mt-1">{formatRelativeTime(strategy.updated_at)}</p>
         </div>
-        <span className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${statusChipClasses(strategy.status)}`}>
+        <span className={`shrink-0 min-w-[4.5rem] text-center rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${statusChipClasses(strategy.status)}`}>
           {strategy.status.replace('_', ' ')}
         </span>
       </div>

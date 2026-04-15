@@ -215,18 +215,35 @@ class TruthSocialSentimentService:
         lowered = message.lower()
         if "argument of type 'nonetype' is not iterable" in lowered:
             return (
-                "Truth Social returned an empty or HTML response before truthbrush could decode it. "
-                "This is usually a Cloudflare access/rate-limit block, not a dashboard bug."
+                "Truth Social returned an empty or HTML response (Cloudflare access/rate-limit block). "
+                "Polling will resume after backoff."
             )
         if "1015" in lowered or "rate limit" in lowered or "rate limited" in lowered:
             return "Truth Social access is currently rate limited by Cloudflare (Error 1015)."
-        if "cloudflare" in lowered:
+        if "cloudflare" in lowered or "cf-error" in lowered:
             return "Truth Social access is currently blocked by Cloudflare for this client."
+        if any(p in lowered for p in (
+            "expecting value", "jsondecodeerror", "json.decoder",
+            "json decode", "invalid json", "unterminated string",
+        )):
+            return (
+                "Truth Social returned a non-JSON response (likely Cloudflare block). "
+                "Polling will resume after backoff."
+            )
+        if any(p in lowered for p in ("<!doctype", "<html", "<head")):
+            return (
+                "Truth Social returned an HTML error page (likely Cloudflare block). "
+                "Polling will resume after backoff."
+            )
         return message
 
     def _error_backoff_seconds(self, message: str) -> int:
         lowered = str(message or "").lower()
-        if "cloudflare" in lowered or "rate limit" in lowered or "rate limited" in lowered:
+        if any(p in lowered for p in (
+            "cloudflare", "rate limit", "rate limited",
+            "non-json response", "html error page",
+            "empty or html response", "polling will resume",
+        )):
             return max(self.poll_interval * 10, 300)
         return 0
 
@@ -334,7 +351,7 @@ class TruthSocialSentimentService:
                     pinned=False,
                 )
             )
-        except TypeError as exc:
+        except Exception as exc:
             raise RuntimeError(self._normalize_truthbrush_error(exc)) from exc
         if not posts:
             return []
