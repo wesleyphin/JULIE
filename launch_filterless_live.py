@@ -117,6 +117,7 @@ if LIVE_LOCK is None:
 
 
 NY_TZ = ZoneInfo("America/New_York")
+PT_TZ = ZoneInfo("America/Los_Angeles")
 ROOT = Path(__file__).resolve().parent
 BRIDGE_SCRIPT = ROOT / "tools" / "filterless_dashboard_bridge.py"
 BRIDGE_LOG_PATH = ROOT / "logs" / "dashboard_bridge.log"
@@ -167,42 +168,73 @@ def _kalshi_disabled_payload() -> Dict[str, Any]:
     }
 
 
-_KALSHI_SETTLEMENT_HOURS = [10, 11, 12, 13, 14, 15, 16]
+# Kalshi KXINXU contracts predict Pacific Time hours 10 AM - 4 PM PT.
+# Converted to Eastern Time: 1 PM - 7 PM ET (hours 13 - 19).
+_KALSHI_PREDICTION_HOURS_PT = [10, 11, 12, 13, 14, 15, 16]
+_KALSHI_TRADE_GATING_ET_HOURS = [13, 14, 15, 16, 17, 18, 19]
 
 
 def _kalshi_trade_gating_status() -> tuple[bool, Optional[int]]:
     """Determine if trade gating should be active based on current ET hour.
 
-    Trade gating activates when the current ET hour matches a settlement hour
-    (10, 11, 12, 13, 14, 15, 16).  During these hours the Kalshi overlay
-    switches from observe-only to influencing trade decisions.
+    Trade gating activates when the current ET hour matches a PT prediction
+    hour (10-16 PT = 13-19 ET).  During these hours the Kalshi overlay
+    switches from observe-only to influencing trade decisions with 3x sizing.
     """
     now_et = datetime.now(NY_TZ)
     current_hour = now_et.hour
-    if current_hour in _KALSHI_SETTLEMENT_HOURS:
+    if current_hour in _KALSHI_TRADE_GATING_ET_HOURS:
         return True, current_hour
     return False, None
 
 
 async def _kalshi_snapshot_loop(path: Path, interval_seconds: float = 10.0) -> None:
     provider = _build_kalshi_provider()
+    last_pt_date = None
+    backfill_done = False
+
     while True:
         if provider is None or not getattr(provider, "enabled", False):
             write_json_atomic(path, _kalshi_disabled_payload())
             await asyncio.sleep(interval_seconds)
             continue
+
+        now_pt = datetime.now(PT_TZ)
+        current_pt_date = now_pt.date()
+
+        # Daily rollover: clear cache when the PT date changes
+        if last_pt_date is not None and current_pt_date != last_pt_date:
+            provider.clear_cache()
+            backfill_done = False
+        last_pt_date = current_pt_date
+
+        # Historical backfill on startup: fetch all of today's contracts
+        # so the ML has data even for contracts whose trading windows
+        # have already closed before the bot started.
+        daily_contracts: list = []
+        if not backfill_done:
+            try:
+                daily_contracts = provider.fetch_daily_contracts()
+                backfill_done = True
+            except Exception:
+                pass
+
         price = _coerce_price_from_state()
         sentiment = provider.get_sentiment(price) if price is not None else {}
         strikes = provider._fetch_event_markets()  # noqa: SLF001 - intentionally surfacing full ladder to UI
 
         trade_gating_active, trade_gating_hour = _kalshi_trade_gating_status()
 
-        # When trade gating is active, Kalshi influences trade decisions;
-        # otherwise it is observe-only (dashboard display without gating).
+        # When trade gating is active, Kalshi influences trade decisions
+        # with 3x sizing; otherwise it is observe-only for the dashboard.
         if trade_gating_active:
             observer_only = False
-            status_label = "Trade gating"
-            status_reason = f"Kalshi is actively gating trades for the {trade_gating_hour}:00 ET settlement window."
+            pt_hour = trade_gating_hour - 3  # ET to PT
+            status_label = "Trade gating (3x)"
+            status_reason = (
+                f"Kalshi is actively gating trades with 3x sizing for the "
+                f"{pt_hour}:00 PT prediction ({trade_gating_hour}:00 ET)."
+            )
         else:
             observer_only = True
             status_label = "Observe only"
@@ -225,6 +257,7 @@ async def _kalshi_snapshot_loop(path: Path, interval_seconds: float = 10.0) -> N
             "trade_gating_active": trade_gating_active,
             "trade_gating_hour": trade_gating_hour,
             "strikes": strikes if isinstance(strikes, list) else [],
+            "daily_contracts": daily_contracts if daily_contracts else None,
         }
         write_json_atomic(path, payload)
         await asyncio.sleep(interval_seconds)

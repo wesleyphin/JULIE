@@ -113,6 +113,13 @@ export interface FilterlessKalshiStrike {
   result?: string | null;
 }
 
+export interface FilterlessKalshiDailyContract {
+  pt_hour: number;
+  event_ticker: string;
+  settled: boolean;
+  strike_count: number;
+}
+
 export interface FilterlessKalshiMetrics {
   enabled: boolean;
   healthy?: boolean;
@@ -130,6 +137,7 @@ export interface FilterlessKalshiMetrics {
   trade_gating_active?: boolean | null;
   trade_gating_hour?: number | null;
   strikes: FilterlessKalshiStrike[];
+  daily_contracts?: FilterlessKalshiDailyContract[] | null;
 }
 
 export interface FilterlessLiveState {

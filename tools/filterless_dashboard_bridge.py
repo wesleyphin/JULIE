@@ -644,6 +644,7 @@ def build_kalshi_metrics_from_snapshot(snapshot: Any) -> Optional[Dict[str, Any]
         "trade_gating_active": snapshot.get("trade_gating_active"),
         "trade_gating_hour": snapshot.get("trade_gating_hour"),
         "strikes": strikes,
+        "daily_contracts": snapshot.get("daily_contracts"),
     }
 
 

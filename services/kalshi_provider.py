@@ -116,19 +116,52 @@ class KalshiProvider:
                 time.sleep(2)
         return {}
 
-    def _current_event_ticker(self) -> str:
-        et = pytz.timezone("US/Eastern")
-        now = datetime.now(et)
+    # Kalshi KXINXU contracts predict Pacific Time hours
+    _PREDICTION_HOURS_PT = [10, 11, 12, 13, 14, 15, 16]
 
-        settlement_hours = [10, 11, 12, 13, 14, 15, 16]
-        next_settle = None
-        for hour in settlement_hours:
+    def _current_event_ticker(self) -> str:
+        pt = pytz.timezone("US/Pacific")
+        now = datetime.now(pt)
+
+        next_hour = None
+        for hour in self._PREDICTION_HOURS_PT:
             if hour > now.hour or (hour == now.hour and now.minute < 5):
-                next_settle = hour
+                next_hour = hour
                 break
-        if next_settle is None:
-            next_settle = 16
-        return f"{self.series}-{now.strftime('%y%b%d').upper()}H{next_settle * 100}"
+        if next_hour is None:
+            next_hour = self._PREDICTION_HOURS_PT[-1]
+        return f"{self.series}-{now.strftime('%y%b%d').upper()}H{next_hour * 100}"
+
+    def event_ticker_for_hour(self, pt_hour: int, ref_date: Optional[datetime] = None) -> str:
+        """Build an event ticker for a specific PT prediction hour."""
+        pt = pytz.timezone("US/Pacific")
+        if ref_date is None:
+            ref_date = datetime.now(pt)
+        return f"{self.series}-{ref_date.strftime('%y%b%d').upper()}H{pt_hour * 100}"
+
+    def fetch_daily_contracts(self) -> List[Dict]:
+        """Fetch all of today's hourly contracts for historical backfill.
+
+        Each contract becomes tradable 4 hours before its PT prediction hour
+        and closes 1 hour later (3 hours before the prediction hour).
+        """
+        if not self.enabled:
+            return []
+        pt = pytz.timezone("US/Pacific")
+        now = datetime.now(pt)
+        results = []
+        for hour in self._PREDICTION_HOURS_PT:
+            ticker = self.event_ticker_for_hour(hour, now)
+            markets = self._fetch_event_markets(event_ticker=ticker)
+            close_hour = hour - 3  # Trading closes 3 hours before prediction
+            results.append({
+                "pt_hour": hour,
+                "event_ticker": ticker,
+                "strikes": markets,
+                "settled": now.hour >= close_hour,
+                "strike_count": len(markets),
+            })
+        return results
 
     def _event_sort_ts(self, event: Dict) -> float:
         for key in ("expiration_time", "close_time", "settlement_time", "event_time", "open_time"):

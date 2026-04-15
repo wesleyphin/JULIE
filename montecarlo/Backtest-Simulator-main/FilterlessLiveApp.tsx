@@ -275,59 +275,64 @@ function formatHourLabel(hour: number): string {
 }
 
 /**
- * Convert an ET hour (0-23) to a label in the user's local timezone.
- *
- * Approach: find today's date in ET, build an ISO string for that date at
- * the target ET hour, then format the resulting Date in the browser's local
- * timezone.  This handles DST correctly because we derive the ET date string
- * from the Intl API and parse it back through a timezone-aware path.
+ * Convert a timezone-specific hour (0-23) to a label in the user's local timezone.
  */
-function etHourToLocalLabel(etHour: number): string {
-  // Step 1: Get today's date components in ET
+function tzHourToLocalLabel(hour: number, timeZone: string): string {
   const now = new Date();
-  const etParts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
   }).formatToParts(now);
-  const yy = etParts.find((p) => p.type === 'year')!.value;
-  const mm = etParts.find((p) => p.type === 'month')!.value;
-  const dd = etParts.find((p) => p.type === 'day')!.value;
+  const yy = parts.find((p) => p.type === 'year')!.value;
+  const mm = parts.find((p) => p.type === 'month')!.value;
+  const dd = parts.find((p) => p.type === 'day')!.value;
 
-  // Step 2: Compute ET's current UTC offset by comparing two renderings of "now"
+  // Step 2: Compute the timezone's current UTC offset
   const utcMs = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' })).getTime();
-  const etMs = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' })).getTime();
-  const etOffsetHours = Math.round((etMs - utcMs) / 3_600_000); // e.g. -4 (EDT) or -5 (EST)
+  const tzMs = new Date(now.toLocaleString('en-US', { timeZone })).getTime();
+  const tzOffsetHours = Math.round((tzMs - utcMs) / 3_600_000);
 
-  // Step 3: Build a UTC timestamp for "today at etHour:00 ET"
-  const utcHour = etHour - etOffsetHours;
+  // Step 3: Build a UTC timestamp for "today at hour:00 in the given timezone"
+  const utcHour = hour - tzOffsetHours;
   const target = new Date(`${yy}-${mm}-${dd}T${String(utcHour).padStart(2, '0')}:00:00Z`);
 
   // Step 4: Format in the browser's local timezone
   return target.toLocaleTimeString([], { hour: 'numeric', hour12: true });
 }
 
-/**
- * Get the current hour in ET for availability calculations.
- */
-function currentETHour(): number {
-  const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  return nowET.getHours();
+/** Convert a PT hour to a label in the user's local timezone. */
+function ptHourToLocalLabel(ptHour: number): string {
+  return tzHourToLocalLabel(ptHour, 'America/Los_Angeles');
+}
+
+/** Convert an ET hour to a label in the user's local timezone. */
+function etHourToLocalLabel(etHour: number): string {
+  return tzHourToLocalLabel(etHour, 'America/New_York');
 }
 
 /**
- * Each Kalshi hourly contract becomes available 1 hour before its settlement
- * hour (ET) and settles at the settlement hour.
+ * Get the current hour in PT for Kalshi availability calculations.
+ */
+function currentPTHour(): number {
+  const nowPT = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+  return nowPT.getHours();
+}
+
+/**
+ * Kalshi KXINXU contracts predict Pacific Time hours (10 AM - 4 PM PT).
  *
- * The user specified Pacific Time availability windows which convert to ET as:
- *   - 10 AM ET contract: available from 9 AM ET, settles at 10 AM ET
- *   - 11 AM ET contract: available from 10 AM ET, settles at 11 AM ET
+ * Each contract becomes tradable 4 hours before its PT prediction hour
+ * and closes 1 hour later (3 hours before the prediction hour):
+ *   - 10 AM PT contract: tradable 6-7 AM PT, prediction at 10 AM PT
+ *   - 11 AM PT contract: tradable 7-8 AM PT, prediction at 11 AM PT
  *   - etc.
  *
- * Trade gating activates when the current ET hour matches the settlement hour.
+ * Trade gating activates during the prediction hour itself (10 AM - 4 PM PT).
+ * The backend sends trade_gating_hour in ET; we convert to PT by subtracting 3.
  *
- * The UI labels are displayed in the user's local timezone.
+ * UI labels are displayed in the viewer's local timezone.
  */
 function buildKalshiHourlyContracts(
   eventTicker?: string | null,
@@ -338,24 +343,28 @@ function buildKalshiHourlyContracts(
   const activeHourMatch = eventTicker?.match(/H(\d+)$/);
   const activeHourCode = activeHourMatch ? parseInt(activeHourMatch[1], 10) : null;
 
-  const etHour = currentETHour();
+  const ptHour = currentPTHour();
+  // Backend sends trade_gating_hour in ET; convert to PT (always 3 hours behind)
+  const tradeGatingPTHour = tradeGatingHour != null ? tradeGatingHour - 3 : null;
 
   return KALSHI_SETTLEMENT_HOURS.map((hour) => {
+    // hour is a PT prediction hour (10, 11, 12, 13, 14, 15, 16)
     const hourCode = hour * 100;
     const ticker = tickerPrefix ? `${tickerPrefix}H${hourCode}` : `H${hourCode}`;
     const isActive = activeHourCode === hourCode;
 
-    // Available 1 hour before settlement (ET), settles at the settlement hour
-    const availableFrom = hour - 1;
-    const isAvailable = etHour >= availableFrom && etHour < hour;
-    const isSettled = etHour >= hour;
-    const isUpcoming = etHour < availableFrom;
+    // Tradable from 4 hours before prediction, closes 1 hour later (3 hours before prediction)
+    const tradableFrom = hour - 4; // PT hour when trading opens
+    const tradableUntil = hour - 3; // PT hour when trading closes
+    const isAvailable = ptHour >= tradableFrom && ptHour < tradableUntil;
+    const isSettled = ptHour >= tradableUntil;
+    const isUpcoming = ptHour < tradableFrom;
 
     const strikeCount = isActive ? (strikes?.length || 0) : 0;
-    const tradeGating = tradeGatingHour === hour;
+    const tradeGating = tradeGatingPTHour === hour;
 
-    // Display in user's local timezone
-    const localLabel = etHourToLocalLabel(hour);
+    // Display in user's local timezone (convert from PT)
+    const localLabel = ptHourToLocalLabel(hour);
 
     return {
       hour,
@@ -1066,11 +1075,11 @@ function FilterlessLiveApp() {
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Trade Gating</p>
                 <p className={`mt-1 text-lg font-semibold ${kalshiMetrics?.trade_gating_active ? 'text-amber-300' : 'text-neutral-400'}`}>
                   {kalshiMetrics?.trade_gating_active
-                    ? `Active — ${etHourToLocalLabel(kalshiMetrics.trade_gating_hour!)}`
+                    ? `Active 3x — ${etHourToLocalLabel(kalshiMetrics.trade_gating_hour!)}`
                     : 'Observe Only'}
                 </p>
                 <p className="mt-1 text-xs text-neutral-500">
-                  {kalshiMetrics?.status_reason || 'Gating activates during settlement hours.'}
+                  {kalshiMetrics?.status_reason || 'Gating activates during 10 AM – 4 PM PT prediction hours with 3x sizing.'}
                 </p>
               </div>
             </div>
@@ -1078,7 +1087,7 @@ function FilterlessLiveApp() {
             {/* Hourly contract schedule — clickable buttons */}
             <div className="mb-5">
               <div className="flex items-center justify-between mb-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Hourly Contract Schedule (Local Time)</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Hourly Contract Schedule — PT Prediction Hours (Local Time)</p>
                 {selectedKalshiHour != null && (
                   <button
                     onClick={() => setSelectedKalshiHour(null)}
@@ -1163,12 +1172,12 @@ function FilterlessLiveApp() {
                     </p>
                     <p className="mt-1 text-xs text-neutral-500">
                       {viewedKalshiContract.tradeGating
-                        ? 'Trade gating is active for this contract hour.'
+                        ? 'Trade gating is active with 3x sizing for this prediction hour.'
                         : viewedKalshiContract.available
-                          ? `Available now. Trade gating activates at ${etHourToLocalLabel(viewedKalshiContract.hour)}.`
+                          ? `Tradable now. Gating activates at ${ptHourToLocalLabel(viewedKalshiContract.hour)} with 3x sizing.`
                           : viewedKalshiContract.upcoming
-                            ? `Not available yet. Opens ${viewedKalshiContract.hour - 4} hours before settlement.`
-                            : 'This contract has settled.'}
+                            ? `Not tradable yet. Opens at ${ptHourToLocalLabel(viewedKalshiContract.hour - 4)}, closes at ${ptHourToLocalLabel(viewedKalshiContract.hour - 3)}.`
+                            : 'Trading has closed on this contract.'}
                     </p>
                   </div>
                   <span className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide ${

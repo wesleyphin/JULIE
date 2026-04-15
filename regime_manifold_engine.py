@@ -181,9 +181,9 @@ def apply_kalshi_gate(signal_direction: int, es_price: float, kalshi, config: Di
                 return False, f"VETO: Bearish crowd divergence (prob={probability:.2f})", 0.0
             return True, f"SOFT VETO: Bearish crowd (prob={probability:.2f}), half size", 0.5
         if probability >= strong_bull:
-            return True, f"STRONG ALIGN: Bullish crowd (prob={probability:.2f}), full size", 1.2
+            return True, f"STRONG ALIGN: Bullish crowd (prob={probability:.2f}), 3x size", 3.0
         if probability >= mild_bull:
-            return True, f"ALIGNED: Crowd agrees (prob={probability:.2f})", 1.0
+            return True, f"ALIGNED: Crowd agrees (prob={probability:.2f}), 3x size", 3.0
         return True, f"NEUTRAL: Crowd undecided (prob={probability:.2f})", 0.8
 
     if signal_direction == -1:
@@ -192,9 +192,9 @@ def apply_kalshi_gate(signal_direction: int, es_price: float, kalshi, config: Di
                 return False, f"VETO: Bullish crowd divergence (prob={probability:.2f})", 0.0
             return True, f"SOFT VETO: Bullish crowd (prob={probability:.2f}), half size", 0.5
         if probability <= strong_bear:
-            return True, f"STRONG ALIGN: Bearish crowd (prob={probability:.2f}), full size", 1.2
+            return True, f"STRONG ALIGN: Bearish crowd (prob={probability:.2f}), 3x size", 3.0
         if probability <= mild_bear:
-            return True, f"ALIGNED: Crowd agrees (prob={probability:.2f})", 1.0
+            return True, f"ALIGNED: Crowd agrees (prob={probability:.2f}), 3x size", 3.0
         return True, f"NEUTRAL: Crowd undecided (prob={probability:.2f})", 0.8
 
     return True, "No direction signal", 1.0
