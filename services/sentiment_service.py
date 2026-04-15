@@ -465,12 +465,12 @@ class TruthSocialSentimentService:
             },
         }
 
-    def _trigger_payload(self, sentiment_score: float) -> tuple[Optional[str], Optional[str]]:
+    def _trigger_payload(self, sentiment_score: float, sentiment_label: str = "") -> tuple[Optional[str], Optional[str]]:
         if sentiment_score >= self.pump_threshold:
-            return "LONG", f"Truth Social quick-pump threshold {sentiment_score:.2f} >= {self.pump_threshold:.2f}"
+            return "LONG", f"Sentiment pump threshold {sentiment_score:.2f} >= {self.pump_threshold:.2f}"
         if sentiment_score <= -self.pump_threshold:
-            return "SHORT", f"Truth Social dump threshold {sentiment_score:.2f} <= {-self.pump_threshold:.2f}"
-        return None, None
+            return "SHORT", f"Sentiment dump threshold {sentiment_score:.2f} <= {-self.pump_threshold:.2f}"
+        return "NEUTRAL", f"Sentiment neutral ({sentiment_score:.2f}) — no market-moving bias detected"
 
     def _remember_post(self, post_id: str, created_at: Optional[datetime]) -> None:
         if post_id not in self._seen_post_ids:
@@ -549,7 +549,9 @@ class TruthSocialSentimentService:
                 self._mark_error(str(exc), active=True)
                 continue
 
-            trigger_side, trigger_reason = self._trigger_payload(float(analysis["sentiment_score"]))
+            trigger_side, trigger_reason = self._trigger_payload(
+                float(analysis["sentiment_score"]), str(analysis.get("sentiment_label", ""))
+            )
             latest_snapshot = update_sentiment_state(
                 enabled=True,
                 active=True,
@@ -581,9 +583,8 @@ class TruthSocialSentimentService:
             )
             self._remember_post(post_id, created_at)
             event_logger.log_sentiment_event(
-                "Truth Social post analyzed",
+                "Sentiment post analyzed",
                 {
-                    "strategy": "TruthSocialEngine",
                     "target_handle": self.target_handle,
                     "post_id": post_id,
                     "sentiment_label": latest_snapshot.get("sentiment_label"),
@@ -592,11 +593,10 @@ class TruthSocialSentimentService:
                     "trigger_side": latest_snapshot.get("trigger_side"),
                 },
             )
-            if trigger_side:
+            if trigger_side and trigger_side != "NEUTRAL":
                 event_logger.log_sentiment_event(
-                    "Truth Social trade trigger armed",
+                    "Sentiment emergency-exit trigger armed",
                     {
-                        "strategy": "TruthSocialEngine",
                         "target_handle": self.target_handle,
                         "post_id": post_id,
                         "sentiment_score": latest_snapshot.get("sentiment_score"),

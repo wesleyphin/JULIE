@@ -85,7 +85,6 @@ from services.sentiment_service import (
     get_sentiment_state,
     set_sentiment_state,
 )
-from truth_social_engine import TruthSocialEngine
 
 # --- ASYNCIO IMPORTS ---
 try:
@@ -192,13 +191,13 @@ def _evaluate_truth_social_emergency_exit(snapshot: Optional[Dict[str, Any]], si
 
     if normalized_side == "LONG" and score <= threshold:
         return (
-            f"TRUTH SOCIAL EMERGENCY EXIT: sentiment {score:.2f} <= {threshold:.2f}"
+            f"SENTIMENT EMERGENCY EXIT: sentiment {score:.2f} <= {threshold:.2f}"
             + (f" (FinBERT {confidence:.2%})" if math.isfinite(confidence) else "")
         )
     short_threshold = abs(float(threshold))
     if normalized_side == "SHORT" and score >= short_threshold:
         return (
-            f"TRUTH SOCIAL EMERGENCY EXIT: sentiment {score:.2f} >= {short_threshold:.2f}"
+            f"SENTIMENT EMERGENCY EXIT: sentiment {score:.2f} >= {short_threshold:.2f}"
             + (f" (FinBERT {confidence:.2%})" if math.isfinite(confidence) else "")
         )
     return None
@@ -3752,7 +3751,6 @@ LOG_STRATEGY_ALIASES: Dict[str, Tuple[str, Optional[str]]] = {
     "DynamicEngine": ("DynamicEngine", None),
     "DynamicEngine2": ("DynamicEngine", "Dynamic Engine 2"),
     "DynamicEngine3": ("DynamicEngine3", None),
-    "TruthSocialEngine": ("Truth Social", None),
 }
 
 
@@ -5885,13 +5883,10 @@ async def run_bot():
 
     # Initialize all strategies
     truth_social_cfg = _truth_social_cfg()
-    truth_social_filterless_disabled = filterless_only_mode and "truth_social" in filterless_disabled
-    truth_social_enabled = bool(truth_social_cfg.get("enabled", False)) and not truth_social_filterless_disabled
+    truth_social_enabled = bool(truth_social_cfg.get("enabled", False))
     sentiment_service = build_truth_social_sentiment_service(truth_social_cfg) if truth_social_enabled else None
     if filterless_only_mode:
         filterless_roster = ["DynamicEngine3", "RegimeAdaptive"]
-        if truth_social_enabled:
-            filterless_roster.insert(0, "TruthSocial")
         if "ml_physics" not in filterless_disabled:
             filterless_roster.append("MLPhysics")
         filterless_roster.append("AetherFlow")
@@ -5918,17 +5913,6 @@ async def run_bot():
                 "Filterless live strategy disabled",
                 {
                     "strategy": "MLPhysicsStrategy",
-                    "status": "DISABLED",
-                    "reason": "disabled in filterless live config",
-                },
-            )
-        if truth_social_filterless_disabled:
-            logging.info("🧪 FILTERLESS ONLY MODE: TruthSocialEngine disabled by filterless live config")
-            event_logger.log_system_event(
-                "MODE",
-                "Filterless live strategy disabled",
-                {
-                    "strategy": "TruthSocialEngine",
                     "status": "DISABLED",
                     "reason": "disabled in filterless live config",
                 },
@@ -5978,24 +5962,6 @@ async def run_bot():
     # HIGH PRIORITY - Execute immediately on signal
     # CHANGED: Dynamic Engine stays here. VIX added. Intraday Dip removed.
     fast_strategies = [regimeadaptive_strategy]
-    truth_social_strategy = None
-    if truth_social_enabled:
-        truth_social_strategy = TruthSocialEngine()
-        fast_strategies.insert(0, truth_social_strategy)
-        event_logger.log_system_event(
-            "SYSTEM",
-            "Truth Social sentiment engine initialized",
-            {
-                "strategy": "TruthSocialEngine",
-                "status": "READY",
-                "target_handle": truth_social_cfg.get("target_handle", "realDonaldTrump"),
-            },
-        )
-        logging.info(
-            "TruthSocialEngine initialized for live execution | handle=%s threshold=%.2f",
-            truth_social_cfg.get("target_handle", "realDonaldTrump"),
-            float(truth_social_cfg.get("pump_threshold", 0.85) or 0.85),
-        )
     if not filterless_only_mode:
         vix_strategy = VIXReversionStrategy()
         fast_strategies.extend([
@@ -10010,12 +9976,7 @@ async def run_bot():
                                 signal,
                                 fallback=strat_name,
                             )
-                            candidate_priority = (
-                                0
-                                if str(signal.get("strategy", strat_name) or strat_name).startswith("TruthSocial")
-                                else 1
-                            )
-                            candidate_signals.append((candidate_priority, strat, signal, strat_name))
+                            candidate_signals.append((1, strat, signal, strat_name))
 
                             # Log as candidate
                             log_strategy, log_sub = get_log_strategy_info(
@@ -10024,7 +9985,7 @@ async def run_bot():
                             )
                             log_info = {
                                 "status": "CANDIDATE",
-                                "priority": "SENTIMENT" if candidate_priority == 0 else "FAST",
+                                "priority": "FAST",
                             }
                             if log_sub:
                                 log_info["sub_strategy"] = log_sub
@@ -10324,19 +10285,6 @@ async def run_bot():
                             continue
                         active_candidates.append((priority, strat, sig, s_name))
                     candidate_signals = active_candidates
-
-                truth_social_candidates = [
-                    (priority, strat, sig, s_name)
-                    for priority, strat, sig, s_name in candidate_signals
-                    if str(sig.get("strategy", s_name) or s_name).startswith("TruthSocial")
-                ]
-                if truth_social_candidates:
-                    candidate_signals = truth_social_candidates
-                    logging.info(
-                        "Truth Social sentiment candidate overrides technical candidates for this bar (%s candidate%s)",
-                        len(candidate_signals),
-                        "" if len(candidate_signals) == 1 else "s",
-                    )
 
                 def ml_soft_gate_eligible(sig: dict, strat_name: Optional[str] = None) -> bool:
                     if not consensus_ml_ok(sig, strat_name):

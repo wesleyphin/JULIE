@@ -47,9 +47,8 @@ MES_ROUND_TURN_FEE = round(
     2,
 )
 
-STRATEGY_ORDER = ["dynamic_engine3", "regime_adaptive", "ml_physics", "aetherflow", "truth_social"]
+STRATEGY_ORDER = ["dynamic_engine3", "regime_adaptive", "ml_physics", "aetherflow"]
 STRATEGY_LABELS = {
-    "truth_social": "Truth Social",
     "dynamic_engine3": "Dynamic Engine 3",
     "regime_adaptive": "RegimeAdaptive",
     "ml_physics": "ML Physics",
@@ -61,14 +60,6 @@ FILTERLESS_LIVE_DISABLED_STRATEGIES = {
     if str(value).strip()
 }
 TRUTH_SOCIAL_CONFIG = dict(CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {})
-TRUTH_SOCIAL_FILTERLESS_DISABLED = "truth_social" in FILTERLESS_LIVE_DISABLED_STRATEGIES
-TRUTH_SOCIAL_ENABLED = bool(TRUTH_SOCIAL_CONFIG.get("enabled", False)) and not TRUTH_SOCIAL_FILTERLESS_DISABLED
-TRUTH_SOCIAL_TARGET_HANDLE = str(
-    TRUTH_SOCIAL_CONFIG.get("target_handle", "realDonaldTrump") or "realDonaldTrump"
-).lstrip("@")
-TRUTH_SOCIAL_FINBERT_LOCAL_PATH = str(
-    TRUTH_SOCIAL_CONFIG.get("finbert_local_path", "./models/finbert") or "./models/finbert"
-)
 
 LOG_PREFIX_RE = re.compile(
     r"^(?P<logged_at>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) \[(?P<level>[^\]]+)\] (?P<message>.*)$"
@@ -155,8 +146,6 @@ def canonical_strategy_id(raw_strategy: Optional[str]) -> Optional[str]:
     normalized = re.sub(r"[^a-z0-9]+", "", raw.lower())
     if normalized.startswith("dynamicengine"):
         return "dynamic_engine3"
-    if normalized.startswith("truthsocial"):
-        return "truth_social"
     if normalized.startswith("regimeadaptive"):
         return "regime_adaptive"
     if normalized.startswith("mlphysics"):
@@ -228,16 +217,23 @@ def strategy_state_template(strategy_id: str) -> Dict[str, Any]:
 
 
 def default_sentiment_metrics() -> Optional[Dict[str, Any]]:
-    if not TRUTH_SOCIAL_ENABLED:
+    sentiment_enabled = bool(TRUTH_SOCIAL_CONFIG.get("enabled", False))
+    if not sentiment_enabled:
         return None
+    target_handle = str(
+        TRUTH_SOCIAL_CONFIG.get("target_handle", "realDonaldTrump") or "realDonaldTrump"
+    ).lstrip("@")
+    finbert_path = str(
+        TRUTH_SOCIAL_CONFIG.get("finbert_local_path", "./models/finbert") or "./models/finbert"
+    )
     return {
         "enabled": True,
         "active": False,
         "healthy": False,
         "model_loaded": False,
         "quantized_8bit": False,
-        "target_handle": TRUTH_SOCIAL_TARGET_HANDLE,
-        "source": "truthbrush_finbert",
+        "target_handle": target_handle,
+        "source": "rss_finbert",
         "last_poll_at": None,
         "last_analysis_at": None,
         "latest_post_id": None,
@@ -251,7 +247,7 @@ def default_sentiment_metrics() -> Optional[Dict[str, Any]]:
         "trigger_reason": None,
         "last_error": None,
         "metadata": {
-            "finbert_local_path": TRUTH_SOCIAL_FINBERT_LOCAL_PATH,
+            "finbert_local_path": finbert_path,
         },
     }
 
@@ -277,18 +273,6 @@ def normalize_sentiment_error_message(value: Any) -> Optional[str]:
     if any(p in lowered for p in ("<!doctype", "<html", "<head")):
         return "Truth Social returned an HTML error page (likely Cloudflare block)."
     return message
-
-
-def truth_social_dashboard_status(snapshot: Optional[Dict[str, Any]]) -> str:
-    if not TRUTH_SOCIAL_ENABLED:
-        return "disabled"
-    if not isinstance(snapshot, dict):
-        return "ready"
-    if snapshot.get("last_error"):
-        return "blocked"
-    if snapshot.get("trigger_side"):
-        return "candidate"
-    return "ready"
 
 
 def disabled_strategy_message(strategy_id: str) -> str:
@@ -1099,38 +1083,6 @@ def apply_bot_state_snapshot(
     }
     sentiment_snapshot = build_sentiment_metrics_from_snapshot(persisted_state.get("sentiment"))
     dashboard["sentiment_metrics"] = sentiment_snapshot
-    truth_social_strategy = dashboard["strategies"].get("truth_social")
-    if sentiment_snapshot is not None and truth_social_strategy is not None:
-        strategy_updated_at = (
-            sentiment_snapshot.get("last_analysis_at")
-            or sentiment_snapshot.get("last_poll_at")
-            or iso_or_none(persisted_ts)
-        )
-        truth_social_strategy["updated_at"] = strategy_updated_at
-        truth_social_strategy["status"] = truth_social_dashboard_status(sentiment_snapshot)
-        truth_social_strategy["last_signal_time"] = sentiment_snapshot.get("last_analysis_at")
-        truth_social_strategy["last_signal_side"] = sentiment_snapshot.get("trigger_side")
-        truth_social_strategy["priority"] = "SENTIMENT"
-        truth_social_strategy["last_reason"] = (
-            sentiment_snapshot.get("trigger_reason")
-            or sentiment_snapshot.get("last_error")
-            or "Watching Truth Social sentiment."
-        )
-        excerpt = str(sentiment_snapshot.get("latest_post_text") or "").strip()
-        activity_message = (
-            sentiment_snapshot.get("trigger_reason")
-            or sentiment_snapshot.get("last_error")
-            or excerpt
-            or "Awaiting the next Truth Social post."
-        )
-        set_strategy_activity(
-            truth_social_strategy,
-            parse_iso(sentiment_snapshot.get("last_analysis_at") or sentiment_snapshot.get("last_poll_at")),
-            "SYSTEM_SENTIMENT_EVENT",
-            activity_message[:220] if isinstance(activity_message, str) else "Truth Social sentiment updated.",
-            severity="warning" if sentiment_snapshot.get("last_error") else "info",
-            blocked=bool(sentiment_snapshot.get("last_error")),
-        )
 
     live_position = persisted_state.get("live_position")
     live_position_ts = None

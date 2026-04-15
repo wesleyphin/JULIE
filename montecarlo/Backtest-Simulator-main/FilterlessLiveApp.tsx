@@ -189,12 +189,6 @@ function strategyTone(strategyId: string): { shell: string; badge: string; accen
         badge: 'bg-sky-500/10 text-sky-300 border-sky-500/30',
         accent: 'text-sky-300',
       };
-    case 'truth_social':
-      return {
-        shell: 'border-rose-500/20 bg-gradient-to-b from-rose-500/10 via-surface to-surface',
-        badge: 'bg-rose-500/10 text-rose-200 border-rose-500/30',
-        accent: 'text-rose-200',
-      };
     case 'regime_adaptive':
       return {
         shell: 'border-amber-500/20 bg-gradient-to-b from-amber-500/10 via-surface to-surface',
@@ -764,11 +758,7 @@ function FilterlessLiveApp() {
   const openPnlColor = (openPosition?.open_pnl_dollars || 0) >= 0 ? 'success' : 'danger';
   const kalshiMetrics = state.kalshi_metrics ?? null;
   const kalshiVisible = kalshiMetrics != null;
-  const truthSocialConfigured = useMemo(
-    () => state.strategies.some((strategy) => strategy.id === 'truth_social'),
-    [state.strategies],
-  );
-  const sentimentMetrics = state.sentiment_metrics ?? (truthSocialConfigured ? DEFAULT_SENTIMENT_METRICS : null);
+  const sentimentMetrics = state.sentiment_metrics ?? DEFAULT_SENTIMENT_METRICS;
   const kalshiOpenSide = String(openPosition?.side || '').toUpperCase();
   const kalshiPredictionLabel = kalshiOpenSide === 'SHORT' ? 'NO' : 'YES';
   const kalshiSpxReferencePrice =
@@ -863,7 +853,7 @@ function FilterlessLiveApp() {
             <Radar className="w-6 h-6 text-white" />
             <div>
               <h1 className="text-xl font-bold tracking-tight">Filterless Live Desk</h1>
-              <p className="text-xs text-neutral-500">Dynamic Engine 3, RegimeAdaptive, ML Physics, AetherFlow, Truth Social</p>
+              <p className="text-xs text-neutral-500">Dynamic Engine 3, RegimeAdaptive, ML Physics, AetherFlow</p>
             </div>
           </div>
           <div className="flex items-center gap-4 text-sm">
@@ -939,15 +929,15 @@ function FilterlessLiveApp() {
 
         {/* System Pulse removed — Kalshi hourly contracts provide more actionable context */}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {displayStrategies.map((strategy) => (
             <StrategyCard key={strategy.id} strategy={strategy} />
           ))}
         </div>
 
-        {truthSocialConfigured && sentimentMetrics && (
+        {sentimentMetrics && (
           <Panel
-            title="Truth Social Sentiment"
+            title="Sentiment Monitor"
             right={
               <span className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${statusChipClasses(
                 sentimentMetrics.last_error
@@ -1010,7 +1000,7 @@ function FilterlessLiveApp() {
                   ? sentimentMetrics.last_error
                   : sentimentMetrics.trigger_reason
                     ? `${sentimentMetrics.trigger_reason}. ${sentimentExcerpt || ''}`.trim()
-                    : sentimentExcerpt || 'No Truth Social post has been analyzed yet.'}
+                    : sentimentExcerpt || 'No post has been analyzed yet.'}
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-neutral-500">
                 <span>Poll {formatRelativeTime(sentimentMetrics.last_poll_at)}</span>

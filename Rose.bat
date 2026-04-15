@@ -22,12 +22,12 @@ echo Install uv first, then re-run this launcher.
 goto end
 )
 
-echo [1] Ensuring workspace setup, Truth Social runtime, and local FinBERT...
+echo [1] Ensuring workspace setup, sentiment runtime, and local FinBERT...
 powershell -ExecutionPolicy Bypass -File "%~dp0setup_topstep2.ps1"
 if errorlevel 1 goto end
 
 if not exist "%~dp0.env" (
-echo [info] Truth Social polling still needs TRUTHSOCIAL_* credentials in config_secrets.py or environment variables.
+echo [info] Sentiment polling uses the trumpstruth.org RSS feed — no credentials required.
 )
 
 echo.
