@@ -223,8 +223,19 @@ async def _kalshi_snapshot_loop(path: Path, interval_seconds: float = 10.0) -> N
         price = _coerce_price_from_state()
         sentiment = provider.get_sentiment(price) if price is not None else {}
         all_strikes = provider._fetch_event_markets()  # noqa: SLF001 - intentionally surfacing full ladder to UI
-        # Only send strikes with volume to the dashboard (matches Kalshi website display)
-        strikes = [s for s in all_strikes if isinstance(s, dict) and float(s.get("volume", 0) or 0) > 0]
+        # Show up to 30 strikes: prioritize those with volume, pad with
+        # nearby strikes (by probability near 0.50 = ATM) to fill to 30.
+        TARGET_STRIKE_COUNT = 30
+        with_vol = [s for s in all_strikes if isinstance(s, dict) and float(s.get("volume", 0) or 0) > 0]
+        if len(with_vol) >= TARGET_STRIKE_COUNT:
+            strikes = with_vol[:TARGET_STRIKE_COUNT]
+        else:
+            vol_strikes = set(s["strike"] for s in with_vol)
+            remaining = [s for s in all_strikes if isinstance(s, dict) and s["strike"] not in vol_strikes]
+            # Sort by proximity to ATM (probability closest to 0.50)
+            remaining.sort(key=lambda s: abs(float(s.get("probability", 0) or 0) - 0.50))
+            pad = remaining[: TARGET_STRIKE_COUNT - len(with_vol)]
+            strikes = sorted(with_vol + pad, key=lambda s: s["strike"])
 
         trade_gating_active, trade_gating_hour = _kalshi_trade_gating_status()
 
