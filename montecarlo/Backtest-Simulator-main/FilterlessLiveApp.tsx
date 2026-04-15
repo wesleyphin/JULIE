@@ -27,6 +27,7 @@ import {
 import StatsCard from './components/StatsCard';
 import {
   FilterlessEvent,
+  FilterlessKalshiMetrics,
   FilterlessKalshiStrike,
   FilterlessLiveState,
   FilterlessPosition,
@@ -211,11 +212,96 @@ function formatStrikeLabel(value?: number | null): string {
   return value.toFixed(0);
 }
 
+function formatCompactNumber(value?: number | null): string {
+  if (value == null || Number.isNaN(value)) return '--';
+  return new Intl.NumberFormat([], {
+    notation: 'compact',
+    maximumFractionDigits: value >= 1000 ? 1 : 0,
+  }).format(value);
+}
+
+function hasText(value?: string | null): boolean {
+  return Boolean(value && value.trim());
+}
+
 function formatGateSummary(prob?: number | null, threshold?: number | null): string {
   if (prob == null && threshold == null) return '--';
   if (prob == null) return `min ${formatPercent(threshold)}`;
   if (threshold == null) return formatPercent(prob);
   return `${formatPercent(prob)} >= ${formatPercent(threshold)}`;
+}
+
+function kalshiModeLabel(metrics?: FilterlessKalshiMetrics | null): string {
+  if (!metrics) return 'Unavailable';
+  if (metrics.observer_only) return 'Observe only';
+  if (metrics.enabled) return 'Trading + dashboard';
+  if (metrics.configured) return 'Disabled';
+  return 'Not configured';
+}
+
+function kalshiStatusClasses(metrics?: FilterlessKalshiMetrics | null): string {
+  if (metrics?.healthy && (metrics.strikes?.length || 0) > 0) {
+    return 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30';
+  }
+  if (metrics?.configured) {
+    return 'bg-amber-500/10 text-amber-200 border-amber-500/30';
+  }
+  return 'bg-neutral-800 text-neutral-300 border-neutral-700';
+}
+
+interface KalshiHourlyContract {
+  hour: number;
+  label: string;
+  eventTicker: string;
+  available: boolean;
+  strikeCount: number;
+  isActive: boolean;
+}
+
+const KALSHI_SETTLEMENT_HOURS = [10, 11, 12, 13, 14, 15, 16] as const;
+
+function formatHourLabel(hour: number): string {
+  if (hour === 12) return '12 PM';
+  if (hour > 12) return `${hour - 12} PM`;
+  return `${hour} AM`;
+}
+
+function buildKalshiHourlyContracts(
+  eventTicker?: string | null,
+  strikes?: FilterlessKalshiStrike[],
+): KalshiHourlyContract[] {
+  // Parse the date prefix from the current event ticker (e.g., "KXINXU-26APR15H1000" -> "KXINXU-26APR15")
+  const tickerPrefix = eventTicker?.replace(/H\d+$/, '') || null;
+  // Parse which hour is currently active from the event ticker
+  const activeHourMatch = eventTicker?.match(/H(\d+)$/);
+  const activeHourCode = activeHourMatch ? parseInt(activeHourMatch[1], 10) : null;
+
+  // Determine current ET hour for availability logic
+  const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const currentETHour = nowET.getHours();
+  const currentETMinute = nowET.getMinutes();
+
+  return KALSHI_SETTLEMENT_HOURS.map((hour) => {
+    const hourCode = hour * 100;
+    const ticker = tickerPrefix ? `${tickerPrefix}H${hourCode}` : `H${hourCode}`;
+    const isActive = activeHourCode === hourCode;
+
+    // A contract is "available" if the settlement hour hasn't passed yet
+    // (available if current time is before the settlement hour, with 5-min grace)
+    const available = currentETHour < hour || (currentETHour === hour && currentETMinute < 5);
+
+    // Count strikes for this contract (if this is the active event, all strikes belong to it)
+    const strikeCount = isActive ? (strikes?.length || 0) : 0;
+
+    return {
+      hour,
+      label: formatHourLabel(hour),
+      eventTicker: ticker,
+      available,
+      strikeCount,
+      isActive,
+    };
+  });
 }
 
 function getPositionEntryPrice(position: FilterlessPosition): number | null {
@@ -272,6 +358,34 @@ function positionMarkerPercent(position: FilterlessPosition, fallbackCurrentPric
   return 50;
 }
 
+function pickKalshiWindow(
+  strikes: FilterlessKalshiStrike[],
+  referencePrice?: number | null,
+  windowSize = 10,
+): FilterlessKalshiStrike[] {
+  if (strikes.length <= windowSize) return strikes;
+  if (referencePrice == null || Number.isNaN(referencePrice)) {
+    const midpoint = Math.floor(strikes.length / 2);
+    const start = Math.max(0, midpoint - Math.floor(windowSize / 2));
+    return strikes.slice(start, start + windowSize);
+  }
+
+  let nearestIndex = 0;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  strikes.forEach((strike, index) => {
+    const distance = Math.abs(strike.strike - referencePrice);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      nearestIndex = index;
+    }
+  });
+
+  const halfWindow = Math.floor(windowSize / 2);
+  const start = Math.max(0, nearestIndex - halfWindow);
+  const end = Math.min(strikes.length, start + windowSize);
+  return strikes.slice(Math.max(0, end - windowSize), end);
+}
+
 const Panel: React.FC<{ title: string; right?: React.ReactNode; children: React.ReactNode; className?: string }> = ({
   title,
   right,
@@ -301,6 +415,24 @@ const StrategyCard: React.FC<{ strategy: FilterlessStrategyState }> = ({ strateg
   const sessionLabel = strategy.current_session || strategy.base_session;
   const latestActivity = strategy.latest_activity || strategy.last_block_reason || strategy.last_reason || 'No recent strategy activity.';
   const latestActivityTime = strategy.latest_activity_time || strategy.updated_at;
+  const details = [
+    hasText(contextLabel) ? { label: 'Context', value: formatToken(contextLabel), accent: tone.accent } : null,
+    hasText(executionLabel) ? { label: 'Rule', value: formatToken(executionLabel), accent: 'text-neutral-100' } : null,
+    gateActive ? { label: 'Gate', value: formatGateSummary(strategy.gate_prob, strategy.gate_threshold), accent: 'text-amber-200' } : null,
+    sessionLabel ? { label: 'Session', value: sessionLabel, accent: 'text-neutral-100' } : null,
+    strategy.vol_regime ? { label: 'Regime', value: formatToken(strategy.vol_regime), accent: 'text-neutral-100' } : null,
+    strategy.early_exit_enabled != null
+      ? { label: 'Early Exit', value: formatBooleanLabel(strategy.early_exit_enabled, 'Enabled', 'Disabled'), accent: 'text-neutral-100' }
+      : null,
+  ].filter((item): item is { label: string; value: string; accent: string } => item !== null);
+  const candidateSummary = [
+    strategy.last_signal_side ? `Side ${strategy.last_signal_side}` : null,
+    strategy.priority ? `Priority ${strategy.priority}` : null,
+    strategy.last_signal_price != null ? `Price ${formatPrice(strategy.last_signal_price)}` : null,
+    strategy.tp_dist != null || strategy.sl_dist != null
+      ? `Bracket ${formatPrice(strategy.tp_dist)} / ${formatPrice(strategy.sl_dist)}`
+      : null,
+  ].filter((item): item is string => item !== null);
 
   return (
     <div className={`rounded-xl border p-5 shadow-sm transition-colors hover:border-neutral-600 ${tone.shell}`}>
@@ -319,55 +451,20 @@ const StrategyCard: React.FC<{ strategy: FilterlessStrategyState }> = ({ strateg
         </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-2 mb-4 xl:grid-cols-4">
-        <div className="rounded-lg border border-neutral-800/80 bg-neutral-950/60 px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Context</p>
-          <p className={`mt-1 text-xs font-medium ${tone.accent}`}>{formatToken(contextLabel)}</p>
+      {details.length > 0 ? (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {details.map((detail) => (
+            <div key={`${strategy.id}-${detail.label}`} className="rounded-full border border-neutral-800/80 bg-neutral-950/65 px-3 py-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">{detail.label}</span>
+              <span className={`ml-2 text-xs font-medium ${detail.accent}`}>{detail.value}</span>
+            </div>
+          ))}
         </div>
-        <div className="rounded-lg border border-neutral-800/80 bg-neutral-950/60 px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Rule</p>
-          <p className="mt-1 text-xs font-medium text-neutral-200">{formatToken(executionLabel)}</p>
+      ) : (
+        <div className="rounded-lg border border-dashed border-neutral-800 bg-neutral-950/55 px-3 py-3 mb-4 text-sm text-neutral-500">
+          Waiting for richer strategy metadata from the live engine.
         </div>
-        <div className="rounded-lg border border-neutral-800/80 bg-neutral-950/60 px-3 py-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Early Exit</p>
-          <p className="mt-1 text-xs font-medium text-neutral-200">
-            {formatBooleanLabel(strategy.early_exit_enabled, 'Enabled', 'Disabled')}
-          </p>
-        </div>
-        <div
-          className={`rounded-lg border px-3 py-2 ${
-            gateActive ? 'border-amber-500/25 bg-amber-500/5' : 'border-neutral-800/80 bg-neutral-950/60'
-          }`}
-        >
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Gate</p>
-          <p className={`mt-1 text-xs font-medium ${gateActive ? 'text-amber-200' : 'text-neutral-200'}`}>
-            {formatGateSummary(strategy.gate_prob, strategy.gate_threshold)}
-          </p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 text-sm mb-4">
-        <div>
-          <p className="text-neutral-500">Side</p>
-          <p className="text-neutral-100 font-medium">{strategy.last_signal_side || '--'}</p>
-        </div>
-        <div>
-          <p className="text-neutral-500">Priority</p>
-          <p className="text-neutral-100 font-medium">{strategy.priority || '--'}</p>
-        </div>
-        <div>
-          <p className="text-neutral-500">Signal Price</p>
-          <p className="text-neutral-100 font-medium">{formatPrice(strategy.last_signal_price)}</p>
-        </div>
-        <div>
-          <p className="text-neutral-500">Bracket</p>
-          <p className="text-neutral-100 font-medium">
-            {strategy.tp_dist != null || strategy.sl_dist != null
-              ? `${formatPrice(strategy.tp_dist)} / ${formatPrice(strategy.sl_dist)}`
-              : '--'}
-          </p>
-        </div>
-      </div>
+      )}
 
       <div className="rounded-lg border border-neutral-800 bg-neutral-950/70 p-3 mb-4 min-h-[84px]">
         <div className="mb-2 flex items-center justify-between gap-3">
@@ -377,17 +474,19 @@ const StrategyCard: React.FC<{ strategy: FilterlessStrategyState }> = ({ strateg
         <p className="text-sm text-neutral-300 leading-6">{latestActivity}</p>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 text-sm">
+      <div className="grid grid-cols-1 gap-3 text-sm lg:grid-cols-2">
+        <div>
+          <p className="text-neutral-500">Last Candidate</p>
+          <p className="text-neutral-100 font-medium">
+            {candidateSummary.length > 0 ? candidateSummary.join(' · ') : 'No candidate has been logged yet.'}
+          </p>
+          <p className="text-xs text-neutral-500 mt-1">{formatTimestamp(strategy.last_signal_time)}</p>
+        </div>
         <div>
           <p className="text-neutral-500">Last Trade</p>
           <p className={`font-semibold ${tradeColor}`}>{formatMoney(strategy.last_trade_pnl)}</p>
-          <p className="text-xs text-neutral-500 mt-1">{formatTimestamp(strategy.last_trade_time)}</p>
-        </div>
-        <div>
-          <p className="text-neutral-500">Session</p>
-          <p className="text-neutral-100 font-medium">{sessionLabel || '--'}</p>
           <p className="text-xs text-neutral-500 mt-1">
-            {strategy.vol_regime ? `${formatToken(strategy.vol_regime)} regime` : formatToken(strategy.entry_mode)}
+            {strategy.last_trade_time ? formatTimestamp(strategy.last_trade_time) : 'No closed trade in this session yet.'}
           </p>
         </div>
       </div>
@@ -530,14 +629,40 @@ function FilterlessLiveApp() {
   const dailyPnlColor = (state.bot.risk.daily_pnl || 0) >= 0 ? 'success' : 'danger';
   const openPnlColor = (openPosition?.open_pnl_dollars || 0) >= 0 ? 'success' : 'danger';
   const kalshiMetrics = state.kalshi_metrics ?? null;
-  const kalshiEnabled = Boolean(kalshiMetrics?.enabled);
+  const kalshiVisible = kalshiMetrics != null;
+  const kalshiReferencePrice =
+    kalshiMetrics?.spx_reference_price ??
+    ((state.bot.price != null && kalshiMetrics?.basis_offset != null)
+      ? state.bot.price - kalshiMetrics.basis_offset
+      : null);
   const kalshiStrikes = useMemo(
-    () =>
-      (kalshiMetrics?.strikes || [])
+    () => {
+      const rows = (kalshiMetrics?.strikes || [])
         .filter((row): row is FilterlessKalshiStrike => row != null && row.strike != null && row.probability != null)
-        .slice(0, 8),
-    [kalshiMetrics],
+        .sort((a, b) => a.strike - b.strike);
+      return pickKalshiWindow(rows, kalshiReferencePrice, 10);
+    },
+    [kalshiMetrics, kalshiReferencePrice],
   );
+  const nearestKalshiStrike = useMemo(() => {
+    if (kalshiReferencePrice == null || kalshiStrikes.length === 0) return null;
+    return kalshiStrikes.reduce((best, strike) => (
+      Math.abs(strike.strike - kalshiReferencePrice) < Math.abs(best.strike - kalshiReferencePrice) ? strike : best
+    ));
+  }, [kalshiReferencePrice, kalshiStrikes]);
+  const kalshiHourlyContracts = useMemo(
+    () => buildKalshiHourlyContracts(kalshiMetrics?.event_ticker, kalshiStrikes),
+    [kalshiMetrics?.event_ticker, kalshiStrikes],
+  );
+  const warningCount = feedWarnings.length;
+  const feedSummary = error
+    ? `Dashboard feed error: ${error}`
+    : effectiveBotStatus === 'online'
+      ? 'Feed and heartbeat are updating normally.'
+      : effectiveBotStatus === 'stale'
+        ? 'Feed is stale. Recent state is still visible while the launcher catches up.'
+        : 'Feed is offline. The launcher may still be starting, or the workspace needs attention.';
+  const kalshiMode = kalshiModeLabel(kalshiMetrics);
 
   return (
     <div className="min-h-screen bg-background text-neutral-100 pb-16">
@@ -578,14 +703,50 @@ function FilterlessLiveApp() {
           </div>
         )}
 
-        <div className="grid grid-cols-2 xl:grid-cols-6 gap-4">
-          <StatsCard title="Bot Status" value={effectiveBotStatus.toUpperCase()} icon={heartbeatOk ? Wifi : WifiOff} color={botStatusColor} />
-          <StatsCard title="Session" value={state.bot.session || '--'} icon={Clock3} />
-          <StatsCard title="Market Price" value={formatPrice(state.bot.price)} icon={Activity} />
-          <StatsCard title="Daily Realized" value={formatMoney(state.bot.risk.daily_pnl)} icon={Waves} color={dailyPnlColor} />
-          <StatsCard title="Open Position" value={openPosition ? openPosition.side : 'FLAT'} icon={openPosition ? (openPosition.side === 'LONG' ? ArrowUpRight : ArrowDownRight) : BrainCircuit} color={openPosition ? 'warning' : 'default'} />
-          <StatsCard title="Open PnL" value={formatMoney(openPosition?.open_pnl_dollars)} icon={ShieldAlert} color={openPosition ? openPnlColor : 'default'} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4">
+          <StatsCard
+            title="Bot Status"
+            value={effectiveBotStatus.toUpperCase()}
+            subValue={state.bot.last_heartbeat_time ? `Heartbeat ${formatRelativeTime(state.bot.last_heartbeat_time)}` : 'Waiting for heartbeat'}
+            icon={heartbeatOk ? Wifi : WifiOff}
+            color={botStatusColor}
+          />
+          <StatsCard
+            title="Session"
+            value={state.bot.session || '--'}
+            subValue={state.bot.trading_day_start ? `Trading day ${formatTimestamp(state.bot.trading_day_start)}` : 'Current futures session'}
+            icon={Clock3}
+          />
+          <StatsCard
+            title="Market Price"
+            value={formatPrice(state.bot.price)}
+            subValue={state.bot.last_bar_time ? `Last bar ${formatRelativeTime(state.bot.last_bar_time)}` : 'Waiting for market tape'}
+            icon={Activity}
+          />
+          <StatsCard
+            title="Daily Realized"
+            value={formatMoney(state.bot.risk.daily_pnl)}
+            subValue={intradayAnchorLabel}
+            icon={Waves}
+            color={dailyPnlColor}
+          />
+          <StatsCard
+            title="Open Position"
+            value={openPosition ? openPosition.side : 'FLAT'}
+            subValue={openPosition?.strategy_label || state.bot.position_sync_status || 'No active position'}
+            icon={openPosition ? (openPosition.side === 'LONG' ? ArrowUpRight : ArrowDownRight) : BrainCircuit}
+            color={openPosition ? 'warning' : 'default'}
+          />
+          <StatsCard
+            title="Open PnL"
+            value={formatMoney(openPosition?.open_pnl_dollars)}
+            subValue={openPosition ? formatPoints(openPosition.open_pnl_points) : (state.bot.last_position_sync_time ? `Sync ${formatRelativeTime(state.bot.last_position_sync_time)}` : 'Awaiting broker sync')}
+            icon={ShieldAlert}
+            color={openPosition ? openPnlColor : 'default'}
+          />
         </div>
+
+        {/* System Pulse removed — Kalshi hourly contracts provide more actionable context */}
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
           {displayStrategies.map((strategy) => (
@@ -623,7 +784,7 @@ function FilterlessLiveApp() {
                   </div>
                   <div>
                     <p className="text-neutral-500">Entry</p>
-                    <p className="text-neutral-100 font-medium">{formatPrice(openPosition.entry_price)}</p>
+                    <p className="text-neutral-100 font-medium">{formatPrice(getPositionEntryPrice(openPosition))}</p>
                   </div>
                   <div>
                     <p className="text-neutral-500">Current</p>
@@ -787,48 +948,113 @@ function FilterlessLiveApp() {
           </Panel>
         </div>
 
-        {kalshiEnabled && (
+        {kalshiVisible && (
           <Panel
-            title="Kalshi Market Sentiment"
-            right={<span className="text-xs text-neutral-500">{formatTimestamp(kalshiMetrics?.updated_at)}</span>}
+            title="Kalshi Hourly Contracts (KXINXU)"
+            right={
+              <div className="flex items-center gap-2">
+                <span className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${kalshiStatusClasses(kalshiMetrics)}`}>
+                  {kalshiMode}
+                </span>
+                <span className="text-xs text-neutral-500">{formatTimestamp(kalshiMetrics?.updated_at)}</span>
+              </div>
+            }
           >
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            {/* Summary row */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+              <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Active Event</p>
+                <p className="mt-1 text-sm font-medium text-neutral-200">{kalshiMetrics?.event_ticker || '--'}</p>
+                <p className="mt-1 text-xs text-neutral-500">{kalshiMetrics?.source || 'snapshot'} &middot; {kalshiMetrics?.status_reason || 'Kalshi state is unavailable.'}</p>
+              </div>
               <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-3">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">60-Min Probability</p>
                 <p className="mt-1 text-lg font-semibold text-sky-300">{formatPercent(kalshiMetrics?.probability_60m, 2)}</p>
+                <p className="mt-1 text-xs text-neutral-500">{kalshiMetrics?.healthy ? 'Event ladder is reachable.' : 'Waiting for a healthy snapshot.'}</p>
               </div>
               <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Basis Offset</p>
-                <p className="mt-1 text-lg font-semibold text-neutral-100">{formatPrice(kalshiMetrics?.basis_offset)}</p>
-              </div>
-              <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Event</p>
-                <p className="mt-1 text-sm font-medium text-neutral-200">{kalshiMetrics?.event_ticker || '--'}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">S&amp;P Reference</p>
+                <p className="mt-1 text-lg font-semibold text-neutral-100">{formatPrice(kalshiReferencePrice)}</p>
+                <p className="mt-1 text-xs text-neutral-500">MES minus basis offset {formatPrice(kalshiMetrics?.basis_offset)}</p>
               </div>
             </div>
 
+            {/* Hourly contract schedule */}
+            <div className="mb-5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 mb-3">Hourly Contract Schedule (ET)</p>
+              <div className="grid grid-cols-7 gap-2">
+                {kalshiHourlyContracts.map((contract) => (
+                  <div
+                    key={contract.hour}
+                    className={`rounded-lg border px-3 py-3 text-center ${
+                      contract.isActive
+                        ? 'border-sky-500/50 bg-sky-500/10'
+                        : contract.available
+                          ? 'border-emerald-500/30 bg-emerald-500/5'
+                          : 'border-neutral-800 bg-neutral-950/40'
+                    }`}
+                  >
+                    <p className={`text-sm font-bold ${
+                      contract.isActive ? 'text-sky-300' : contract.available ? 'text-emerald-300' : 'text-neutral-500'
+                    }`}>
+                      {contract.label}
+                    </p>
+                    <p className={`mt-1 text-[10px] font-semibold uppercase tracking-wide ${
+                      contract.isActive
+                        ? 'text-sky-400'
+                        : contract.available
+                          ? 'text-emerald-400'
+                          : 'text-neutral-600'
+                    }`}>
+                      {contract.isActive ? 'ACTIVE' : contract.available ? 'AVAILABLE' : 'SETTLED'}
+                    </p>
+                    {contract.isActive && contract.strikeCount > 0 && (
+                      <p className="mt-1 text-[10px] text-sky-400/70">{contract.strikeCount} strikes</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Strike ladder for active contract */}
             {kalshiStrikes.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="text-left text-neutral-500 border-b border-neutral-800">
-                    <tr>
-                      <th className="py-2 pr-4 font-medium">S&amp;P 500 Strike</th>
-                      <th className="py-2 pr-4 font-medium">Probability</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {kalshiStrikes.map((strike, index) => (
-                      <tr key={`${strike.strike}-${index}`} className="border-b border-neutral-900 last:border-b-0">
-                        <td className="py-2 pr-4 text-neutral-200">{formatStrikeLabel(strike.strike)}</td>
-                        <td className="py-2 pr-4 text-sky-300 font-medium">{formatPercent(strike.probability, 2)}</td>
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 mb-3">
+                  Active Contract Strikes &mdash; {kalshiMetrics?.event_ticker || 'N/A'}
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="text-left text-neutral-500 border-b border-neutral-800">
+                      <tr>
+                        <th className="py-2 pr-4 font-medium">S&amp;P 500 Strike</th>
+                        <th className="py-2 pr-4 font-medium">Probability</th>
+                        <th className="py-2 pr-4 font-medium">Volume</th>
+                        <th className="py-2 pr-4 font-medium">Status</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {kalshiStrikes.map((strike, index) => (
+                        <tr
+                          key={`${strike.strike}-${index}`}
+                          className={`border-b border-neutral-900 last:border-b-0 ${
+                            nearestKalshiStrike && nearestKalshiStrike.strike === strike.strike
+                              ? 'bg-sky-500/5'
+                              : ''
+                          }`}
+                        >
+                          <td className="py-2 pr-4 text-neutral-200">{formatStrikeLabel(strike.strike)}</td>
+                          <td className="py-2 pr-4 text-sky-300 font-medium">{formatPercent(strike.probability, 2)}</td>
+                          <td className="py-2 pr-4 text-neutral-300">{formatCompactNumber(strike.volume)}</td>
+                          <td className="py-2 pr-4 text-neutral-400">{strike.status || '--'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ) : (
               <div className="rounded-lg border border-dashed border-neutral-800 px-4 py-6 text-center text-sm text-neutral-500">
-                Kalshi strike ladder is not available yet.
+                {kalshiMetrics?.status_reason || 'Kalshi strike ladder is not available yet. Contracts become available as each hourly window opens.'}
               </div>
             )}
           </Panel>
