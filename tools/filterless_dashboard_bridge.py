@@ -630,11 +630,19 @@ def build_kalshi_metrics_from_snapshot(snapshot: Any) -> Optional[Dict[str, Any]
     return {
         "enabled": True,
         "healthy": bool(snapshot.get("healthy", True)),
+        "requested": snapshot.get("requested"),
+        "configured": snapshot.get("configured"),
+        "observer_only": snapshot.get("observer_only"),
+        "status_label": snapshot.get("status_label"),
+        "status_reason": snapshot.get("status_reason"),
+        "source": snapshot.get("source"),
         "updated_at": snapshot.get("updated_at"),
         "basis_offset": safe_float(snapshot.get("basis_offset")) or 0.0,
         "probability_60m": safe_float(snapshot.get("probability_60m")),
         "event_ticker": snapshot.get("event_ticker"),
         "spx_reference_price": safe_float(snapshot.get("spx_reference_price")),
+        "trade_gating_active": snapshot.get("trade_gating_active"),
+        "trade_gating_hour": snapshot.get("trade_gating_hour"),
         "strikes": strikes,
     }
 

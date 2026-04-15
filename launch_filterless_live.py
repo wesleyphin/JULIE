@@ -167,6 +167,23 @@ def _kalshi_disabled_payload() -> Dict[str, Any]:
     }
 
 
+_KALSHI_SETTLEMENT_HOURS = [10, 11, 12, 13, 14, 15, 16]
+
+
+def _kalshi_trade_gating_status() -> tuple[bool, Optional[int]]:
+    """Determine if trade gating should be active based on current ET hour.
+
+    Trade gating activates when the current ET hour matches a settlement hour
+    (10, 11, 12, 13, 14, 15, 16).  During these hours the Kalshi overlay
+    switches from observe-only to influencing trade decisions.
+    """
+    now_et = datetime.now(NY_TZ)
+    current_hour = now_et.hour
+    if current_hour in _KALSHI_SETTLEMENT_HOURS:
+        return True, current_hour
+    return False, None
+
+
 async def _kalshi_snapshot_loop(path: Path, interval_seconds: float = 10.0) -> None:
     provider = _build_kalshi_provider()
     while True:
@@ -177,14 +194,36 @@ async def _kalshi_snapshot_loop(path: Path, interval_seconds: float = 10.0) -> N
         price = _coerce_price_from_state()
         sentiment = provider.get_sentiment(price) if price is not None else {}
         strikes = provider._fetch_event_markets()  # noqa: SLF001 - intentionally surfacing full ladder to UI
+
+        trade_gating_active, trade_gating_hour = _kalshi_trade_gating_status()
+
+        # When trade gating is active, Kalshi influences trade decisions;
+        # otherwise it is observe-only (dashboard display without gating).
+        if trade_gating_active:
+            observer_only = False
+            status_label = "Trade gating"
+            status_reason = f"Kalshi is actively gating trades for the {trade_gating_hour}:00 ET settlement window."
+        else:
+            observer_only = True
+            status_label = "Observe only"
+            status_reason = "Kalshi details are live on the dashboard without changing trade gating."
+
         payload: Dict[str, Any] = {
             "enabled": True,
+            "requested": True,
+            "configured": True,
+            "observer_only": observer_only,
+            "status_label": status_label,
+            "status_reason": status_reason,
+            "source": "kalshi_snapshot_loop",
             "healthy": bool(getattr(provider, "is_healthy", False)),
             "updated_at": datetime.now(NY_TZ).isoformat(),
             "basis_offset": float(getattr(provider, "basis_offset", 0.0) or 0.0),
             "probability_60m": sentiment.get("probability"),
             "event_ticker": provider._current_event_ticker(),  # noqa: SLF001 - informational only
             "spx_reference_price": (float(price) - float(provider.basis_offset)) if price is not None else None,
+            "trade_gating_active": trade_gating_active,
+            "trade_gating_hour": trade_gating_hour,
             "strikes": strikes if isinstance(strikes, list) else [],
         }
         write_json_atomic(path, payload)

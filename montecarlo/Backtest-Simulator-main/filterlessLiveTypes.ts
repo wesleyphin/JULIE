@@ -116,11 +116,19 @@ export interface FilterlessKalshiStrike {
 export interface FilterlessKalshiMetrics {
   enabled: boolean;
   healthy?: boolean;
+  requested?: boolean | null;
+  configured?: boolean | null;
+  observer_only?: boolean | null;
+  status_label?: string | null;
+  status_reason?: string | null;
+  source?: string | null;
   updated_at?: string | null;
   basis_offset?: number | null;
   probability_60m?: number | null;
   event_ticker?: string | null;
   spx_reference_price?: number | null;
+  trade_gating_active?: boolean | null;
+  trade_gating_hour?: number | null;
   strikes: FilterlessKalshiStrike[];
 }
 

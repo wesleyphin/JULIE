@@ -253,9 +253,17 @@ interface KalshiHourlyContract {
   hour: number;
   label: string;
   eventTicker: string;
+  /** Contract is currently shown on Kalshi (within its 4-hour pre-settlement window) */
   available: boolean;
+  /** Contract has already settled */
+  settled: boolean;
+  /** Contract is not yet within its availability window */
+  upcoming: boolean;
   strikeCount: number;
+  /** This is the contract the backend is currently tracking */
   isActive: boolean;
+  /** Trade gating is active for this hour */
+  tradeGating: boolean;
 }
 
 const KALSHI_SETTLEMENT_HOURS = [10, 11, 12, 13, 14, 15, 16] as const;
@@ -266,40 +274,69 @@ function formatHourLabel(hour: number): string {
   return `${hour} AM`;
 }
 
+/**
+ * Each Kalshi hourly contract becomes available 4 hours before its settlement
+ * hour and settles 1 hour before the next contract opens.
+ *
+ * Example for the 10 AM contract:
+ *   - Available from 6 AM ET
+ *   - Settles at 7 AM ET (then 11 AM contract starts showing)
+ *
+ * Trade gating activates when the current ET hour matches the settlement hour.
+ */
 function buildKalshiHourlyContracts(
   eventTicker?: string | null,
   strikes?: FilterlessKalshiStrike[],
+  tradeGatingHour?: number | null,
 ): KalshiHourlyContract[] {
-  // Parse the date prefix from the current event ticker (e.g., "KXINXU-26APR15H1000" -> "KXINXU-26APR15")
   const tickerPrefix = eventTicker?.replace(/H\d+$/, '') || null;
-  // Parse which hour is currently active from the event ticker
   const activeHourMatch = eventTicker?.match(/H(\d+)$/);
   const activeHourCode = activeHourMatch ? parseInt(activeHourMatch[1], 10) : null;
 
-  // Determine current ET hour for availability logic
   const nowET = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }));
   const currentETHour = nowET.getHours();
-  const currentETMinute = nowET.getMinutes();
 
   return KALSHI_SETTLEMENT_HOURS.map((hour) => {
     const hourCode = hour * 100;
     const ticker = tickerPrefix ? `${tickerPrefix}H${hourCode}` : `H${hourCode}`;
     const isActive = activeHourCode === hourCode;
 
-    // A contract is "available" if the settlement hour hasn't passed yet
-    // (available if current time is before the settlement hour, with 5-min grace)
-    const available = currentETHour < hour || (currentETHour === hour && currentETMinute < 5);
+    // Contract becomes available 4 hours before settlement, settles 1 hour before
+    // the next contract opens (i.e., settlement_hour - 3 hours before settlement).
+    // 10 AM contract: available 6 AM, settles ~7 AM
+    // 11 AM contract: available 7 AM, settles ~8 AM  etc.
+    const availableFrom = hour - 4;  // 4 hours before settlement
+    const settlesAt = hour - 3;      // settles 1 hour after becoming available...
+    // Actually per user: "starts being shown at 6am and settles at 7am" for 10am contract
+    // So available window = [hour-4, hour-3), settled once current hour >= hour-3
+    const settled = currentETHour >= settlesAt && currentETHour < hour;
+    // Wait, re-reading: "10am starts being shown at 6am and settles at 7am"
+    // "then on 7am the 11am starts being shown and ends at 8am"
+    // So the 10am contract: shown 6am-7am, settles at 7am
+    // The 11am contract: shown 7am-8am, settles at 8am
+    // Pattern: shown from (hour - 4) to (hour - 3), settles at (hour - 3)
+    // But that's only a 1-hour window. Let me re-read...
+    // "they only become available 4 hours before the contract time schedule and ends after an hour"
+    // Available 4 hours before => 10am - 4 = 6am. Ends after an hour => 7am.
+    // So available window is [hour-4, hour-3)
 
-    // Count strikes for this contract (if this is the active event, all strikes belong to it)
+    const isAvailable = currentETHour >= availableFrom && currentETHour < settlesAt;
+    const isSettled = currentETHour >= settlesAt;
+    const isUpcoming = currentETHour < availableFrom;
+
     const strikeCount = isActive ? (strikes?.length || 0) : 0;
+    const tradeGating = tradeGatingHour === hour;
 
     return {
       hour,
       label: formatHourLabel(hour),
       eventTicker: ticker,
-      available,
+      available: isAvailable,
+      settled: isSettled,
+      upcoming: isUpcoming,
       strikeCount,
       isActive,
+      tradeGating,
     };
   });
 }
@@ -498,6 +535,7 @@ function FilterlessLiveApp() {
   const [state, setState] = useState<FilterlessLiveState>(EMPTY_STATE);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedKalshiHour, setSelectedKalshiHour] = useState<number | null>(null);
   const inFlightRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const lastGeneratedAtRef = useRef<string | null>(null);
@@ -651,9 +689,16 @@ function FilterlessLiveApp() {
     ));
   }, [kalshiReferencePrice, kalshiStrikes]);
   const kalshiHourlyContracts = useMemo(
-    () => buildKalshiHourlyContracts(kalshiMetrics?.event_ticker, kalshiStrikes),
-    [kalshiMetrics?.event_ticker, kalshiStrikes],
+    () => buildKalshiHourlyContracts(kalshiMetrics?.event_ticker, kalshiStrikes, kalshiMetrics?.trade_gating_hour),
+    [kalshiMetrics?.event_ticker, kalshiStrikes, kalshiMetrics?.trade_gating_hour],
   );
+  // When selectedKalshiHour is set, show that contract's info; otherwise show the active one
+  const viewedKalshiContract = useMemo(() => {
+    if (selectedKalshiHour != null) {
+      return kalshiHourlyContracts.find((c) => c.hour === selectedKalshiHour) ?? null;
+    }
+    return kalshiHourlyContracts.find((c) => c.isActive) ?? null;
+  }, [selectedKalshiHour, kalshiHourlyContracts]);
   const warningCount = feedWarnings.length;
   const feedSummary = error
     ? `Dashboard feed error: ${error}`
@@ -953,19 +998,25 @@ function FilterlessLiveApp() {
             title="Kalshi Hourly Contracts (KXINXU)"
             right={
               <div className="flex items-center gap-2">
-                <span className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${kalshiStatusClasses(kalshiMetrics)}`}>
-                  {kalshiMode}
-                </span>
+                {kalshiMetrics?.trade_gating_active ? (
+                  <span className="rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide bg-amber-500/10 text-amber-300 border-amber-500/30">
+                    Trade Gating
+                  </span>
+                ) : (
+                  <span className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${kalshiStatusClasses(kalshiMetrics)}`}>
+                    {kalshiMode}
+                  </span>
+                )}
                 <span className="text-xs text-neutral-500">{formatTimestamp(kalshiMetrics?.updated_at)}</span>
               </div>
             }
           >
             {/* Summary row */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
               <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-3">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Active Event</p>
                 <p className="mt-1 text-sm font-medium text-neutral-200">{kalshiMetrics?.event_ticker || '--'}</p>
-                <p className="mt-1 text-xs text-neutral-500">{kalshiMetrics?.source || 'snapshot'} &middot; {kalshiMetrics?.status_reason || 'Kalshi state is unavailable.'}</p>
+                <p className="mt-1 text-xs text-neutral-500">{kalshiMetrics?.source || 'snapshot'}</p>
               </div>
               <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-3">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">60-Min Probability</p>
@@ -977,50 +1028,137 @@ function FilterlessLiveApp() {
                 <p className="mt-1 text-lg font-semibold text-neutral-100">{formatPrice(kalshiReferencePrice)}</p>
                 <p className="mt-1 text-xs text-neutral-500">MES minus basis offset {formatPrice(kalshiMetrics?.basis_offset)}</p>
               </div>
-            </div>
-
-            {/* Hourly contract schedule */}
-            <div className="mb-5">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 mb-3">Hourly Contract Schedule (ET)</p>
-              <div className="grid grid-cols-7 gap-2">
-                {kalshiHourlyContracts.map((contract) => (
-                  <div
-                    key={contract.hour}
-                    className={`rounded-lg border px-3 py-3 text-center ${
-                      contract.isActive
-                        ? 'border-sky-500/50 bg-sky-500/10'
-                        : contract.available
-                          ? 'border-emerald-500/30 bg-emerald-500/5'
-                          : 'border-neutral-800 bg-neutral-950/40'
-                    }`}
-                  >
-                    <p className={`text-sm font-bold ${
-                      contract.isActive ? 'text-sky-300' : contract.available ? 'text-emerald-300' : 'text-neutral-500'
-                    }`}>
-                      {contract.label}
-                    </p>
-                    <p className={`mt-1 text-[10px] font-semibold uppercase tracking-wide ${
-                      contract.isActive
-                        ? 'text-sky-400'
-                        : contract.available
-                          ? 'text-emerald-400'
-                          : 'text-neutral-600'
-                    }`}>
-                      {contract.isActive ? 'ACTIVE' : contract.available ? 'AVAILABLE' : 'SETTLED'}
-                    </p>
-                    {contract.isActive && contract.strikeCount > 0 && (
-                      <p className="mt-1 text-[10px] text-sky-400/70">{contract.strikeCount} strikes</p>
-                    )}
-                  </div>
-                ))}
+              <div className={`rounded-lg border px-3 py-3 ${
+                kalshiMetrics?.trade_gating_active
+                  ? 'border-amber-500/30 bg-amber-500/5'
+                  : 'border-neutral-800 bg-neutral-950/60'
+              }`}>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Trade Gating</p>
+                <p className={`mt-1 text-lg font-semibold ${kalshiMetrics?.trade_gating_active ? 'text-amber-300' : 'text-neutral-400'}`}>
+                  {kalshiMetrics?.trade_gating_active
+                    ? `Active — ${formatHourLabel(kalshiMetrics.trade_gating_hour!)}`
+                    : 'Observe Only'}
+                </p>
+                <p className="mt-1 text-xs text-neutral-500">
+                  {kalshiMetrics?.status_reason || 'Gating activates during settlement hours.'}
+                </p>
               </div>
             </div>
 
-            {/* Strike ladder for active contract */}
-            {kalshiStrikes.length > 0 ? (
+            {/* Hourly contract schedule — clickable buttons */}
+            <div className="mb-5">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">Hourly Contract Schedule (ET)</p>
+                {selectedKalshiHour != null && (
+                  <button
+                    onClick={() => setSelectedKalshiHour(null)}
+                    className="text-[10px] text-sky-400 hover:text-sky-300 uppercase tracking-wide cursor-pointer"
+                  >
+                    Show Active
+                  </button>
+                )}
+              </div>
+              <div className="grid grid-cols-7 gap-2">
+                {kalshiHourlyContracts.map((contract) => {
+                  const isSelected = selectedKalshiHour === contract.hour;
+                  const isViewed = isSelected || (selectedKalshiHour == null && contract.isActive);
+
+                  let borderClass: string;
+                  let bgClass: string;
+                  if (isViewed) {
+                    borderClass = 'border-sky-500/50';
+                    bgClass = 'bg-sky-500/10';
+                  } else if (contract.tradeGating) {
+                    borderClass = 'border-amber-500/40';
+                    bgClass = 'bg-amber-500/5';
+                  } else if (contract.available) {
+                    borderClass = 'border-emerald-500/30';
+                    bgClass = 'bg-emerald-500/5';
+                  } else if (contract.upcoming) {
+                    borderClass = 'border-neutral-700';
+                    bgClass = 'bg-neutral-900/40';
+                  } else {
+                    borderClass = 'border-neutral-800';
+                    bgClass = 'bg-neutral-950/40';
+                  }
+
+                  let statusLabel: string;
+                  let statusColor: string;
+                  if (contract.tradeGating) {
+                    statusLabel = 'GATING';
+                    statusColor = 'text-amber-400';
+                  } else if (contract.available) {
+                    statusLabel = 'AVAILABLE';
+                    statusColor = 'text-emerald-400';
+                  } else if (contract.upcoming) {
+                    statusLabel = 'NOT YET';
+                    statusColor = 'text-neutral-500';
+                  } else {
+                    statusLabel = 'SETTLED';
+                    statusColor = 'text-neutral-600';
+                  }
+
+                  return (
+                    <button
+                      key={contract.hour}
+                      onClick={() => setSelectedKalshiHour(isSelected ? null : contract.hour)}
+                      className={`rounded-lg border px-3 py-3 text-center cursor-pointer transition-all hover:brightness-125 ${borderClass} ${bgClass} ${
+                        isViewed ? 'ring-1 ring-sky-500/30' : ''
+                      }`}
+                    >
+                      <p className={`text-sm font-bold ${
+                        isViewed ? 'text-sky-300' : contract.tradeGating ? 'text-amber-300' : contract.available ? 'text-emerald-300' : 'text-neutral-500'
+                      }`}>
+                        {contract.label}
+                      </p>
+                      <p className={`mt-1 text-[10px] font-semibold uppercase tracking-wide ${statusColor}`}>
+                        {statusLabel}
+                      </p>
+                      {contract.isActive && contract.strikeCount > 0 && (
+                        <p className="mt-1 text-[10px] text-sky-400/70">{contract.strikeCount} strikes</p>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Contract detail for selected/active hour */}
+            {viewedKalshiContract && (
+              <div className="mb-4 rounded-lg border border-neutral-800 bg-neutral-950/50 px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-semibold text-neutral-400">
+                      {viewedKalshiContract.label} Contract &mdash; {viewedKalshiContract.eventTicker}
+                    </p>
+                    <p className="mt-1 text-xs text-neutral-500">
+                      {viewedKalshiContract.tradeGating
+                        ? 'Trade gating is active for this contract hour.'
+                        : viewedKalshiContract.available
+                          ? `Available now. Trade gating activates at ${formatHourLabel(viewedKalshiContract.hour)} ET.`
+                          : viewedKalshiContract.upcoming
+                            ? `Not available yet. Opens ${viewedKalshiContract.hour - 4} hours before settlement.`
+                            : 'This contract has settled.'}
+                    </p>
+                  </div>
+                  <span className={`rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide ${
+                    viewedKalshiContract.tradeGating
+                      ? 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                      : viewedKalshiContract.available
+                        ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                        : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                  }`}>
+                    {viewedKalshiContract.tradeGating ? 'Gating' : viewedKalshiContract.available ? 'Available' : viewedKalshiContract.upcoming ? 'Upcoming' : 'Settled'}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Strike ladder — shown when viewing the active contract */}
+            {(selectedKalshiHour == null || viewedKalshiContract?.isActive) && kalshiStrikes.length > 0 ? (
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 mb-3">
-                  Active Contract Strikes &mdash; {kalshiMetrics?.event_ticker || 'N/A'}
+                  Strikes &mdash; {kalshiMetrics?.event_ticker || 'N/A'}
                 </p>
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
@@ -1051,6 +1189,10 @@ function FilterlessLiveApp() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            ) : selectedKalshiHour != null && !viewedKalshiContract?.isActive ? (
+              <div className="rounded-lg border border-dashed border-neutral-800 px-4 py-6 text-center text-sm text-neutral-500">
+                Strike data is only available for the currently active contract. Select the active hour or click &ldquo;Show Active&rdquo; to view strikes.
               </div>
             ) : (
               <div className="rounded-lg border border-dashed border-neutral-800 px-4 py-6 text-center text-sm text-neutral-500">
