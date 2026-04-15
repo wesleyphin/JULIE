@@ -15,6 +15,10 @@ from config import CONFIG
 from terminal_ui import get_ui
 from account_selector import select_account_interactive
 from aetherflow_features import generate_daily_miva
+try:
+    from config_secrets import SECRETS
+except Exception:
+    SECRETS = {}
 
 try:
     from services.kalshi_provider import KalshiProvider
@@ -392,6 +396,12 @@ def main():
     api_monitor = APIMonitor()
     kalshi = None
     kalshi_cfg = CONFIG.get("KALSHI", {}) if isinstance(CONFIG, dict) else {}
+    if isinstance(kalshi_cfg, dict):
+        kalshi_cfg = dict(kalshi_cfg)
+        kalshi_cfg["key_id"] = str(SECRETS.get("KALSHI_KEY_ID", kalshi_cfg.get("key_id", "")) or "")
+        kalshi_cfg["private_key_path"] = str(
+            SECRETS.get("KALSHI_PRIVATE_KEY_PATH", kalshi_cfg.get("private_key_path", "")) or ""
+        )
 
     if not api_monitor.login():
         ui.add_event("ERROR", "Failed to authenticate - check config.py credentials")

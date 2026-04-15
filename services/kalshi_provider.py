@@ -20,6 +20,7 @@ class KalshiProvider:
     """
 
     def __init__(self, config: Dict):
+        config = config or {}
         self.key_id = str(config.get("key_id", "") or "")
         self.base_url = str(config.get("base_url", "") or "").rstrip("/")
         self.series = str(config.get("series", "KXINXU") or "KXINXU")
@@ -33,8 +34,16 @@ class KalshiProvider:
         self.private_key = None
         private_key_path = str(config.get("private_key_path", "") or "")
         if private_key_path:
-            with open(private_key_path, "rb") as key_file:
-                self.private_key = serialization.load_pem_private_key(key_file.read(), password=None)
+            try:
+                with open(private_key_path, "rb") as key_file:
+                    self.private_key = serialization.load_pem_private_key(key_file.read(), password=None)
+            except (FileNotFoundError, OSError, ValueError) as exc:
+                logger.warning("Unable to load Kalshi private key from %s: %s", private_key_path, exc)
+
+        if not self.key_id or self.private_key is None:
+            if self.enabled:
+                logger.warning("Kalshi credentials missing or invalid; provider disabled")
+            self.enabled = False
 
         self._cache: Dict[str, Dict] = {}
         self._cache_lock = threading.Lock()
