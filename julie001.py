@@ -3455,6 +3455,58 @@ def _evaluate_live_early_exit_reason(
     return None
 
 
+def _check_kalshi_sentiment_exit(
+    trade: Optional[dict],
+    current_price: float,
+    current_time: Optional[datetime.datetime],
+) -> Optional[str]:
+    """Hour-turn exit: close profitable positions when Kalshi crowd flips.
+
+    Checks only at the top of each hour (first 2 minutes) during settlement
+    hours (10 AM - 4 PM ET).  If the crowd sentiment flips against a
+    profitable position, returns an exit reason string.
+    """
+    if not isinstance(trade, dict) or current_time is None:
+        return None
+    try:
+        minute = int(getattr(current_time, "minute", 99))
+    except (TypeError, ValueError):
+        return None
+    if minute > 2:
+        return None
+
+    try:
+        et_now = datetime.datetime.now(ZoneInfo("America/New_York"))
+        if et_now.hour not in _KALSHI_SETTLEMENT_HOURS_ET:
+            return None
+    except Exception:
+        return None
+
+    kalshi = _get_kalshi_provider()
+    if kalshi is None or not getattr(kalshi, "enabled", False) or not getattr(kalshi, "is_healthy", False):
+        return None
+
+    side = str(trade.get("side", "") or "").upper()
+    entry_price = _coerce_float(trade.get("entry_price"), math.nan)
+    if not math.isfinite(entry_price):
+        return None
+    if side == "LONG" and current_price <= entry_price:
+        return None
+    if side == "SHORT" and current_price >= entry_price:
+        return None
+
+    sentiment = kalshi.get_sentiment(current_price)
+    probability = sentiment.get("probability")
+    if probability is None:
+        return None
+
+    if side == "LONG" and probability < 0.40:
+        return f"KALSHI HOUR-TURN: Crowd flipped bearish (prob={probability:.2f})"
+    if side == "SHORT" and probability > 0.60:
+        return f"KALSHI HOUR-TURN: Crowd flipped bullish (prob={probability:.2f})"
+    return None
+
+
 def _resolve_live_early_exit_config(trade: Optional[dict]) -> dict:
     if not isinstance(trade, dict):
         return {}
@@ -9244,14 +9296,18 @@ async def run_bot():
                             trade['profit_crosses'] = trade.get('profit_crosses', 0) + 1
                         trade['was_green'] = is_green
 
-                        if not early_exit_config.get('enabled', False):
-                            continue
-
-                        exit_reason = _evaluate_live_early_exit_reason(
-                            trade,
-                            current_price,
-                            early_exit_config,
-                        )
+                        # Kalshi hour-turn sentiment exit (independent of early exit config)
+                        kalshi_exit = _check_kalshi_sentiment_exit(trade, current_price, current_time)
+                        if kalshi_exit:
+                            exit_reason = kalshi_exit
+                        elif early_exit_config.get('enabled', False):
+                            exit_reason = _evaluate_live_early_exit_reason(
+                                trade,
+                                current_price,
+                                early_exit_config,
+                            )
+                        else:
+                            exit_reason = None
 
                         if not exit_reason:
                             continue
