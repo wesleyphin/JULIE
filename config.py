@@ -734,7 +734,7 @@ CONFIG = {
     },
     "KALSHI": {
         "key_id": str(SECRETS.get("KALSHI_KEY_ID", "") or ""),
-        "private_key_path": str(SECRETS.get("KALSHI_PRIVATE_KEY_PATH", "credentials/kalshi_key.pem") or "credentials/kalshi_key.pem"),
+        "private_key_path": str(SECRETS.get("KALSHI_PRIVATE_KEY_PATH", "") or ""),
         "base_url": "https://api.elections.kalshi.com/trade-api/v2",
         "series": "KXINXU",
         "polling_interval": 300,
