@@ -410,19 +410,20 @@ precision so setup does not fail just because one acceleration path is missing.
 
 ### 6C.2 Truth Social credentials
 
-truthbrush requires live Truth Social credentials. Julie looks for them in the
-environment, and truthbrush itself also loads `.env`.
+truthbrush requires live Truth Social credentials. Julie now prefers
+`config_secrets.py` for those values and falls back to environment variables.
 
-The repo now includes `.env.example` with the expected keys:
+The expected keys are:
 
 - `TRUTHSOCIAL_TOKEN`
 - `TRUTHSOCIAL_USERNAME`
 - `TRUTHSOCIAL_PASSWORD`
 - `TRUTHSOCIAL_TARGET_HANDLE`
 
-If those credentials are not present, the sentiment runtime can still install
-and the local FinBERT smoke test can still pass, but live Truth Social polling
-will remain blocked until credentials are provided.
+If those credentials are not present in `config_secrets.py` or the environment,
+the sentiment runtime can still install and the local FinBERT smoke test can
+still pass, but live Truth Social polling will remain blocked until credentials
+are provided.
 
 ## 7. DynamicEngine3
 

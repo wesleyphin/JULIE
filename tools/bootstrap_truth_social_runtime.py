@@ -18,6 +18,11 @@ REQUIRED_MODULES = ("truthbrush", "transformers", "torch", "accelerate")
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+try:
+    from config_secrets import SECRETS as CONFIG_SECRETS
+except Exception:
+    CONFIG_SECRETS = {}
+
 
 def module_available(name: str) -> bool:
     return importlib.util.find_spec(name) is not None
@@ -25,10 +30,10 @@ def module_available(name: str) -> bool:
 
 def credentials_present() -> bool:
     return bool(
-        os.environ.get("TRUTHSOCIAL_TOKEN")
+        str(CONFIG_SECRETS.get("TRUTHSOCIAL_TOKEN", "") or os.environ.get("TRUTHSOCIAL_TOKEN", "") or "").strip()
         or (
-            os.environ.get("TRUTHSOCIAL_USERNAME")
-            and os.environ.get("TRUTHSOCIAL_PASSWORD")
+            str(CONFIG_SECRETS.get("TRUTHSOCIAL_USERNAME", "") or os.environ.get("TRUTHSOCIAL_USERNAME", "") or "").strip()
+            and str(CONFIG_SECRETS.get("TRUTHSOCIAL_PASSWORD", "") or os.environ.get("TRUTHSOCIAL_PASSWORD", "") or "").strip()
         )
     )
 
@@ -121,7 +126,7 @@ def main() -> int:
     else:
         print(
             "Truth Social credentials are not configured yet. "
-            "Set TRUTHSOCIAL_TOKEN or TRUTHSOCIAL_USERNAME/TRUTHSOCIAL_PASSWORD before live polling."
+            "Add TRUTHSOCIAL_TOKEN or TRUTHSOCIAL_USERNAME/TRUTHSOCIAL_PASSWORD to config_secrets.py or the environment before live polling."
         )
 
     if platform.system() != "Linux":

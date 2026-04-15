@@ -13,6 +13,10 @@ from typing import Any, Dict, Iterable, Optional
 
 from config import CONFIG
 from event_logger import event_logger
+try:
+    from config_secrets import SECRETS as CONFIG_SECRETS
+except Exception:
+    CONFIG_SECRETS = {}
 
 
 logger = logging.getLogger("truth_social_sentiment")
@@ -52,6 +56,10 @@ def _clean_post_text(value: Any) -> str:
     text = HTML_TAG_RE.sub(" ", text)
     text = WHITESPACE_RE.sub(" ", text).strip()
     return text
+
+
+def _secret_value(secret_key: str, env_name: str) -> str:
+    return str(CONFIG_SECRETS.get(secret_key, "") or os.environ.get(env_name, "") or "").strip()
 
 
 @dataclass
@@ -200,12 +208,12 @@ class TruthSocialSentimentService:
         except Exception as exc:
             raise RuntimeError(f"truthbrush import failed: {exc}") from exc
 
-        username = os.environ.get("TRUTHSOCIAL_USERNAME")
-        password = os.environ.get("TRUTHSOCIAL_PASSWORD")
-        token = os.environ.get("TRUTHSOCIAL_TOKEN")
+        username = _secret_value("TRUTHSOCIAL_USERNAME", "TRUTHSOCIAL_USERNAME")
+        password = _secret_value("TRUTHSOCIAL_PASSWORD", "TRUTHSOCIAL_PASSWORD")
+        token = _secret_value("TRUTHSOCIAL_TOKEN", "TRUTHSOCIAL_TOKEN")
         if not token and (not username or not password):
             raise RuntimeError(
-                "Truth Social credentials missing. Set TRUTHSOCIAL_TOKEN or TRUTHSOCIAL_USERNAME/TRUTHSOCIAL_PASSWORD."
+                "Truth Social credentials missing. Add TRUTHSOCIAL_TOKEN or TRUTHSOCIAL_USERNAME/TRUTHSOCIAL_PASSWORD to config_secrets.py or the environment."
             )
         self._api = Api(username=username, password=password, token=token)
         return self._api

@@ -762,7 +762,10 @@ CONFIG = {
         "pump_threshold": 0.85,
         "emergency_exit_threshold": -0.75,
         "finbert_local_path": "./models/finbert",
-        "target_handle": str(os.environ.get("TRUTH_SOCIAL_TARGET_HANDLE", "realDonaldTrump") or "realDonaldTrump"),
+        "target_handle": str(
+            SECRETS.get("TRUTHSOCIAL_TARGET_HANDLE", os.environ.get("TRUTH_SOCIAL_TARGET_HANDLE", "realDonaldTrump"))
+            or "realDonaldTrump"
+        ),
         "signal_max_age_seconds": 1800,
         "emergency_exit_max_age_seconds": 3600,
         "quick_pump_tp_points": 4.0,

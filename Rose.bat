@@ -27,7 +27,7 @@ powershell -ExecutionPolicy Bypass -File "%~dp0setup_topstep2.ps1"
 if errorlevel 1 goto end
 
 if not exist "%~dp0.env" (
-echo [info] Truth Social polling still needs TRUTHSOCIAL_* credentials in a .env file or environment variables.
+echo [info] Truth Social polling still needs TRUTHSOCIAL_* credentials in config_secrets.py or environment variables.
 )
 
 echo.
