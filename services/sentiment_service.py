@@ -218,6 +218,11 @@ class TruthSocialSentimentService:
                 "Truth Social returned an empty or HTML response (Cloudflare access/rate-limit block). "
                 "Polling will resume after backoff."
             )
+        if "'nonetype' object is not subscriptable" in lowered:
+            return (
+                "Truth Social returned an empty or HTML response (Cloudflare access/rate-limit block). "
+                "Polling will resume after backoff."
+            )
         if "1015" in lowered or "rate limit" in lowered or "rate limited" in lowered:
             return "Truth Social access is currently rate limited by Cloudflare (Error 1015)."
         if "cloudflare" in lowered or "cf-error" in lowered:
@@ -342,6 +347,20 @@ class TruthSocialSentimentService:
     def _iter_new_posts(self) -> Iterable[Dict[str, Any]]:
         api = self._ensure_truthbrush_api()
         created_after = self._last_seen_created_at
+        # Pre-flight: verify Truth Social API is reachable.  truthbrush
+        # silently swallows Cloudflare blocks on the status endpoint
+        # (returns empty) while the lookup may or may not pass.  A failed
+        # lookup surfaces the block explicitly so we can enter backoff.
+        try:
+            user_info = api.lookup(self.target_handle)
+        except Exception as exc:
+            raise RuntimeError(self._normalize_truthbrush_error(exc)) from exc
+        if not isinstance(user_info, dict) or "id" not in user_info:
+            raise RuntimeError(
+                self._normalize_truthbrush_error(
+                    "Truth Social lookup returned empty — likely a Cloudflare block"
+                )
+            )
         try:
             posts = list(
                 api.pull_statuses(
@@ -458,10 +477,36 @@ class TruthSocialSentimentService:
             )
             return get_sentiment_state()
 
+        was_in_cloudflare_backoff = (
+            self._poll_backoff_until is not None
+            and self._poll_backoff_message is not None
+            and "cloudflare" in str(self._poll_backoff_message).lower()
+        )
+
         try:
             posts = await asyncio.to_thread(lambda: list(self._iter_new_posts()))
         except Exception as exc:
             self._mark_error(str(exc), active=True)
+            return get_sentiment_state()
+
+        # If we just exited a Cloudflare backoff and got no posts, require one
+        # more clean poll before declaring healthy.  This prevents the status
+        # from flickering between "blocked" and "ready" when truthbrush
+        # silently swallows a Cloudflare block on the status endpoint.
+        if was_in_cloudflare_backoff and not posts:
+            self._poll_backoff_until = _utc_now() + timedelta(seconds=min(self.poll_interval * 2, 120))
+            self._poll_backoff_message = None  # cleared so next clean poll goes through
+            update_sentiment_state(
+                enabled=True,
+                active=True,
+                healthy=False,
+                model_loaded=self._model is not None,
+                quantized_8bit=self._quantized_8bit,
+                target_handle=self.target_handle,
+                last_poll_at=_iso_or_none(now),
+                last_error="Truth Social recovering from Cloudflare block — verifying connectivity.",
+                metadata={"quantization_mode": self._quantization_mode},
+            )
             return get_sentiment_state()
 
         self._poll_backoff_until = None

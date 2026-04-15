@@ -758,7 +758,7 @@ CONFIG = {
     },
     "TRUTH_SOCIAL_SENTIMENT": {
         "enabled": True,
-        "poll_interval": 30,
+        "poll_interval": 120,
         "pump_threshold": 0.85,
         "emergency_exit_threshold": -0.75,
         "finbert_local_path": "./models/finbert",

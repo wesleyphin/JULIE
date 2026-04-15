@@ -263,6 +263,8 @@ def normalize_sentiment_error_message(value: Any) -> Optional[str]:
     lowered = message.lower()
     if "argument of type 'nonetype' is not iterable" in lowered:
         return "Truth Social access is currently blocked by Cloudflare for this client."
+    if "'nonetype' object is not subscriptable" in lowered:
+        return "Truth Social access is currently blocked by Cloudflare for this client."
     if "1015" in lowered or "rate limit" in lowered or "rate limited" in lowered:
         return "Truth Social access is currently rate limited by Cloudflare (Error 1015)."
     if "cloudflare" in lowered or "cf-error" in lowered:
