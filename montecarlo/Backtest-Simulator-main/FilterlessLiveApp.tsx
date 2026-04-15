@@ -718,26 +718,31 @@ function FilterlessLiveApp() {
   const openPnlColor = (openPosition?.open_pnl_dollars || 0) >= 0 ? 'success' : 'danger';
   const kalshiMetrics = state.kalshi_metrics ?? null;
   const kalshiVisible = kalshiMetrics != null;
-  const kalshiReferencePrice =
+  const kalshiSpxReferencePrice =
     kalshiMetrics?.spx_reference_price ??
     ((state.bot.price != null && kalshiMetrics?.basis_offset != null)
       ? state.bot.price - kalshiMetrics.basis_offset
       : null);
+  const kalshiEsReferencePrice =
+    kalshiMetrics?.es_reference_price ??
+    ((kalshiSpxReferencePrice != null && kalshiMetrics?.basis_offset != null)
+      ? kalshiSpxReferencePrice + kalshiMetrics.basis_offset
+      : state.bot.price ?? null);
   const kalshiStrikes = useMemo(
     () => {
       const rows = (kalshiMetrics?.strikes || [])
         .filter((row): row is FilterlessKalshiStrike => row != null && row.strike != null && row.probability != null)
         .sort((a, b) => a.strike - b.strike);
-      return pickKalshiWindow(rows, kalshiReferencePrice, KALSHI_STRIKE_WINDOW_SIZE);
+      return pickKalshiWindow(rows, kalshiSpxReferencePrice, KALSHI_STRIKE_WINDOW_SIZE);
     },
-    [kalshiMetrics, kalshiReferencePrice],
+    [kalshiMetrics, kalshiSpxReferencePrice],
   );
   const nearestKalshiStrike = useMemo(() => {
-    if (kalshiReferencePrice == null || kalshiStrikes.length === 0) return null;
+    if (kalshiSpxReferencePrice == null || kalshiStrikes.length === 0) return null;
     return kalshiStrikes.reduce((best, strike) => (
-      Math.abs(strike.strike - kalshiReferencePrice) < Math.abs(best.strike - kalshiReferencePrice) ? strike : best
+      Math.abs(strike.strike - kalshiSpxReferencePrice) < Math.abs(best.strike - kalshiSpxReferencePrice) ? strike : best
     ));
-  }, [kalshiReferencePrice, kalshiStrikes]);
+  }, [kalshiSpxReferencePrice, kalshiStrikes]);
   const kalshiHourlyContracts = useMemo(
     () => buildKalshiHourlyContracts(kalshiMetrics?.event_ticker, kalshiStrikes, kalshiMetrics?.trade_gating_hour, kalshiMetrics?.daily_contracts as any),
     [kalshiMetrics?.event_ticker, kalshiStrikes, kalshiMetrics?.trade_gating_hour, kalshiMetrics?.daily_contracts],
@@ -1074,9 +1079,9 @@ function FilterlessLiveApp() {
                 <p className="mt-1 text-xs text-neutral-500">{kalshiMetrics?.healthy ? 'Event ladder is reachable.' : 'Waiting for a healthy snapshot.'}</p>
               </div>
               <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">S&amp;P Reference</p>
-                <p className="mt-1 text-lg font-semibold text-neutral-100">{formatPrice(kalshiReferencePrice)}</p>
-                <p className="mt-1 text-xs text-neutral-500">MES minus basis offset {formatPrice(kalshiMetrics?.basis_offset)}</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">ES Reference</p>
+                <p className="mt-1 text-lg font-semibold text-neutral-100">{formatPrice(kalshiEsReferencePrice)}</p>
+                <p className="mt-1 text-xs text-neutral-500">Converted from SPX using basis offset {formatPrice(kalshiMetrics?.basis_offset)}</p>
               </div>
               <div className={`rounded-lg border px-3 py-3 ${
                 kalshiMetrics?.trade_gating_active

@@ -162,6 +162,7 @@ def _kalshi_disabled_payload() -> Dict[str, Any]:
         "basis_offset": 0.0,
         "probability_60m": None,
         "event_ticker": None,
+        "es_reference_price": None,
         "spx_reference_price": None,
         "strikes": [],
     }
@@ -275,6 +276,7 @@ async def _kalshi_snapshot_loop(path: Path, interval_seconds: float = 10.0) -> N
             "basis_offset": float(getattr(provider, "basis_offset", 0.0) or 0.0),
             "probability_60m": sentiment.get("probability"),
             "event_ticker": getattr(provider, "last_resolved_ticker", None) or provider._current_event_ticker(),  # noqa: SLF001
+            "es_reference_price": float(price) if price is not None else None,
             "spx_reference_price": (float(price) - float(provider.basis_offset)) if price is not None else None,
             "trade_gating_active": trade_gating_active,
             "trade_gating_hour": trade_gating_hour,

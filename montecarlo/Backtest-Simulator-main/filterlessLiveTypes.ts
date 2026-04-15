@@ -133,6 +133,7 @@ export interface FilterlessKalshiMetrics {
   basis_offset?: number | null;
   probability_60m?: number | null;
   event_ticker?: string | null;
+  es_reference_price?: number | null;
   spx_reference_price?: number | null;
   trade_gating_active?: boolean | null;
   trade_gating_hour?: number | null;

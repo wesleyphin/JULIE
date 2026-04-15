@@ -604,8 +604,15 @@ def build_kalshi_metrics_from_snapshot(snapshot: Any) -> Optional[Dict[str, Any]
             "basis_offset": safe_float(snapshot.get("basis_offset")) or 0.0,
             "probability_60m": None,
             "event_ticker": None,
+            "es_reference_price": None,
             "strikes": [],
         }
+
+    basis_offset = safe_float(snapshot.get("basis_offset")) or 0.0
+    spx_reference_price = safe_float(snapshot.get("spx_reference_price"))
+    es_reference_price = safe_float(snapshot.get("es_reference_price"))
+    if es_reference_price is None and spx_reference_price is not None:
+        es_reference_price = spx_reference_price + basis_offset
 
     strikes: list[Dict[str, Any]] = []
     raw_strikes = snapshot.get("strikes")
@@ -637,10 +644,11 @@ def build_kalshi_metrics_from_snapshot(snapshot: Any) -> Optional[Dict[str, Any]
         "status_reason": snapshot.get("status_reason"),
         "source": snapshot.get("source"),
         "updated_at": snapshot.get("updated_at"),
-        "basis_offset": safe_float(snapshot.get("basis_offset")) or 0.0,
+        "basis_offset": basis_offset,
         "probability_60m": safe_float(snapshot.get("probability_60m")),
         "event_ticker": snapshot.get("event_ticker"),
-        "spx_reference_price": safe_float(snapshot.get("spx_reference_price")),
+        "es_reference_price": es_reference_price,
+        "spx_reference_price": spx_reference_price,
         "trade_gating_active": snapshot.get("trade_gating_active"),
         "trade_gating_hour": snapshot.get("trade_gating_hour"),
         "strikes": strikes,
@@ -658,15 +666,17 @@ def update_state(
         bot_price = safe_float((dashboard.get("bot") or {}).get("price"))
         sentiment = kalshi_provider.get_sentiment(bot_price) if bot_price is not None else {}
         strikes = kalshi_provider._fetch_event_markets() if getattr(kalshi_provider, "enabled", False) else []  # noqa: SLF001
+        basis_offset = float(getattr(kalshi_provider, "basis_offset", 0.0) or 0.0)
         dashboard["kalshi_metrics"] = {
             "enabled": bool(getattr(kalshi_provider, "enabled", False)),
             "healthy": bool(getattr(kalshi_provider, "is_healthy", False)),
             "updated_at": datetime.now(NY_TZ).isoformat(),
-            "basis_offset": float(getattr(kalshi_provider, "basis_offset", 0.0) or 0.0),
+            "basis_offset": basis_offset,
             "probability_60m": safe_float((sentiment or {}).get("probability")),
             "event_ticker": kalshi_provider._current_event_ticker() if getattr(kalshi_provider, "enabled", False) else None,  # noqa: SLF001
+            "es_reference_price": bot_price,
             "spx_reference_price": (
-                (bot_price - float(getattr(kalshi_provider, "basis_offset", 0.0) or 0.0))
+                (bot_price - basis_offset)
                 if bot_price is not None
                 else None
             ),
