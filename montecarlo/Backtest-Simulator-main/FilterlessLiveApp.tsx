@@ -718,6 +718,8 @@ function FilterlessLiveApp() {
   const openPnlColor = (openPosition?.open_pnl_dollars || 0) >= 0 ? 'success' : 'danger';
   const kalshiMetrics = state.kalshi_metrics ?? null;
   const kalshiVisible = kalshiMetrics != null;
+  const kalshiOpenSide = String(openPosition?.side || '').toUpperCase();
+  const kalshiPredictionLabel = kalshiOpenSide === 'SHORT' ? 'NO' : 'YES';
   const kalshiSpxReferencePrice =
     kalshiMetrics?.spx_reference_price ??
     ((state.bot.price != null && kalshiMetrics?.basis_offset != null)
@@ -756,8 +758,8 @@ function FilterlessLiveApp() {
 
     if (referenceKind === 'open_position_target' && referenceEsPrice != null && contractEsPrice != null) {
       const tpLabel = referenceSide ? `${referenceSide} TP` : 'Open TP';
-      const outcomeLabel = contractOutcome === 'below' ? 'Below' : 'Above';
-      return `${tpLabel} ${formatPrice(referenceEsPrice)} -> ${outcomeLabel} ${formatPrice(contractEsPrice)} ES contract`;
+      const outcomeLabel = contractOutcome === 'below' ? 'NO' : 'YES';
+      return `${tpLabel} ${formatPrice(referenceEsPrice)} -> ${outcomeLabel} @ ${formatPrice(contractEsPrice)} ES contract`;
     }
     if (referenceEsPrice != null) {
       return `Using current ES price ${formatPrice(referenceEsPrice)}`;
@@ -771,6 +773,15 @@ function FilterlessLiveApp() {
     kalshiMetrics?.probability_reference_kind,
     kalshiMetrics?.probability_reference_side,
   ]);
+  const kalshiDisplayedStrikes = useMemo(
+    () => kalshiStrikes.map((strike) => ({
+      ...strike,
+      displayProbability: kalshiOpenSide === 'SHORT'
+        ? Math.max(0, Math.min(1, 1 - strike.probability))
+        : strike.probability,
+    })),
+    [kalshiOpenSide, kalshiStrikes],
+  );
   // When selectedKalshiHour is set, show that contract's info; otherwise show the active one
   const viewedKalshiContract = useMemo(() => {
     if (selectedKalshiHour != null) {
@@ -1098,7 +1109,7 @@ function FilterlessLiveApp() {
                 <p className="mt-1 text-xs text-neutral-500">{kalshiMetrics?.source || 'snapshot'}</p>
               </div>
               <div className="rounded-lg border border-neutral-800 bg-neutral-950/60 px-3 py-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">60-Min Probability</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">60-Min {kalshiPredictionLabel} Probability</p>
                 <p className="mt-1 text-lg font-semibold text-sky-300">{formatPercent(kalshiMetrics?.probability_60m, 2)}</p>
                 <p className="mt-1 text-xs text-neutral-500">{kalshiProbabilityCaption}</p>
               </div>
@@ -1237,20 +1248,20 @@ function FilterlessLiveApp() {
             {(selectedKalshiHour == null || viewedKalshiContract?.isActive) && kalshiStrikes.length > 0 ? (
               <div>
                 <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 mb-3">
-                  Strikes &mdash; {kalshiMetrics?.event_ticker || 'N/A'}
+                  Strikes &mdash; {kalshiMetrics?.event_ticker || 'N/A'} &mdash; {kalshiPredictionLabel} Side
                 </p>
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
                     <thead className="text-left text-neutral-500 border-b border-neutral-800">
                       <tr>
                         <th className="py-2 pr-4 font-medium">S&amp;P 500 Strike</th>
-                        <th className="py-2 pr-4 font-medium">Probability</th>
+                        <th className="py-2 pr-4 font-medium">{kalshiPredictionLabel} Probability</th>
                         <th className="py-2 pr-4 font-medium">Volume</th>
                         <th className="py-2 pr-4 font-medium">Status</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {kalshiStrikes.map((strike, index) => (
+                      {kalshiDisplayedStrikes.map((strike, index) => (
                         <tr
                           key={`${strike.strike}-${index}`}
                           className={`border-b border-neutral-900 last:border-b-0 ${
@@ -1260,7 +1271,7 @@ function FilterlessLiveApp() {
                           }`}
                         >
                           <td className="py-2 pr-4 text-neutral-200">{formatStrikeLabel(strike.strike)}</td>
-                          <td className="py-2 pr-4 text-sky-300 font-medium">{formatPercent(strike.probability, 2)}</td>
+                          <td className="py-2 pr-4 text-sky-300 font-medium">{formatPercent(strike.displayProbability, 2)}</td>
                           <td className="py-2 pr-4 text-neutral-300">{formatCompactNumber(strike.volume)}</td>
                           <td className="py-2 pr-4 text-neutral-400">{strike.status || '--'}</td>
                         </tr>
