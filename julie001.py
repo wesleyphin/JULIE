@@ -2529,7 +2529,8 @@ def _build_live_active_trade(
         logging.error("Order details missing sl/tp after execution; using 0.0 for tracking")
     tp_dist = _coerce_float(tp_dist_raw or 0.0, 0.0)
     sl_dist = _coerce_float(sl_dist_raw or 0.0, 0.0)
-    size = max(1, _coerce_int(order_details.get("size", signal.get("size", 5)), 5))
+    raw_size = _coerce_int(order_details.get("size", signal.get("size", 5)), 5)
+    size = raw_size if raw_size <= 0 else max(1, raw_size)
     side = str(signal.get("side", "") or "").upper()
 
     signal["tp_dist"] = tp_dist
@@ -9716,6 +9717,9 @@ async def run_bot():
                                 live_drawdown_state,
                                 tracked_live_trades(),
                             )
+                            if pending_signal["size"] <= 0:
+                                logging.info("Kalshi HARD VETO — rescued trade blocked (size=0): %s", pending_signal.get("strategy", "PendingRescue"))
+                                continue
                             if _same_side_active_trade(active_trade, pending_signal):
                                 reset_opposite_reversal_state("same-side rescued signal")
                                 logging.info(
@@ -11557,6 +11561,9 @@ async def run_bot():
                         live_drawdown_state,
                         tracked_live_trades(),
                     )
+                    if signal["size"] <= 0:
+                        logging.info("Kalshi HARD VETO — trade blocked (size=0): %s", signal.get("strategy", strat_name))
+                        continue
                     if _same_side_active_trade(active_trade, signal):
                         if _allow_same_side_parallel_entry(active_trade, signal, tracked_live_trades()):
                             reset_opposite_reversal_state("same-side coexist signal")
@@ -12279,6 +12286,10 @@ async def run_bot():
                                     live_drawdown_state,
                                     tracked_live_trades(),
                                 )
+                                if sig["size"] <= 0:
+                                    logging.info("Kalshi HARD VETO — loose trade blocked (size=0): %s", sig.get("strategy", s_name))
+                                    del pending_loose_signals[s_name]
+                                    continue
                                 if _same_side_active_trade(active_trade, sig):
                                     if _allow_same_side_parallel_entry(active_trade, sig, tracked_live_trades()):
                                         reset_opposite_reversal_state("same-side loose coexist signal")
