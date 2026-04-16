@@ -59,7 +59,12 @@ const DEFAULT_SENTIMENT_METRICS: FilterlessSentimentMetrics = {
   trigger_side: null,
   trigger_reason: null,
   last_error: null,
-  metadata: null,
+  metadata: {
+    gemini_enabled: false,
+    gemini_configured: false,
+    gemini_model: 'gemini-3-pro-preview',
+    gemini_used: false,
+  },
 };
 
 const EMPTY_STATE: FilterlessLiveState = {
@@ -242,6 +247,20 @@ function formatCompactNumber(value?: number | null): string {
     notation: 'compact',
     maximumFractionDigits: value >= 1000 ? 1 : 0,
   }).format(value);
+}
+
+function metadataBoolean(metadata: Record<string, unknown> | null | undefined, key: string): boolean {
+  return metadata?.[key] === true;
+}
+
+function metadataNumber(metadata: Record<string, unknown> | null | undefined, key: string): number | null {
+  const value = metadata?.[key];
+  return typeof value === 'number' && !Number.isNaN(value) ? value : null;
+}
+
+function metadataString(metadata: Record<string, unknown> | null | undefined, key: string): string | null {
+  const value = metadata?.[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 function sentimentScoreClasses(metrics?: FilterlessSentimentMetrics | null): string {
@@ -767,8 +786,15 @@ function FilterlessLiveApp() {
       lastGoodSentimentRef.current = incoming;
       return incoming;
     }
-    if (incoming && incoming.last_poll_at) {
-      return { ...lastGoodSentimentRef.current, last_poll_at: incoming.last_poll_at, healthy: incoming.healthy };
+    if (incoming) {
+      return {
+        ...lastGoodSentimentRef.current,
+        ...incoming,
+        metadata: {
+          ...(lastGoodSentimentRef.current.metadata || {}),
+          ...(incoming.metadata || {}),
+        },
+      };
     }
     return lastGoodSentimentRef.current;
   }, [state.sentiment_metrics]);
@@ -857,6 +883,23 @@ function FilterlessLiveApp() {
     if (!raw) return '';
     return raw.length > 800 ? `${raw.slice(0, 797)}...` : raw;
   }, [sentimentMetrics?.latest_post_text]);
+  const sentimentMetadata = useMemo(
+    () => ((sentimentMetrics?.metadata ?? null) as Record<string, unknown> | null),
+    [sentimentMetrics?.metadata],
+  );
+  const geminiEnabled = metadataBoolean(sentimentMetadata, 'gemini_enabled');
+  const geminiConfigured = metadataBoolean(sentimentMetadata, 'gemini_configured');
+  const geminiUsed = metadataBoolean(sentimentMetadata, 'gemini_used');
+  const geminiModel = metadataString(sentimentMetadata, 'gemini_model') || 'gemini-3-pro-preview';
+  const geminiConfidence = metadataNumber(sentimentMetadata, 'gemini_confidence');
+  const geminiScore = metadataNumber(sentimentMetadata, 'gemini_score');
+  const geminiMarketImpact = metadataString(sentimentMetadata, 'gemini_market_impact');
+  const geminiReasoning = metadataString(sentimentMetadata, 'gemini_reasoning');
+  const geminiOverrideSource = metadataString(sentimentMetadata, 'override_source');
+  const geminiOverrideActive = geminiOverrideSource === 'gemini_geopolitical';
+  const geminiUsageLabel = geminiEnabled
+    ? (geminiUsed ? (geminiOverrideActive ? 'Override' : 'Used') : 'Standby')
+    : (geminiConfigured ? 'Configured' : 'Off');
 
   return (
     <div className="min-h-screen bg-background text-neutral-100 pb-16">
@@ -1375,7 +1418,7 @@ function FilterlessLiveApp() {
             </span>
           }
         >
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
             <div>
               <p className="text-neutral-500">Sentiment Score</p>
               <p className={`mt-1 text-lg font-semibold ${sentimentScoreClasses(sentimentMetrics)}`}>
@@ -1399,6 +1442,11 @@ function FilterlessLiveApp() {
               <p className="mt-1 text-lg font-semibold text-neutral-100">
                 {formatRelativeTime(sentimentMetrics.latest_post_created_at || sentimentMetrics.last_analysis_at)}
               </p>
+            </div>
+            <div>
+              <p className="text-neutral-500">Gemini Usage</p>
+              <p className="mt-1 text-lg font-semibold text-neutral-100">{geminiUsageLabel}</p>
+              <p className="mt-1 text-xs text-neutral-500">{geminiModel}</p>
             </div>
           </div>
 
@@ -1432,6 +1480,18 @@ function FilterlessLiveApp() {
               {sentimentMetrics.trigger_reason && (
                 <p className="mt-2 text-xs text-neutral-500">
                   {sentimentMetrics.trigger_reason}
+                </p>
+              )}
+              <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-neutral-500">
+                <span>Gemini {geminiEnabled ? 'enabled' : 'disabled'}</span>
+                <span>Usage {geminiUsageLabel}</span>
+                {geminiConfidence != null && <span>Confidence {formatPercent(geminiConfidence, 1)}</span>}
+                {geminiScore != null && <span>Score {geminiScore.toFixed(2)}</span>}
+                {geminiMarketImpact && <span>Impact {geminiMarketImpact.toUpperCase()}</span>}
+              </div>
+              {geminiReasoning && (
+                <p className="mt-2 text-xs leading-relaxed text-neutral-400">
+                  Gemini: {geminiReasoning}
                 </p>
               )}
             </div>

@@ -187,9 +187,9 @@ class TruthSocialSentimentService:
             model_loaded=False,
             quantized_8bit=False,
             target_handle=self.target_handle,
-            source="rss_finbert",
+            source=self._source,
             last_error=None,
-            metadata={"quantization_mode": self._quantization_mode},
+            metadata=self._sentiment_metadata(),
         )
 
     def stop(self) -> None:
@@ -197,6 +197,18 @@ class TruthSocialSentimentService:
 
     def snapshot(self) -> Dict[str, Any]:
         return get_sentiment_state()
+
+    def _sentiment_metadata(self, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "quantization_mode": self._quantization_mode,
+            "gemini_enabled": self._gemini_enabled,
+            "gemini_model": self._gemini_model,
+            "gemini_configured": bool(self._gemini_api_key),
+            "gemini_used": False,
+        }
+        if extra:
+            payload.update(extra)
+        return payload
 
     def _mark_error(self, message: str, *, active: bool = False) -> None:
         logger.warning("Sentiment service: %s", message)
@@ -214,10 +226,11 @@ class TruthSocialSentimentService:
             target_handle=self.target_handle,
             last_poll_at=_iso_or_none(_utc_now()),
             last_error=normalized_message,
-            metadata={
-                "quantization_mode": self._quantization_mode,
-                "retry_after": _iso_or_none(self._poll_backoff_until),
-            },
+            metadata=self._sentiment_metadata(
+                {
+                    "retry_after": _iso_or_none(self._poll_backoff_until),
+                }
+            ),
         )
 
     def _error_backoff_seconds(self, message: str) -> int:
@@ -289,10 +302,7 @@ class TruthSocialSentimentService:
             model_loaded=True,
             quantized_8bit=self._quantized_8bit,
             last_error=None,
-            metadata={
-                "model_source": model_source,
-                "quantization_mode": self._quantization_mode,
-            },
+            metadata=self._sentiment_metadata({"model_source": model_source}),
         )
 
     def _post_url(self, post: Dict[str, Any]) -> Optional[str]:
@@ -494,6 +504,7 @@ class TruthSocialSentimentService:
         """
         finbert = self._classify_text(text)
         gemini = self._classify_geopolitical_gemini(text)
+        finbert["gemini_used"] = gemini is not None
 
         if gemini is None:
             return finbert
@@ -555,6 +566,8 @@ class TruthSocialSentimentService:
                 healthy=False,
                 last_poll_at=_iso_or_none(now),
                 target_handle=self.target_handle,
+                source=self._source,
+                metadata=self._sentiment_metadata(),
             )
             return get_sentiment_state()
 
@@ -566,11 +579,13 @@ class TruthSocialSentimentService:
                 model_loaded=self._model is not None,
                 quantized_8bit=self._quantized_8bit,
                 target_handle=self.target_handle,
+                source=self._source,
                 last_error=self._poll_backoff_message,
-                metadata={
-                    "quantization_mode": self._quantization_mode,
-                    "retry_after": _iso_or_none(self._poll_backoff_until),
-                },
+                metadata=self._sentiment_metadata(
+                    {
+                        "retry_after": _iso_or_none(self._poll_backoff_until),
+                    }
+                ),
             )
             return get_sentiment_state()
 
@@ -588,9 +603,10 @@ class TruthSocialSentimentService:
             active=True,
             healthy=True,
             target_handle=self.target_handle,
+            source=self._source,
             last_poll_at=_iso_or_none(now),
             last_error=None,
-            metadata={"quantization_mode": self._quantization_mode},
+            metadata=self._sentiment_metadata(),
         )
 
         if not posts:
@@ -620,6 +636,7 @@ class TruthSocialSentimentService:
                 model_loaded=self._model is not None,
                 quantized_8bit=self._quantized_8bit,
                 target_handle=self.target_handle,
+                source=self._source,
                 last_poll_at=_iso_or_none(now),
                 last_analysis_at=_iso_or_none(now),
                 latest_post_id=post_id,
@@ -632,15 +649,22 @@ class TruthSocialSentimentService:
                 trigger_side=trigger_side,
                 trigger_reason=trigger_reason,
                 last_error=None,
-                metadata={
-                    "model_source": (
-                        str(Path(self.finbert_local_path))
-                        if Path(self.finbert_local_path).exists()
-                        else "ProsusAI/finbert"
-                    ),
-                    "quantization_mode": self._quantization_mode,
-                    **dict(analysis.get("probabilities") or {}),
-                },
+                metadata=self._sentiment_metadata(
+                    {
+                        "model_source": (
+                            str(Path(self.finbert_local_path))
+                            if Path(self.finbert_local_path).exists()
+                            else "ProsusAI/finbert"
+                        ),
+                        "gemini_used": bool(analysis.get("gemini_used", False)),
+                        "gemini_score": analysis.get("gemini_score"),
+                        "gemini_confidence": analysis.get("gemini_confidence"),
+                        "gemini_market_impact": analysis.get("gemini_market_impact"),
+                        "gemini_reasoning": analysis.get("gemini_reasoning"),
+                        "override_source": analysis.get("override_source"),
+                        **dict(analysis.get("probabilities") or {}),
+                    }
+                ),
             )
             self._remember_post(post_id, created_at)
             event_logger.log_sentiment_event(
@@ -675,7 +699,8 @@ class TruthSocialSentimentService:
             active=bool(self.enabled),
             healthy=False,
             target_handle=self.target_handle,
-            metadata={"quantization_mode": self._quantization_mode},
+            source=self._source,
+            metadata=self._sentiment_metadata(),
         )
         while not self._stop_event.is_set():
             try:

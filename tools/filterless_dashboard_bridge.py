@@ -60,6 +60,7 @@ FILTERLESS_LIVE_DISABLED_STRATEGIES = {
     if str(value).strip()
 }
 TRUTH_SOCIAL_CONFIG = dict(CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {})
+GEMINI_CONFIG = dict(CONFIG.get("GEMINI", {}) or {})
 
 LOG_PREFIX_RE = re.compile(
     r"^(?P<logged_at>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3}) \[(?P<level>[^\]]+)\] (?P<message>.*)$"
@@ -226,6 +227,8 @@ def default_sentiment_metrics() -> Optional[Dict[str, Any]]:
     finbert_path = str(
         TRUTH_SOCIAL_CONFIG.get("finbert_local_path", "./models/finbert") or "./models/finbert"
     )
+    gemini_model = str(GEMINI_CONFIG.get("model", "gemini-3-pro-preview") or "gemini-3-pro-preview")
+    gemini_api_key = str(GEMINI_CONFIG.get("api_key", "") or "").strip()
     return {
         "enabled": True,
         "active": False,
@@ -248,6 +251,10 @@ def default_sentiment_metrics() -> Optional[Dict[str, Any]]:
         "last_error": None,
         "metadata": {
             "finbert_local_path": finbert_path,
+            "gemini_enabled": bool(GEMINI_CONFIG.get("enabled", False)) and bool(gemini_api_key),
+            "gemini_configured": bool(gemini_api_key),
+            "gemini_model": gemini_model,
+            "gemini_used": False,
         },
     }
 
