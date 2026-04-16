@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import html
+import json as _json
 import logging
 import re
 import threading
@@ -172,7 +173,12 @@ class TruthSocialSentimentService:
         self._poll_backoff_until: Optional[datetime] = None
         self._poll_backoff_message: Optional[str] = None
 
-        self._source = "rss_finbert"
+        gemini_cfg = dict((CONFIG.get("GEMINI", {}) if isinstance(CONFIG, dict) else {}) or {})
+        self._gemini_api_key = str(gemini_cfg.get("api_key", "") or "").strip()
+        self._gemini_model = str(gemini_cfg.get("model", "gemini-3-pro-preview") or "gemini-3-pro-preview")
+        self._gemini_enabled = bool(gemini_cfg.get("enabled", False)) and bool(self._gemini_api_key)
+
+        self._source = "rss_finbert_gemini" if self._gemini_enabled else "rss_finbert"
 
         update_sentiment_state(
             enabled=self.enabled,
@@ -413,6 +419,113 @@ class TruthSocialSentimentService:
             },
         }
 
+    def _classify_geopolitical_gemini(self, text: str) -> Optional[Dict[str, Any]]:
+        """Ask Gemini to rate the ES futures market impact of a post.
+
+        Returns a dict with sentiment_score (-1.0 to 1.0), confidence,
+        and reasoning — or None if Gemini is unavailable / errors out.
+        """
+        if not self._gemini_enabled:
+            return None
+
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{self._gemini_model}:generateContent?key={self._gemini_api_key}"
+        )
+        system_prompt = (
+            "You are an expert S&P 500 E-mini futures (ES) trader. Your ONLY job is to "
+            "rate the IMMEDIATE market impact of a social media post from a major political "
+            "figure on ES futures price action.\n\n"
+            "Consider: geopolitical risk (war, sanctions, blockades, military action), "
+            "trade policy (tariffs, trade wars, bans), fiscal/monetary policy, "
+            "regulatory threats, and market-moving rhetoric.\n\n"
+            "FinBERT (a financial NLP model) often rates geopolitical posts as 'neutral' "
+            "because it was trained on earnings language, not military/political rhetoric. "
+            "Your job is to catch what FinBERT misses.\n\n"
+            "Return ONLY valid JSON with these fields:\n"
+            "- sentiment_score: float from -1.0 (extremely bearish for ES) to 1.0 (extremely bullish)\n"
+            "- confidence: float from 0.0 to 1.0\n"
+            "- market_impact: \"high\", \"medium\", or \"low\"\n"
+            "- reasoning: one sentence explaining the ES impact"
+        )
+        payload = {
+            "contents": [{"parts": [{"text": text}]}],
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "generationConfig": {
+                "responseMimeType": "application/json",
+                "temperature": 0.2,
+            },
+        }
+        try:
+            req_body = _json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                url,
+                data=req_body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                body = _json.loads(resp.read())
+            raw_text = body["candidates"][0]["content"]["parts"][0]["text"]
+            parsed = _json.loads(raw_text)
+            score = max(-1.0, min(1.0, float(parsed["sentiment_score"])))
+            confidence = max(0.0, min(1.0, float(parsed.get("confidence", 0.8))))
+            impact = str(parsed.get("market_impact", "low")).lower()
+            reasoning = str(parsed.get("reasoning", ""))
+            logger.info(
+                "Gemini geopolitical: score=%.2f confidence=%.2f impact=%s reason=%s",
+                score, confidence, impact, reasoning,
+            )
+            return {
+                "sentiment_score": round(score, 4),
+                "confidence": round(confidence, 4),
+                "market_impact": impact,
+                "reasoning": reasoning,
+            }
+        except Exception as exc:
+            logger.warning("Gemini geopolitical classification failed: %s", exc)
+            return None
+
+    def _classify_combined(self, text: str) -> Dict[str, Any]:
+        """Run FinBERT + Gemini and merge results.
+
+        Gemini overrides FinBERT when it detects medium/high geopolitical
+        market impact and FinBERT returned neutral or low-confidence.
+        """
+        finbert = self._classify_text(text)
+        gemini = self._classify_geopolitical_gemini(text)
+
+        if gemini is None:
+            return finbert
+
+        finbert["gemini_score"] = gemini["sentiment_score"]
+        finbert["gemini_confidence"] = gemini["confidence"]
+        finbert["gemini_market_impact"] = gemini["market_impact"]
+        finbert["gemini_reasoning"] = gemini["reasoning"]
+
+        # Override FinBERT when Gemini sees medium/high impact and FinBERT
+        # is neutral or low-confidence (the blind spot)
+        finbert_is_weak = (
+            finbert["sentiment_label"] == "neutral"
+            or finbert["finbert_confidence"] < 0.5
+            or abs(finbert["sentiment_score"]) < 0.3
+        )
+        gemini_is_strong = gemini["market_impact"] in ("high", "medium") and gemini["confidence"] >= 0.6
+
+        if gemini_is_strong and finbert_is_weak:
+            finbert["sentiment_score"] = gemini["sentiment_score"]
+            finbert["finbert_confidence"] = gemini["confidence"]
+            finbert["sentiment_label"] = "negative" if gemini["sentiment_score"] < -0.2 else (
+                "positive" if gemini["sentiment_score"] > 0.2 else "neutral"
+            )
+            finbert["override_source"] = "gemini_geopolitical"
+            logger.info(
+                "Gemini overrode FinBERT: score=%.2f label=%s reason=%s",
+                finbert["sentiment_score"], finbert["sentiment_label"], gemini["reasoning"],
+            )
+
+        return finbert
+
     def _trigger_payload(self, sentiment_score: float, sentiment_label: str = "") -> tuple[Optional[str], Optional[str]]:
         if sentiment_score >= self.pump_threshold:
             return "LONG", f"Sentiment pump threshold {sentiment_score:.2f} >= {self.pump_threshold:.2f}"
@@ -492,7 +605,7 @@ class TruthSocialSentimentService:
                 continue
 
             try:
-                analysis = await asyncio.to_thread(self._classify_text, post_text)
+                analysis = await asyncio.to_thread(self._classify_combined, post_text)
             except Exception as exc:
                 self._mark_error(str(exc), active=True)
                 continue
