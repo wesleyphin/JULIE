@@ -1,0 +1,256 @@
+{
+  "variants": [
+    {
+      "name": "pair_cr0580_tb0550",
+      "description": "Reference selective-CR corrected 2026-fold book.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.58,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "pair_cr0580_tb0550_plus_af_nyam0560_disp_bias0010",
+      "description": "Reference additive candidate: selective CR/TB plus NY_AM dispersed aligned flow.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.58,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0
+    },
+    {
+      "name": "pair_cr0580_tb0550_plus_af_nyam0560_disp_bias0005",
+      "description": "Lighter AF overlap priority on top of the selective CR/TB book.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.005,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.58,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0
+    },
+    {
+      "name": "pair_cr0580_tb0550_plus_af_nyam0560_disp_nypm0580_tg",
+      "description": "Selective CR/TB book with NY_AM dispersed AF and a tight NY_PM trend-geodesic AF extension.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.58,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0,
+      "policy_rules": [
+        {
+          "name": "nypm_tg",
+          "match_session_ids": [3],
+          "match_regimes": ["TREND_GEODESIC"],
+          "threshold": 0.58,
+          "allowed_session_ids": [3],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "entry_mode": "market_next_bar",
+          "min_setup_strength": 0.0,
+          "max_directional_vwap_dist_atr": 6.0,
+          "max_flow_mag_slow": 1.0
+        }
+      ]
+    },
+    {
+      "name": "tb_only_0550",
+      "description": "Reference TB-only corrected 2026-fold book.",
+      "include_live_pair": true,
+      "include_aligned_flow": false,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "tb_only_0550_plus_af_nyam0560_disp_bias0010",
+      "description": "Reference additive CAGR probe: TB-only plus NY_AM dispersed aligned flow.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0
+    },
+    {
+      "name": "tb_only_0550_plus_af_nyam0560_disp_bias0005",
+      "description": "TB-only additive candidate with lighter AF overlap priority.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.005,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0
+    },
+    {
+      "name": "tb_only_0550_plus_af_nyam0565_disp_bias0010",
+      "description": "TB-only additive candidate with a slightly tighter NY_AM AF threshold.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.565,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0
+    },
+    {
+      "name": "tb_only_0555_plus_af_nyam0560_disp_bias0010",
+      "description": "TB-only additive candidate with a slightly tighter TB threshold.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.555,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0
+    },
+    {
+      "name": "tb_only_0550_plus_af_nyam0560_disp_nypm0580_tg",
+      "description": "TB-only additive candidate with NY_AM dispersed AF and a tight NY_PM trend-geodesic AF extension.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0,
+      "policy_rules": [
+        {
+          "name": "nypm_tg",
+          "match_session_ids": [3],
+          "match_regimes": ["TREND_GEODESIC"],
+          "threshold": 0.58,
+          "allowed_session_ids": [3],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "entry_mode": "market_next_bar",
+          "min_setup_strength": 0.0,
+          "max_directional_vwap_dist_atr": 6.0,
+          "max_flow_mag_slow": 1.0
+        }
+      ]
+    }
+  ]
+}

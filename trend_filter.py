@@ -1,0 +1,391 @@
+import numpy as np
+import pandas as pd
+import logging
+from typing import Tuple, Optional
+
+from event_logger import event_logger
+
+
+class TrendFilter:
+    """
+    Prevents fading strong momentum moves ("Catching a falling knife").
+    Now supports DYNAMIC SENSITIVITY updates from Gemini.
+
+    UPDATED to 4-Tier System:
+
+    TIER 1 (Volume): "Smart Money" Move
+    - Logic: Body > 1.5x Avg AND Volume > 1.5x Avg
+    - Danger: Highest statistical probability of continuation (46.2%).
+
+    TIER 2 (Standard): "Breakout" Move
+    - Logic: Body > 2.0x Avg.
+    - Danger: Standard strong momentum.
+
+    TIER 3 (Extreme): "Capitulation" Move
+    - Logic: Body > 3.0x Avg.
+    - Danger: Violent price shock.
+
+    TIER 4 (Macro Trend): "The Trend is Your Friend"
+    - Logic: 50 EMA vs 200 EMA alignment (Strong Bullish/Bearish).
+    - Danger: Fading the macro trend.
+    - Exception: "Smart Bypass" allows fading if Chop Analyzer detects a Range Fade setup.
+    """
+    def __init__(self, lookback: int = 200,
+                 wick_ratio_threshold: float = 0.65,
+                 # Tier 1-3 Parameters
+                 tier1_vol_multiplier: float = 1.5,
+                 tier1_body_multiplier: float = 1.5,
+                 tier2_body_multiplier: float = 2.0,
+                 tier3_body_multiplier: float = 3.0,
+                 # Tier 4 (Trend) Parameters
+                 fast_period: int = 50,
+                 slow_period: int = 200,
+                 verbose_logging: bool = False):
+
+        # Ensure we have enough data for the Slow EMA
+        self.lookback = max(lookback, slow_period + 20)
+        self.wick_ratio_threshold = wick_ratio_threshold
+
+        # Dynamic Thresholds (can be updated by Gemini)
+        self.t1_vol_mult = tier1_vol_multiplier
+        self.t1_body_mult = tier1_body_multiplier
+        self.t2_body_mult = tier2_body_multiplier
+        self.t3_body_mult = tier3_body_multiplier
+        self.fast_period = fast_period
+        self.slow_period = slow_period
+
+        # Track current regime for logging
+        self.current_regime = "DEFAULT"
+        # Cooldown after opposite-direction wick rejection on impulse bars
+        self._cooldown_long = 0
+        self._cooldown_short = 0
+        self._last_bar_ts = None
+        self.verbose_logging = bool(verbose_logging)
+
+        # Per-bar cache: should_block_trade() is often evaluated for both sides.
+        self._bar_analysis_cache_ts = None
+        self._bar_analysis_cache = None
+
+    def _log_info(self, msg: str, *args) -> None:
+        if self.verbose_logging and logging.getLogger().isEnabledFor(logging.INFO):
+            logging.info(msg, *args)
+
+    def update_dynamic_params(self, params: dict):
+        """
+        Dynamically update filter thresholds from Gemini/Optimizer.
+        Logic:
+        - TRENDING Market -> Lower multipliers (Stricter, block more fades)
+        - CHOPPY Market -> Higher multipliers (Looser, allow range fading)
+        """
+        if not params:
+            return
+
+        try:
+            self._log_info("🌊 UPDATING TREND FILTER (%s): %s", params.get('regime', 'Custom'), params)
+
+            if 't1_vol' in params:
+                self.t1_vol_mult = float(params['t1_vol'])
+            if 't1_body' in params:
+                self.t1_body_mult = float(params['t1_body'])
+            if 't2_body' in params:
+                self.t2_body_mult = float(params['t2_body'])
+            if 't3_body' in params:
+                self.t3_body_mult = float(params['t3_body'])
+
+            self.current_regime = params.get('regime', 'DYNAMIC')
+            self._bar_analysis_cache_ts = None
+            self._bar_analysis_cache = None
+
+        except Exception as e:
+            logging.error(f"❌ Error updating TrendFilter params: {e}")
+
+    def _calculate_adx(
+        self,
+        highs: np.ndarray,
+        lows: np.ndarray,
+        closes: np.ndarray,
+        period: int = 14,
+    ) -> float:
+        if highs.size < period + 1 or lows.size < period + 1 or closes.size < period + 1:
+            return 0.0
+
+        prev_close = np.roll(closes, 1)
+        prev_close[0] = closes[0]
+
+        tr0 = np.abs(highs - lows)
+        tr1 = np.abs(highs - prev_close)
+        tr2 = np.abs(lows - prev_close)
+        tr = np.maximum.reduce([tr0, tr1, tr2])
+
+        up_move = np.diff(highs, prepend=highs[0])
+        down_move = -np.diff(lows, prepend=lows[0])
+        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+
+        alpha = 1.0 / period
+        truerange = pd.Series(tr).ewm(alpha=alpha, adjust=False).mean().to_numpy()
+        tr_safe = np.where(truerange == 0.0, 1.0, truerange)
+        plus = (
+            100.0
+            * pd.Series(plus_dm).ewm(alpha=alpha, adjust=False).mean().to_numpy()
+            / tr_safe
+        )
+        minus = (
+            100.0
+            * pd.Series(minus_dm).ewm(alpha=alpha, adjust=False).mean().to_numpy()
+            / tr_safe
+        )
+
+        sum_di = plus + minus
+        sum_di_safe = np.where(sum_di == 0.0, 1.0, sum_di)
+        dx = 100.0 * np.abs(plus - minus) / sum_di_safe
+        adx = pd.Series(dx).ewm(alpha=alpha, adjust=False).mean().iloc[-1]
+        if pd.isna(adx):
+            return 0.0
+        return float(adx)
+
+    def should_block_trade(self, df: pd.DataFrame, side: str, is_range_fade: bool = False) -> Tuple[bool, Optional[str]]:
+        """
+        Block Reversals based on 4 Tiers of Impulse/Trend.
+        """
+        if len(df) < self.lookback:
+            return False, None
+        if len(df) < 2:
+            return False, None
+
+        # Decrement cooldowns only once per new bar
+        last_ts = df.index[-1]
+        if last_ts != self._last_bar_ts:
+            if self._cooldown_long > 0:
+                self._cooldown_long -= 1
+            if self._cooldown_short > 0:
+                self._cooldown_short -= 1
+            self._last_bar_ts = last_ts
+
+        cache = self._bar_analysis_cache if self._bar_analysis_cache_ts == last_ts else None
+        if cache is None:
+            short_window = 20
+            opens = df['open'].iloc[-short_window:]
+            closes = df['close'].iloc[-short_window:]
+            bodies = np.abs(closes - opens)
+            avg_body_size = float(bodies.mean())
+
+            last_bar = df.iloc[-2]
+            current_price = float(last_bar['close'])
+            last_candle_open = float(last_bar['open'])
+            last_candle_close = float(last_bar['close'])
+            last_candle_high = float(last_bar['high'])
+            last_candle_low = float(last_bar['low'])
+            last_candle_body = abs(last_candle_close - last_candle_open)
+
+            upper_wick = last_candle_high - max(last_candle_open, last_candle_close)
+            lower_wick = min(last_candle_open, last_candle_close) - last_candle_low
+            wick_threshold = last_candle_body * self.wick_ratio_threshold
+            full_range = max(last_candle_high - last_candle_low, 0.0)
+
+            closes_full = df['close']
+            trend_state = "NEUTRAL"
+            if len(closes_full) >= self.slow_period:
+                ema_fast_val = float(closes_full.ewm(span=self.fast_period, adjust=False).mean().iloc[-1])
+                ema_slow_val = float(closes_full.ewm(span=self.slow_period, adjust=False).mean().iloc[-1])
+
+                if current_price > ema_fast_val > ema_slow_val:
+                    trend_state = "BULLISH"
+                elif current_price < ema_fast_val < ema_slow_val:
+                    trend_state = "BEARISH"
+
+            highs_np = df['high'].to_numpy(dtype=float, copy=False)
+            lows_np = df['low'].to_numpy(dtype=float, copy=False)
+            closes_np = df['close'].to_numpy(dtype=float, copy=False)
+            adx_current = self._calculate_adx(highs_np, lows_np, closes_np)
+
+            avg_vol = 0.0
+            last_candle_vol = 0.0
+            if 'volume' in df.columns:
+                volumes = df['volume'].iloc[-short_window:]
+                avg_vol = float(volumes.mean())
+                last_candle_vol = float(last_bar.get('volume', 0.0))
+
+            last_candle_dir = 'GREEN' if last_candle_close > last_candle_open else 'RED'
+
+            recent_opens = df['open'].iloc[-3:]
+            recent_closes = df['close'].iloc[-3:]
+            recent_bodies = np.abs(recent_closes - recent_opens)
+            tier3_threshold = avg_body_size * self.t3_body_mult
+            tier3_nuke = bool((recent_bodies > tier3_threshold).any())
+
+            cache = {
+                "trend_state": trend_state,
+                "adx_current": adx_current,
+                "avg_body_size": avg_body_size,
+                "last_candle_body": last_candle_body,
+                "upper_wick": upper_wick,
+                "lower_wick": lower_wick,
+                "wick_threshold": wick_threshold,
+                "full_range": full_range,
+                "avg_vol": avg_vol,
+                "last_candle_vol": last_candle_vol,
+                "last_candle_dir": last_candle_dir,
+                "tier3_nuke": tier3_nuke,
+            }
+            self._bar_analysis_cache_ts = last_ts
+            self._bar_analysis_cache = cache
+
+        trend_state = cache["trend_state"]
+        adx_current = float(cache["adx_current"])
+        avg_body_size = float(cache["avg_body_size"])
+        last_candle_body = float(cache["last_candle_body"])
+        upper_wick = float(cache["upper_wick"])
+        lower_wick = float(cache["lower_wick"])
+        wick_threshold = float(cache["wick_threshold"])
+        full_range = float(cache["full_range"])
+        avg_vol = float(cache["avg_vol"])
+        last_candle_vol = float(cache["last_candle_vol"])
+        last_candle_dir = cache["last_candle_dir"]
+
+        # =========================================================
+        # TIER 4: MACRO TREND FILTER (Modified with Wick Override)
+        # =========================================================
+        tier4_bypass = adx_current > 25.0
+        if tier4_bypass and trend_state != "NEUTRAL":
+            self._log_info("🔓 Tier 4 Bypassed: ADX %.2f > 25 (%s trend ignored)", adx_current, trend_state)
+
+        if not is_range_fade and not tier4_bypass:
+            # BLOCK SHORTS IN BULL TREND
+            if side == "SHORT" and trend_state == "BULLISH":
+                # EXCEPTION: If we have a massive Shooting Star wick, allow the counter-trend trade
+                if upper_wick > wick_threshold:
+                    self._log_info("✅ TREND EXCEPTION: Bullish Trend overridden by Shooting Star Wick")
+                    return False, "Allowed: Counter-trend Shooting Star"
+
+                reason = f"Blocked (Tier 4): Strong Bullish Uptrend (Price > {self.fast_period} > {self.slow_period})"
+                self._log_info("🚫 TREND FILTER: %s", reason)
+                event_logger.log_filter_check("TrendFilter", side, False, reason)
+                return True, reason
+
+            # BLOCK LONGS IN BEAR TREND
+            if side == "LONG" and trend_state == "BEARISH":
+                # EXCEPTION: If we have a massive Hammer wick, allow the counter-trend trade
+                if lower_wick > wick_threshold:
+                    self._log_info("✅ TREND EXCEPTION: Bearish Trend overridden by Hammer Wick")
+                    return False, "Allowed: Counter-trend Hammer"
+
+                reason = f"Blocked (Tier 4): Strong Bearish Downtrend (Price < {self.fast_period} < {self.slow_period})"
+                self._log_info("🚫 TREND FILTER: %s", reason)
+                event_logger.log_filter_check("TrendFilter", side, False, reason)
+                return True, reason
+        else:
+            if trend_state != "NEUTRAL":
+                self._log_info("🔓 Tier 4 Bypassed: Range Fade Logic Active (%s Trend ignored)", trend_state)
+
+        # =========================================================
+        # TIERS 1-3: CANDLE IMPULSE FILTERS (Existing Logic)
+        # =========================================================
+        if cache["tier3_nuke"]:
+             # If nuke detected, check if CURRENT bar has rejection
+            if side == 'LONG' and lower_wick > wick_threshold:
+                pass
+            elif side == 'SHORT' and upper_wick > wick_threshold:
+                pass
+            else:
+                return True, "Blocked: Recent Tier 3 'Nuke' detected (Shockwave protection)"
+
+        # Identify Impulse Tiers (Single Candle Check)
+        is_tier1 = False
+        is_tier2 = False
+        is_tier3 = False
+
+        # Tier 3: Extreme Price
+        if last_candle_body > (avg_body_size * self.t3_body_mult):
+            is_tier3 = True
+
+        # Tier 2: Standard Price
+        elif last_candle_body > (avg_body_size * self.t2_body_mult):
+            is_tier2 = True
+
+        # Tier 1: Volume Supported
+        if avg_vol > 0:
+            if (last_candle_body > (avg_body_size * self.t1_body_mult)) and \
+               (last_candle_vol > (avg_vol * self.t1_vol_mult)):
+                is_tier1 = True
+
+        # After impulse: if opposite-direction wick rejection, start/refresh cooldown
+        if is_tier1 or is_tier2 or is_tier3:
+            if last_candle_dir == "RED" and full_range > 0:
+                if upper_wick >= 0.5 * full_range:
+                    self._cooldown_long = 3
+            elif last_candle_dir == "GREEN" and full_range > 0:
+                if lower_wick >= 0.5 * full_range:
+                    self._cooldown_short = 3
+
+        # Cooldown blocks (impulse-related, not Tier 4)
+        if side == "LONG" and self._cooldown_long > 0:
+            reason = f"Blocked: Impulse wick rejection cooldown ({self._cooldown_long} bars left)"
+            self._log_info("🚫 TREND FILTER: %s", reason)
+            self._log_info(
+                "⚠️ TrendFilter Cooldown: LONG %s bars (impulse wick rejection)",
+                self._cooldown_long,
+            )
+            event_logger.log_filter_check("TrendFilter", side, False, reason)
+            return True, reason
+        if side == "SHORT" and self._cooldown_short > 0:
+            reason = f"Blocked: Impulse wick rejection cooldown ({self._cooldown_short} bars left)"
+            self._log_info("🚫 TREND FILTER: %s", reason)
+            self._log_info(
+                "⚠️ TrendFilter Cooldown: SHORT %s bars (impulse wick rejection)",
+                self._cooldown_short,
+            )
+            event_logger.log_filter_check("TrendFilter", side, False, reason)
+            return True, reason
+
+        # If no candle impulse detected, we are clear
+        if not (is_tier1 or is_tier2 or is_tier3):
+            return False, None
+
+        # Construct Block Reason
+        impulse_name = ""
+        details = ""
+
+        if is_tier3:
+            impulse_name = "Tier 3 (Extreme Price)"
+            details = f"Body {last_candle_body:.2f} > {self.t3_body_mult}x Avg"
+        elif is_tier2:
+            impulse_name = "Tier 2 (Standard Impulse)"
+            details = f"Body {last_candle_body:.2f} > {self.t2_body_mult}x Avg"
+
+        if is_tier1:
+            if impulse_name:
+                impulse_name += " + Tier 1 (High Vol)"
+                details += f" & Vol {last_candle_vol:.0f} > {self.t1_vol_mult}x Avg"
+            else:
+                impulse_name = "Tier 1 (Volume Impulse)"
+                details = f"Vol {last_candle_vol:.0f} > {self.t1_vol_mult}x Avg"
+
+        # --- Wick Safety Check (Override for Tiers 1-3) ---
+        # Logic for LONG Signal (Fading a RED Impulse)
+        if side == 'LONG' and last_candle_dir == 'RED':
+            if lower_wick > wick_threshold:
+                reason = f"Allowed: {impulse_name} has Hammer Wick (Rejection)"
+                self._log_info("✅ TREND FILTER: %s", reason)
+                event_logger.log_filter_check("TrendFilter", side, True, reason)
+                return False, reason
+
+            reason = f"Blocked (Tier 1-3): Catching Falling Knife ({impulse_name}: {details})"
+            self._log_info("🚫 TREND FILTER: %s", reason)
+            event_logger.log_filter_check("TrendFilter", side, False, reason)
+            return True, reason
+
+        # Logic for SHORT Signal (Fading a GREEN Impulse)
+        if side == 'SHORT' and last_candle_dir == 'GREEN':
+            if upper_wick > wick_threshold:
+                reason = f"Allowed: {impulse_name} has Shooting Star Wick (Rejection)"
+                self._log_info("✅ TREND FILTER: %s", reason)
+                event_logger.log_filter_check("TrendFilter", side, True, reason)
+                return False, reason
+
+            reason = f"Blocked (Tier 1-3): Fading Rocket Ship ({impulse_name}: {details})"
+            self._log_info("🚫 TREND FILTER: %s", reason)
+            event_logger.log_filter_check("TrendFilter", side, False, reason)
+            return True, reason
+
+        return False, None

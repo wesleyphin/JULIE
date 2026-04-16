@@ -1,0 +1,104 @@
+{
+  "variants": [
+    {
+      "name": "af3_runner30_nobe_early6",
+      "description": "Current best runner-style aligned-flow baseline from the earlier method search.",
+      "threshold": 0.60,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 6,
+        "max_profit_crosses": 2
+      }
+    },
+    {
+      "name": "af_strong_setup65_flow35",
+      "description": "Runner-style AF filtered to higher setup-strength and capped slow-flow magnitude.",
+      "threshold": 0.60,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.65,
+      "max_flow_mag_slow": 0.35,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 6,
+        "max_profit_crosses": 2
+      }
+    },
+    {
+      "name": "af_strong_stress30_flow35",
+      "description": "Runner-style AF filtered to lower stress and capped slow-flow magnitude.",
+      "threshold": 0.60,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "max_stress_pct": 0.30,
+      "max_flow_mag_slow": 0.35,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 6,
+        "max_profit_crosses": 2
+      }
+    },
+    {
+      "name": "af_strong_setup65_dirvwap5_flow35",
+      "description": "Very selective AF runner with higher setup-strength, less directional extension, and capped slow-flow.",
+      "threshold": 0.60,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.65,
+      "max_directional_vwap_dist_atr": 5.0,
+      "max_flow_mag_slow": 0.35,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 6,
+        "max_profit_crosses": 2
+      }
+    },
+    {
+      "name": "af_thr058_setup58_dirvwap45_flow40",
+      "description": "Threshold-relaxed AF runner that became the strongest exact OOS combined-book candidate and also stayed 3/3 positive standalone.",
+      "threshold": 0.58,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "min_setup_strength": 0.58,
+      "max_directional_vwap_dist_atr": 4.5,
+      "max_flow_mag_slow": 0.40,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 6,
+        "max_profit_crosses": 99
+      }
+    }
+  ]
+}

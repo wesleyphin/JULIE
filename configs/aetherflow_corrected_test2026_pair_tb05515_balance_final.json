@@ -1,0 +1,172 @@
+{
+  "variants": [
+    {
+      "name": "baseline_pair_af_da005",
+      "description": "Current live-on-disk AetherFlow book before the April 12 balance retune finalization.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.58,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.55,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "min_d_alignment_3": 0.05,
+      "max_directional_vwap_dist_atr": 6.0,
+      "max_flow_mag_slow": 1.0,
+      "policy_rules": [
+        {
+          "name": "nypm_disp",
+          "match_session_ids": [3],
+          "match_regimes": ["DISPERSED"],
+          "threshold": 0.57,
+          "allowed_session_ids": [3],
+          "allowed_regimes": ["DISPERSED"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "entry_mode": "market_next_bar",
+          "min_setup_strength": 0.0,
+          "max_directional_vwap_dist_atr": 6.0,
+          "max_flow_mag_slow": 1.0
+        },
+        {
+          "name": "nypm_tg",
+          "match_session_ids": [3],
+          "match_regimes": ["TREND_GEODESIC"],
+          "threshold": 0.58,
+          "allowed_session_ids": [3],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "entry_mode": "market_next_bar",
+          "min_setup_strength": 0.0,
+          "max_directional_vwap_dist_atr": 6.0,
+          "max_flow_mag_slow": 1.0
+        }
+      ]
+    },
+    {
+      "name": "pair_tb05515_vwap5_da002",
+      "description": "Finalist: tighten TB slightly, keep CR selective, and let AF run in the profitable NY slices with mild positive d_alignment_3 and tighter directional-VWAP distance.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.58,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.5515,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "min_d_alignment_3": 0.02,
+      "max_directional_vwap_dist_atr": 5.0,
+      "max_flow_mag_slow": 1.0,
+      "policy_rules": [
+        {
+          "name": "nypm_disp",
+          "match_session_ids": [3],
+          "match_regimes": ["DISPERSED"],
+          "threshold": 0.57,
+          "allowed_session_ids": [3],
+          "allowed_regimes": ["DISPERSED"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "entry_mode": "market_next_bar",
+          "min_setup_strength": 0.0,
+          "max_directional_vwap_dist_atr": 6.0,
+          "max_flow_mag_slow": 1.0
+        },
+        {
+          "name": "nypm_tg",
+          "match_session_ids": [3],
+          "match_regimes": ["TREND_GEODESIC"],
+          "threshold": 0.58,
+          "allowed_session_ids": [3],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "entry_mode": "market_next_bar",
+          "min_setup_strength": 0.0,
+          "max_directional_vwap_dist_atr": 6.0,
+          "max_flow_mag_slow": 1.0
+        }
+      ]
+    },
+    {
+      "name": "pair_tb05515_vwap5_da005",
+      "description": "More conservative finalist with stronger AF d_alignment_3 filter.",
+      "include_live_pair": true,
+      "include_aligned_flow": true,
+      "score_bias": 0.01,
+      "live_pair_policies": {
+        "compression_release": {
+          "threshold": 0.58,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        },
+        "transition_burst": {
+          "threshold": 0.5515,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      },
+      "threshold": 0.56,
+      "allowed_session_ids": [2],
+      "allowed_regimes": ["DISPERSED"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "min_setup_strength": 0.0,
+      "min_d_alignment_3": 0.05,
+      "max_directional_vwap_dist_atr": 5.0,
+      "max_flow_mag_slow": 1.0,
+      "policy_rules": [
+        {
+          "name": "nypm_disp",
+          "match_session_ids": [3],
+          "match_regimes": ["DISPERSED"],
+          "threshold": 0.57,
+          "allowed_session_ids": [3],
+          "allowed_regimes": ["DISPERSED"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "entry_mode": "market_next_bar",
+          "min_setup_strength": 0.0,
+          "max_directional_vwap_dist_atr": 6.0,
+          "max_flow_mag_slow": 1.0
+        },
+        {
+          "name": "nypm_tg",
+          "match_session_ids": [3],
+          "match_regimes": ["TREND_GEODESIC"],
+          "threshold": 0.58,
+          "allowed_session_ids": [3],
+          "allowed_regimes": ["TREND_GEODESIC"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "entry_mode": "market_next_bar",
+          "min_setup_strength": 0.0,
+          "max_directional_vwap_dist_atr": 6.0,
+          "max_flow_mag_slow": 1.0
+        }
+      ]
+    }
+  ]
+}

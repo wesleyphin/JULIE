@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Logs
+*.log
+bot_state.json
+
+# Environment
+.env
+.venv/
+venv/
+config_secrets.py
+trainer_key.pem
+montecarlo/Backtest-Simulator-main/.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Model files (large)
+*.joblib
+*.pkl
+models/
+!artifacts/regimeadaptive_v19_live/regimeadaptive_gate_model.joblib
+!model_aetherflow_deploy_2026oos.pkl
+
+# Node
+node_modules/
+
+# Temp release artifacts
+julie_filterless_public_*.zip
+julie_filterless_public_*/
+release_verify/

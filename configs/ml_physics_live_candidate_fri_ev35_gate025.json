@@ -1,0 +1,106 @@
+{
+  "ML_PHYSICS_EV_DECISION": {
+    "min_trade_gate_prob": null,
+    "max_trade_gate_prob": null
+  },
+  "ML_PHYSICS_EV_DECISION_SESSION_OVERRIDES": {
+    "ASIA": {
+      "enabled": false,
+      "use_model_predictions": false,
+      "require_trade_gate": true,
+      "require_threshold_gate": true,
+      "min_trade_gate_prob": null,
+      "max_trade_gate_prob": null
+    },
+    "LONDON": {
+      "min_trade_gate_prob": null,
+      "max_trade_gate_prob": null
+    },
+    "NY_AM": {
+      "min_trade_gate_prob": null,
+      "max_trade_gate_prob": null
+    },
+    "NY_PM": {
+      "min_trade_gate_prob": null,
+      "max_trade_gate_prob": null
+    }
+  },
+  "ML_PHYSICS_GATE_HARD_LIMITS": {
+    "enabled": false
+  },
+  "ML_PHYSICS_DIST_GATE_THRESHOLD_CLAMP": {
+    "enabled": true,
+    "default": {
+      "min": 0.0,
+      "max": 0.0
+    },
+    "sessions": {
+      "ASIA": {
+        "LONG": {
+          "min": 0.0,
+          "max": 0.0
+        },
+        "SHORT": {
+          "min": 0.0,
+          "max": 0.0
+        }
+      },
+      "LONDON": {
+        "LONG": {
+          "min": 0.0,
+          "max": 0.0
+        },
+        "SHORT": {
+          "min": 0.0,
+          "max": 0.0
+        }
+      },
+      "NY_AM": {
+        "LONG": {
+          "min": 0.0,
+          "max": 0.0
+        },
+        "SHORT": {
+          "min": 0.0,
+          "max": 0.0
+        }
+      },
+      "NY_PM": {
+        "LONG": {
+          "min": 0.0,
+          "max": 0.0
+        },
+        "SHORT": {
+          "min": 0.0,
+          "max": 0.0
+        }
+      }
+    }
+  },
+  "ML_PHYSICS_DIST_FLOOR_BRACKET_FILTER": {
+    "enabled": false
+  },
+  "ML_PHYSICS_DIST_RUNTIME_MIN_EV_ABS": {
+    "enabled": false
+  },
+  "ML_PHYSICS_DIST_NORMAL_PROFILE": {
+    "enabled": false
+  },
+  "ML_PHYSICS_DIST_ENTRY_POLICY": {
+    "enabled": true,
+    "default_allowed_sides": [],
+    "sessions": {
+      "NY_PM": {
+        "allowed_sides": [
+          "SHORT"
+        ],
+        "allowed_weekdays": [
+          "Friday"
+        ],
+        "min_ev_abs": 35.0,
+        "min_gate_prob": 0.25,
+        "allow_runner": false
+      }
+    }
+  }
+}

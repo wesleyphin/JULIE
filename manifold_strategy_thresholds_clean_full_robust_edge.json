@@ -1,0 +1,57 @@
+{
+  "threshold": 0.57,
+  "short_threshold": 0.43,
+  "horizon_bars": 10,
+  "min_move_points": 0.75,
+  "fees_points": 0.148,
+  "feature_columns": [
+    "manifold_R",
+    "manifold_alignment",
+    "manifold_smoothness",
+    "manifold_stress",
+    "manifold_dispersion",
+    "manifold_side_bias",
+    "manifold_risk_mult",
+    "manifold_no_trade",
+    "manifold_regime_id",
+    "manifold_allow_trend",
+    "manifold_allow_mean_reversion",
+    "manifold_allow_breakout",
+    "manifold_allow_fade",
+    "ret_1",
+    "ret_5",
+    "ret_15",
+    "atr14",
+    "atr14_z",
+    "range_z",
+    "vol_z",
+    "vwap_dist_atr",
+    "ema_spread",
+    "ema_slope_20",
+    "hour_sin",
+    "hour_cos",
+    "session_id"
+  ],
+  "model_type": "rf",
+  "workers": 1,
+  "confluence_enabled": false,
+  "confluence_file": "manifold_strategy_confluence_clean_full_robust_edge.json",
+  "trained_at": "2026-02-12T21:40:59.064381+00:00",
+  "validation": {
+    "trade_count": 2187,
+    "win_rate": 0.5916780978509374,
+    "avg_pnl": 0.288785550983082,
+    "total_pnl": 631.5740000000003,
+    "long_share": 0.4398719707361683,
+    "short_share": 0.5601280292638318,
+    "score": 0.288785550983082
+  },
+  "allowed_session_ids": [
+    1,
+    2
+  ],
+  "allowed_session_names": [
+    "LONDON",
+    "NY_AM"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "enabled": false,
+  "reason": "disabled_for_robust_edge_profile",
+  "selected_threshold": 0.57,
+  "selected_short_threshold": 0.43,
+  "allowed_session_ids": [
+    1,
+    2
+  ],
+  "allowed_session_names": [
+    "LONDON",
+    "NY_AM"
+  ],
+  "validation": {
+    "trade_count": 2187,
+    "win_rate": 0.5916780978509374,
+    "avg_pnl": 0.288785550983082,
+    "total_pnl": 631.5740000000003,
+    "long_share": 0.4398719707361683,
+    "short_share": 0.5601280292638318,
+    "score": 0.288785550983082
+  }
+}

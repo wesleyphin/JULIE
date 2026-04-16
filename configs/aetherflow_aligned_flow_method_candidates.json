@@ -1,0 +1,248 @@
+{
+  "variants": [
+    {
+      "name": "af_london_baseline",
+      "description": "Current best-known aligned-flow context without method changes.",
+      "threshold": 0.60,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar"
+    },
+    {
+      "name": "af_london_early5",
+      "description": "Market entry with fail-fast early exit by bar 5.",
+      "threshold": 0.60,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 5,
+        "max_profit_crosses": 2
+      }
+    },
+    {
+      "name": "af_london_pullback25",
+      "description": "Require a 0.25 ATR pullback within 2 bars before entry.",
+      "threshold": 0.60,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "pullback_limit",
+      "entry_pullback_atr": 0.25,
+      "entry_window_bars": 2
+    },
+    {
+      "name": "af_london_pullback35",
+      "description": "Require a deeper 0.35 ATR pullback within 2 bars before entry.",
+      "threshold": 0.60,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "pullback_limit",
+      "entry_pullback_atr": 0.35,
+      "entry_window_bars": 2
+    },
+    {
+      "name": "af_london_pullback25_early5",
+      "description": "0.25 ATR pullback entry plus fail-fast early exit.",
+      "threshold": 0.60,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "pullback_limit",
+      "entry_pullback_atr": 0.25,
+      "entry_window_bars": 2,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 5,
+        "max_profit_crosses": 2
+      }
+    },
+    {
+      "name": "af_london_vwap075_early5",
+      "description": "Only trade mildly extended states near VWAP, with fail-fast exit.",
+      "threshold": 0.60,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "max_abs_vwap_dist_atr": 0.75,
+      "entry_mode": "market_next_bar",
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 5,
+        "max_profit_crosses": 2
+      }
+    },
+    {
+      "name": "af_london_vwap075_pullback25_early5",
+      "description": "Mild anti-extension filter plus 0.25 ATR pullback entry and fail-fast exit.",
+      "threshold": 0.60,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "max_abs_vwap_dist_atr": 0.75,
+      "entry_mode": "pullback_limit",
+      "entry_pullback_atr": 0.25,
+      "entry_window_bars": 2,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 5,
+        "max_profit_crosses": 2
+      }
+    },
+    {
+      "name": "af_london_vwap060_pullback25_early5_reaccel",
+      "description": "Tighter anti-extension filter, 0.25 ATR pullback entry, and rising alignment requirement.",
+      "threshold": 0.60,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "max_abs_vwap_dist_atr": 0.60,
+      "min_d_alignment_3": 0.0,
+      "entry_mode": "pullback_limit",
+      "entry_pullback_atr": 0.25,
+      "entry_window_bars": 2,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 5,
+        "max_profit_crosses": 2
+      }
+    },
+    {
+      "name": "af_london_trendtrail24",
+      "description": "Smaller target, longer hold, and early trailing break-even for continuation behavior.",
+      "threshold": 0.60,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.00,
+      "tp_mult_override": 1.60,
+      "horizon_bars_override": 24,
+      "use_horizon_time_stop": true,
+      "break_even": {
+        "enabled": true,
+        "trigger_pct": 0.20,
+        "buffer_ticks": 0,
+        "trail_pct": 0.25,
+        "activate_on_next_bar": true
+      }
+    },
+    {
+      "name": "af_london_pullback25_trendtrail24",
+      "description": "0.25 ATR pullback entry plus smaller target / longer-hold trend-trail profile.",
+      "threshold": 0.60,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "pullback_limit",
+      "entry_pullback_atr": 0.25,
+      "entry_window_bars": 2,
+      "sl_mult_override": 1.00,
+      "tp_mult_override": 1.60,
+      "horizon_bars_override": 24,
+      "use_horizon_time_stop": true,
+      "break_even": {
+        "enabled": true,
+        "trigger_pct": 0.20,
+        "buffer_ticks": 0,
+        "trail_pct": 0.25,
+        "activate_on_next_bar": true
+      }
+    },
+    {
+      "name": "af_london_runner30",
+      "description": "Longer-horizon runner profile with trailing break-even.",
+      "threshold": 0.60,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "break_even": {
+        "enabled": true,
+        "trigger_pct": 0.25,
+        "buffer_ticks": 0,
+        "trail_pct": 0.30,
+        "activate_on_next_bar": true
+      }
+    },
+    {
+      "name": "af_london_vwap075_runner30",
+      "description": "Longer-horizon runner profile only when not too extended from VWAP.",
+      "threshold": 0.60,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "max_abs_vwap_dist_atr": 0.75,
+      "entry_mode": "market_next_bar",
+      "sl_mult_override": 1.10,
+      "tp_mult_override": 2.80,
+      "horizon_bars_override": 30,
+      "use_horizon_time_stop": true,
+      "break_even": {
+        "enabled": true,
+        "trigger_pct": 0.25,
+        "buffer_ticks": 0,
+        "trail_pct": 0.30,
+        "activate_on_next_bar": true
+      }
+    },
+    {
+      "name": "af_london_nyam_pullback25_early5",
+      "description": "Expand to LONDON and NY_AM only if using pullback entry and fail-fast exit.",
+      "threshold": 0.60,
+      "allowed_session_ids": [1, 2],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "entry_mode": "pullback_limit",
+      "entry_pullback_atr": 0.25,
+      "entry_window_bars": 2,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 5,
+        "max_profit_crosses": 2
+      }
+    },
+    {
+      "name": "af_london_nyam_vwap075_pullback25_early5",
+      "description": "LONDON and NY_AM with anti-extension filter, pullback entry, and fail-fast exit.",
+      "threshold": 0.60,
+      "allowed_session_ids": [1, 2],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "max_abs_vwap_dist_atr": 0.75,
+      "entry_mode": "pullback_limit",
+      "entry_pullback_atr": 0.25,
+      "entry_window_bars": 2,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 5,
+        "max_profit_crosses": 2
+      }
+    },
+    {
+      "name": "af_london_thr063_vwap075_pullback25_early5",
+      "description": "Same anti-extension pullback method with a tighter 0.63 confidence gate.",
+      "threshold": 0.63,
+      "allowed_session_ids": [1],
+      "allowed_regimes": ["TREND_GEODESIC"],
+      "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+      "max_abs_vwap_dist_atr": 0.75,
+      "entry_mode": "pullback_limit",
+      "entry_pullback_atr": 0.25,
+      "entry_window_bars": 2,
+      "early_exit": {
+        "enabled": true,
+        "exit_if_not_green_by": 5,
+        "max_profit_crosses": 2
+      }
+    }
+  ]
+}
