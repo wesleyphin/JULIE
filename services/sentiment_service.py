@@ -300,14 +300,20 @@ class TruthSocialSentimentService:
         return f"https://truthsocial.com/@{handle}/{post_id}"
 
     def _fetch_posts_rss(self) -> list[Dict[str, Any]]:
-        """Fetch today's posts from the trumpstruth.org RSS feed (no auth, no Cloudflare)."""
+        """Fetch recent posts from the trumpstruth.org RSS feed (no auth, no Cloudflare).
+
+        Returns posts from the last 48 hours (limited to 10) so the dashboard
+        always has context even if there are no posts today.  The emergency-exit
+        logic has its own age gate (signal_max_age_seconds) so stale posts
+        won't trigger actions.
+        """
         req = urllib.request.Request(
             TRUTH_RSS_URL, headers={"User-Agent": TRUTH_RSS_USER_AGENT}
         )
         with urllib.request.urlopen(req, timeout=20) as resp:
             root = ET.fromstring(resp.read())
 
-        today = _utc_now().date()
+        cutoff = _utc_now() - timedelta(hours=48)
         posts: list[Dict[str, Any]] = []
         for item in root.findall(".//item"):
             pub_date_str = item.findtext("pubDate", "").strip()
@@ -319,7 +325,7 @@ class TruthSocialSentimentService:
                     dt = dt.replace(tzinfo=timezone.utc)
             except Exception:
                 continue
-            if dt.date() != today:
+            if dt < cutoff:
                 continue
 
             original_url = item.findtext("truth:originalUrl", "", TRUTH_RSS_NS)
@@ -337,6 +343,8 @@ class TruthSocialSentimentService:
                 "content": content,
                 "url": original_url or "",
             })
+            if len(posts) >= 10:
+                break
         return posts
 
     def _iter_new_posts(self) -> Iterable[Dict[str, Any]]:

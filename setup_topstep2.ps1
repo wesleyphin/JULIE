@@ -66,7 +66,6 @@ modules = [
     "async_market_stream",
     "backtest_mes_et",
     "julie001",
-    "truth_social_engine",
     "services.sentiment_service",
 ]
 
