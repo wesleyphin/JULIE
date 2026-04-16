@@ -1,0 +1,431 @@
+{
+  "variants": [
+    {
+      "name": "baseline_current",
+      "description": "Current live AetherFlow policy, evaluated with one same-side leg.",
+      "min_confidence": 0.50,
+      "family_policies": {
+        "transition_burst": {
+          "threshold": 0.555,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "policy_rules": [
+            {
+              "name": "asia_disp_054",
+              "match_session_ids": [0],
+              "match_regimes": ["DISPERSED"],
+              "threshold": 0.54,
+              "allowed_session_ids": [0],
+              "allowed_regimes": ["DISPERSED"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+            },
+            {
+              "name": "nyam_chop_054",
+              "match_session_ids": [2],
+              "match_regimes": ["CHOP_SPIRAL"],
+              "threshold": 0.54,
+              "allowed_session_ids": [2],
+              "allowed_regimes": ["CHOP_SPIRAL"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+            }
+          ]
+        },
+        "aligned_flow": {
+          "threshold": 0.56,
+          "allowed_session_ids": [2],
+          "allowed_regimes": ["DISPERSED"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "min_d_alignment_3": 0.02,
+          "min_setup_strength": 0.0,
+          "max_directional_vwap_dist_atr": 5.0,
+          "max_flow_mag_slow": 1.0,
+          "selection_score_bias": 0.01,
+          "entry_mode": "market_next_bar",
+          "policy_rules": [
+            {
+              "name": "nyam_disp_raw",
+              "match_session_ids": [2],
+              "match_regimes": ["DISPERSED"],
+              "threshold": 0.56,
+              "allowed_session_ids": [2],
+              "allowed_regimes": ["DISPERSED"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+              "entry_mode": "market_next_bar",
+              "min_setup_strength": 0.0,
+              "min_d_alignment_3": null,
+              "max_directional_vwap_dist_atr": 5.0,
+              "max_flow_mag_slow": 1.0
+            },
+            {
+              "name": "nypm_disp",
+              "match_session_ids": [3],
+              "match_regimes": ["DISPERSED"],
+              "threshold": 0.57,
+              "allowed_session_ids": [3],
+              "allowed_regimes": ["DISPERSED"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+              "entry_mode": "market_next_bar",
+              "min_setup_strength": 0.0,
+              "max_directional_vwap_dist_atr": 6.0,
+              "max_flow_mag_slow": 1.0
+            },
+            {
+              "name": "nypm_tg",
+              "match_session_ids": [3],
+              "match_regimes": ["TREND_GEODESIC"],
+              "threshold": 0.58,
+              "allowed_session_ids": [3],
+              "allowed_regimes": ["TREND_GEODESIC"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+              "entry_mode": "market_next_bar",
+              "min_setup_strength": 0.0,
+              "max_directional_vwap_dist_atr": 6.0,
+              "max_flow_mag_slow": 1.0
+            }
+          ]
+        },
+        "exhaustion_reversal": {
+          "threshold": 0.58,
+          "allowed_session_ids": [0],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "horizon_all_default",
+      "description": "Respect each setup's trained horizon for TB, AF, and ER.",
+      "min_confidence": 0.50,
+      "family_policies": {
+        "transition_burst": {
+          "threshold": 0.555,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "use_horizon_time_stop": true,
+          "policy_rules": [
+            {
+              "name": "asia_disp_054",
+              "match_session_ids": [0],
+              "match_regimes": ["DISPERSED"],
+              "threshold": 0.54,
+              "allowed_session_ids": [0],
+              "allowed_regimes": ["DISPERSED"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+              "use_horizon_time_stop": true
+            },
+            {
+              "name": "nyam_chop_054",
+              "match_session_ids": [2],
+              "match_regimes": ["CHOP_SPIRAL"],
+              "threshold": 0.54,
+              "allowed_session_ids": [2],
+              "allowed_regimes": ["CHOP_SPIRAL"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+              "use_horizon_time_stop": true
+            }
+          ]
+        },
+        "aligned_flow": {
+          "threshold": 0.56,
+          "allowed_session_ids": [2],
+          "allowed_regimes": ["DISPERSED"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "min_d_alignment_3": 0.02,
+          "min_setup_strength": 0.0,
+          "max_directional_vwap_dist_atr": 5.0,
+          "max_flow_mag_slow": 1.0,
+          "selection_score_bias": 0.01,
+          "entry_mode": "market_next_bar",
+          "use_horizon_time_stop": true,
+          "policy_rules": [
+            {
+              "name": "nyam_disp_raw",
+              "match_session_ids": [2],
+              "match_regimes": ["DISPERSED"],
+              "threshold": 0.56,
+              "allowed_session_ids": [2],
+              "allowed_regimes": ["DISPERSED"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+              "entry_mode": "market_next_bar",
+              "min_setup_strength": 0.0,
+              "min_d_alignment_3": null,
+              "max_directional_vwap_dist_atr": 5.0,
+              "max_flow_mag_slow": 1.0,
+              "use_horizon_time_stop": true
+            },
+            {
+              "name": "nypm_disp",
+              "match_session_ids": [3],
+              "match_regimes": ["DISPERSED"],
+              "threshold": 0.57,
+              "allowed_session_ids": [3],
+              "allowed_regimes": ["DISPERSED"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+              "entry_mode": "market_next_bar",
+              "min_setup_strength": 0.0,
+              "max_directional_vwap_dist_atr": 6.0,
+              "max_flow_mag_slow": 1.0,
+              "use_horizon_time_stop": true
+            },
+            {
+              "name": "nypm_tg",
+              "match_session_ids": [3],
+              "match_regimes": ["TREND_GEODESIC"],
+              "threshold": 0.58,
+              "allowed_session_ids": [3],
+              "allowed_regimes": ["TREND_GEODESIC"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+              "entry_mode": "market_next_bar",
+              "min_setup_strength": 0.0,
+              "max_directional_vwap_dist_atr": 6.0,
+              "max_flow_mag_slow": 1.0,
+              "use_horizon_time_stop": true
+            }
+          ]
+        },
+        "exhaustion_reversal": {
+          "threshold": 0.58,
+          "allowed_session_ids": [0],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "use_horizon_time_stop": true
+        }
+      }
+    },
+    {
+      "name": "horizon_tb_af_only",
+      "description": "Respect trained horizons for TB and AF, leave ER unchanged.",
+      "min_confidence": 0.50,
+      "family_policies": {
+        "transition_burst": {
+          "threshold": 0.555,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "use_horizon_time_stop": true,
+          "policy_rules": [
+            {
+              "name": "asia_disp_054",
+              "match_session_ids": [0],
+              "match_regimes": ["DISPERSED"],
+              "threshold": 0.54,
+              "allowed_session_ids": [0],
+              "allowed_regimes": ["DISPERSED"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+              "use_horizon_time_stop": true
+            },
+            {
+              "name": "nyam_chop_054",
+              "match_session_ids": [2],
+              "match_regimes": ["CHOP_SPIRAL"],
+              "threshold": 0.54,
+              "allowed_session_ids": [2],
+              "allowed_regimes": ["CHOP_SPIRAL"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+              "use_horizon_time_stop": true
+            }
+          ]
+        },
+        "aligned_flow": {
+          "threshold": 0.56,
+          "allowed_session_ids": [2],
+          "allowed_regimes": ["DISPERSED"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "min_d_alignment_3": 0.02,
+          "min_setup_strength": 0.0,
+          "max_directional_vwap_dist_atr": 5.0,
+          "max_flow_mag_slow": 1.0,
+          "selection_score_bias": 0.01,
+          "entry_mode": "market_next_bar",
+          "use_horizon_time_stop": true,
+          "policy_rules": [
+            {
+              "name": "nyam_disp_raw",
+              "match_session_ids": [2],
+              "match_regimes": ["DISPERSED"],
+              "threshold": 0.56,
+              "allowed_session_ids": [2],
+              "allowed_regimes": ["DISPERSED"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+              "entry_mode": "market_next_bar",
+              "min_setup_strength": 0.0,
+              "min_d_alignment_3": null,
+              "max_directional_vwap_dist_atr": 5.0,
+              "max_flow_mag_slow": 1.0,
+              "use_horizon_time_stop": true
+            },
+            {
+              "name": "nypm_disp",
+              "match_session_ids": [3],
+              "match_regimes": ["DISPERSED"],
+              "threshold": 0.57,
+              "allowed_session_ids": [3],
+              "allowed_regimes": ["DISPERSED"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+              "entry_mode": "market_next_bar",
+              "min_setup_strength": 0.0,
+              "max_directional_vwap_dist_atr": 6.0,
+              "max_flow_mag_slow": 1.0,
+              "use_horizon_time_stop": true
+            },
+            {
+              "name": "nypm_tg",
+              "match_session_ids": [3],
+              "match_regimes": ["TREND_GEODESIC"],
+              "threshold": 0.58,
+              "allowed_session_ids": [3],
+              "allowed_regimes": ["TREND_GEODESIC"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+              "entry_mode": "market_next_bar",
+              "min_setup_strength": 0.0,
+              "max_directional_vwap_dist_atr": 6.0,
+              "max_flow_mag_slow": 1.0,
+              "use_horizon_time_stop": true
+            }
+          ]
+        },
+        "exhaustion_reversal": {
+          "threshold": 0.58,
+          "allowed_session_ids": [0],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"]
+        }
+      }
+    },
+    {
+      "name": "horizon_all_plus_early",
+      "description": "Respect trained horizons and cut trades that fail to prove themselves.",
+      "min_confidence": 0.50,
+      "family_policies": {
+        "transition_burst": {
+          "threshold": 0.555,
+          "allowed_session_ids": [1, 2, 3],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "use_horizon_time_stop": true,
+          "early_exit": {
+            "enabled": true,
+            "exit_if_not_green_by": 4,
+            "max_profit_crosses": 1
+          },
+          "policy_rules": [
+            {
+              "name": "asia_disp_054",
+              "match_session_ids": [0],
+              "match_regimes": ["DISPERSED"],
+              "threshold": 0.54,
+              "allowed_session_ids": [0],
+              "allowed_regimes": ["DISPERSED"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+              "use_horizon_time_stop": true,
+              "early_exit": {
+                "enabled": true,
+                "exit_if_not_green_by": 4,
+                "max_profit_crosses": 1
+              }
+            },
+            {
+              "name": "nyam_chop_054",
+              "match_session_ids": [2],
+              "match_regimes": ["CHOP_SPIRAL"],
+              "threshold": 0.54,
+              "allowed_session_ids": [2],
+              "allowed_regimes": ["CHOP_SPIRAL"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+              "use_horizon_time_stop": true,
+              "early_exit": {
+                "enabled": true,
+                "exit_if_not_green_by": 4,
+                "max_profit_crosses": 1
+              }
+            }
+          ]
+        },
+        "aligned_flow": {
+          "threshold": 0.56,
+          "allowed_session_ids": [2],
+          "allowed_regimes": ["DISPERSED"],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "min_d_alignment_3": 0.02,
+          "min_setup_strength": 0.0,
+          "max_directional_vwap_dist_atr": 5.0,
+          "max_flow_mag_slow": 1.0,
+          "selection_score_bias": 0.01,
+          "entry_mode": "market_next_bar",
+          "use_horizon_time_stop": true,
+          "early_exit": {
+            "enabled": true,
+            "exit_if_not_green_by": 6,
+            "max_profit_crosses": 1
+          },
+          "policy_rules": [
+            {
+              "name": "nyam_disp_raw",
+              "match_session_ids": [2],
+              "match_regimes": ["DISPERSED"],
+              "threshold": 0.56,
+              "allowed_session_ids": [2],
+              "allowed_regimes": ["DISPERSED"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+              "entry_mode": "market_next_bar",
+              "min_setup_strength": 0.0,
+              "min_d_alignment_3": null,
+              "max_directional_vwap_dist_atr": 5.0,
+              "max_flow_mag_slow": 1.0,
+              "use_horizon_time_stop": true,
+              "early_exit": {
+                "enabled": true,
+                "exit_if_not_green_by": 6,
+                "max_profit_crosses": 1
+              }
+            },
+            {
+              "name": "nypm_disp",
+              "match_session_ids": [3],
+              "match_regimes": ["DISPERSED"],
+              "threshold": 0.57,
+              "allowed_session_ids": [3],
+              "allowed_regimes": ["DISPERSED"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+              "entry_mode": "market_next_bar",
+              "min_setup_strength": 0.0,
+              "max_directional_vwap_dist_atr": 6.0,
+              "max_flow_mag_slow": 1.0,
+              "use_horizon_time_stop": true,
+              "early_exit": {
+                "enabled": true,
+                "exit_if_not_green_by": 6,
+                "max_profit_crosses": 1
+              }
+            },
+            {
+              "name": "nypm_tg",
+              "match_session_ids": [3],
+              "match_regimes": ["TREND_GEODESIC"],
+              "threshold": 0.58,
+              "allowed_session_ids": [3],
+              "allowed_regimes": ["TREND_GEODESIC"],
+              "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+              "entry_mode": "market_next_bar",
+              "min_setup_strength": 0.0,
+              "max_directional_vwap_dist_atr": 6.0,
+              "max_flow_mag_slow": 1.0,
+              "use_horizon_time_stop": true,
+              "early_exit": {
+                "enabled": true,
+                "exit_if_not_green_by": 6,
+                "max_profit_crosses": 1
+              }
+            }
+          ]
+        },
+        "exhaustion_reversal": {
+          "threshold": 0.58,
+          "allowed_session_ids": [0],
+          "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+          "use_horizon_time_stop": true,
+          "early_exit": {
+            "enabled": true,
+            "exit_if_not_green_by": 4,
+            "max_profit_crosses": 1
+          }
+        }
+      }
+    }
+  ]
+}

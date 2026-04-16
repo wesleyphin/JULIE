@@ -52,6 +52,9 @@ RULE_TYPE_CODE = {
     "breakout": 2,
 }
 
+SESSION_NAME_TO_CODE = {"ASIA": 0, "LONDON": 1, "NY_AM": 2, "NY_PM": 3, "CLOSED": 4}
+SESSION_CODE_TO_NAME = {value: key for key, value in SESSION_NAME_TO_CODE.items()}
+
 _COMBO_CONTEXT_CACHE: Optional[dict[str, np.ndarray]] = None
 
 
@@ -73,6 +76,60 @@ def _safe_div(numerator, denominator, default: float = 0.0):
     return out
 
 
+def _normalize_session_name(value) -> Optional[str]:
+    session_name = str(value or "").strip().upper()
+    return session_name if session_name in SESSION_NAME_TO_CODE else None
+
+
+def _normalize_session_thresholds(raw_value) -> dict[str, float]:
+    if not isinstance(raw_value, dict):
+        return {}
+    thresholds: dict[str, float] = {}
+    for raw_session, raw_threshold in raw_value.items():
+        session_name = _normalize_session_name(raw_session)
+        if session_name is None:
+            continue
+        threshold = _safe_float(raw_threshold, float("nan"))
+        if math.isfinite(threshold):
+            thresholds[session_name] = float(threshold)
+    return thresholds
+
+
+def _normalize_side_name(value) -> Optional[str]:
+    side_name = str(value or "").strip().upper()
+    return side_name if side_name in {"LONG", "SHORT"} else None
+
+
+def _normalize_policy_key(value) -> Optional[str]:
+    text = str(value or "").strip().upper()
+    if not text:
+        return None
+    combo_key, separator, side_text = text.partition("|")
+    combo_key = str(combo_key or "").strip().upper()
+    if not combo_key:
+        return None
+    if not separator:
+        return combo_key
+    side_name = _normalize_side_name(side_text)
+    if side_name is None:
+        return None
+    return f"{combo_key}|{side_name}"
+
+
+def _normalize_policy_thresholds(raw_value) -> dict[str, float]:
+    if not isinstance(raw_value, dict):
+        return {}
+    thresholds: dict[str, float] = {}
+    for raw_policy, raw_threshold in raw_value.items():
+        policy_key = _normalize_policy_key(raw_policy)
+        if policy_key is None:
+            continue
+        threshold = _safe_float(raw_threshold, float("nan"))
+        if math.isfinite(threshold):
+            thresholds[policy_key] = float(threshold)
+    return thresholds
+
+
 def _combo_context_cache() -> dict[str, np.ndarray]:
     global _COMBO_CONTEXT_CACHE
     if _COMBO_CONTEXT_CACHE is not None:
@@ -90,8 +147,7 @@ def _combo_context_cache() -> dict[str, np.ndarray]:
         week[combo_id] = int(parts[1][1:]) if parts[1].startswith("W") else 0
         day_map = {"MON": 0, "TUE": 1, "WED": 2, "THU": 3, "FRI": 4, "SAT": 5, "SUN": 6}
         day[combo_id] = int(day_map.get(parts[2], 0))
-        session_map = {"ASIA": 0, "LONDON": 1, "NY_AM": 2, "NY_PM": 3, "CLOSED": 4}
-        session[combo_id] = int(session_map.get(parts[3], 4))
+        session[combo_id] = int(SESSION_NAME_TO_CODE.get(parts[3], 4))
     _COMBO_CONTEXT_CACHE = {
         "quarter": quarter,
         "week": week,
@@ -113,10 +169,19 @@ def resolve_gate_model_path(base_path: Path, path_text: str) -> Optional[Path]:
 
 
 class RegimeAdaptiveGateModel:
-    def __init__(self, model, feature_columns: list[str], threshold: float):
+    def __init__(
+        self,
+        model,
+        feature_columns: list[str],
+        threshold: float,
+        session_thresholds: Optional[dict[str, float]] = None,
+        policy_thresholds: Optional[dict[str, float]] = None,
+    ):
         self.model = model
         self.feature_columns = [str(col) for col in feature_columns] if feature_columns else list(GATE_FEATURE_COLUMNS)
         self.threshold = float(threshold)
+        self.session_thresholds = _normalize_session_thresholds(session_thresholds)
+        self.policy_thresholds = _normalize_policy_thresholds(policy_thresholds)
 
     def predict_proba_frame(self, features: pd.DataFrame) -> np.ndarray:
         if features is None or features.empty:
@@ -136,8 +201,105 @@ class RegimeAdaptiveGateModel:
         probs = self.predict_proba_frame(features)
         return float(probs[0]) if len(probs) else 0.0
 
+    def threshold_for_session(self, session_name: str) -> float:
+        normalized = _normalize_session_name(session_name)
+        if normalized is None:
+            return float(self.threshold)
+        return float(self.session_thresholds.get(normalized, self.threshold))
 
-def load_regimeadaptive_gate_model(artifact_path: Path, gate_config: dict) -> Optional[RegimeAdaptiveGateModel]:
+    def threshold_for_session_code(self, session_code) -> float:
+        try:
+            code = int(session_code)
+        except Exception:
+            return float(self.threshold)
+        return self.threshold_for_session(SESSION_CODE_TO_NAME.get(code))
+
+    def threshold_for_policy(self, combo_key, original_signal=None, session_name=None) -> float:
+        combo_text = str(combo_key or "").strip().upper()
+        side_name = _normalize_side_name(original_signal)
+        if combo_text and side_name is not None:
+            exact_key = f"{combo_text}|{side_name}"
+            if exact_key in self.policy_thresholds:
+                return float(self.policy_thresholds[exact_key])
+        if combo_text and combo_text in self.policy_thresholds:
+            return float(self.policy_thresholds[combo_text])
+        return self.threshold_for_session(session_name)
+
+    def threshold_for_feature_row(self, feature_row: dict) -> float:
+        if not isinstance(feature_row, dict):
+            return float(self.threshold)
+        session_code = feature_row.get("session_code")
+        combo_key = feature_row.get("combo_key")
+        original_signal = (
+            feature_row.get("original_signal_name")
+            if feature_row.get("original_signal_name") is not None
+            else feature_row.get("original_signal")
+        )
+        session_name = None
+        try:
+            session_name = SESSION_CODE_TO_NAME.get(int(float(session_code)))
+        except Exception:
+            session_name = None
+        return self.threshold_for_policy(combo_key, original_signal, session_name=session_name)
+
+    def thresholds_for_session_codes(self, session_codes) -> np.ndarray:
+        codes = np.asarray(session_codes)
+        thresholds = np.full(codes.shape, float(self.threshold), dtype=np.float64)
+        if not self.session_thresholds:
+            return thresholds
+        for session_name, session_threshold in self.session_thresholds.items():
+            session_code = SESSION_NAME_TO_CODE.get(session_name)
+            if session_code is None:
+                continue
+            thresholds[codes == session_code] = float(session_threshold)
+        return thresholds
+
+    def thresholds_for_signal_contexts(self, session_codes, combo_ids=None, original_side=None) -> np.ndarray:
+        codes = np.asarray(session_codes)
+        thresholds = self.thresholds_for_session_codes(codes)
+        if not self.policy_thresholds or combo_ids is None or original_side is None:
+            return thresholds
+        combo_ids_arr = np.asarray(combo_ids)
+        original_side_arr = np.asarray(original_side)
+        if combo_ids_arr.shape != codes.shape or original_side_arr.shape != codes.shape:
+            return thresholds
+        out = np.asarray(thresholds, dtype=np.float64).copy()
+        for idx in np.ndindex(codes.shape):
+            combo_key = None
+            side_name = None
+            try:
+                combo_key = _combo_key_from_id(int(combo_ids_arr[idx]))
+            except Exception:
+                combo_key = None
+            try:
+                side_raw = original_side_arr[idx]
+                if isinstance(side_raw, str):
+                    side_name = _normalize_side_name(side_raw)
+                else:
+                    side_value = float(side_raw)
+                    if side_value > 0.0:
+                        side_name = "LONG"
+                    elif side_value < 0.0:
+                        side_name = "SHORT"
+            except Exception:
+                side_name = None
+            session_name = None
+            try:
+                session_name = SESSION_CODE_TO_NAME.get(int(codes[idx]))
+            except Exception:
+                session_name = None
+            out[idx] = float(self.threshold_for_policy(combo_key, side_name, session_name=session_name))
+        return out
+
+
+def load_regimeadaptive_gate_model(
+    artifact_path: Path,
+    gate_config: dict,
+    *,
+    threshold_override=None,
+    session_threshold_overrides=None,
+    policy_threshold_overrides=None,
+) -> Optional[RegimeAdaptiveGateModel]:
     if not isinstance(gate_config, dict) or not bool(gate_config.get("enabled", False)):
         return None
     model_path = resolve_gate_model_path(artifact_path, str(gate_config.get("model_path", "") or ""))
@@ -160,9 +322,28 @@ def load_regimeadaptive_gate_model(artifact_path: Path, gate_config: dict) -> Op
         threshold = _safe_float(bundle.get("threshold"), 0.5)
     else:
         threshold = 0.5
+    override_threshold = _safe_float(threshold_override, float("nan"))
+    if math.isfinite(override_threshold):
+        threshold = float(override_threshold)
+    session_thresholds = {}
+    if isinstance(bundle, dict):
+        session_thresholds.update(_normalize_session_thresholds(bundle.get("session_thresholds")))
+    session_thresholds.update(_normalize_session_thresholds(gate_config.get("session_thresholds")))
+    session_thresholds.update(_normalize_session_thresholds(session_threshold_overrides))
+    policy_thresholds = {}
+    if isinstance(bundle, dict):
+        policy_thresholds.update(_normalize_policy_thresholds(bundle.get("policy_thresholds")))
+    policy_thresholds.update(_normalize_policy_thresholds(gate_config.get("policy_thresholds")))
+    policy_thresholds.update(_normalize_policy_thresholds(policy_threshold_overrides))
     if model is None:
         return None
-    return RegimeAdaptiveGateModel(model=model, feature_columns=feature_columns, threshold=threshold)
+    return RegimeAdaptiveGateModel(
+        model=model,
+        feature_columns=feature_columns,
+        threshold=threshold,
+        session_thresholds=session_thresholds,
+        policy_thresholds=policy_thresholds,
+    )
 
 
 def build_gate_feature_frame_for_positions(
@@ -321,9 +502,8 @@ def build_runtime_gate_feature_row(
     quarter = int(parts[0][1:]) if len(parts) == 4 and parts[0].startswith("Q") else 0
     week = int(parts[1][1:]) if len(parts) == 4 and parts[1].startswith("W") else 0
     day_map = {"MON": 0, "TUE": 1, "WED": 2, "THU": 3, "FRI": 4, "SAT": 5, "SUN": 6}
-    session_map = {"ASIA": 0, "LONDON": 1, "NY_AM": 2, "NY_PM": 3, "CLOSED": 4}
     day_code = int(day_map.get(parts[2], 0)) if len(parts) == 4 else 0
-    session_code = int(session_map.get(parts[3], 4)) if len(parts) == 4 else 4
+    session_code = int(SESSION_NAME_TO_CODE.get(parts[3], 4)) if len(parts) == 4 else 4
     atr = _safe_float(atr_value, 0.0)
     bar_range = _safe_float(bar_high, 0.0) - _safe_float(bar_low, 0.0)
     body = _safe_float(bar_close, 0.0) - _safe_float(bar_open, 0.0)
@@ -336,6 +516,8 @@ def build_runtime_gate_feature_row(
     return {
         "final_side": final_side_num,
         "original_side": original_side_num,
+        "combo_key": str(combo_key or "").strip().upper(),
+        "original_signal_name": str(original_signal or "").strip().upper(),
         "reverted": 1.0 if final_side_num != original_side_num else 0.0,
         "quarter": float(quarter),
         "week_in_month": float(week),

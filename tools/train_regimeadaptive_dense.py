@@ -72,6 +72,108 @@ def _resolve_path(path_text: str, default_relative: str) -> Path:
     return path.resolve()
 
 
+def _combo_session_name(combo_key: str) -> str:
+    parts = [str(part or "").strip().upper() for part in str(combo_key or "").split("_")]
+    if len(parts) < 4:
+        return ""
+    return "_".join(parts[3:])
+
+
+def _parse_session_top_n(raw: str) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for item in str(raw or "").split(","):
+        text = str(item or "").strip()
+        if not text or "=" not in text:
+            continue
+        name_text, count_text = text.split("=", 1)
+        session_name = str(name_text or "").strip().upper()
+        if not session_name:
+            continue
+        out[session_name] = max(0, int(count_text))
+    return out
+
+
+def _parse_session_side_top_n(raw: str) -> dict[tuple[str, str], int]:
+    out: dict[tuple[str, str], int] = {}
+    for item in str(raw or "").split(","):
+        text = str(item or "").strip()
+        if not text or "=" not in text or ":" not in text:
+            continue
+        left_text, count_text = text.split("=", 1)
+        session_text, side_text = left_text.split(":", 1)
+        session_name = str(session_text or "").strip().upper()
+        side_name = str(side_text or "").strip().upper()
+        if not session_name or side_name not in {"LONG", "SHORT"}:
+            continue
+        out[(session_name, side_name)] = max(0, int(count_text))
+    return out
+
+
+def _seed_signal_policies_from_artifact(baseline_artifact) -> dict[str, dict[str, dict]]:
+    seeded: dict[str, dict[str, dict]] = {}
+    signal_policies = baseline_artifact.payload.get("signal_policies", {}) if isinstance(baseline_artifact.payload.get("signal_policies", {}), dict) else {}
+    for combo_key, side_map in signal_policies.items():
+        if not isinstance(side_map, dict):
+            continue
+        for original_signal, record in side_map.items():
+            if not isinstance(record, dict):
+                continue
+            seeded.setdefault(str(combo_key), {})[str(original_signal).upper()] = copy.deepcopy(record)
+    return seeded
+
+
+def _merged_rule_catalog(baseline_artifact, rule_catalog: dict[str, dict]) -> tuple[dict[str, dict], str]:
+    merged_catalog = copy.deepcopy(baseline_artifact.payload.get("rule_catalog", {}) or {})
+    baseline_default_rule_id = str(baseline_artifact.payload.get("default_rule_id", "") or "").strip()
+    if baseline_default_rule_id and baseline_default_rule_id not in merged_catalog:
+        base_rule = baseline_artifact.payload.get("base_rule", {}) if isinstance(baseline_artifact.payload.get("base_rule", {}), dict) else {}
+        if base_rule:
+            merged_catalog[baseline_default_rule_id] = copy.deepcopy(base_rule)
+    for rule_id, rule_payload in rule_catalog.items():
+        merged_catalog[str(rule_id)] = copy.deepcopy(rule_payload)
+    default_rule_id = baseline_default_rule_id if baseline_default_rule_id in merged_catalog else next(iter(rule_catalog.keys()))
+    return merged_catalog, str(default_rule_id)
+
+
+def _trade_day_coverage_stats(
+    trade_log: list[dict],
+    *,
+    trading_days: int,
+) -> dict[str, float | int]:
+    if not trade_log or int(trading_days) <= 0:
+        return {
+            "trade_days_covered": 0,
+            "trade_day_coverage": 0.0,
+            "avg_trades_per_trade_day": 0.0,
+        }
+
+    entry_times = pd.to_datetime(
+        [trade.get("entry_time") for trade in trade_log],
+        utc=True,
+        errors="coerce",
+    )
+    if len(entry_times) == 0:
+        return {
+            "trade_days_covered": 0,
+            "trade_day_coverage": 0.0,
+            "avg_trades_per_trade_day": 0.0,
+        }
+    entry_days = pd.Index(entry_times.tz_convert(NY_TZ).normalize()).nunique()
+    coverage = float(entry_days) / float(trading_days) if int(trading_days) > 0 else 0.0
+    avg_trades_per_trade_day = float(len(trade_log)) / float(entry_days) if int(entry_days) > 0 else 0.0
+    return {
+        "trade_days_covered": int(entry_days),
+        "trade_day_coverage": float(coverage),
+        "avg_trades_per_trade_day": float(avg_trades_per_trade_day),
+    }
+
+
+def _dense_selection_score(eval_metrics: dict, coverage_stats: dict, args) -> float:
+    score = float(eval_metrics.get("score", float("-inf")) or float("-inf"))
+    score += float(args.trade_day_coverage_weight) * float(coverage_stats.get("trade_day_coverage", 0.0) or 0.0)
+    return float(score)
+
+
 def _universal_probe_payload(
     rule_id: str,
     rule_payload: dict,
@@ -134,6 +236,55 @@ def _candidate_pool(rows: list[dict], rank_metric: str) -> pd.DataFrame:
     return candidate_df
 
 
+def _seeded_side_keys(seed_signal_policies: dict[str, dict[str, dict]]) -> set[tuple[str, str]]:
+    out: set[tuple[str, str]] = set()
+    for combo_key, side_map in seed_signal_policies.items():
+        if not isinstance(side_map, dict):
+            continue
+        for original_signal in side_map.keys():
+            out.add((str(combo_key), str(original_signal).upper()))
+    return out
+
+
+def _select_candidate_frame(
+    candidate_df: pd.DataFrame,
+    *,
+    top_n: int,
+    session_top_n: dict[str, int],
+    session_side_top_n: dict[tuple[str, str], int],
+) -> pd.DataFrame:
+    if candidate_df.empty:
+        return candidate_df
+    if not session_top_n and not session_side_top_n:
+        return candidate_df.head(int(top_n)).copy()
+
+    selected_parts: list[pd.DataFrame] = []
+    if session_side_top_n:
+        for (session_name, side_name), limit in session_side_top_n.items():
+            if int(limit) <= 0:
+                continue
+            side_df = candidate_df.loc[
+                (candidate_df["session_name"].astype(str).str.upper() == str(session_name).upper())
+                & (candidate_df["original_signal"].astype(str).str.upper() == str(side_name).upper())
+            ]
+            if side_df.empty:
+                continue
+            selected_parts.append(side_df.head(int(limit)).copy())
+    elif session_top_n:
+        for session_name, limit in session_top_n.items():
+            if int(limit) <= 0:
+                continue
+            session_df = candidate_df.loc[candidate_df["session_name"].astype(str).str.upper() == str(session_name).upper()]
+            if session_df.empty:
+                continue
+            selected_parts.append(session_df.head(int(limit)).copy())
+    if not selected_parts:
+        return candidate_df.iloc[0:0].copy()
+    selected_df = pd.concat(selected_parts, ignore_index=True)
+    selected_df = selected_df.drop_duplicates(["combo_key", "original_signal"], keep="first").reset_index(drop=True)
+    return selected_df
+
+
 def _build_selected_payload(
     baseline_artifact,
     rule_catalog: dict[str, dict],
@@ -141,8 +292,9 @@ def _build_selected_payload(
     selected_df: pd.DataFrame,
     early_exit_enabled: bool,
     metadata: dict,
+    seed_signal_policies: dict[str, dict[str, dict]] | None = None,
 ) -> dict:
-    signal_policies: dict[str, dict[str, dict]] = {}
+    signal_policies: dict[str, dict[str, dict]] = copy.deepcopy(seed_signal_policies or {})
     for row in selected_df.itertuples(index=False):
         signal_policies.setdefault(str(row.combo_key), {})[str(row.original_signal)] = {
             "policy": str(row.policy),
@@ -190,6 +342,13 @@ def main() -> None:
     parser.add_argument("--rank-metrics", default="score,robust_edge")
     parser.add_argument("--top-n-grid", default="24,36,48,60,72,84")
     parser.add_argument("--min-target-trades", type=int, default=4674)
+    parser.add_argument("--min-trade-days-covered", type=int, default=0)
+    parser.add_argument("--min-trade-day-coverage", type=float, default=0.0)
+    parser.add_argument("--trade-day-coverage-weight", type=float, default=0.0)
+    parser.add_argument("--seed-baseline-exact", action="store_true")
+    parser.add_argument("--session-top-n", default="")
+    parser.add_argument("--session-side-top-n", default="")
+    parser.add_argument("--candidate-pool-output", default="")
     parser.add_argument("--train-score-weight", type=float, default=0.25)
     parser.add_argument("--robust-sharpe-weight", type=float, default=1000.0)
     parser.add_argument("--negative-year-penalty", type=float, default=300.0)
@@ -233,7 +392,11 @@ def main() -> None:
     )
     if not rule_catalog:
         raise SystemExit("No rule specs were provided.")
-    default_rule_id = next(iter(rule_catalog.keys()))
+    seed_signal_policies = _seed_signal_policies_from_artifact(baseline_artifact) if bool(args.seed_baseline_exact) else {}
+    seeded_side_keys = _seeded_side_keys(seed_signal_policies)
+    rule_catalog, default_rule_id = _merged_rule_catalog(baseline_artifact, rule_catalog)
+    session_top_n = _parse_session_top_n(str(args.session_top_n))
+    session_side_top_n = _parse_session_side_top_n(str(args.session_side_top_n))
 
     close = df["close"].to_numpy(dtype=np.float64)
     high = df["high"].to_numpy(dtype=np.float64)
@@ -357,6 +520,7 @@ def main() -> None:
                 candidate_rows.append(
                     {
                         "combo_key": str(row.combo_key),
+                        "session_name": _combo_session_name(str(row.combo_key)),
                         "original_signal": str(row.original_signal),
                         "policy": str(policy),
                         "rule_id": str(rule_id),
@@ -381,6 +545,14 @@ def main() -> None:
     if not candidate_rows:
         raise SystemExit("No dense candidates survived the minimum-support filters.")
 
+    candidate_pool_output = _resolve_path(str(args.candidate_pool_output), "") if str(args.candidate_pool_output).strip() else None
+    if candidate_pool_output is not None:
+        candidate_pool_output.parent.mkdir(parents=True, exist_ok=True)
+        candidate_pool_output.write_text(
+            json.dumps(_json_safe({"rows": candidate_rows}), indent=2, ensure_ascii=True),
+            encoding="utf-8",
+        )
+
     rank_metrics = _parse_text_list(str(args.rank_metrics))
     top_n_values = _parse_int_list(str(args.top_n_grid))
     best_payload = None
@@ -392,8 +564,28 @@ def main() -> None:
         candidate_df = _candidate_pool(candidate_rows, rank_metric)
         if candidate_df.empty:
             continue
-        for top_n in top_n_values:
-            selected_df = candidate_df.head(int(top_n)).copy()
+        if seeded_side_keys:
+            candidate_df = candidate_df.loc[
+                ~candidate_df.apply(
+                    lambda row: (str(row["combo_key"]), str(row["original_signal"]).upper()) in seeded_side_keys,
+                    axis=1,
+                )
+            ].reset_index(drop=True)
+        if candidate_df.empty:
+            continue
+        if session_side_top_n:
+            selection_top_n_values = [sum(session_side_top_n.values())]
+        elif session_top_n:
+            selection_top_n_values = [sum(session_top_n.values())]
+        else:
+            selection_top_n_values = top_n_values
+        for top_n in selection_top_n_values:
+            selected_df = _select_candidate_frame(
+                candidate_df,
+                top_n=int(top_n),
+                session_top_n=session_top_n,
+                session_side_top_n=session_side_top_n,
+            )
             if selected_df.empty:
                 continue
             payload = _build_selected_payload(
@@ -407,8 +599,16 @@ def main() -> None:
                     "rank_metric": str(rank_metric),
                     "top_n": int(top_n),
                     "candidate_count": int(len(selected_df)),
+                    "session_top_n": {key: int(value) for key, value in session_top_n.items()},
+                    "session_side_top_n": {
+                        f"{session_name}:{side_name}": int(value)
+                        for (session_name, side_name), value in session_side_top_n.items()
+                    },
+                    "seed_baseline_exact": bool(args.seed_baseline_exact),
+                    "seeded_side_count": int(len(seeded_side_keys)),
                     "trading_days_in_range": int(trading_days),
                 },
+                seed_signal_policies=seed_signal_policies,
             )
             result = _simulate_payload_v3(
                 df,
@@ -439,25 +639,64 @@ def main() -> None:
                 end_time,
                 args,
             )
+            coverage_stats = _trade_day_coverage_stats(
+                trade_log,
+                trading_days=int(trading_days),
+            )
             if int(eval_metrics["trades"]) < int(args.min_target_trades):
                 print(
                     f"skip rank_metric={rank_metric} top_n={top_n} trades={int(eval_metrics['trades'])} "
                     f"< target={int(args.min_target_trades)}"
                 )
                 continue
-            if best_eval is None or float(eval_metrics["score"]) > float(best_eval["score"]):
+            if int(coverage_stats["trade_days_covered"]) < int(args.min_trade_days_covered):
+                print(
+                    f"skip rank_metric={rank_metric} top_n={top_n} trade_days={int(coverage_stats['trade_days_covered'])} "
+                    f"< min_trade_days={int(args.min_trade_days_covered)}"
+                )
+                continue
+            if float(coverage_stats["trade_day_coverage"]) + 1e-12 < float(args.min_trade_day_coverage):
+                print(
+                    f"skip rank_metric={rank_metric} top_n={top_n} trade_day_coverage={float(coverage_stats['trade_day_coverage']):.4f} "
+                    f"< min_coverage={float(args.min_trade_day_coverage):.4f}"
+                )
+                continue
+            selection_score = _dense_selection_score(eval_metrics, coverage_stats, args)
+            current_best_score = (
+                float(best_selection_meta.get("selection_score"))
+                if isinstance(best_selection_meta, dict) and best_selection_meta.get("selection_score") is not None
+                else float("-inf")
+            )
+            if best_eval is None or float(selection_score) > float(current_best_score):
                 best_payload = payload
                 best_eval = eval_metrics
                 best_selection_meta = {
                     "rank_metric": str(rank_metric),
                     "top_n": int(top_n),
                     "candidate_count": int(len(selected_df)),
+                    "session_top_n": {key: int(value) for key, value in session_top_n.items()},
+                    "session_side_top_n": {
+                        f"{session_name}:{side_name}": int(value)
+                        for (session_name, side_name), value in session_side_top_n.items()
+                    },
+                    "seed_baseline_exact": bool(args.seed_baseline_exact),
+                    "seeded_side_count": int(len(seeded_side_keys)),
+                    "selection_score": float(selection_score),
+                    "trade_day_coverage": float(coverage_stats["trade_day_coverage"]),
+                    "trade_days_covered": int(coverage_stats["trade_days_covered"]),
+                    "avg_trades_per_trade_day": float(coverage_stats["avg_trades_per_trade_day"]),
+                    "selected_by_session": {
+                        str(key): int(value)
+                        for key, value in selected_df["session_name"].astype(str).value_counts().to_dict().items()
+                    },
                     "selected_candidates": selected_df.to_dict(orient="records"),
                 }
                 selected_trade_log = trade_log
             print(
                 f"candidate rank_metric={rank_metric} top_n={top_n} trades={int(eval_metrics['trades'])} "
-                f"score={float(eval_metrics['score']):.2f} sharpe={float(eval_metrics['daily_sharpe']):.4f}"
+                f"score={float(eval_metrics['score']):.2f} selection_score={float(selection_score):.2f} "
+                f"coverage={float(coverage_stats['trade_day_coverage']):.4f} sharpe={float(eval_metrics['daily_sharpe']):.4f} "
+                f"seeded={int(len(seeded_side_keys))}"
             )
 
     if best_payload is None or best_eval is None or best_selection_meta is None:
@@ -465,13 +704,10 @@ def main() -> None:
             f"No dense configuration met the minimum trade target of {int(args.min_target_trades)}."
         )
 
-    entry_days = 0
-    if selected_trade_log:
-        entry_times = pd.to_datetime(
-            [trade.get("entry_time") for trade in selected_trade_log],
-            utc=True,
-        ).tz_convert(NY_TZ)
-        entry_days = int(pd.Index(entry_times.normalize()).nunique())
+    coverage_stats = _trade_day_coverage_stats(
+        selected_trade_log,
+        trading_days=int(trading_days),
+    )
     best_payload["metadata"] = {
         "stage": "dense_final",
         "baseline_artifact_path": str(getattr(baseline_artifact, "path", "")),
@@ -481,8 +717,10 @@ def main() -> None:
         "range_start": start_time.isoformat(),
         "range_end": end_time.isoformat(),
         "trading_days_in_range": int(trading_days),
-        "trade_days_covered": int(entry_days),
+        "trade_days_covered": int(coverage_stats["trade_days_covered"]),
+        "trade_day_coverage": float(coverage_stats["trade_day_coverage"]),
         "avg_trades_per_trading_day": float(best_eval["trades"]) / float(trading_days) if trading_days else 0.0,
+        "avg_trades_per_trade_day": float(coverage_stats["avg_trades_per_trade_day"]),
         "probe_summaries": probe_summaries,
         "selection": best_selection_meta,
         "validation": {
@@ -500,6 +738,15 @@ def main() -> None:
             "rank_metrics": rank_metrics,
             "top_n_grid": top_n_values,
             "min_target_trades": int(args.min_target_trades),
+            "min_trade_days_covered": int(args.min_trade_days_covered),
+            "min_trade_day_coverage": float(args.min_trade_day_coverage),
+            "trade_day_coverage_weight": float(args.trade_day_coverage_weight),
+            "seed_baseline_exact": bool(args.seed_baseline_exact),
+            "session_top_n": {key: int(value) for key, value in session_top_n.items()},
+            "session_side_top_n": {
+                f"{session_name}:{side_name}": int(value)
+                for (session_name, side_name), value in session_side_top_n.items()
+            },
             "contracts": int(args.contracts),
             "early_exit_enabled": not bool(args.disable_early_exit),
         },
@@ -519,6 +766,7 @@ def main() -> None:
     print(f"artifact={artifact_path}")
     print(
         f"best trades={int(best_eval['trades'])} sharpe={float(best_eval['daily_sharpe']):.4f} "
+        f"trade_day_coverage={float(coverage_stats['trade_day_coverage']):.4f} "
         f"avg_trades_per_trading_day={float(best_eval['trades']) / float(trading_days):.4f}"
     )
 

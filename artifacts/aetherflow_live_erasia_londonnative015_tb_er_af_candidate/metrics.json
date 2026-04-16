@@ -1,0 +1,34 @@
+{
+  "deployment_candidate": true,
+  "strategy": "AetherFlowStrategy",
+  "policy_name": "live_min050_londonnative015_tb_er_af",
+  "threshold": 0.55,
+  "bundle_design": "single",
+  "family_feature_mode": "curated",
+  "family_head_weight": 0.15,
+  "allowed_setup_families": [
+    "transition_burst",
+    "aligned_flow",
+    "exhaustion_reversal"
+  ],
+  "hazard_block_regimes": [
+    "ROTATIONAL_TURBULENCE"
+  ],
+  "source_fold": "erasia_londonnative015_tb_er_af_test2025",
+  "source_model_file": "C:\\Users\\timot\\OneDrive\\Desktop\\topstep2\\artifacts\\aetherflow_hybrid_candidates_20260416\\erasia_londonnative015.pkl",
+  "source_thresholds_file": "C:\\Users\\timot\\OneDrive\\Desktop\\topstep2\\artifacts\\aetherflow_hybrid_candidates_20260416\\erasia_londonnative015_thresholds.json",
+  "source_model_sha256": "1e4c3678d2a4825d24e58325c9872849bd6de203e27913ecdcb39b127764c282",
+  "packaged_model_file": "C:\\Users\\timot\\OneDrive\\Desktop\\topstep2\\artifacts\\aetherflow_live_erasia_londonnative015_tb_er_af_candidate\\model.pkl",
+  "packaged_thresholds_file": "C:\\Users\\timot\\OneDrive\\Desktop\\topstep2\\artifacts\\aetherflow_live_erasia_londonnative015_tb_er_af_candidate\\thresholds.json",
+  "packaged_at": "2026-04-16T20:06:14.704142+00:00",
+  "validation_window": {
+    "start": "2025-01-01",
+    "end": "2026-01-26"
+  },
+  "exact_oos": {
+    "equity": 13731.51,
+    "trades": 405,
+    "max_drawdown": 1339.53,
+    "profit_factor": 1.6011286667880757
+  }
+}

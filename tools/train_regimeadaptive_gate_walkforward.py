@@ -26,7 +26,12 @@ if str(ROOT) not in sys.path:
 
 from config import CONFIG
 from regimeadaptive_artifact import load_regimeadaptive_artifact
-from regimeadaptive_gate import GATE_FEATURE_COLUMNS, build_gate_feature_frame_for_positions
+from regimeadaptive_gate import (
+    GATE_FEATURE_COLUMNS,
+    SESSION_CODE_TO_NAME,
+    SESSION_NAME_TO_CODE,
+    build_gate_feature_frame_for_positions,
+)
 from tools.backtest_regimeadaptive_robust import (
     _artifact_rule_order,
     _build_artifact_lookups,
@@ -98,6 +103,18 @@ def _parse_threshold_candidates(raw: str) -> list[float]:
         if math.isfinite(parsed):
             out.append(round(float(parsed), 6))
     return sorted({float(value) for value in out})
+
+
+def _parse_threshold_sessions(raw: str) -> list[str]:
+    out: list[str] = []
+    for item in str(raw or "").split(","):
+        session_name = str(item or "").strip().upper()
+        if not session_name:
+            continue
+        if session_name not in SESSION_NAME_TO_CODE or session_name == "CLOSED":
+            raise ValueError(f"Unsupported threshold session: {item}")
+        out.append(session_name)
+    return list(dict.fromkeys(out))
 
 
 def _unique_years(index: pd.DatetimeIndex) -> list[int]:
@@ -236,6 +253,7 @@ def _run_period_simulation(
     rule_order: list[str] | None,
     gate_prob: np.ndarray | None,
     gate_threshold: float | None,
+    gate_thresholds: np.ndarray | None,
     hours: np.ndarray,
     minutes: np.ndarray,
     test_positions: np.ndarray,
@@ -281,6 +299,7 @@ def _run_period_simulation(
     original_side_period = original_side[period_mask]
     selected_rule_index_period = selected_rule_index[period_mask] if isinstance(selected_rule_index, np.ndarray) else None
     gate_prob_period = gate_prob[period_mask] if isinstance(gate_prob, np.ndarray) else None
+    gate_thresholds_period = gate_thresholds[period_mask] if isinstance(gate_thresholds, np.ndarray) else None
     hours_period = hours[period_mask]
     minutes_period = minutes[period_mask]
     period_positions = np.arange(len(df_period), dtype=np.int32)
@@ -304,10 +323,39 @@ def _run_period_simulation(
         rule_order=rule_order,
         gate_prob=gate_prob_period,
         gate_threshold=gate_threshold,
+        gate_thresholds=gate_thresholds_period,
         hours=hours_period,
         minutes=minutes_period,
         test_positions=period_positions,
     )
+
+
+def _thresholds_for_signal_positions(
+    signal_positions: np.ndarray,
+    session_codes: np.ndarray,
+    base_threshold: float,
+    session_thresholds: dict[str, float] | None = None,
+) -> np.ndarray:
+    thresholds = np.full(len(signal_positions), float(base_threshold), dtype=np.float64)
+    if not session_thresholds:
+        return thresholds
+    session_codes_for_signals = session_codes[signal_positions]
+    for session_name, threshold in session_thresholds.items():
+        session_code = SESSION_NAME_TO_CODE.get(str(session_name).upper())
+        if session_code is None:
+            continue
+        thresholds[session_codes_for_signals == int(session_code)] = float(threshold)
+    return thresholds
+
+
+def _full_gate_threshold_array(
+    total_length: int,
+    signal_positions: np.ndarray,
+    signal_thresholds: np.ndarray,
+) -> np.ndarray:
+    thresholds = np.full(int(total_length), np.nan, dtype=np.float64)
+    thresholds[signal_positions] = np.asarray(signal_thresholds, dtype=np.float64)
+    return thresholds
 
 
 def _train_weights(y_train: np.ndarray) -> np.ndarray:
@@ -320,8 +368,9 @@ def _train_weights(y_train: np.ndarray) -> np.ndarray:
     )
 
 
-def main() -> None:
+def build_arg_parser(*, add_help: bool = True) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
+        add_help=add_help,
         description="Research-only walk-forward RegimeAdaptive gate trainer with validation-only threshold selection."
     )
     parser.add_argument("--source", default="es_master_outrights.parquet")
@@ -339,6 +388,9 @@ def main() -> None:
     parser.add_argument("--first-test-year", type=int, default=2018)
     parser.add_argument("--final-holdout-years", type=int, default=0)
     parser.add_argument("--threshold-candidates", default="")
+    parser.add_argument("--threshold-sessions", default="")
+    parser.add_argument("--min-session-valid-signals", type=int, default=60)
+    parser.add_argument("--min-session-threshold-fold-support", type=int, default=2)
     parser.add_argument("--min-valid-trades", type=int, default=180)
     parser.add_argument("--min-valid-trade-ratio", type=float, default=0.50)
     parser.add_argument("--require-positive-valid", action="store_true")
@@ -352,7 +404,10 @@ def main() -> None:
     parser.add_argument("--trade-count-weight", type=float, default=0.5)
     parser.add_argument("--artifact-root", default="")
     parser.add_argument("--write-latest", action="store_true")
-    args = parser.parse_args()
+    return parser
+
+
+def run_walkforward_gate_training(args) -> dict:
 
     source = Path(args.source).expanduser().resolve()
     if not source.is_file():
@@ -393,6 +448,7 @@ def main() -> None:
     if not folds:
         raise SystemExit("No walk-forward folds were created.")
     explicit_thresholds = _parse_threshold_candidates(str(args.threshold_candidates))
+    threshold_session_names = _parse_threshold_sessions(str(args.threshold_sessions))
 
     close = df["close"].to_numpy(dtype=np.float64)
     high = df["high"].to_numpy(dtype=np.float64)
@@ -510,6 +566,7 @@ def main() -> None:
         rule_order=rule_order if multirule_enabled else None,
         gate_prob=None,
         gate_threshold=None,
+        gate_thresholds=None,
         hours=hours,
         minutes=minutes,
         test_positions=test_positions,
@@ -573,6 +630,7 @@ def main() -> None:
     oos_trade_log: list[dict] = []
     baseline_oos_trade_log: list[dict] = []
     chosen_thresholds: list[float] = []
+    chosen_session_threshold_rows: list[dict[str, float]] = []
 
     for fold in folds:
         train_years = np.asarray(fold["train_years"], dtype=np.int16)
@@ -615,6 +673,7 @@ def main() -> None:
             rule_order=rule_order if multirule_enabled else None,
             gate_prob=None,
             gate_threshold=None,
+            gate_thresholds=None,
             hours=hours,
             minutes=minutes,
             test_positions=test_positions,
@@ -632,15 +691,26 @@ def main() -> None:
 
         best_valid_summary = None
         best_threshold = None
+        best_session_thresholds: dict[str, float] = {}
         for threshold in threshold_grid:
+            valid_signal_thresholds = _thresholds_for_signal_positions(
+                valid_signal_positions,
+                session_codes,
+                float(threshold),
+            )
             gated_signal_side = signal_side.copy()
             gated_signal_early_exit = signal_early_exit.copy()
-            blocked_positions = valid_signal_positions[valid_signal_probs < float(threshold)]
+            blocked_positions = valid_signal_positions[valid_signal_probs < valid_signal_thresholds]
             if blocked_positions.size:
                 gated_signal_side[blocked_positions] = 0
                 gated_signal_early_exit[blocked_positions] = -1
             gate_prob_full = np.full(len(close), np.nan, dtype=np.float64)
             gate_prob_full[signal_positions] = signal_probs
+            gate_thresholds_full = _full_gate_threshold_array(len(close), signal_positions, _thresholds_for_signal_positions(
+                signal_positions,
+                session_codes,
+                float(threshold),
+            ))
             valid_result = _run_period_simulation(
                 df,
                 combo_ids,
@@ -660,6 +730,7 @@ def main() -> None:
                 rule_order=rule_order if multirule_enabled else None,
                 gate_prob=gate_prob_full,
                 gate_threshold=float(threshold),
+                gate_thresholds=gate_thresholds_full,
                 hours=hours,
                 minutes=minutes,
                 test_positions=test_positions,
@@ -679,22 +750,132 @@ def main() -> None:
             if best_valid_summary is None or float(valid_summary["score"]) > float(best_valid_summary["score"]):
                 best_valid_summary = dict(valid_summary)
                 best_threshold = float(threshold)
+                best_session_thresholds = {}
 
         if best_valid_summary is None or best_threshold is None:
             continue
 
+        current_valid_summary = dict(best_valid_summary)
+        current_session_thresholds: dict[str, float] = dict(best_session_thresholds)
+        if threshold_session_names:
+            valid_signal_session_codes = session_codes[valid_signal_positions]
+            for session_name in threshold_session_names:
+                session_code = SESSION_NAME_TO_CODE.get(str(session_name).upper())
+                if session_code is None:
+                    continue
+                session_valid_mask = valid_signal_session_codes == int(session_code)
+                if int(np.sum(session_valid_mask)) < int(args.min_session_valid_signals):
+                    continue
+                session_threshold_grid = explicit_thresholds or _probability_threshold_grid(valid_signal_probs[session_valid_mask])
+                if not session_threshold_grid:
+                    continue
+                session_best_summary = None
+                session_best_threshold = None
+                for threshold in session_threshold_grid:
+                    candidate_session_thresholds = {
+                        **current_session_thresholds,
+                        str(session_name): float(threshold),
+                    }
+                    valid_signal_thresholds = _thresholds_for_signal_positions(
+                        valid_signal_positions,
+                        session_codes,
+                        float(best_threshold),
+                        session_thresholds=candidate_session_thresholds,
+                    )
+                    gated_signal_side = signal_side.copy()
+                    gated_signal_early_exit = signal_early_exit.copy()
+                    blocked_positions = valid_signal_positions[valid_signal_probs < valid_signal_thresholds]
+                    if blocked_positions.size:
+                        gated_signal_side[blocked_positions] = 0
+                        gated_signal_early_exit[blocked_positions] = -1
+                    gate_prob_full = np.full(len(close), np.nan, dtype=np.float64)
+                    gate_prob_full[signal_positions] = signal_probs
+                    gate_thresholds_full = _full_gate_threshold_array(
+                        len(close),
+                        signal_positions,
+                        _thresholds_for_signal_positions(
+                            signal_positions,
+                            session_codes,
+                            float(best_threshold),
+                            session_thresholds=candidate_session_thresholds,
+                        ),
+                    )
+                    valid_result = _run_period_simulation(
+                        df,
+                        combo_ids,
+                        session_codes,
+                        holiday_mask,
+                        gated_signal_side,
+                        gated_signal_early_exit,
+                        signal_sl,
+                        signal_tp,
+                        original_side,
+                        int(args.contracts),
+                        point_value,
+                        fee_per_contract_rt,
+                        fold["valid_start"],
+                        fold["valid_end"],
+                        selected_rule_index=selected_rule_index,
+                        rule_order=rule_order if multirule_enabled else None,
+                        gate_prob=gate_prob_full,
+                        gate_threshold=float(best_threshold),
+                        gate_thresholds=gate_thresholds_full,
+                        hours=hours,
+                        minutes=minutes,
+                        test_positions=test_positions,
+                    )
+                    valid_summary = _summarize_period_trade_log(
+                        valid_result.get("trade_log", []) or [],
+                        fold["valid_start"],
+                        fold["valid_end"],
+                        args,
+                    )
+                    if int(valid_summary["trades"]) < min_required_valid_trades:
+                        continue
+                    if bool(args.require_positive_valid) and float(valid_summary["equity"]) <= 0.0:
+                        continue
+                    if bool(args.require_valid_pf_above_one) and float(valid_summary.get("profit_factor") or 0.0) <= 1.0:
+                        continue
+                    if session_best_summary is None or float(valid_summary["score"]) > float(session_best_summary["score"]):
+                        session_best_summary = dict(valid_summary)
+                        session_best_threshold = float(threshold)
+                if (
+                    session_best_summary is not None
+                    and session_best_threshold is not None
+                    and float(session_best_summary["score"]) > float(current_valid_summary["score"])
+                ):
+                    current_valid_summary = dict(session_best_summary)
+                    current_session_thresholds[str(session_name)] = float(session_best_threshold)
+
         chosen_thresholds.append(float(best_threshold))
+        chosen_session_threshold_rows.append(dict(current_session_thresholds))
         gate_prob_full = np.full(len(close), np.nan, dtype=np.float64)
         gate_prob_full[signal_positions] = signal_probs
         test_mask = np.isin(signal_years, test_years_arr)
         test_signal_positions = signal_positions[test_mask]
         test_signal_probs = signal_probs[test_mask]
+        test_signal_thresholds = _thresholds_for_signal_positions(
+            test_signal_positions,
+            session_codes,
+            float(best_threshold),
+            session_thresholds=current_session_thresholds,
+        )
         gated_signal_side = signal_side.copy()
         gated_signal_early_exit = signal_early_exit.copy()
-        blocked_positions = test_signal_positions[test_signal_probs < float(best_threshold)]
+        blocked_positions = test_signal_positions[test_signal_probs < test_signal_thresholds]
         if blocked_positions.size:
             gated_signal_side[blocked_positions] = 0
             gated_signal_early_exit[blocked_positions] = -1
+        gate_thresholds_full = _full_gate_threshold_array(
+            len(close),
+            signal_positions,
+            _thresholds_for_signal_positions(
+                signal_positions,
+                session_codes,
+                float(best_threshold),
+                session_thresholds=current_session_thresholds,
+            ),
+        )
         test_result = _run_period_simulation(
             df,
             combo_ids,
@@ -714,6 +895,7 @@ def main() -> None:
             rule_order=rule_order if multirule_enabled else None,
             gate_prob=gate_prob_full,
             gate_threshold=float(best_threshold),
+            gate_thresholds=gate_thresholds_full,
             hours=hours,
             minutes=minutes,
             test_positions=test_positions,
@@ -743,6 +925,7 @@ def main() -> None:
             rule_order=rule_order if multirule_enabled else None,
             gate_prob=None,
             gate_threshold=None,
+            gate_thresholds=None,
             hours=hours,
             minutes=minutes,
             test_positions=test_positions,
@@ -770,16 +953,17 @@ def main() -> None:
                 "valid_years": list(fold["valid_years"]),
                 "test_years": list(fold["test_years"]),
                 "selected_threshold": float(best_threshold),
+                "selected_session_thresholds": {key: float(value) for key, value in current_session_thresholds.items()},
                 "min_required_valid_trades": int(min_required_valid_trades),
                 "valid_baseline": {key: _json_safe(value) for key, value in valid_baseline_summary.items()},
-                "valid_selected": {key: _json_safe(value) for key, value in best_valid_summary.items()},
+                "valid_selected": {key: _json_safe(value) for key, value in current_valid_summary.items()},
                 "test_baseline": {key: _json_safe(value) for key, value in test_baseline_summary.items()},
                 "test_selected": {key: _json_safe(value) for key, value in test_summary.items()},
             }
         )
         print(
             f"{fold['name']} threshold={float(best_threshold):.6f} "
-            f"valid_score={float(best_valid_summary['score']):.2f} test_score={float(test_summary['score']):.2f} "
+            f"valid_score={float(current_valid_summary['score']):.2f} test_score={float(test_summary['score']):.2f} "
             f"test_trades={int(test_summary['trades'])}"
         )
 
@@ -810,6 +994,19 @@ def main() -> None:
     baseline_oos_summary = _summarize_period_trade_log(baseline_oos_trade_log, oos_start, oos_end, args)
 
     stable_threshold = float(np.median(np.asarray(chosen_thresholds, dtype=np.float64)))
+    stable_session_thresholds: dict[str, float] = {}
+    if threshold_session_names:
+        for session_name in threshold_session_names:
+            session_values = [
+                float(row[str(session_name)])
+                for row in chosen_session_threshold_rows
+                if str(session_name) in row
+            ]
+            if len(session_values) < int(args.min_session_threshold_fold_support):
+                continue
+            stable_value = float(np.median(np.asarray(session_values, dtype=np.float64)))
+            if math.isfinite(stable_value):
+                stable_session_thresholds[str(session_name)] = float(stable_value)
     final_model = _build_classifier(str(args.model), int(args.random_state))
     final_train_mask = np.ones(len(executed_years), dtype=bool)
     if holdout_years:
@@ -840,12 +1037,28 @@ def main() -> None:
         holdout_start, holdout_end = _period_bounds(df.index, holdout_years)
         gate_prob_full = np.full(len(close), np.nan, dtype=np.float64)
         gate_prob_full[signal_positions] = final_signal_probs
+        holdout_signal_thresholds = _thresholds_for_signal_positions(
+            holdout_signal_positions,
+            session_codes,
+            float(stable_threshold),
+            session_thresholds=stable_session_thresholds,
+        )
         gated_signal_side = signal_side.copy()
         gated_signal_early_exit = signal_early_exit.copy()
-        blocked_positions = holdout_signal_positions[holdout_signal_probs < float(stable_threshold)]
+        blocked_positions = holdout_signal_positions[holdout_signal_probs < holdout_signal_thresholds]
         if blocked_positions.size:
             gated_signal_side[blocked_positions] = 0
             gated_signal_early_exit[blocked_positions] = -1
+        gate_thresholds_full = _full_gate_threshold_array(
+            len(close),
+            signal_positions,
+            _thresholds_for_signal_positions(
+                signal_positions,
+                session_codes,
+                float(stable_threshold),
+                session_thresholds=stable_session_thresholds,
+            ),
+        )
         holdout_result = _run_period_simulation(
             df,
             combo_ids,
@@ -865,6 +1078,7 @@ def main() -> None:
             rule_order=rule_order if multirule_enabled else None,
             gate_prob=gate_prob_full,
             gate_threshold=float(stable_threshold),
+            gate_thresholds=gate_thresholds_full,
             hours=hours,
             minutes=minutes,
             test_positions=test_positions,
@@ -888,6 +1102,7 @@ def main() -> None:
             rule_order=rule_order if multirule_enabled else None,
             gate_prob=None,
             gate_threshold=None,
+            gate_thresholds=None,
             hours=hours,
             minutes=minutes,
             test_positions=test_positions,
@@ -910,6 +1125,7 @@ def main() -> None:
             "model": final_model,
             "feature_columns": list(GATE_FEATURE_COLUMNS),
             "threshold": float(stable_threshold),
+            "session_thresholds": {key: float(value) for key, value in stable_session_thresholds.items()},
             "artifact_source": str(getattr(artifact, "path", "")),
             "selection_method": "walkforward_validation_median_threshold",
             "final_holdout_years": list(holdout_years),
@@ -924,6 +1140,7 @@ def main() -> None:
         "enabled": True,
         "model_path": str(model_path.name),
         "threshold": float(stable_threshold),
+        "session_thresholds": {key: float(value) for key, value in stable_session_thresholds.items()},
         "feature_columns": list(GATE_FEATURE_COLUMNS),
     }
     candidate_payload["metadata"] = {
@@ -934,10 +1151,16 @@ def main() -> None:
             "random_state": int(args.random_state),
             "feature_columns": list(GATE_FEATURE_COLUMNS),
             "selection_method": "walkforward_validation_only",
+            "threshold_sessions": list(threshold_session_names),
             "final_holdout_years": list(holdout_years),
             "final_fit_years": [int(year) for year in all_years if int(year) not in set(holdout_years)],
             "stable_threshold": float(stable_threshold),
+            "stable_session_thresholds": {key: float(value) for key, value in stable_session_thresholds.items()},
             "chosen_thresholds": [float(value) for value in chosen_thresholds],
+            "chosen_session_threshold_rows": [
+                {key: float(value) for key, value in row.items()}
+                for row in chosen_session_threshold_rows
+            ],
             "fold_rows": fold_rows,
             "oos_summary": {key: _json_safe(value) for key, value in oos_summary.items()},
             "baseline_oos_summary": {key: _json_safe(value) for key, value in baseline_oos_summary.items()},
@@ -976,6 +1199,7 @@ def main() -> None:
                     key: _json_safe(value) for key, value in (baseline_holdout_summary or {}).items()
                 },
                 "stable_threshold": float(stable_threshold),
+                "stable_session_thresholds": {key: float(value) for key, value in stable_session_thresholds.items()},
                 "candidate_artifact_path": str(artifact_path),
                 "candidate_model_path": str(model_path),
             },
@@ -1003,12 +1227,38 @@ def main() -> None:
         f"oos trades={int(oos_summary['trades'])} equity={float(oos_summary['equity']):.2f} "
         f"daily_sharpe={float(oos_summary['daily_sharpe']):.4f} stable_threshold={float(stable_threshold):.6f}"
     )
+    if stable_session_thresholds:
+        print(f"stable_session_thresholds={json.dumps(stable_session_thresholds, sort_keys=True)}")
     if holdout_summary is not None:
         print(
             f"holdout years={holdout_years} trades={int(holdout_summary['trades'])} "
             f"equity={float(holdout_summary['equity']):.2f} "
             f"daily_sharpe={float(holdout_summary['daily_sharpe']):.4f}"
         )
+
+    return {
+        "artifact_path": str(artifact_path),
+        "model_path": str(model_path),
+        "walkforward_report_path": str(walkforward_report_path),
+        "walkforward_csv_path": str(oos_csv_path),
+        "holdout_csv_path": str(holdout_csv_path) if holdout_csv_path is not None else None,
+        "stable_threshold": float(stable_threshold),
+        "stable_session_thresholds": {key: float(value) for key, value in stable_session_thresholds.items()},
+        "fold_rows": fold_rows,
+        "oos_summary": {key: _json_safe(value) for key, value in oos_summary.items()},
+        "baseline_oos_summary": {key: _json_safe(value) for key, value in baseline_oos_summary.items()},
+        "holdout_summary": {key: _json_safe(value) for key, value in (holdout_summary or {}).items()},
+        "baseline_holdout_summary": {
+            key: _json_safe(value) for key, value in (baseline_holdout_summary or {}).items()
+        },
+        "holdout_years": list(holdout_years),
+        "candidate_artifact_root": str(artifact_root),
+    }
+
+
+def main() -> None:
+    args = build_arg_parser().parse_args()
+    run_walkforward_gate_training(args)
 
 
 if __name__ == "__main__":

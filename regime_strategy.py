@@ -171,9 +171,24 @@ class RegimeAdaptiveStrategy:
         self.strategy_name = "RegimeAdaptive"
         tuning = CONFIG.get("REGIME_ADAPTIVE_TUNING", {}) or {}
         artifact_path = str(tuning.get("artifact_path", "") or "").strip()
-        self.artifact = load_regimeadaptive_artifact(artifact_path)
+        default_unlisted_policy = str(
+            tuning.get("default_unlisted_policy", "skip") or "skip"
+        ).strip().lower()
+        self.artifact = load_regimeadaptive_artifact(
+            artifact_path,
+            default_policy_override=default_unlisted_policy,
+        )
+        gate_threshold_override = tuning.get("gate_threshold_override")
+        gate_session_threshold_overrides = tuning.get("gate_threshold_overrides_by_session", {})
+        gate_policy_threshold_overrides = tuning.get("gate_threshold_overrides_by_policy", {})
         self.signal_gate_model = (
-            load_regimeadaptive_gate_model(self.artifact.path, getattr(self.artifact, "signal_gate", {}))
+            load_regimeadaptive_gate_model(
+                self.artifact.path,
+                getattr(self.artifact, "signal_gate", {}),
+                threshold_override=gate_threshold_override,
+                session_threshold_overrides=gate_session_threshold_overrides,
+                policy_threshold_overrides=gate_policy_threshold_overrides,
+            )
             if self.artifact is not None
             else None
         )
@@ -225,17 +240,21 @@ class RegimeAdaptiveStrategy:
 
         logging.info(
             "RegimeAdaptiveStrategy initialized | mode=%s | artifact=%s | reverted_combos=%s | "
-            "eq_filter=%s high_vol_gate=%s time_block=%s low_vol_trend=%s "
-            "range_spike=%s gate=%s | SLTP params=%s",
+            "default_unlisted_policy=%s | eq_filter=%s high_vol_gate=%s time_block=%s low_vol_trend=%s "
+            "range_spike=%s gate=%s gate_threshold=%s gate_session_thresholds=%s gate_policy_thresholds=%s | SLTP params=%s",
             mode,
             getattr(self.artifact, "path", None),
             getattr(self.artifact, "reverted_count", len(REVERTED_COMBOS)),
+            getattr(self.artifact, "default_policy", default_unlisted_policy),
             self.use_eq_filter,
             self.enable_high_vol_gate,
             self.enable_time_block,
             self.require_low_vol_trend,
             self.require_range_spike,
             bool(self.signal_gate_model is not None),
+            getattr(self.signal_gate_model, "threshold", None),
+            getattr(self.signal_gate_model, "session_thresholds", {}),
+            len(getattr(self.signal_gate_model, "policy_thresholds", {}) or {}),
             SLTP_PARAMS_AVAILABLE,
         )
 
@@ -471,6 +490,7 @@ class RegimeAdaptiveStrategy:
         selected_rule_id = None
         selected_sma_fast = sma_fast
         selected_sma_slow = sma_slow
+        chosen = {}
 
         if self.artifact is not None and getattr(self.artifact, "rule_catalog", {}):
             candidates = []
@@ -495,6 +515,7 @@ class RegimeAdaptiveStrategy:
                 candidate_revert = self.artifact.should_revert(combo_key, candidate_side)
                 final_signal = "SHORT" if candidate_revert and candidate_side == "LONG" else "LONG" if candidate_revert and candidate_side == "SHORT" else candidate_side
                 gate_prob = None
+                gate_threshold = None
                 if self.signal_gate_model is not None:
                     gate_row = build_runtime_gate_feature_row(
                         ts,
@@ -518,7 +539,11 @@ class RegimeAdaptiveStrategy:
                         float(range_sma) if pd.notna(range_sma) else 0.0,
                     )
                     gate_prob = float(self.signal_gate_model.predict_proba_row(gate_row))
-                    if gate_prob < float(self.signal_gate_model.threshold):
+                    gate_threshold = float(self.signal_gate_model.threshold_for_feature_row(gate_row))
+                    min_gate_threshold = self.artifact.get_min_gate_threshold(combo_key, candidate_side)
+                    if min_gate_threshold is not None:
+                        gate_threshold = max(float(gate_threshold), float(min_gate_threshold))
+                    if gate_prob < gate_threshold:
                         continue
                 candidates.append(
                     {
@@ -531,6 +556,7 @@ class RegimeAdaptiveStrategy:
                         "sma_fast_value": float(candidate.get("sma_fast_value", sma_fast)),
                         "sma_slow_value": float(candidate.get("sma_slow_value", sma_slow)),
                         "gate_prob": gate_prob,
+                        "gate_threshold": gate_threshold,
                     }
                 )
 
@@ -619,7 +645,8 @@ class RegimeAdaptiveStrategy:
         }
         if chosen.get("gate_prob") is not None:
             payload["gate_prob"] = float(chosen["gate_prob"])
-            payload["gate_threshold"] = float(self.signal_gate_model.threshold) if self.signal_gate_model is not None else None
+            if chosen.get("gate_threshold") is not None:
+                payload["gate_threshold"] = float(chosen["gate_threshold"])
         if early_exit_enabled is not None:
             early_exit_cfg = (CONFIG.get("EARLY_EXIT", {}) or {}).get("RegimeAdaptive", {}) or {}
             payload["early_exit_enabled"] = bool(early_exit_enabled)

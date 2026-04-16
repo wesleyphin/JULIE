@@ -636,47 +636,53 @@ CONFIG = {
         "enabled_live": True,
         "enabled_backtest": False,
         "backtest_hard_filters_only": True,
-        "model_file": "model_aetherflow_deploy_2026oos.pkl",
-        "thresholds_file": "aetherflow_thresholds_deploy_2026oos.json",
-        "metrics_file": "aetherflow_metrics_deploy_2026oos.json",
+        "model_file": "artifacts/aetherflow_live_erasia_londonnative015_tb_er_af_candidate/model.pkl",
+        "thresholds_file": "artifacts/aetherflow_live_erasia_londonnative015_tb_er_af_candidate/thresholds.json",
+        "metrics_file": "artifacts/aetherflow_live_erasia_londonnative015_tb_er_af_candidate/metrics.json",
         "min_bars": 320,
-        # Corrected April 12-13, 2026 AF regime-aware balance retune:
-        # keep CR selective, run TB slightly tighter overall, but allow a
-        # dedicated NY_AM CHOP_SPIRAL TB slice at 0.54 for extra coverage.
-        # aligned_flow stays in the profitable NY_AM/NY_PM slices, with a mild
-        # positive d_alignment_3 filter and a tighter NY_AM directional-VWAP
-        # distance cap. On corrected data this adds both recent OOS equity and
-        # trade count while also improving long-history equity and drawdown.
+        # Corrected April 16, 2026 AF London-native retune:
+        # keep the Asia-native ER head and the TB+ER+AF live family set,
+        # but replace the generic London TB add-on with the new London-only
+        # TB model at 0.15. On the exact live family matrix this improved
+        # 2025 OOS, raised London coverage, and also improved the fresh
+        # 2026 confirmation slice.
         "threshold_override": 0.55,
-        "min_confidence": 0.55,
+        "min_confidence": 0.50,
         "size": 5,
-        # Allow one same-direction AetherFlow add-on live, with its own bracket.
-        # Research favored a 2-leg cap over 3 legs for a cleaner risk/robustness balance.
-        "live_same_side_parallel_max_legs": 2,
-        # Let AetherFlow press when it is entering alone, but keep it at
-        # base size when it is stacking same-side alongside another live leg.
-        # This is applied in the live bot after strategy sizing and before the
-        # live drawdown cap, so existing risk guardrails still get the final say.
+        # Keep AetherFlow to a single live leg per direction.
+        "live_same_side_parallel_max_legs": 1,
+        # Disable the live-only AetherFlow size press. We keep the same
+        # add-on-leg behavior and bracket management, but remove the solo
+        # size doubler so AetherFlow stays at its base requested size.
         "conditional_live_sizing": {
-            "enabled": True,
+            "enabled": False,
             "solo_multiplier": 2.0,
             "stacked_multiplier": 1.0,
             "max_contracts": 10,
         },
         "max_feature_bars": 900,
         "allowed_session_ids": [1, 2, 3],
-        "allowed_setup_families": ["aligned_flow", "compression_release", "transition_burst"],
+        "allowed_setup_families": ["aligned_flow", "transition_burst", "exhaustion_reversal"],
         "family_policies": {
-            "compression_release": {
-                "threshold": 0.58,
-                "allowed_session_ids": [1, 2, 3],
-                "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
-            },
             "transition_burst": {
                 "threshold": 0.555,
                 "allowed_session_ids": [1, 2, 3],
                 "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                # TB labels are trained with a finite setup horizon. Respect
+                # that time stop in live/backtest management instead of
+                # letting TB positions run open-ended against only SL/TP.
+                "use_horizon_time_stop": True,
                 "policy_rules": [
+                    {
+                        "name": "asia_disp_054",
+                        "match_session_ids": [0],
+                        "match_regimes": ["DISPERSED"],
+                        "threshold": 0.54,
+                        "allowed_session_ids": [0],
+                        "allowed_regimes": ["DISPERSED"],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "use_horizon_time_stop": True,
+                    },
                     {
                         "name": "nyam_chop_054",
                         "match_session_ids": [2],
@@ -685,6 +691,7 @@ CONFIG = {
                         "allowed_session_ids": [2],
                         "allowed_regimes": ["CHOP_SPIRAL"],
                         "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "use_horizon_time_stop": True,
                     },
                 ],
             },
@@ -700,6 +707,20 @@ CONFIG = {
                 "selection_score_bias": 0.01,
                 "entry_mode": "market_next_bar",
                 "policy_rules": [
+                    {
+                        "name": "nyam_disp_raw",
+                        "match_session_ids": [2],
+                        "match_regimes": ["DISPERSED"],
+                        "threshold": 0.56,
+                        "allowed_session_ids": [2],
+                        "allowed_regimes": ["DISPERSED"],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "entry_mode": "market_next_bar",
+                        "min_setup_strength": 0.0,
+                        "min_d_alignment_3": None,
+                        "max_directional_vwap_dist_atr": 5.0,
+                        "max_flow_mag_slow": 1.0,
+                    },
                     {
                         "name": "nypm_disp",
                         "match_session_ids": [3],
@@ -727,6 +748,11 @@ CONFIG = {
                         "max_flow_mag_slow": 1.0,
                     },
                 ],
+            },
+            "exhaustion_reversal": {
+                "threshold": 0.58,
+                "allowed_session_ids": [0],
+                "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
             },
         },
         "hazard_block_regimes": ["ROTATIONAL_TURBULENCE"],
@@ -4550,7 +4576,15 @@ CONFIG = {
     # --- RegimeAdaptive Filterless Defaults ---
     "REGIME_ADAPTIVE_TUNING": {
         "mode": "filterless",
-        "artifact_path": "artifacts/regimeadaptive_v19_live/latest.json",
+        "artifact_path": "artifacts/regimeadaptive_v19_liveplus_allsession_wildcard_v2/latest.json",
+        # 2026-04-16 all-session wildcard v2:
+        # keep the strict-gated ASIA / LONDON / NY wildcard layer, then add a
+        # stricter Q2_W3_ALL_ASIA long fallback (0.62 floor) and a stricter
+        # Q1_W3_ALL_NY_PM long fallback (0.66 floor). Under the checked-in
+        # LONDON=0.51 runtime this improved the 2025 holdout from
+        # 956 / +5390.15 to 1012 / +6718.86, and improved the fresh
+        # 2026-01-01..2026-01-26 slice from 83 / +68.51 to 84 / +180.19.
+        "gate_threshold_overrides_by_session": {"LONDON": 0.51},
         "sma_fast": 20,
         "sma_slow": 200,
         "atr_period": 20,

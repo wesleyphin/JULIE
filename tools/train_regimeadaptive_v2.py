@@ -24,6 +24,7 @@ from tools.backtest_regimeadaptive_robust import (
 )
 from tools.regimeadaptive_filterless_runner import (
     NY_TZ,
+    SESSION_NAMES,
     _atr_array,
     _build_combo_arrays,
     _build_holiday_mask,
@@ -267,7 +268,7 @@ def _simulate_payload(
     atr = atr_cache[atr_period]
 
     policy_lookup, early_exit_lookup, long_sl_lookup, long_tp_lookup, short_sl_lookup, short_tp_lookup = _build_artifact_lookups(artifact)
-    signal_side, signal_early_exit, signal_sl, signal_tp, original_side = _build_signal_arrays(
+    signal_side, signal_early_exit, signal_sl, signal_tp, original_side = _build_single_rule_signal_arrays(
         combo_ids,
         session_codes,
         close,
@@ -299,6 +300,58 @@ def _simulate_payload(
         fee_per_contract_rt,
     )
     return result
+
+
+def _build_single_rule_signal_arrays(
+    combo_ids: np.ndarray,
+    session_codes: np.ndarray,
+    close: np.ndarray,
+    sma_fast_arr: np.ndarray,
+    sma_slow_arr: np.ndarray,
+    atr: np.ndarray,
+    cross_atr_mult: float,
+    policy_lookup: np.ndarray,
+    early_exit_lookup: np.ndarray,
+    long_sl_lookup: np.ndarray,
+    long_tp_lookup: np.ndarray,
+    short_sl_lookup: np.ndarray,
+    short_tp_lookup: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    n = len(combo_ids)
+    valid = (
+        np.isfinite(sma_fast_arr)
+        & np.isfinite(sma_slow_arr)
+        & np.isfinite(atr)
+        & (session_codes != (len(SESSION_NAMES) - 1))
+    )
+    cross_thresh = atr * float(cross_atr_mult)
+    long_mask = valid & (sma_fast_arr > sma_slow_arr) & (close < (sma_fast_arr - cross_thresh))
+    short_mask = valid & (sma_fast_arr < sma_slow_arr) & (close > (sma_fast_arr + cross_thresh))
+
+    signal_side = np.zeros(n, dtype=np.int8)
+    signal_side[long_mask] = 1
+    signal_side[short_mask] = -1
+
+    original_side = signal_side.copy()
+    signal_side_index = np.where(original_side > 0, 0, 1)
+    combo_policy = np.zeros(n, dtype=np.int8)
+    active_rows = original_side != 0
+    combo_policy[active_rows] = policy_lookup[combo_ids[active_rows], signal_side_index[active_rows]]
+    signal_early_exit = np.full(n, -1, dtype=np.int8)
+    signal_early_exit[active_rows] = early_exit_lookup[combo_ids[active_rows], signal_side_index[active_rows]]
+    signal_side = np.where(combo_policy == 0, 0, signal_side).astype(np.int8)
+    reversed_mask = (combo_policy < 0) & (signal_side != 0)
+    signal_side = np.where(reversed_mask, -signal_side, signal_side).astype(np.int8)
+
+    sl = np.zeros(n, dtype=np.float32)
+    tp = np.zeros(n, dtype=np.float32)
+    long_rows = signal_side > 0
+    short_rows = signal_side < 0
+    sl[long_rows] = long_sl_lookup[combo_ids[long_rows]]
+    tp[long_rows] = long_tp_lookup[combo_ids[long_rows]]
+    sl[short_rows] = short_sl_lookup[combo_ids[short_rows]]
+    tp[short_rows] = short_tp_lookup[combo_ids[short_rows]]
+    return signal_side, signal_early_exit, sl, tp, original_side
 
 
 def _build_candidate_payload(seed_artifact: RegimeAdaptiveArtifact, base_rule: dict, signal_policies: dict, metadata: dict | None = None) -> dict:

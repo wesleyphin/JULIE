@@ -24,12 +24,15 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from config import CONFIG
+from regimeadaptive_gate import resolve_gate_model_path
 from regimeadaptive_artifact import load_regimeadaptive_artifact
 from tools.backtest_regimeadaptive_robust import _build_rule_strength_arrays, _parse_datetime, _rolling_extrema_cache
 from tools.regimeadaptive_filterless_runner import (
     NY_TZ,
+    SESSION_CODE,
     _atr_array,
     _build_combo_arrays,
+    _combo_key_from_id,
     _build_holiday_mask,
     _load_bars,
     _rolling_cache,
@@ -84,9 +87,37 @@ def _parse_group_templates(raw: str) -> list[str]:
     return out
 
 
+def _split_combo_key(value) -> tuple[str, str, str, str] | None:
+    parts = [str(part or "").strip().upper() for part in str(value or "").split("_")]
+    if len(parts) < 4 or any(not part for part in parts):
+        return None
+    quarter, week, day = parts[:3]
+    session = "_".join(parts[3:])
+    if not session:
+        return None
+    return quarter, week, day, session
+
+
+def _combo_session_name(combo_key: str) -> str:
+    parts = _split_combo_key(combo_key)
+    return str(parts[3]) if parts is not None else ""
+
+
+def _parse_session_filter(raw: str) -> set[str]:
+    sessions: set[str] = set()
+    for item in str(raw or "").split(","):
+        session_name = str(item or "").strip().upper()
+        if not session_name:
+            continue
+        if session_name not in SESSION_CODE or session_name == "CLOSED":
+            raise ValueError(f"Unsupported group session filter: {item}")
+        sessions.add(session_name)
+    return sessions
+
+
 def _group_pattern(combo_key: str, template_name: str) -> str | None:
-    parts = [str(part or "").strip().upper() for part in str(combo_key or "").split("_")]
-    if len(parts) != 4:
+    parts = _split_combo_key(combo_key)
+    if parts is None:
         return None
     quarter, week, day, session = parts
     template = GROUP_TEMPLATE_MAP.get(str(template_name))
@@ -124,13 +155,21 @@ def _trade_frame(trade_log: list[dict], split_meta: dict) -> pd.DataFrame:
     return trades
 
 
-def _summarize_group_side_groups(trade_log: list[dict], split_meta: dict, template_names: list[str]) -> pd.DataFrame:
+def _summarize_group_side_groups(
+    trade_log: list[dict],
+    split_meta: dict,
+    template_names: list[str],
+    session_filter: set[str] | None = None,
+) -> pd.DataFrame:
     trades = _trade_frame(trade_log, split_meta)
     if trades.empty or not template_names:
         return pd.DataFrame()
 
     expanded_rows: list[dict] = []
     for row in trades.itertuples(index=False):
+        session_name = _combo_session_name(str(row.combo_key))
+        if session_filter and session_name not in session_filter:
+            continue
         for template_name in template_names:
             group_key = _group_pattern(str(row.combo_key), template_name)
             if not group_key:
@@ -181,6 +220,48 @@ def _summarize_group_side_groups(trade_log: list[dict], split_meta: dict, templa
             }
         )
     return pd.DataFrame.from_records(records)
+
+
+def _build_group_coverage_stats(
+    combo_keys: set[str],
+    seed_signal_policies: dict[str, dict[str, dict]],
+    template_names: list[str],
+    session_filter: set[str] | None = None,
+) -> dict[tuple[str, str], dict[str, int]]:
+    coverage: dict[tuple[str, str], dict[str, int]] = {}
+    sorted_combo_keys = sorted({str(combo_key) for combo_key in combo_keys if str(combo_key or "").strip()})
+    for combo_key in sorted_combo_keys:
+        session_name = _combo_session_name(combo_key)
+        if session_filter and session_name not in session_filter:
+            continue
+        exact_side_map = seed_signal_policies.get(str(combo_key), {}) if isinstance(seed_signal_policies.get(str(combo_key), {}), dict) else {}
+        for template_name in template_names:
+            group_key = _group_pattern(combo_key, template_name)
+            if not group_key:
+                continue
+            for original_signal in ("LONG", "SHORT"):
+                stats = coverage.setdefault(
+                    (str(group_key), str(original_signal)),
+                    {
+                        "group_total_combo_count": 0,
+                        "active_exact_combo_count": 0,
+                        "explicit_skip_combo_count": 0,
+                        "missing_combo_count": 0,
+                        "coverage_gain_count": 0,
+                    },
+                )
+                stats["group_total_combo_count"] += 1
+                record = exact_side_map.get(str(original_signal))
+                policy = str(record.get("policy", "skip")).strip().lower() if isinstance(record, dict) else ""
+                if policy in {"normal", "reversed"}:
+                    stats["active_exact_combo_count"] += 1
+                elif policy == "skip":
+                    stats["explicit_skip_combo_count"] += 1
+                    stats["coverage_gain_count"] += 1
+                else:
+                    stats["missing_combo_count"] += 1
+                    stats["coverage_gain_count"] += 1
+    return coverage
 
 
 def _group_row_passes(row, args) -> bool:
@@ -400,6 +481,31 @@ def _simulation_cache_path(cache_dir: Path, cache_key: str) -> Path:
     return cache_dir / str(cache_key[:2]) / f"{cache_key}.json"
 
 
+def _copy_gate_model_to_artifact_root(payload: dict, artifact_root: Path, source_artifact_paths: list[Path]) -> None:
+    gate_config = payload.get("signal_gate", {}) if isinstance(payload.get("signal_gate", {}), dict) else {}
+    if not gate_config or not bool(gate_config.get("enabled", False)):
+        return
+    model_path_text = str(gate_config.get("model_path", "") or "").strip()
+    if not model_path_text:
+        return
+    resolved_model_path = None
+    for source_path in source_artifact_paths:
+        if not source_path:
+            continue
+        resolved = resolve_gate_model_path(Path(source_path), model_path_text)
+        if resolved is not None and resolved.is_file():
+            resolved_model_path = resolved
+            break
+    if resolved_model_path is None:
+        return
+    destination = artifact_root / resolved_model_path.name
+    if resolved_model_path.resolve() != destination.resolve():
+        shutil.copyfile(resolved_model_path, destination)
+    gate_config = dict(gate_config)
+    gate_config["model_path"] = str(destination.name)
+    payload["signal_gate"] = gate_config
+
+
 def _load_checkpoint(checkpoint_path: Path) -> dict | None:
     if not checkpoint_path.is_file():
         return None
@@ -476,6 +582,7 @@ def _evaluate_payload_cached(
     fee_per_contract_rt: float,
     split_meta: dict,
     template_names: list[str],
+    group_session_filter: set[str] | None,
     args,
     hours: np.ndarray | None = None,
     minutes: np.ndarray | None = None,
@@ -539,7 +646,7 @@ def _evaluate_payload_cached(
     )
     side_stats = _summarize_side_groups(trade_log, split_meta) if include_side_stats else pd.DataFrame()
     group_stats = (
-        _summarize_group_side_groups(trade_log, split_meta, template_names)
+        _summarize_group_side_groups(trade_log, split_meta, template_names, session_filter=group_session_filter)
         if include_group_stats and template_names
         else pd.DataFrame()
     )
@@ -581,11 +688,18 @@ def main() -> None:
     parser.add_argument("--max-group-candidates-per-rule", type=int, default=3)
     parser.add_argument("--max-candidates-total", type=int, default=8)
     parser.add_argument("--max-selection-steps", type=int, default=2)
+    parser.add_argument("--post-toggle-selection-steps", type=int, default=2)
     parser.add_argument("--group-templates", default="week_day_session,quarter_day_session,day_session,quarter_session")
+    parser.add_argument("--group-session-include", default="")
     parser.add_argument("--group-min-combo-count", type=int, default=2)
     parser.add_argument("--group-min-total-trades", type=int, default=40)
     parser.add_argument("--group-min-recent-trades", type=int, default=8)
+    parser.add_argument("--group-min-coverage-gain", type=int, default=0)
+    parser.add_argument("--group-min-explicit-skip-targets", type=int, default=0)
     parser.add_argument("--group-diversity-bonus", type=float, default=100.0)
+    parser.add_argument("--group-coverage-bonus", type=float, default=0.0)
+    parser.add_argument("--group-skip-bonus", type=float, default=0.0)
+    parser.add_argument("--group-policy-priority", choices=("fill_only", "override_skip"), default="fill_only")
     parser.add_argument("--robust-sharpe-weight", type=float, default=1000.0)
     parser.add_argument("--negative-year-penalty", type=float, default=300.0)
     parser.add_argument("--worst-3y-weight", type=float, default=0.15)
@@ -611,6 +725,7 @@ def main() -> None:
     if candidate_seed_artifact is None:
         raise SystemExit(f"Candidate seed artifact could not be loaded: {args.candidate_seed_artifact}")
     template_names = _parse_group_templates(str(args.group_templates))
+    group_session_filter = _parse_session_filter(str(args.group_session_include))
     config_signature = _config_signature(args)
     cache_dir = _resolve_path(str(args.cache_dir), "cache/regimeadaptive_v5_sim")
     checkpoint_root = _resolve_path(str(args.checkpoint_root), "cache/regimeadaptive_v5_runs")
@@ -718,6 +833,7 @@ def main() -> None:
     ).astype(np.float32)
 
     baseline_payload = _baseline_payload(baseline_artifact, rule_catalog, baseline_rule_id)
+    baseline_payload["group_policy_priority"] = str(args.group_policy_priority)
     state = checkpoint if isinstance(checkpoint, dict) else None
     if state is None:
         state = {
@@ -736,6 +852,7 @@ def main() -> None:
             "selection_step": 0,
             "toggle_index": 0,
             "toggle_targets": [],
+            "post_toggle_selection_step": 0,
         }
         _write_checkpoint(checkpoint_path, state)
     if str(state.get("stage", "")) == "final":
@@ -765,6 +882,7 @@ def main() -> None:
             fee_per_contract_rt=fee_per_contract_rt,
             split_meta=split_meta,
             template_names=template_names,
+            group_session_filter=group_session_filter,
             args=args,
             hours=hours,
             minutes=minutes,
@@ -791,6 +909,17 @@ def main() -> None:
         include_top_skipped=int(args.seed_top_skipped),
         min_best_score=float(args.seed_min_best_score),
     )
+    historical_combo_keys = {
+        _combo_key_from_id(int(combo_id))
+        for combo_id in np.unique(combo_ids)
+        if int(combo_id) >= 0 and int(combo_id % len(SESSION_CODE)) != int(SESSION_CODE["CLOSED"])
+    }
+    group_coverage_stats = _build_group_coverage_stats(
+        historical_combo_keys,
+        seed_signal_policies,
+        template_names,
+        session_filter=group_session_filter,
+    )
 
     candidate_rows: list[dict] = list(state.get("candidate_rows", []))
     rule_summaries: list[dict] = list(state.get("rule_summaries", []))
@@ -800,6 +929,7 @@ def main() -> None:
         for rule_index in range(start_rule_index, len(rule_items)):
             rule_id, rule_payload = rule_items[rule_index]
             payload = _rule_seed_payload(candidate_seed_artifact, str(rule_id), rule_payload, seed_signal_policies)
+            payload["group_policy_priority"] = str(args.group_policy_priority)
             rule_state = _evaluate_payload_cached(
                 payload,
                 cache_dir=cache_dir,
@@ -819,6 +949,7 @@ def main() -> None:
                 fee_per_contract_rt=fee_per_contract_rt,
                 split_meta=split_meta,
                 template_names=template_names,
+                group_session_filter=group_session_filter,
                 args=args,
                 hours=hours,
                 minutes=minutes,
@@ -891,16 +1022,43 @@ def main() -> None:
 
             if not group_stats.empty:
                 group_stats = group_stats.copy()
-                group_stats["candidate_score"] = group_stats.apply(
-                    lambda row: (
+                coverage_gain_values: list[int] = []
+                explicit_skip_values: list[int] = []
+                missing_values: list[int] = []
+                total_combo_values: list[int] = []
+                active_exact_values: list[int] = []
+                candidate_scores: list[float] = []
+                for row in group_stats.itertuples(index=False):
+                    coverage_stats = group_coverage_stats.get((str(row.group_key), str(row.original_signal)), {})
+                    coverage_gain = int(coverage_stats.get("coverage_gain_count", 0))
+                    explicit_skip = int(coverage_stats.get("explicit_skip_combo_count", 0))
+                    missing_count = int(coverage_stats.get("missing_combo_count", 0))
+                    total_combo_count = int(coverage_stats.get("group_total_combo_count", 0))
+                    active_exact_count = int(coverage_stats.get("active_exact_combo_count", 0))
+                    coverage_gain_values.append(coverage_gain)
+                    explicit_skip_values.append(explicit_skip)
+                    missing_values.append(missing_count)
+                    total_combo_values.append(total_combo_count)
+                    active_exact_values.append(active_exact_count)
+                    candidate_scores.append(
                         _candidate_rank_score(row.train_total, row.valid_total, row.test_total, float(args.train_score_weight))
                         + (float(args.group_diversity_bonus) * max(0, int(row.distinct_combo_count) - 1))
-                    ),
-                    axis=1,
-                )
+                        + (float(args.group_coverage_bonus) * float(coverage_gain))
+                        + (float(args.group_skip_bonus) * float(explicit_skip))
+                    )
+                group_stats["coverage_gain_count"] = coverage_gain_values
+                group_stats["explicit_skip_combo_count"] = explicit_skip_values
+                group_stats["missing_combo_count"] = missing_values
+                group_stats["group_total_combo_count"] = total_combo_values
+                group_stats["active_exact_combo_count"] = active_exact_values
+                group_stats["candidate_score"] = candidate_scores
                 group_rows: list[dict] = []
                 for row in group_stats.itertuples(index=False):
                     if not _group_row_passes(row, args):
+                        continue
+                    if int(row.coverage_gain_count) < int(args.group_min_coverage_gain):
+                        continue
+                    if int(row.explicit_skip_combo_count) < int(args.group_min_explicit_skip_targets):
                         continue
                     group_rows.append(
                         {
@@ -917,6 +1075,11 @@ def main() -> None:
                             "support_total": int(row.support_total),
                             "support_recent": int(row.support_recent),
                             "distinct_combo_count": int(row.distinct_combo_count),
+                            "group_total_combo_count": int(row.group_total_combo_count),
+                            "active_exact_combo_count": int(row.active_exact_combo_count),
+                            "explicit_skip_combo_count": int(row.explicit_skip_combo_count),
+                            "missing_combo_count": int(row.missing_combo_count),
+                            "coverage_gain_count": int(row.coverage_gain_count),
                             "template_name": str(row.template_name),
                         }
                     )
@@ -955,6 +1118,7 @@ def main() -> None:
                 "selection_step": 0,
                 "toggle_index": 0,
                 "toggle_targets": [],
+                "post_toggle_selection_step": 0,
             }
         )
         _write_checkpoint(checkpoint_path, state)
@@ -998,6 +1162,7 @@ def main() -> None:
                     fee_per_contract_rt=fee_per_contract_rt,
                     split_meta=split_meta,
                     template_names=template_names,
+                    group_session_filter=group_session_filter,
                     args=args,
                     hours=hours,
                     minutes=minutes,
@@ -1014,6 +1179,7 @@ def main() -> None:
                     best_eval = candidate_eval
                     best_cache_hit = bool(candidate_state["cache_hit"])
                     best_action = {
+                        "phase": "selection",
                         "candidate_type": str(candidate["candidate_type"]),
                         "target_key": str(candidate["target_key"]),
                         "original_signal": str(candidate["original_signal"]),
@@ -1021,6 +1187,8 @@ def main() -> None:
                         "rule_id": str(candidate["rule_id"]),
                         "template_name": str(candidate.get("template_name", "")),
                         "distinct_combo_count": int(candidate.get("distinct_combo_count", 1)),
+                        "coverage_gain_count": int(candidate.get("coverage_gain_count", 0)),
+                        "explicit_skip_combo_count": int(candidate.get("explicit_skip_combo_count", 0)),
                         "early_exit_enabled": bool(candidate["early_exit_enabled"]),
                         "score": float(candidate_eval["score"]),
                         "daily_sharpe": float(candidate_eval["daily_sharpe"]),
@@ -1063,6 +1231,7 @@ def main() -> None:
                 "accepted_actions": accepted_actions,
                 "toggle_index": int(state.get("toggle_index", 0)),
                 "toggle_targets": toggle_targets,
+                "post_toggle_selection_step": int(state.get("post_toggle_selection_step", 0)),
             }
         )
         _write_checkpoint(checkpoint_path, state)
@@ -1108,6 +1277,7 @@ def main() -> None:
                 fee_per_contract_rt=fee_per_contract_rt,
                 split_meta=split_meta,
                 template_names=template_names,
+                group_session_filter=group_session_filter,
                 args=args,
                 hours=hours,
                 minutes=minutes,
@@ -1140,12 +1310,112 @@ def main() -> None:
             gc.collect()
         state.update(
             {
-                "stage": "final",
+                "stage": "post_toggle_selection",
                 "current_payload": copy.deepcopy(current_payload),
                 "current_eval": dict(current_eval),
                 "accepted_actions": accepted_actions,
                 "toggle_index": len(toggle_targets),
                 "toggle_targets": toggle_targets,
+                "post_toggle_selection_step": int(state.get("post_toggle_selection_step", 0)),
+            }
+        )
+        _write_checkpoint(checkpoint_path, state)
+
+    if str(state.get("stage", "")) == "post_toggle_selection":
+        start_post_toggle_selection_step = int(state.get("post_toggle_selection_step", 0))
+        for selection_step in range(start_post_toggle_selection_step, int(args.post_toggle_selection_steps)):
+            best_payload = None
+            best_eval = None
+            best_action = None
+            best_cache_hit = False
+            for candidate in deduped_candidates:
+                candidate_payload = _apply_candidate(current_payload, candidate, bool(candidate["early_exit_enabled"]))
+                candidate_state = _evaluate_payload_cached(
+                    candidate_payload,
+                    cache_dir=cache_dir,
+                    source=source,
+                    symbol_mode=str(args.symbol_mode),
+                    symbol_method=str(args.symbol_method),
+                    df=df,
+                    combo_ids=combo_ids,
+                    session_codes=session_codes,
+                    holiday_mask=holiday_mask,
+                    rule_long_strength=rule_long_strength,
+                    rule_short_strength=rule_short_strength,
+                    start_time=start_time,
+                    end_time=end_time,
+                    contracts=int(args.contracts),
+                    point_value=point_value,
+                    fee_per_contract_rt=fee_per_contract_rt,
+                    split_meta=split_meta,
+                    template_names=template_names,
+                    group_session_filter=group_session_filter,
+                    args=args,
+                    hours=hours,
+                    minutes=minutes,
+                    test_positions=test_positions,
+                    prebuilt_rule_order=static_rule_order,
+                    prebuilt_long_strength_matrix=prebuilt_long_strength_matrix,
+                    prebuilt_short_strength_matrix=prebuilt_short_strength_matrix,
+                    include_side_stats=False,
+                    include_group_stats=False,
+                )
+                candidate_eval = candidate_state["eval"]
+                if best_eval is None or float(candidate_eval["score"]) > float(best_eval["score"]):
+                    best_payload = candidate_payload
+                    best_eval = candidate_eval
+                    best_cache_hit = bool(candidate_state["cache_hit"])
+                    best_action = {
+                        "phase": "post_toggle_selection",
+                        "candidate_type": str(candidate["candidate_type"]),
+                        "target_key": str(candidate["target_key"]),
+                        "original_signal": str(candidate["original_signal"]),
+                        "policy": str(candidate["policy"]),
+                        "rule_id": str(candidate["rule_id"]),
+                        "template_name": str(candidate.get("template_name", "")),
+                        "distinct_combo_count": int(candidate.get("distinct_combo_count", 1)),
+                        "coverage_gain_count": int(candidate.get("coverage_gain_count", 0)),
+                        "explicit_skip_combo_count": int(candidate.get("explicit_skip_combo_count", 0)),
+                        "early_exit_enabled": bool(candidate["early_exit_enabled"]),
+                        "score": float(candidate_eval["score"]),
+                        "daily_sharpe": float(candidate_eval["daily_sharpe"]),
+                        "negative_years": int(candidate_eval["negative_years"]),
+                        "worst_5y_pnl": float(candidate_eval["worst_5y_pnl"]),
+                        "valid_total": float(candidate_eval["valid_total"]),
+                        "test_total": float(candidate_eval["test_total"]),
+                        "trades": int(candidate_eval["trades"]),
+                    }
+                del candidate_state
+                gc.collect()
+            if best_eval is None or best_payload is None or best_action is None:
+                break
+            if float(best_eval["score"]) <= float(current_eval["score"]):
+                break
+            current_payload = best_payload
+            current_eval = dict(best_eval)
+            accepted_actions.append(best_action)
+            state.update(
+                {
+                    "stage": "post_toggle_selection",
+                    "current_payload": copy.deepcopy(current_payload),
+                    "current_eval": dict(current_eval),
+                    "accepted_actions": accepted_actions,
+                    "post_toggle_selection_step": int(selection_step + 1),
+                }
+            )
+            _write_checkpoint(checkpoint_path, state)
+            print(
+                f"post_toggle_selection_step={selection_step + 1}/{int(args.post_toggle_selection_steps)} "
+                f"score={float(current_eval['score']):.2f} cache_hit={best_cache_hit} checkpoint={checkpoint_path}"
+            )
+
+        state.update(
+            {
+                "stage": "final",
+                "current_payload": copy.deepcopy(current_payload),
+                "current_eval": dict(current_eval),
+                "accepted_actions": accepted_actions,
+                "post_toggle_selection_step": int(state.get("post_toggle_selection_step", 0)),
             }
         )
         _write_checkpoint(checkpoint_path, state)
@@ -1169,6 +1439,7 @@ def main() -> None:
         fee_per_contract_rt=fee_per_contract_rt,
         split_meta=split_meta,
         template_names=template_names,
+        group_session_filter=group_session_filter,
         args=args,
         hours=hours,
         minutes=minutes,
@@ -1189,6 +1460,7 @@ def main() -> None:
 
     current_payload["version"] = "regimeadaptive_v5_multirule_hierarchical"
     current_payload["policy_mode"] = "side_specific_execution_multirule_hierarchical"
+    current_payload["group_policy_priority"] = str(args.group_policy_priority)
     current_payload.update(
         {
             "created_at": dt.datetime.now(NY_TZ).isoformat(),
@@ -1207,10 +1479,16 @@ def main() -> None:
                 "contracts": int(args.contracts),
                 "rule_specs": str(args.rule_specs),
                 "group_templates": template_names,
+                "group_session_include": sorted(group_session_filter),
                 "group_min_combo_count": int(args.group_min_combo_count),
                 "group_min_total_trades": int(args.group_min_total_trades),
                 "group_min_recent_trades": int(args.group_min_recent_trades),
+                "group_min_coverage_gain": int(args.group_min_coverage_gain),
+                "group_min_explicit_skip_targets": int(args.group_min_explicit_skip_targets),
                 "group_diversity_bonus": float(args.group_diversity_bonus),
+                "group_coverage_bonus": float(args.group_coverage_bonus),
+                "group_skip_bonus": float(args.group_skip_bonus),
+                "group_policy_priority": str(args.group_policy_priority),
                 "min_total_trades": int(args.min_total_trades),
                 "min_recent_trades": int(args.min_recent_trades),
                 "min_total_net": float(args.min_total_net),
@@ -1224,6 +1502,7 @@ def main() -> None:
                 "max_group_candidates_per_rule": int(args.max_group_candidates_per_rule),
                 "max_candidates_total": int(args.max_candidates_total),
                 "max_selection_steps": int(args.max_selection_steps),
+                "post_toggle_selection_steps": int(args.post_toggle_selection_steps),
                 "robust_sharpe_weight": float(args.robust_sharpe_weight),
                 "negative_year_penalty": float(args.negative_year_penalty),
                 "worst_3y_weight": float(args.worst_3y_weight),
@@ -1297,6 +1576,14 @@ def main() -> None:
             "side_policy_stats": final_side_stats.to_dict("records") if isinstance(final_side_stats, pd.DataFrame) and not final_side_stats.empty else [],
             "group_policy_stats": final_group_stats.to_dict("records") if isinstance(final_group_stats, pd.DataFrame) and not final_group_stats.empty else [],
         }
+    )
+    _copy_gate_model_to_artifact_root(
+        current_payload,
+        artifact_root,
+        [
+            Path(getattr(baseline_artifact, "path", args.baseline_artifact)),
+            Path(getattr(candidate_seed_artifact, "path", args.candidate_seed_artifact)),
+        ],
     )
 
     artifact_path.write_text(json.dumps(_json_safe(current_payload), indent=2, ensure_ascii=True), encoding="utf-8")

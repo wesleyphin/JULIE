@@ -69,6 +69,35 @@ def _json_safe(value):
     return value
 
 
+def _parse_session_threshold_overrides(raw_items: list[str] | None) -> dict[str, float]:
+    overrides: dict[str, float] = {}
+    valid_sessions = {str(session).upper() for session in SESSION_NAMES}
+    for raw_item in raw_items or []:
+        text = str(raw_item or "").strip()
+        if not text:
+            continue
+        session_text, separator, threshold_text = text.partition("=")
+        if not separator:
+            raise SystemExit(
+                f"Invalid --gate-threshold-session-override value '{text}'. Use SESSION=THRESHOLD."
+            )
+        session_name = str(session_text or "").strip().upper()
+        if session_name not in valid_sessions:
+            raise SystemExit(
+                f"Unknown RegimeAdaptive session '{session_name}' in --gate-threshold-session-override."
+            )
+        try:
+            threshold = float(threshold_text)
+        except Exception as exc:
+            raise SystemExit(
+                f"Invalid threshold '{threshold_text}' for session override '{text}'."
+            ) from exc
+        if not math.isfinite(threshold):
+            raise SystemExit(f"Non-finite threshold '{threshold_text}' for session override '{text}'.")
+        overrides[session_name] = float(threshold)
+    return overrides
+
+
 def _robustness_metrics(trade_log: list[dict], start_time: pd.Timestamp, end_time: pd.Timestamp) -> dict:
     if not trade_log:
         return {
@@ -154,9 +183,10 @@ def _build_artifact_rule_lookup(artifact, rule_order: list[str]) -> np.ndarray:
     return lookup
 
 
-def _build_artifact_lookups(artifact) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def _build_artifact_lookups(artifact) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     policy_lookup = np.zeros((COMBO_SPACE, 2), dtype=np.int8)
     early_exit_lookup = np.full((COMBO_SPACE, 2), -1, dtype=np.int8)
+    min_gate_threshold_lookup = np.full((COMBO_SPACE, 2), np.nan, dtype=np.float32)
     long_sl = np.full(COMBO_SPACE, 2.0, dtype=np.float32)
     long_tp = np.full(COMBO_SPACE, 3.0, dtype=np.float32)
     short_sl = np.full(COMBO_SPACE, 2.0, dtype=np.float32)
@@ -176,13 +206,16 @@ def _build_artifact_lookups(artifact) -> tuple[np.ndarray, np.ndarray, np.ndarra
                 early_exit_lookup[combo_idx, side_idx] = 1
             elif early_exit_enabled is False:
                 early_exit_lookup[combo_idx, side_idx] = 0
+            min_gate_threshold = artifact.get_min_gate_threshold(combo_key, original_side=original_side)
+            if min_gate_threshold is not None:
+                min_gate_threshold_lookup[combo_idx, side_idx] = float(min_gate_threshold)
         long_sltp = artifact.get_sltp("LONG", combo_key, session_name)
         short_sltp = artifact.get_sltp("SHORT", combo_key, session_name)
         long_sl[combo_idx] = _round_points_to_tick(float(long_sltp.get("sl_dist", 2.0) or 2.0))
         long_tp[combo_idx] = _round_points_to_tick(float(long_sltp.get("tp_dist", 3.0) or 3.0))
         short_sl[combo_idx] = _round_points_to_tick(float(short_sltp.get("sl_dist", 2.0) or 2.0))
         short_tp[combo_idx] = _round_points_to_tick(float(short_sltp.get("tp_dist", 3.0) or 3.0))
-    return policy_lookup, early_exit_lookup, long_sl, long_tp, short_sl, short_tp
+    return policy_lookup, early_exit_lookup, min_gate_threshold_lookup, long_sl, long_tp, short_sl, short_tp
 
 
 def _build_rule_strength_arrays(
@@ -284,7 +317,8 @@ def _build_signal_arrays(
     short_sl_lookup: np.ndarray,
     short_tp_lookup: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    signal_side = np.zeros(len(long_strength), dtype=np.int8)
+    n = len(long_strength)
+    signal_side = np.zeros(n, dtype=np.int8)
     long_mask = long_strength > 0.0
     short_mask = short_strength > 0.0
     signal_side[long_mask] = 1
@@ -292,16 +326,16 @@ def _build_signal_arrays(
 
     original_side = signal_side.copy()
     signal_side_index = np.where(original_side > 0, 0, 1)
-    combo_policy = np.zeros(len(close), dtype=np.int8)
+    combo_policy = np.zeros(n, dtype=np.int8)
     combo_policy[original_side != 0] = policy_lookup[combo_ids[original_side != 0], signal_side_index[original_side != 0]]
-    signal_early_exit = np.full(len(close), -1, dtype=np.int8)
+    signal_early_exit = np.full(n, -1, dtype=np.int8)
     signal_early_exit[original_side != 0] = early_exit_lookup[combo_ids[original_side != 0], signal_side_index[original_side != 0]]
     signal_side = np.where(combo_policy == 0, 0, signal_side).astype(np.int8)
     reversed_mask = (combo_policy < 0) & (signal_side != 0)
     signal_side = np.where(reversed_mask, -signal_side, signal_side).astype(np.int8)
 
-    sl = np.zeros(len(close), dtype=np.float32)
-    tp = np.zeros(len(close), dtype=np.float32)
+    sl = np.zeros(n, dtype=np.float32)
+    tp = np.zeros(n, dtype=np.float32)
     long_rows = signal_side > 0
     short_rows = signal_side < 0
     sl[long_rows] = long_sl_lookup[combo_ids[long_rows]]
@@ -409,6 +443,7 @@ def _simulate(
     rule_order: list[str] | None = None,
     gate_prob: np.ndarray | None = None,
     gate_threshold: float | None = None,
+    gate_thresholds: np.ndarray | None = None,
     hours: np.ndarray | None = None,
     minutes: np.ndarray | None = None,
     test_positions: np.ndarray | None = None,
@@ -672,8 +707,15 @@ def _simulate(
             gate_prob_value = float(gate_prob[i])
             if np.isfinite(gate_prob_value):
                 sig_payload["gate_prob"] = gate_prob_value
-        if gate_threshold is not None and np.isfinite(float(gate_threshold)):
-            sig_payload["gate_threshold"] = float(gate_threshold)
+        threshold_value = None
+        if gate_thresholds is not None and 0 <= int(i) < len(gate_thresholds):
+            candidate_threshold = float(gate_thresholds[i])
+            if np.isfinite(candidate_threshold):
+                threshold_value = float(candidate_threshold)
+        elif gate_threshold is not None and np.isfinite(float(gate_threshold)):
+            threshold_value = float(gate_threshold)
+        if threshold_value is not None:
+            sig_payload["gate_threshold"] = threshold_value
         if not active:
             if pending_entry is None:
                 pending_entry = sig_payload
@@ -811,15 +853,34 @@ def main() -> None:
     parser.add_argument("--end", default="2024-12-31")
     parser.add_argument("--contracts", type=int, default=10)
     parser.add_argument("--fixed-contracts", action="store_true")
+    parser.add_argument(
+        "--default-unlisted-policy",
+        default="skip",
+        choices=["skip", "normal", "reversed"],
+        help="Fallback policy for combo/side contexts not explicitly present in the artifact.",
+    )
+    parser.add_argument("--gate-threshold-override", type=float, default=None)
+    parser.add_argument(
+        "--gate-threshold-session-override",
+        action="append",
+        default=[],
+        help="Repeatable SESSION=THRESHOLD overrides, e.g. LONDON=0.51",
+    )
     parser.add_argument("--out-dir", default="backtest_reports")
     args = parser.parse_args()
 
     source = Path(args.source).expanduser().resolve()
     if not source.is_file():
         raise SystemExit(f"Source parquet not found: {source}")
-    artifact = load_regimeadaptive_artifact(str(args.artifact))
+    artifact = load_regimeadaptive_artifact(
+        str(args.artifact),
+        default_policy_override=str(args.default_unlisted_policy or "skip"),
+    )
     if artifact is None:
         raise SystemExit(f"Artifact could not be loaded: {args.artifact}")
+    gate_session_threshold_overrides = _parse_session_threshold_overrides(
+        list(args.gate_threshold_session_override or [])
+    )
     base_rule = artifact.base_rule or {}
 
     start_time = _parse_datetime(args.start, is_end=False)
@@ -871,7 +932,15 @@ def main() -> None:
     rolling_high_cache = _rolling_extrema_cache(high, pattern_lookbacks, "max") if pattern_lookbacks else {}
     rolling_low_cache = _rolling_extrema_cache(low, pattern_lookbacks, "min") if pattern_lookbacks else {}
 
-    policy_lookup, early_exit_lookup, long_sl_lookup, long_tp_lookup, short_sl_lookup, short_tp_lookup = _build_artifact_lookups(artifact)
+    (
+        policy_lookup,
+        early_exit_lookup,
+        min_gate_threshold_lookup,
+        long_sl_lookup,
+        long_tp_lookup,
+        short_sl_lookup,
+        short_tp_lookup,
+    ) = _build_artifact_lookups(artifact)
     selected_rule_index = None
     gate_rule_index = None
     gate_long_strength_matrix = None
@@ -938,7 +1007,13 @@ def main() -> None:
 
     gate_prob = None
     gate_threshold = None
-    gate_model = load_regimeadaptive_gate_model(Path(artifact.path), getattr(artifact, "signal_gate", {}))
+    gate_thresholds = None
+    gate_model = load_regimeadaptive_gate_model(
+        Path(artifact.path),
+        getattr(artifact, "signal_gate", {}),
+        threshold_override=args.gate_threshold_override,
+        session_threshold_overrides=gate_session_threshold_overrides,
+    )
     if gate_model is not None and gate_rule_index is not None and gate_long_strength_matrix is not None and gate_short_strength_matrix is not None:
         signal_positions = np.flatnonzero(signal_side != 0)
         if signal_positions.size:
@@ -964,7 +1039,23 @@ def main() -> None:
             gate_prob = np.full(len(close), np.nan, dtype=np.float32)
             gate_prob[signal_positions] = gate_probs.astype(np.float32)
             gate_threshold = float(gate_model.threshold)
-            blocked_positions = signal_positions[gate_probs < gate_threshold]
+            effective_thresholds = gate_model.thresholds_for_signal_contexts(
+                session_codes[signal_positions],
+                combo_ids[signal_positions],
+                original_side[signal_positions],
+            )
+            signal_side_index = np.clip(np.abs(original_side[signal_positions]).astype(np.int16) - 1, 0, 1)
+            min_gate_thresholds = min_gate_threshold_lookup[combo_ids[signal_positions], signal_side_index]
+            finite_min_gate_thresholds = np.isfinite(min_gate_thresholds)
+            if np.any(finite_min_gate_thresholds):
+                effective_thresholds = effective_thresholds.copy()
+                effective_thresholds[finite_min_gate_thresholds] = np.maximum(
+                    effective_thresholds[finite_min_gate_thresholds],
+                    min_gate_thresholds[finite_min_gate_thresholds].astype(np.float64),
+                )
+            gate_thresholds = np.full(len(close), np.nan, dtype=np.float32)
+            gate_thresholds[signal_positions] = effective_thresholds.astype(np.float32)
+            blocked_positions = signal_positions[gate_probs < effective_thresholds]
             if blocked_positions.size:
                 signal_side[blocked_positions] = 0
                 signal_early_exit[blocked_positions] = -1
@@ -1001,6 +1092,7 @@ def main() -> None:
             rule_order=rule_order if multirule_enabled else None,
             gate_prob=gate_prob,
             gate_threshold=gate_threshold,
+            gate_thresholds=gate_thresholds,
         )
     finally:
         exec_cfg["drawdown_size_scaling_enabled"] = prev_drawdown_enabled
@@ -1032,9 +1124,13 @@ def main() -> None:
         },
         "rule_catalog": rule_payloads if multirule_enabled else None,
         "summary": {
+            "default_unlisted_policy": str(getattr(artifact, "default_policy", args.default_unlisted_policy)),
             "selected_combo_count": int(np.sum(np.any(policy_lookup != 0, axis=1))),
             "reversed_side_policy_count": int(np.sum(policy_lookup < 0)),
             "skipped_side_policy_count": int(np.sum(policy_lookup == 0)),
+            "gate_threshold": float(gate_model.threshold) if gate_model is not None else None,
+            "gate_session_thresholds": getattr(gate_model, "session_thresholds", {}) if gate_model is not None else {},
+            "gate_policy_thresholds": getattr(gate_model, "policy_thresholds", {}) if gate_model is not None else {},
             "selected_rule_count": int(
                 len(
                     {

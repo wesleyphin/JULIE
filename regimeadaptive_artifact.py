@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 from pathlib import Path
 from typing import Optional
 
@@ -29,6 +30,20 @@ def _coerce_optional_bool(value):
     return None
 
 
+def _coerce_optional_probability(value) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        out = float(value)
+    except Exception:
+        return None
+    if not math.isfinite(out):
+        return None
+    if out < 0.0 or out > 1.0:
+        return None
+    return float(out)
+
+
 def _normalize_side(value: str) -> Optional[str]:
     side = str(value or "").strip().upper()
     if side in {"LONG", "SHORT"}:
@@ -36,21 +51,42 @@ def _normalize_side(value: str) -> Optional[str]:
     return None
 
 
-def _normalize_combo_pattern(value) -> Optional[str]:
+def _normalize_group_policy_priority(value) -> str:
+    text = str(value or "fill_only").strip().lower()
+    if text not in {"fill_only", "override_skip"}:
+        return "fill_only"
+    return text
+
+
+def _split_combo_pattern(value) -> Optional[tuple[str, str, str, str]]:
     parts = [str(part or "").strip().upper() for part in str(value or "").split("_")]
-    if len(parts) != 4 or any(not part for part in parts):
+    if len(parts) < 4 or any(not part for part in parts):
         return None
-    return "_".join(parts)
+    quarter, week, day = parts[:3]
+    session = "_".join(parts[3:])
+    if not session:
+        return None
+    return quarter, week, day, session
+
+
+def _normalize_combo_pattern(value) -> Optional[str]:
+    split = _split_combo_pattern(value)
+    if split is None:
+        return None
+    return "_".join(split)
 
 
 def _pattern_specificity(pattern: str) -> int:
-    return sum(1 for part in str(pattern or "").split("_") if part != _WILDCARD)
+    split = _split_combo_pattern(pattern)
+    if split is None:
+        return 0
+    return sum(1 for part in split if part != _WILDCARD)
 
 
 def _pattern_matches(pattern: str, combo_key: str) -> bool:
-    combo_parts = [str(part or "").strip().upper() for part in str(combo_key or "").split("_")]
-    pattern_parts = [str(part or "").strip().upper() for part in str(pattern or "").split("_")]
-    if len(combo_parts) != 4 or len(pattern_parts) != 4:
+    combo_parts = _split_combo_pattern(combo_key)
+    pattern_parts = _split_combo_pattern(pattern)
+    if combo_parts is None or pattern_parts is None:
         return False
     return all(pattern_part == _WILDCARD or pattern_part == combo_part for pattern_part, combo_part in zip(pattern_parts, combo_parts))
 
@@ -106,9 +142,19 @@ def _clean_rule_payload(payload) -> Optional[dict]:
 
 
 class RegimeAdaptiveArtifact:
-    def __init__(self, payload: dict, path: Path):
+    def __init__(self, payload: dict, path: Path, default_policy_override: Optional[str] = None):
         self.path = Path(path)
         self.payload = payload if isinstance(payload, dict) else {}
+        self.group_policy_priority = _normalize_group_policy_priority(
+            self.payload.get("group_policy_priority")
+        )
+        payload_default_policy = _normalize_policy(self.payload.get("default_unlisted_policy"))
+        override_policy = _normalize_policy(default_policy_override)
+        self.default_policy = (
+            override_policy
+            if override_policy in {"normal", "reversed", "skip"}
+            else payload_default_policy
+        )
         cleaned_base_rule = _clean_rule_payload(self.payload.get("base_rule", {}))
         self.base_rule = cleaned_base_rule or {}
         raw_rule_catalog = self.payload.get("rule_catalog", {}) if isinstance(self.payload.get("rule_catalog", {}), dict) else {}
@@ -147,6 +193,11 @@ class RegimeAdaptiveArtifact:
                     cleaned_record["rule_id"] = rule_id
                 else:
                     cleaned_record.pop("rule_id", None)
+                min_gate_threshold = _coerce_optional_probability(record.get("min_gate_threshold"))
+                if min_gate_threshold is None:
+                    cleaned_record.pop("min_gate_threshold", None)
+                else:
+                    cleaned_record["min_gate_threshold"] = float(min_gate_threshold)
                 cleaned_side_map[side] = cleaned_record
             if cleaned_side_map:
                 self.signal_policies[str(combo_key)] = cleaned_side_map
@@ -173,6 +224,11 @@ class RegimeAdaptiveArtifact:
                     cleaned_record["rule_id"] = rule_id
                 else:
                     cleaned_record.pop("rule_id", None)
+                min_gate_threshold = _coerce_optional_probability(record.get("min_gate_threshold"))
+                if min_gate_threshold is None:
+                    cleaned_record.pop("min_gate_threshold", None)
+                else:
+                    cleaned_record["min_gate_threshold"] = float(min_gate_threshold)
                 cleaned_side_map[side] = cleaned_record
             if cleaned_side_map:
                 self.group_signal_policies[pattern] = cleaned_side_map
@@ -207,11 +263,33 @@ class RegimeAdaptiveArtifact:
         except Exception:
             gate_threshold = None
         feature_columns = raw_signal_gate.get("feature_columns", [])
+        raw_session_thresholds = raw_signal_gate.get("session_thresholds", {})
+        session_thresholds = {}
+        if isinstance(raw_session_thresholds, dict):
+            for session_name, raw_threshold in raw_session_thresholds.items():
+                try:
+                    threshold = float(raw_threshold)
+                except Exception:
+                    continue
+                if math.isfinite(threshold):
+                    session_thresholds[str(session_name).upper()] = float(threshold)
+        raw_policy_thresholds = raw_signal_gate.get("policy_thresholds", {})
+        policy_thresholds = {}
+        if isinstance(raw_policy_thresholds, dict):
+            for policy_key, raw_threshold in raw_policy_thresholds.items():
+                try:
+                    threshold = float(raw_threshold)
+                except Exception:
+                    continue
+                if math.isfinite(threshold):
+                    policy_thresholds[str(policy_key).upper()] = float(threshold)
         self.signal_gate = {
             "enabled": bool(raw_signal_gate.get("enabled", False)) and bool(gate_model_path),
             "model_path": gate_model_path,
             "threshold": gate_threshold,
             "feature_columns": [str(col) for col in feature_columns] if isinstance(feature_columns, list) else [],
+            "session_thresholds": session_thresholds,
+            "policy_thresholds": policy_thresholds,
         }
         combo_keys = set(self.combo_policies.keys()) | set(self.signal_policies.keys()) | set(self.group_signal_policies.keys())
         self.combo_count = len(combo_keys)
@@ -251,6 +329,14 @@ class RegimeAdaptiveArtifact:
             if isinstance(side_map, dict):
                 record = side_map.get(side_key)
                 if isinstance(record, dict):
+                    if self.group_policy_priority == "override_skip":
+                        exact_policy = _normalize_policy(record.get("policy"))
+                        if exact_policy == "skip":
+                            group_record = self._group_signal_policy_record(combo_text, side_key)
+                            if isinstance(group_record, dict) and group_record:
+                                group_policy = _normalize_policy(group_record.get("policy"))
+                                if group_policy in {"normal", "reversed"}:
+                                    return group_record
                     return record
             group_record = self._group_signal_policy_record(combo_text, side_key)
             if isinstance(group_record, dict) and group_record:
@@ -260,14 +346,20 @@ class RegimeAdaptiveArtifact:
 
     def combo_policy(self, combo_key: str, original_side: Optional[str] = None) -> str:
         if original_side is not None:
-            return _normalize_policy(self.signal_policy_record(combo_key, original_side).get("policy"))
-        side_map = self.signal_policies.get(str(combo_key), {})
-        if isinstance(side_map, dict) and side_map:
-            policies = {_normalize_policy(record.get("policy")) for record in side_map.values() if isinstance(record, dict)}
-            if len(policies) == 1:
-                return next(iter(policies))
-            if policies and policies != {"skip"}:
-                return "skip"
+            record = self.signal_policy_record(combo_key, original_side)
+            if isinstance(record, dict) and record:
+                return _normalize_policy(record.get("policy"))
+            return str(self.default_policy)
+        resolved_policies = {
+            _normalize_policy(record.get("policy"))
+            for side_key in ("LONG", "SHORT")
+            for record in [self.signal_policy_record(str(combo_key), side_key)]
+            if isinstance(record, dict) and record
+        }
+        if len(resolved_policies) == 1:
+            return next(iter(resolved_policies))
+        if resolved_policies and resolved_policies != {"skip"}:
+            return "skip"
         group_side_records = []
         for side_key in ("LONG", "SHORT"):
             record = self._group_signal_policy_record(str(combo_key), side_key)
@@ -279,7 +371,9 @@ class RegimeAdaptiveArtifact:
         if group_policies and group_policies != {"skip"}:
             return "skip"
         record = self.combo_policies.get(str(combo_key), {})
-        return _normalize_policy(record.get("policy"))
+        if isinstance(record, dict) and record:
+            return _normalize_policy(record.get("policy"))
+        return str(self.default_policy)
 
     def should_skip(self, combo_key: str, original_side: Optional[str] = None) -> bool:
         return self.combo_policy(combo_key, original_side=original_side) == "skip"
@@ -314,6 +408,13 @@ class RegimeAdaptiveArtifact:
             return self.default_rule_id
         return None
 
+    def get_min_gate_threshold(self, combo_key: str, original_side: Optional[str] = None) -> Optional[float]:
+        if original_side is not None:
+            record = self.signal_policy_record(combo_key, original_side)
+            if isinstance(record, dict):
+                return _coerce_optional_probability(record.get("min_gate_threshold"))
+        return None
+
     def get_rule(self, combo_key: str, original_side: Optional[str] = None) -> dict:
         rule_id = self.get_rule_id(combo_key, original_side)
         if rule_id and rule_id in self.rule_catalog:
@@ -340,7 +441,11 @@ class RegimeAdaptiveArtifact:
         return {"sl_dist": 2.0, "tp_dist": 3.0}
 
 
-def load_regimeadaptive_artifact(path_text: str) -> Optional[RegimeAdaptiveArtifact]:
+def load_regimeadaptive_artifact(
+    path_text: str,
+    *,
+    default_policy_override: Optional[str] = None,
+) -> Optional[RegimeAdaptiveArtifact]:
     path_raw = str(path_text or "").strip()
     if not path_raw:
         return None
@@ -354,11 +459,13 @@ def load_regimeadaptive_artifact(path_text: str) -> Optional[RegimeAdaptiveArtif
     except Exception as exc:
         logging.warning("Failed to load RegimeAdaptive artifact %s: %s", path, exc)
         return None
-    artifact = RegimeAdaptiveArtifact(payload, path)
+    artifact = RegimeAdaptiveArtifact(payload, path, default_policy_override=default_policy_override)
     logging.info(
-        "Loaded RegimeAdaptive artifact %s | combos=%s reverted=%s",
+        "Loaded RegimeAdaptive artifact %s | combos=%s reverted=%s default_policy=%s group_policy_priority=%s",
         path,
         artifact.combo_count,
         artifact.reverted_count,
+        artifact.default_policy,
+        artifact.group_policy_priority,
     )
     return artifact
