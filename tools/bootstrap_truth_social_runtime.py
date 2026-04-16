@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FINBERT_DIR = ROOT / "models" / "finbert"
 REMOTE_FINBERT_ID = "ProsusAI/finbert"
-REQUIRED_MODULES = ("truthbrush", "transformers", "torch", "accelerate")
+REQUIRED_MODULES = ("transformers", "torch", "accelerate")
 
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -86,7 +86,17 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def ensure_config_secrets() -> None:
+    secrets_path = ROOT / "config_secrets.py"
+    example_path = ROOT / "config_secrets.example.py"
+    if not secrets_path.exists() and example_path.exists():
+        import shutil
+        shutil.copy2(example_path, secrets_path)
+        print(f"Created {secrets_path.name} from {example_path.name}")
+
+
 def main() -> int:
+    ensure_config_secrets()
     args = parse_args()
     missing = [name for name in REQUIRED_MODULES if not module_available(name)]
     if missing:
