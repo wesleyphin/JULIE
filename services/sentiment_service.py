@@ -170,6 +170,7 @@ class TruthSocialSentimentService:
         self._seen_post_order: list[str] = []
         self._seen_limit = 128
         self._last_seen_created_at: Optional[datetime] = None
+        self._last_gemini_refresh_post_id: Optional[str] = None
         self._poll_backoff_until: Optional[datetime] = None
         self._poll_backoff_message: Optional[str] = None
 
@@ -198,14 +199,24 @@ class TruthSocialSentimentService:
     def snapshot(self) -> Dict[str, Any]:
         return get_sentiment_state()
 
-    def _sentiment_metadata(self, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        payload: Dict[str, Any] = {
-            "quantization_mode": self._quantization_mode,
-            "gemini_enabled": self._gemini_enabled,
-            "gemini_model": self._gemini_model,
-            "gemini_configured": bool(self._gemini_api_key),
-            "gemini_used": False,
-        }
+    def _sentiment_metadata(
+        self,
+        extra: Optional[Dict[str, Any]] = None,
+        *,
+        preserve_last_analysis: bool = False,
+    ) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {}
+        if preserve_last_analysis:
+            payload.update(dict(get_sentiment_state().get("metadata") or {}))
+        payload.update(
+            {
+                "quantization_mode": self._quantization_mode,
+                "gemini_enabled": self._gemini_enabled,
+                "gemini_model": self._gemini_model,
+                "gemini_configured": bool(self._gemini_api_key),
+            }
+        )
+        payload.setdefault("gemini_used", False)
         if extra:
             payload.update(extra)
         return payload
@@ -229,7 +240,8 @@ class TruthSocialSentimentService:
             metadata=self._sentiment_metadata(
                 {
                     "retry_after": _iso_or_none(self._poll_backoff_until),
-                }
+                },
+                preserve_last_analysis=True,
             ),
         )
 
@@ -384,7 +396,8 @@ class TruthSocialSentimentService:
                 continue
             items.append(post)
         items.sort(
-            key=lambda item: _parse_iso(item.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc)
+            key=lambda item: _parse_iso(item.get("created_at")) or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
         )
         return items
 
@@ -557,6 +570,71 @@ class TruthSocialSentimentService:
         ):
             self._last_seen_created_at = created_at
 
+    async def _rehydrate_latest_snapshot_gemini(self, snapshot: Dict[str, Any], now: datetime) -> Dict[str, Any]:
+        if not self._gemini_enabled:
+            return snapshot
+        post_id = str(snapshot.get("latest_post_id") or "").strip()
+        post_text = _clean_post_text(snapshot.get("latest_post_text"))
+        if not post_id or not post_text or self._last_gemini_refresh_post_id == post_id:
+            return snapshot
+
+        metadata = dict(snapshot.get("metadata") or {})
+        has_gemini_details = any(
+            metadata.get(key) not in (None, "", False)
+            for key in ("gemini_reasoning", "gemini_market_impact", "gemini_confidence", "gemini_score")
+        )
+        if has_gemini_details:
+            return snapshot
+
+        try:
+            analysis = await asyncio.to_thread(self._classify_combined, post_text)
+        except Exception as exc:
+            self._last_gemini_refresh_post_id = post_id
+            logger.warning("Gemini snapshot rehydration failed: %s", exc)
+            return snapshot
+
+        self._last_gemini_refresh_post_id = post_id
+        trigger_side, trigger_reason = self._trigger_payload(
+            float(analysis["sentiment_score"]), str(analysis.get("sentiment_label", ""))
+        )
+        return update_sentiment_state(
+            enabled=True,
+            active=True,
+            healthy=True,
+            model_loaded=self._model is not None,
+            quantized_8bit=self._quantized_8bit,
+            target_handle=self.target_handle,
+            source=self._source,
+            last_poll_at=_iso_or_none(now),
+            last_analysis_at=_iso_or_none(now),
+            latest_post_id=post_id,
+            latest_post_created_at=snapshot.get("latest_post_created_at"),
+            latest_post_url=snapshot.get("latest_post_url"),
+            latest_post_text=post_text,
+            sentiment_label=str(analysis["sentiment_label"]),
+            sentiment_score=float(analysis["sentiment_score"]),
+            finbert_confidence=float(analysis["finbert_confidence"]),
+            trigger_side=trigger_side,
+            trigger_reason=trigger_reason,
+            last_error=None,
+            metadata=self._sentiment_metadata(
+                {
+                    "model_source": (
+                        str(Path(self.finbert_local_path))
+                        if Path(self.finbert_local_path).exists()
+                        else "ProsusAI/finbert"
+                    ),
+                    "gemini_used": bool(analysis.get("gemini_used", False)),
+                    "gemini_score": analysis.get("gemini_score"),
+                    "gemini_confidence": analysis.get("gemini_confidence"),
+                    "gemini_market_impact": analysis.get("gemini_market_impact"),
+                    "gemini_reasoning": analysis.get("gemini_reasoning"),
+                    "override_source": analysis.get("override_source"),
+                    **dict(analysis.get("probabilities") or {}),
+                }
+            ),
+        )
+
     async def poll_once(self) -> Dict[str, Any]:
         now = _utc_now()
         if not self.enabled:
@@ -584,7 +662,8 @@ class TruthSocialSentimentService:
                 metadata=self._sentiment_metadata(
                     {
                         "retry_after": _iso_or_none(self._poll_backoff_until),
-                    }
+                    },
+                    preserve_last_analysis=True,
                 ),
             )
             return get_sentiment_state()
@@ -606,13 +685,14 @@ class TruthSocialSentimentService:
             source=self._source,
             last_poll_at=_iso_or_none(now),
             last_error=None,
-            metadata=self._sentiment_metadata(),
+            metadata=self._sentiment_metadata(preserve_last_analysis=True),
         )
 
         if not posts:
-            return get_sentiment_state()
+            return await self._rehydrate_latest_snapshot_gemini(get_sentiment_state(), now)
 
         latest_snapshot = get_sentiment_state()
+        latest_snapshot_created_at = _parse_iso(latest_snapshot.get("latest_post_created_at"))
         for post in posts:
             post_id = str(post.get("id") or "").strip()
             created_at = _parse_iso(post.get("created_at"))
@@ -629,43 +709,50 @@ class TruthSocialSentimentService:
             trigger_side, trigger_reason = self._trigger_payload(
                 float(analysis["sentiment_score"]), str(analysis.get("sentiment_label", ""))
             )
-            latest_snapshot = update_sentiment_state(
-                enabled=True,
-                active=True,
-                healthy=True,
-                model_loaded=self._model is not None,
-                quantized_8bit=self._quantized_8bit,
-                target_handle=self.target_handle,
-                source=self._source,
-                last_poll_at=_iso_or_none(now),
-                last_analysis_at=_iso_or_none(now),
-                latest_post_id=post_id,
-                latest_post_created_at=_iso_or_none(created_at),
-                latest_post_url=self._post_url(post),
-                latest_post_text=post_text,
-                sentiment_label=str(analysis["sentiment_label"]),
-                sentiment_score=float(analysis["sentiment_score"]),
-                finbert_confidence=float(analysis["finbert_confidence"]),
-                trigger_side=trigger_side,
-                trigger_reason=trigger_reason,
-                last_error=None,
-                metadata=self._sentiment_metadata(
-                    {
-                        "model_source": (
-                            str(Path(self.finbert_local_path))
-                            if Path(self.finbert_local_path).exists()
-                            else "ProsusAI/finbert"
-                        ),
-                        "gemini_used": bool(analysis.get("gemini_used", False)),
-                        "gemini_score": analysis.get("gemini_score"),
-                        "gemini_confidence": analysis.get("gemini_confidence"),
-                        "gemini_market_impact": analysis.get("gemini_market_impact"),
-                        "gemini_reasoning": analysis.get("gemini_reasoning"),
-                        "override_source": analysis.get("override_source"),
-                        **dict(analysis.get("probabilities") or {}),
-                    }
-                ),
+            should_refresh_snapshot = (
+                latest_snapshot_created_at is None
+                or created_at is None
+                or created_at >= latest_snapshot_created_at
             )
+            if should_refresh_snapshot:
+                latest_snapshot = update_sentiment_state(
+                    enabled=True,
+                    active=True,
+                    healthy=True,
+                    model_loaded=self._model is not None,
+                    quantized_8bit=self._quantized_8bit,
+                    target_handle=self.target_handle,
+                    source=self._source,
+                    last_poll_at=_iso_or_none(now),
+                    last_analysis_at=_iso_or_none(now),
+                    latest_post_id=post_id,
+                    latest_post_created_at=_iso_or_none(created_at),
+                    latest_post_url=self._post_url(post),
+                    latest_post_text=post_text,
+                    sentiment_label=str(analysis["sentiment_label"]),
+                    sentiment_score=float(analysis["sentiment_score"]),
+                    finbert_confidence=float(analysis["finbert_confidence"]),
+                    trigger_side=trigger_side,
+                    trigger_reason=trigger_reason,
+                    last_error=None,
+                    metadata=self._sentiment_metadata(
+                        {
+                            "model_source": (
+                                str(Path(self.finbert_local_path))
+                                if Path(self.finbert_local_path).exists()
+                                else "ProsusAI/finbert"
+                            ),
+                            "gemini_used": bool(analysis.get("gemini_used", False)),
+                            "gemini_score": analysis.get("gemini_score"),
+                            "gemini_confidence": analysis.get("gemini_confidence"),
+                            "gemini_market_impact": analysis.get("gemini_market_impact"),
+                            "gemini_reasoning": analysis.get("gemini_reasoning"),
+                            "override_source": analysis.get("override_source"),
+                            **dict(analysis.get("probabilities") or {}),
+                        }
+                    ),
+                )
+                latest_snapshot_created_at = _parse_iso(latest_snapshot.get("latest_post_created_at"))
             self._remember_post(post_id, created_at)
             event_logger.log_sentiment_event(
                 "Sentiment post analyzed",

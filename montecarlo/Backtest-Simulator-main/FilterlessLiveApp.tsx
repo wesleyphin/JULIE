@@ -597,7 +597,7 @@ const StrategyCard: React.FC<{ strategy: FilterlessStrategyState }> = ({ strateg
         </span>
       </div>
 
-      {details.length > 0 ? (
+      {details.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-4">
           {details.map((detail) => (
             <div key={`${strategy.id}-${detail.label}`} className="rounded-full border border-neutral-800/80 bg-neutral-950/65 px-3 py-1.5">
@@ -605,10 +605,6 @@ const StrategyCard: React.FC<{ strategy: FilterlessStrategyState }> = ({ strateg
               <span className={`ml-2 text-xs font-medium ${detail.accent}`}>{detail.value}</span>
             </div>
           ))}
-        </div>
-      ) : (
-        <div className="rounded-lg border border-dashed border-neutral-800 bg-neutral-950/55 px-3 py-3 mb-4 text-sm text-neutral-500">
-          Waiting for richer strategy metadata from the live engine.
         </div>
       )}
 
@@ -900,6 +896,19 @@ function FilterlessLiveApp() {
   const geminiUsageLabel = geminiEnabled
     ? (geminiUsed ? (geminiOverrideActive ? 'Override' : 'Used') : 'Standby')
     : (geminiConfigured ? 'Configured' : 'Off');
+  const geminiVerdict = useMemo(() => {
+    if (!geminiEnabled || !geminiUsed) return null;
+    if (geminiOverrideActive) {
+      return 'Gemini reviewed this post, found material market impact, and overrode the base FinBERT read.';
+    }
+    if (geminiMarketImpact === 'low') {
+      return 'Gemini reviewed this post and found low market impact, so JULIE kept the ES bias neutral.';
+    }
+    if (geminiMarketImpact === 'medium' || geminiMarketImpact === 'high') {
+      return `Gemini reviewed this post and rated its market impact ${geminiMarketImpact.toUpperCase()}, but FinBERT remained the active signal.`;
+    }
+    return 'Gemini reviewed this post, but it did not override the primary FinBERT signal.';
+  }, [geminiEnabled, geminiMarketImpact, geminiOverrideActive, geminiUsed]);
 
   return (
     <div className="min-h-screen bg-background text-neutral-100 pb-16">
@@ -1480,6 +1489,11 @@ function FilterlessLiveApp() {
               {sentimentMetrics.trigger_reason && (
                 <p className="mt-2 text-xs text-neutral-500">
                   {sentimentMetrics.trigger_reason}
+                </p>
+              )}
+              {geminiVerdict && (
+                <p className="mt-2 text-xs leading-relaxed text-sky-200">
+                  Gemini Verdict: {geminiVerdict}
                 </p>
               )}
               <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-neutral-500">

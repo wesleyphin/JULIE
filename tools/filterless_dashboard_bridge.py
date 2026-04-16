@@ -19,6 +19,7 @@ if str(ROOT) not in sys.path:
 
 from bot_state import load_bot_state, trading_day_start as bot_trading_day_start
 from config import CONFIG
+from process_singleton import acquire_singleton_lock
 
 NY_TZ = ZoneInfo("America/New_York")
 DEFAULT_LOG_PATH = ROOT / "topstep_live_bot.log"
@@ -26,6 +27,7 @@ DEFAULT_STATE_PATH = ROOT / "bot_state.json"
 DEFAULT_TRADE_FACTORS_PATH = ROOT / "live_trade_factors.csv"
 DEFAULT_OUTPUT_PATH = ROOT / "montecarlo" / "Backtest-Simulator-main" / "public" / "filterless_live_state.json"
 DEFAULT_KALSHI_SNAPSHOT_PATH = ROOT / "kalshi_live_snapshot.json"
+BRIDGE_LOCK_PATH = ROOT / "logs" / "filterless_dashboard_bridge.lock"
 
 
 def _config_float(value: Any, default: float) -> float:
@@ -1941,6 +1943,20 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     if args.follow:
+        bridge_lock = acquire_singleton_lock(BRIDGE_LOCK_PATH, name="filterless_dashboard_bridge")
+        if bridge_lock is None:
+            existing = ""
+            try:
+                existing = BRIDGE_LOCK_PATH.read_text(encoding="utf-8").strip()
+            except OSError:
+                existing = ""
+            print(
+                "Another filterless dashboard bridge instance is already running. "
+                f"Lock: {BRIDGE_LOCK_PATH}"
+            )
+            if existing:
+                print(existing)
+            raise SystemExit(0)
         run_follow(args)
     else:
         run_once(args)
