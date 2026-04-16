@@ -584,12 +584,7 @@ const StrategyCard: React.FC<{ strategy: FilterlessStrategyState }> = ({ strateg
     <div className={`h-full rounded-2xl border px-6 py-6 shadow-[0_20px_50px_rgba(0,0,0,0.22)] transition-colors duration-200 hover:border-neutral-500/80 xl:px-7 xl:py-7 ${tone.shell}`}>
       <div className="mb-5 flex items-start justify-between gap-5">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <p className="text-xl font-semibold tracking-tight text-neutral-100">{strategy.label}</p>
-            <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] ${tone.badge}`}>
-              Live
-            </span>
-          </div>
+          <p className="text-xl font-semibold tracking-tight text-neutral-100">{strategy.label}</p>
           <p className="mt-2 text-sm text-neutral-500">Updated {formatRelativeTime(strategy.updated_at)}</p>
         </div>
         <span className={`shrink-0 min-w-[5.5rem] text-center rounded-full border px-3.5 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] ${statusChipClasses(strategy.status)}`}>
