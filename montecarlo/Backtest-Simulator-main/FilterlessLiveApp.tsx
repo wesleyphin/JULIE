@@ -581,53 +581,53 @@ const StrategyCard: React.FC<{ strategy: FilterlessStrategyState }> = ({ strateg
   ].filter((item): item is string => item !== null);
 
   return (
-    <div className={`rounded-xl border p-5 shadow-sm hover:border-neutral-600 ${tone.shell}`}>
-      <div className="flex items-start justify-between gap-4 mb-4">
+    <div className={`h-full rounded-2xl border px-6 py-6 shadow-[0_20px_50px_rgba(0,0,0,0.22)] transition-colors duration-200 hover:border-neutral-500/80 xl:px-7 xl:py-7 ${tone.shell}`}>
+      <div className="mb-5 flex items-start justify-between gap-5">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <p className="text-lg font-semibold text-neutral-100">{strategy.label}</p>
-            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] ${tone.badge}`}>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <p className="text-xl font-semibold tracking-tight text-neutral-100">{strategy.label}</p>
+            <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] ${tone.badge}`}>
               Live
             </span>
           </div>
-          <p className="text-xs text-neutral-500 mt-1">{formatRelativeTime(strategy.updated_at)}</p>
+          <p className="mt-2 text-sm text-neutral-500">Updated {formatRelativeTime(strategy.updated_at)}</p>
         </div>
-        <span className={`shrink-0 min-w-[4.5rem] text-center rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${statusChipClasses(strategy.status)}`}>
+        <span className={`shrink-0 min-w-[5.5rem] text-center rounded-full border px-3.5 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] ${statusChipClasses(strategy.status)}`}>
           {strategy.status.replace('_', ' ')}
         </span>
       </div>
 
       {details.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-4">
+        <div className="mb-5 flex flex-wrap gap-2.5">
           {details.map((detail) => (
-            <div key={`${strategy.id}-${detail.label}`} className="rounded-full border border-neutral-800/80 bg-neutral-950/65 px-3 py-1.5">
+            <div key={`${strategy.id}-${detail.label}`} className="rounded-2xl border border-neutral-800/80 bg-neutral-950/65 px-3.5 py-2">
               <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">{detail.label}</span>
-              <span className={`ml-2 text-xs font-medium ${detail.accent}`}>{detail.value}</span>
+              <span className={`ml-2.5 text-xs font-medium ${detail.accent}`}>{detail.value}</span>
             </div>
           ))}
         </div>
       )}
 
-      <div className="rounded-lg border border-neutral-800 bg-neutral-950/70 p-3 mb-4 min-h-[84px]">
-        <div className="mb-2 flex items-center justify-between gap-3">
+      <div className="mb-5 min-h-[116px] rounded-2xl border border-neutral-800 bg-neutral-950/70 p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Latest Activity</p>
           <p className="text-[11px] text-neutral-500">{formatRelativeTime(latestActivityTime)}</p>
         </div>
         <p className="text-sm text-neutral-300 leading-6">{latestActivity}</p>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 text-sm lg:grid-cols-2">
-        <div>
-          <p className="text-neutral-500">Last Candidate</p>
-          <p className="text-neutral-100 font-medium">
+      <div className="grid grid-cols-1 gap-4 text-sm xl:grid-cols-2">
+        <div className="rounded-2xl border border-neutral-800/80 bg-neutral-950/55 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Last Candidate</p>
+          <p className="mt-2 text-neutral-100 font-medium leading-6">
             {candidateSummary.length > 0 ? candidateSummary.join(' · ') : 'No candidate has been logged yet.'}
           </p>
-          <p className="text-xs text-neutral-500 mt-1">{formatTimestamp(strategy.last_signal_time)}</p>
+          <p className="mt-2 text-xs text-neutral-500">{formatTimestamp(strategy.last_signal_time)}</p>
         </div>
-        <div>
-          <p className="text-neutral-500">Last Trade</p>
-          <p className={`font-semibold ${tradeColor}`}>{formatMoney(strategy.last_trade_pnl)}</p>
-          <p className="text-xs text-neutral-500 mt-1">
+        <div className="rounded-2xl border border-neutral-800/80 bg-neutral-950/55 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Last Trade</p>
+          <p className={`mt-2 text-lg font-semibold ${tradeColor}`}>{formatMoney(strategy.last_trade_pnl)}</p>
+          <p className="mt-2 text-xs text-neutral-500 leading-5">
             {strategy.last_trade_time ? formatTimestamp(strategy.last_trade_time) : 'No closed trade in this session yet.'}
           </p>
         </div>
@@ -994,7 +994,7 @@ function FilterlessLiveApp() {
 
         {/* System Pulse removed — Kalshi hourly contracts provide more actionable context */}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 gap-7 md:grid-cols-2 2xl:grid-cols-4">
           {displayStrategies.map((strategy) => (
             <StrategyCard key={strategy.id} strategy={strategy} />
           ))}
