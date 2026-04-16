@@ -5,7 +5,7 @@ aiohttp==3.13.3
 click==8.3.1
 colorama==0.4.6
 accelerate>=0.34,<2
-bitsandbytes>=0.45,<1; platform_system == "Linux"
+bitsandbytes>=0.45,<1; platform_system == "Linux"  # CUDA-only; optional on macOS/Windows (dynamic int8 fallback used instead)
 torch>=2.4,<3
 transformers>=4.48,<5
 joblib==1.5.3

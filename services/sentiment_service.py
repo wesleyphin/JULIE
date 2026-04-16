@@ -239,6 +239,8 @@ class TruthSocialSentimentService:
         quantization_mode = "fp32"
         model = None
         try:
+            if not torch.cuda.is_available():
+                raise RuntimeError("bitsandbytes 8-bit requires CUDA")
             from transformers import BitsAndBytesConfig
 
             quant_cfg = BitsAndBytesConfig(load_in_8bit=True)
