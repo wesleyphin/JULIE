@@ -4558,7 +4558,10 @@ CONFIG = {
         "RegimeAdaptive": {
             "enabled": True,
             "exit_if_not_green_by": 30,   # If still red after 30 bars, bail
-            "max_profit_crosses": 4       # Max 2 green/red flips before we exit as chop
+            # 2026-04-16 validation: 8 chop flips kept the timeout protection
+            # while materially reducing premature exits on the all-session
+            # wildcard v2 artifact.
+            "max_profit_crosses": 8
         },
         "IntradayDip": {
             "enabled": True,
@@ -4606,6 +4609,19 @@ CONFIG = {
         "require_low_vol_trend": False,
         "require_range_spike": False,
         "enable_signal_reversion": False,
+    },
+
+    # --- Shared Live Opposite-Side Reversal Confirmation ---
+    # Applies to the shared live reverse path across strategies, so a DE3
+    # opposite signal cannot chain with a RegimeAdaptive opposite signal and
+    # immediately flip the whole book. When same_active_trade_family is on,
+    # a strategy family can only reverse its own family's active trade.
+    "LIVE_OPPOSITE_REVERSAL": {
+        "required_confirmations": 3,
+        "window_bars": 3,
+        "require_same_strategy_family": True,
+        "require_same_active_trade_family": True,
+        "require_same_sub_strategy": False,
     },
 
     # --- BREAK-EVEN LOGIC ---

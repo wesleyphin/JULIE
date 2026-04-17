@@ -3658,7 +3658,38 @@ def _resolve_live_early_exit_config(trade: Optional[dict]) -> dict:
         }
     strategy_name = str(trade.get("strategy", "") or "")
     early_exit_cfg = CONFIG.get("EARLY_EXIT", {}).get(strategy_name, {})
-    return early_exit_cfg if isinstance(early_exit_cfg, dict) else {}
+    resolved_cfg = dict(early_exit_cfg) if isinstance(early_exit_cfg, dict) else {}
+
+    explicit_enabled = None
+    explicit_enabled_raw = trade.get("early_exit_enabled")
+    if explicit_enabled_raw is not None:
+        if isinstance(explicit_enabled_raw, str):
+            lowered = explicit_enabled_raw.strip().lower()
+            if lowered in {"1", "true", "yes", "on"}:
+                explicit_enabled = True
+            elif lowered in {"0", "false", "no", "off"}:
+                explicit_enabled = False
+        elif isinstance(explicit_enabled_raw, (bool, int, float)):
+            explicit_enabled = bool(explicit_enabled_raw)
+
+    if explicit_enabled is False:
+        return {}
+    if explicit_enabled is True:
+        resolved_cfg["enabled"] = True
+
+    per_trade_not_green = trade.get("early_exit_exit_if_not_green_by")
+    if per_trade_not_green is not None:
+        resolved_cfg["exit_if_not_green_by"] = int(
+            max(0, _coerce_int(per_trade_not_green, 0))
+        )
+
+    per_trade_crosses = trade.get("early_exit_max_profit_crosses")
+    if per_trade_crosses is not None:
+        resolved_cfg["max_profit_crosses"] = int(
+            max(0, _coerce_int(per_trade_crosses, 0))
+        )
+
+    return resolved_cfg if bool(resolved_cfg.get("enabled", False)) else {}
 
 
 def asia_trend_bias(history_df: pd.DataFrame, cfg: dict) -> Optional[str]:
@@ -3782,6 +3813,89 @@ def format_ui_strategy_slot(
     if sub_strategy:
         return f"{display}:{sub_strategy}"
     return str(display)
+
+
+def get_live_opposite_reversal_family_key(
+    signal: Optional[Dict] = None,
+    *,
+    require_sub_strategy: bool = False,
+) -> Optional[str]:
+    if not isinstance(signal, dict):
+        return None
+    raw_strategy = signal.get("strategy")
+    display, sub_strategy = get_log_strategy_info(raw_strategy, signal)
+    family = str(display or raw_strategy or "").strip()
+    if not family:
+        return None
+    if require_sub_strategy:
+        sub_value = str(
+            sub_strategy
+            or signal.get("sub_strategy")
+            or signal.get("combo_key")
+            or ""
+        ).strip()
+        if sub_value:
+            return f"{family}:{sub_value}"
+    return family
+
+
+def update_live_opposite_reversal_confirmation_state(
+    state: Optional[Dict[str, Any]],
+    signal_payload: Optional[Dict],
+    current_bar_index: int,
+    *,
+    required_confirmations: int,
+    window_bars: int,
+    require_same_strategy_family: bool = True,
+    require_same_sub_strategy: bool = False,
+) -> Tuple[bool, int, Dict[str, Any]]:
+    reset_state = {
+        "count": 0,
+        "side": None,
+        "bar_index": None,
+        "strategy_family": None,
+    }
+    if not isinstance(state, dict):
+        state = dict(reset_state)
+
+    side = None
+    if isinstance(signal_payload, dict):
+        side = _normalize_live_side(signal_payload.get("side"))
+    if side is None:
+        return False, 0, dict(reset_state)
+
+    strategy_family = None
+    if require_same_strategy_family:
+        strategy_family = get_live_opposite_reversal_family_key(
+            signal_payload,
+            require_sub_strategy=require_same_sub_strategy,
+        )
+
+    prior_side = _normalize_live_side(state.get("side"))
+    prior_count = int(state.get("count", 0) or 0)
+    prior_bar_index = _coerce_int(state.get("bar_index"), None)
+    prior_family = str(state.get("strategy_family") or "").strip() or None
+    window_expired = (
+        prior_bar_index is not None
+        and (int(current_bar_index) - prior_bar_index) > int(window_bars)
+    )
+    family_changed = bool(
+        require_same_strategy_family and prior_family != strategy_family
+    )
+
+    if prior_side != side or window_expired or family_changed:
+        new_count = 1
+    else:
+        new_count = prior_count + 1
+
+    next_state = {
+        "count": int(new_count),
+        "side": side,
+        "bar_index": int(current_bar_index),
+        "strategy_family": strategy_family,
+    }
+    confirmed = int(new_count) >= max(1, int(required_confirmations))
+    return confirmed, int(new_count), next_state
 
 
 def parse_continuation_key(strategy_name: Optional[str]) -> Optional[str]:
@@ -6308,12 +6422,27 @@ async def run_bot():
     # Track pending signals for delayed execution
     pending_loose_signals = {}
     last_processed_bar = None
-    opposite_reversal_required = 2
-    opposite_reversal_window_bars = 3
+    opposite_reversal_cfg = CONFIG.get("LIVE_OPPOSITE_REVERSAL", {}) or {}
+    opposite_reversal_required = int(
+        max(1, _coerce_int(opposite_reversal_cfg.get("required_confirmations"), 3))
+    )
+    opposite_reversal_window_bars = int(
+        max(1, _coerce_int(opposite_reversal_cfg.get("window_bars"), 3))
+    )
+    opposite_reversal_require_same_strategy_family = bool(
+        opposite_reversal_cfg.get("require_same_strategy_family", True)
+    )
+    opposite_reversal_require_same_active_trade_family = bool(
+        opposite_reversal_cfg.get("require_same_active_trade_family", False)
+    )
+    opposite_reversal_require_same_sub_strategy = bool(
+        opposite_reversal_cfg.get("require_same_sub_strategy", False)
+    )
     opposite_reversal_state = {
         "count": 0,
         "side": None,
         "bar_index": None,
+        "strategy_family": None,
     }
     pending_impulse_rescues = []
 
@@ -6372,55 +6501,114 @@ async def run_bot():
     def reset_opposite_reversal_state(reason: Optional[str] = None) -> None:
         previous_count = int(opposite_reversal_state.get("count", 0) or 0)
         previous_side = _normalize_live_side(opposite_reversal_state.get("side"))
+        previous_family = str(
+            opposite_reversal_state.get("strategy_family") or ""
+        ).strip()
         if reason and (previous_count > 0 or previous_side):
             logging.info(
-                "Reset opposite reversal confirmation state: %s (count=%s side=%s)",
+                "Reset opposite reversal confirmation state: %s (count=%s side=%s family=%s)",
                 reason,
                 previous_count,
                 previous_side or "NONE",
+                previous_family or "ANY",
             )
         opposite_reversal_state["count"] = 0
         opposite_reversal_state["side"] = None
         opposite_reversal_state["bar_index"] = None
+        opposite_reversal_state["strategy_family"] = None
 
     def note_opposite_reversal_signal(
         signal_payload: Optional[dict],
         current_bar_index: int,
     ) -> Tuple[bool, int]:
-        side = None
-        if isinstance(signal_payload, dict):
-            side = _normalize_live_side(signal_payload.get("side"))
+        confirmed, new_count, next_state = update_live_opposite_reversal_confirmation_state(
+            opposite_reversal_state,
+            signal_payload,
+            current_bar_index,
+            required_confirmations=opposite_reversal_required,
+            window_bars=opposite_reversal_window_bars,
+            require_same_strategy_family=opposite_reversal_require_same_strategy_family,
+            require_same_sub_strategy=opposite_reversal_require_same_sub_strategy,
+        )
+        side = _normalize_live_side(next_state.get("side"))
         if side is None:
             reset_opposite_reversal_state("invalid opposite signal side")
             return False, 0
-
-        prior_side = _normalize_live_side(opposite_reversal_state.get("side"))
-        prior_count = int(opposite_reversal_state.get("count", 0) or 0)
-        prior_bar_index = _coerce_int(opposite_reversal_state.get("bar_index"), None)
-        window_expired = (
-            prior_bar_index is not None
-            and (current_bar_index - prior_bar_index) > opposite_reversal_window_bars
-        )
-
-        if prior_side != side or window_expired:
-            new_count = 1
-        else:
-            new_count = prior_count + 1
-
-        opposite_reversal_state["count"] = int(new_count)
-        opposite_reversal_state["side"] = side
-        opposite_reversal_state["bar_index"] = int(current_bar_index)
-
-        confirmed = new_count >= opposite_reversal_required
+        opposite_reversal_state.update(next_state)
+        strategy_family = str(next_state.get("strategy_family") or "").strip() or "ANY"
         logging.info(
-            "Opposite reversal confirmation: %s %s/%s within %s bars%s",
+            "Opposite reversal confirmation: %s %s/%s within %s bars | family=%s%s",
             side,
             new_count,
             opposite_reversal_required,
             opposite_reversal_window_bars,
+            strategy_family,
             " (confirmed)" if confirmed else "",
         )
         return confirmed, int(new_count)
+
+    def opposite_reversal_matches_active_trade_family(
+        signal_payload: Optional[dict],
+        active_trades_payload: Optional[list[dict]],
+    ) -> bool:
+        if not opposite_reversal_require_same_active_trade_family:
+            return True
+        signal_family = get_live_opposite_reversal_family_key(
+            signal_payload,
+            require_sub_strategy=opposite_reversal_require_same_sub_strategy,
+        )
+        if not signal_family:
+            return True
+        active_families = {
+            str(
+                get_live_opposite_reversal_family_key(
+                    trade,
+                    require_sub_strategy=opposite_reversal_require_same_sub_strategy,
+                )
+                or ""
+            ).strip()
+            for trade in (active_trades_payload or [])
+            if isinstance(trade, dict)
+        }
+        active_families = {family for family in active_families if family}
+        if not active_families:
+            return True
+        return signal_family in active_families
+
+    def log_opposite_reversal_active_trade_family_block(
+        signal_payload: Optional[dict],
+        active_trades_payload: Optional[list[dict]],
+        *,
+        prefix: str = "Holding position",
+    ) -> None:
+        signal_family = (
+            get_live_opposite_reversal_family_key(
+                signal_payload,
+                require_sub_strategy=opposite_reversal_require_same_sub_strategy,
+            )
+            or "UNKNOWN"
+        )
+        active_families = sorted(
+            {
+                str(
+                    get_live_opposite_reversal_family_key(
+                        trade,
+                        require_sub_strategy=opposite_reversal_require_same_sub_strategy,
+                    )
+                    or ""
+                ).strip()
+                for trade in (active_trades_payload or [])
+                if isinstance(trade, dict)
+            }
+            - {""}
+        )
+        active_family_label = ", ".join(active_families) if active_families else "UNKNOWN"
+        logging.info(
+            "%s: opposite signal family %s cannot reverse active family %s",
+            prefix,
+            signal_family,
+            active_family_label,
+        )
 
     def _promote_parallel_trade_if_needed() -> None:
         nonlocal active_trade, parallel_active_trades
@@ -9731,7 +9919,8 @@ async def run_bot():
                                 pending_impulse_rescues.clear()
                                 break
 
-                            old_trades = [dict(trade) for trade in tracked_live_trades()]
+                            current_trades = tracked_live_trades()
+                            old_trades = [dict(trade) for trade in current_trades]
 
                             block_reason = _live_entry_window_block_reason(current_time)
                             if block_reason:
@@ -9741,6 +9930,22 @@ async def run_bot():
                                     current_time,
                                 )
                                 continue
+
+                            if old_trades and not opposite_reversal_matches_active_trade_family(
+                                pending_signal,
+                                current_trades,
+                            ):
+                                reset_opposite_reversal_state(
+                                    "opposite rescue active-trade family mismatch"
+                                )
+                                log_opposite_reversal_active_trade_family_block(
+                                    pending_signal,
+                                    current_trades,
+                                    prefix="Holding position",
+                                )
+                                executed_rescue = True
+                                pending_impulse_rescues.clear()
+                                break
 
                             reverse_state_count = 0
                             if old_trades:
@@ -11758,6 +11963,22 @@ async def run_bot():
                         )
                         continue
                     log_rescue_success()
+                    current_trades = tracked_live_trades()
+                    old_trades = [dict(trade) for trade in current_trades]
+                    if old_trades and not opposite_reversal_matches_active_trade_family(
+                        signal,
+                        current_trades,
+                    ):
+                        reset_opposite_reversal_state(
+                            "opposite active-trade family mismatch"
+                        )
+                        log_opposite_reversal_active_trade_family_block(
+                            signal,
+                            current_trades,
+                            prefix="Holding position",
+                        )
+                        signal_executed = True
+                        break
                     add_strategy_slot(
                         "executed",
                         signal.get("strategy", strat_name),
@@ -11768,8 +11989,6 @@ async def run_bot():
 
                     # ... [Remaining Execution Code same as before] ...
                     # Close and Reverse logic...
-                    old_trades = [dict(trade) for trade in tracked_live_trades()]
-
                     reverse_state_count = 0
                     if old_trades:
                         reverse_confirmed, reverse_state_count = note_opposite_reversal_signal(
@@ -12511,7 +12730,23 @@ async def run_bot():
                                     price=current_price,
                                 )
 
-                                old_trades = [dict(trade) for trade in tracked_live_trades()]
+                                current_trades = tracked_live_trades()
+                                old_trades = [dict(trade) for trade in current_trades]
+                                if old_trades and not opposite_reversal_matches_active_trade_family(
+                                    sig,
+                                    current_trades,
+                                ):
+                                    reset_opposite_reversal_state(
+                                        "loose opposite active-trade family mismatch"
+                                    )
+                                    log_opposite_reversal_active_trade_family_block(
+                                        sig,
+                                        current_trades,
+                                        prefix="Holding position",
+                                    )
+                                    del pending_loose_signals[s_name]
+                                    signal_executed = True
+                                    break
 
                                 reverse_state_count = 0
                                 if old_trades:
