@@ -68,6 +68,15 @@ from volume_profile import build_volume_profile
 from event_logger import event_logger
 from circuit_breaker import CircuitBreaker
 from news_filter import NewsFilter
+from de3_anti_flip_guard import (
+    de3_flip_flop_guard_reason,
+    de3_trade_close_hit_stop,
+)
+from opposite_reversal_policy import (
+    opposite_reversal_gate_reason,
+    reversal_confirmation_state_is_confirmed,
+    update_multi_family_reversal_consensus_state,
+)
 from client import ProjectXClient
 import param_scaler
 from bot_state import (
@@ -79,7 +88,6 @@ from bot_state import (
     save_bot_state,
     trading_day_start,
 )
-from regime_manifold_engine import get_kalshi_gate_decision
 from services.sentiment_service import (
     build_truth_social_sentiment_service,
     get_sentiment_state,
@@ -91,116 +99,7 @@ try:
     from async_market_stream import AsyncMarketDataManager
 except Exception:
     AsyncMarketDataManager = None
-from async_tasks import heartbeat_task, htf_structure_task, position_sync_task, sentiment_monitor_task
-
-
-# ---------------------------------------------------------------------------
-# Kalshi provider — lazy singleton for trade-gating during settlement hours.
-# Built on first access; returns None if credentials are missing/disabled.
-# ---------------------------------------------------------------------------
-_KALSHI_PROVIDER: Optional[Any] = None
-_KALSHI_PROVIDER_INIT_DONE = False
-# Settlement hours (ET) when trade gating is active with 3x sizing
-# All settlement hours for data collection / dashboard display
-_KALSHI_SETTLEMENT_HOURS_ET = [10, 11, 12, 13, 14, 15, 16]
-# Hours where Kalshi crowd has directional edge (backtest: 70% at 60%+ conf)
-# 10-11 AM excluded: crowd is contrarian (39.5% accuracy)
-_KALSHI_GATING_HOURS_ET = [12, 13, 14, 15, 16]
-
-
-def _active_kalshi_settlement_hour_et(kalshi: Optional[Any]) -> Optional[int]:
-    if kalshi is None:
-        return None
-    try:
-        return kalshi.active_settlement_hour_et()
-    except Exception:
-        return None
-
-
-def _get_kalshi_provider():
-    global _KALSHI_PROVIDER, _KALSHI_PROVIDER_INIT_DONE
-    if _KALSHI_PROVIDER_INIT_DONE:
-        return _KALSHI_PROVIDER
-    _KALSHI_PROVIDER_INIT_DONE = True
-    try:
-        from config_secrets import SECRETS
-        from services.kalshi_provider import KalshiProvider
-
-        kalshi_cfg = CONFIG.get("KALSHI", {}) if isinstance(CONFIG, dict) else {}
-        if not isinstance(kalshi_cfg, dict):
-            return None
-        provider_cfg = dict(kalshi_cfg)
-        provider_cfg["key_id"] = str(SECRETS.get("KALSHI_KEY_ID", provider_cfg.get("key_id", "")) or "")
-        provider_cfg["private_key_path"] = str(
-            SECRETS.get("KALSHI_PRIVATE_KEY_PATH", provider_cfg.get("private_key_path", "")) or ""
-        )
-        _KALSHI_PROVIDER = KalshiProvider(provider_cfg)
-    except Exception as exc:
-        logging.warning("Kalshi provider not available for trade gating: %s", exc)
-        _KALSHI_PROVIDER = None
-    return _KALSHI_PROVIDER
-
-
-def _truth_social_cfg() -> Dict[str, Any]:
-    cfg = CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) if isinstance(CONFIG, dict) else {}
-    return dict(cfg) if isinstance(cfg, dict) else {}
-
-
-def _truth_social_signal_enabled() -> bool:
-    return bool(_truth_social_cfg().get("enabled", False))
-
-
-def _sentiment_snapshot_age_seconds(snapshot: Optional[Dict[str, Any]]) -> Optional[float]:
-    if not isinstance(snapshot, dict):
-        return None
-    analyzed_at = parse_dt(snapshot.get("last_analysis_at"))
-    if not isinstance(analyzed_at, datetime.datetime):
-        return None
-    if analyzed_at.tzinfo is None:
-        analyzed_at = analyzed_at.replace(tzinfo=dt_timezone.utc)
-    now_utc = datetime.datetime.now(dt_timezone.utc)
-    return max(0.0, (now_utc - analyzed_at.astimezone(dt_timezone.utc)).total_seconds())
-
-
-def _evaluate_truth_social_emergency_exit(snapshot: Optional[Dict[str, Any]], side: Optional[str]) -> Optional[str]:
-    normalized_side = str(side or "").strip().upper()
-    if normalized_side not in {"LONG", "SHORT"}:
-        return None
-    if not isinstance(snapshot, dict):
-        return None
-    if not bool(snapshot.get("enabled")) or not bool(snapshot.get("healthy")):
-        return None
-
-    cfg = _truth_social_cfg()
-    try:
-        threshold = float(cfg.get("emergency_exit_threshold", -0.75) or -0.75)
-    except Exception:
-        threshold = -0.75
-    max_age_seconds = max(
-        60,
-        int(cfg.get("emergency_exit_max_age_seconds", 3600) or 3600),
-    )
-    age_seconds = _sentiment_snapshot_age_seconds(snapshot)
-    if age_seconds is None or age_seconds > float(max_age_seconds):
-        return None
-
-    score = _coerce_float(snapshot.get("sentiment_score"), math.nan)
-    confidence = _coerce_float(snapshot.get("finbert_confidence"), math.nan)
-    if not math.isfinite(score):
-        return None
-
-    if normalized_side == "LONG" and score <= threshold:
-        return (
-            f"SENTIMENT EMERGENCY EXIT: sentiment {score:.2f} <= {threshold:.2f}"
-            + (f" (FinBERT {confidence:.2%})" if math.isfinite(confidence) else "")
-        )
-    short_threshold = abs(float(threshold))
-    if normalized_side == "SHORT" and score >= short_threshold:
-        return (
-            f"SENTIMENT EMERGENCY EXIT: sentiment {score:.2f} >= {short_threshold:.2f}"
-            + (f" (FinBERT {confidence:.2%})" if math.isfinite(confidence) else "")
-        )
-    return None
+from async_tasks import heartbeat_task, position_sync_task, htf_structure_task, sentiment_monitor_task
 
 
 def _load_non_filterless_runtime() -> tuple[Any, ...]:
@@ -276,6 +175,13 @@ class _NoOpDirectionalLossBlocker(_NoOpStatefulRuntime):
         return None
 
     def update_quarter(self, *_args, **_kwargs):
+        return None
+
+    def reset_daily(self):
+        self.long_consecutive_losses = 0
+        self.short_consecutive_losses = 0
+        self.long_blocked_until = None
+        self.short_blocked_until = None
         return None
 
 
@@ -1011,59 +917,6 @@ def _apply_aetherflow_live_conditional_size(
     return int(target_size)
 
 
-def _apply_kalshi_gate_size(signal: Optional[dict], size: int) -> int:
-    """Apply Kalshi crowd-sentiment trade gating during settlement hours.
-
-    During 10 AM - 4 PM ET, if Kalshi probability aligns with the ML signal
-    direction, the contract size is multiplied by up to 3x.  Outside those
-    hours (or if Kalshi is unavailable) the size is returned unchanged.
-    """
-    if not isinstance(signal, dict):
-        return size
-
-    kalshi = _get_kalshi_provider()
-    if kalshi is None or not getattr(kalshi, "enabled", False):
-        if isinstance(signal, dict):
-            signal["kalshi_gate_applied"] = False
-            signal["kalshi_gate_reason"] = "Kalshi unavailable"
-        return size
-
-    settlement_hour = _active_kalshi_settlement_hour_et(kalshi)
-    if settlement_hour not in _KALSHI_GATING_HOURS_ET:
-        if isinstance(signal, dict):
-            signal["kalshi_gate_applied"] = False
-            if settlement_hour in (10, 11):
-                signal["kalshi_gate_reason"] = "Morning settlement window — crowd unreliable, ML-only"
-            else:
-                signal["kalshi_gate_reason"] = "Outside settlement hours"
-        return size
-
-    side = str(signal.get("side", "") or "").strip().upper()
-    direction = 1 if side == "LONG" else (-1 if side == "SHORT" else 0)
-    if direction == 0:
-        return size
-
-    es_price = float(signal.get("entry_price", 0) or signal.get("price", 0) or 0)
-    if es_price <= 0:
-        return size
-
-    allowed, reason, multiplier = get_kalshi_gate_decision(direction, es_price, kalshi, CONFIG)
-
-    if isinstance(signal, dict):
-        signal["kalshi_gate_applied"] = True
-        signal["kalshi_gate_reason"] = reason
-        signal["kalshi_gate_multiplier"] = float(multiplier)
-
-    if not allowed:
-        logging.info("Kalshi VETO: %s — size set to 0", reason)
-        return 0
-
-    gated_size = max(1, int(size * multiplier))
-    if multiplier != 1.0:
-        logging.info("Kalshi gate: %s — size %d → %d (%.1fx)", reason, size, gated_size, multiplier)
-    return gated_size
-
-
 def _apply_live_execution_size(
     signal: Optional[dict],
     fallback_size: int,
@@ -1077,7 +930,6 @@ def _apply_live_execution_size(
     size = _apply_regimeadaptive_live_growth_size(signal, size, live_drawdown_state)
     size = _apply_aetherflow_live_conditional_size(signal, size, tracked_live_trades)
     size = _apply_live_drawdown_size(signal, size, live_drawdown_state)
-    size = _apply_kalshi_gate_size(signal, size)
     if isinstance(signal, dict):
         signal["size"] = int(size)
     return int(size)
@@ -1199,6 +1051,47 @@ def _normalize_live_side(value: Optional[str]) -> Optional[str]:
     return None
 
 
+def _live_signal_direction_counts(items: Optional[Any]) -> dict[str, int]:
+    counts = {"LONG": 0, "SHORT": 0}
+    if isinstance(items, dict):
+        iterable = items.values()
+    elif isinstance(items, (list, tuple)):
+        iterable = items
+    else:
+        return counts
+
+    for item in iterable:
+        signal = None
+        if isinstance(item, dict):
+            nested_signal = item.get("signal")
+            signal = nested_signal if isinstance(nested_signal, dict) else item
+        elif isinstance(item, (list, tuple)):
+            for candidate in reversed(item):
+                if isinstance(candidate, dict):
+                    signal = candidate
+                    break
+        side = _normalize_live_side(signal.get("side") if isinstance(signal, dict) else None)
+        if side in counts:
+            counts[side] += 1
+    return counts
+
+
+def _has_live_direction_conflict(items: Optional[Any]) -> tuple[bool, dict[str, int]]:
+    counts = _live_signal_direction_counts(items)
+    return counts["LONG"] > 0 and counts["SHORT"] > 0, counts
+
+
+def _should_apply_shared_consensus_bracket(
+    consensus_tp_signal: Optional[dict],
+    candidate_signals: Optional[list[tuple[Any, ...]]],
+) -> bool:
+    if not isinstance(consensus_tp_signal, dict):
+        return False
+    if not isinstance(candidate_signals, list):
+        return False
+    return len(candidate_signals) <= 1
+
+
 def _live_signal_confidence(sig: Optional[dict]) -> float:
     if not isinstance(sig, dict):
         return 0.0
@@ -1265,30 +1158,42 @@ def _calculate_live_trade_close_metrics_from_price(
     return metrics
 
 
-def _hour_in_window(hour: int, start_hour: int, end_hour: int) -> bool:
-    """Half-open [start_hour, end_hour) with wrap support across midnight."""
-    if start_hour == end_hour:
+def _minute_of_day_in_window(current_minute: int, start_minute: int, end_minute: int) -> bool:
+    """Half-open [start_minute, end_minute) with wrap support across midnight."""
+    if start_minute == end_minute:
         return False
-    if start_hour < end_hour:
-        return start_hour <= hour < end_hour
-    return hour >= start_hour or hour < end_hour
+    if start_minute < end_minute:
+        return start_minute <= current_minute < end_minute
+    return current_minute >= start_minute or current_minute < end_minute
 
 
 def _live_entry_window_block_reason(current_time: datetime.datetime) -> Optional[str]:
     risk_cfg = CONFIG.get("RISK", {}) or {}
     if not bool(risk_cfg.get("enforce_no_new_entries_window", False)):
         return None
-    start_hour = min(23, max(0, _coerce_int(risk_cfg.get("no_new_entries_start_hour_et", 16), 16)))
+    start_hour = min(23, max(0, _coerce_int(risk_cfg.get("no_new_entries_start_hour_et", 15), 15)))
+    start_minute = min(
+        59,
+        max(0, _coerce_int(risk_cfg.get("no_new_entries_start_minute_et", 58), 58)),
+    )
     end_hour = min(23, max(0, _coerce_int(risk_cfg.get("no_new_entries_end_hour_et", 18), 18)))
+    end_minute = min(
+        59,
+        max(0, _coerce_int(risk_cfg.get("no_new_entries_end_minute_et", 0), 0)),
+    )
     current_time_et = (
         current_time.replace(tzinfo=NY_TZ)
         if current_time.tzinfo is None
         else current_time.astimezone(NY_TZ)
     )
-    if not _hour_in_window(int(current_time_et.hour), start_hour, end_hour):
+    current_minute = int(current_time_et.hour) * 60 + int(current_time_et.minute)
+    window_start_minute = start_hour * 60 + start_minute
+    window_end_minute = end_hour * 60 + end_minute
+    if not _minute_of_day_in_window(current_minute, window_start_minute, window_end_minute):
         return None
     return (
-        f"Live no-entry window active {start_hour:02d}:00-{end_hour:02d}:00 ET "
+        f"Live no-entry window active {start_hour:02d}:{start_minute:02d}-"
+        f"{end_hour:02d}:{end_minute:02d} ET "
         f"(current {current_time_et:%H:%M:%S %Z})"
     )
 
@@ -1392,6 +1297,51 @@ def _reconcile_live_trade_close(
     if isinstance(close_metrics, dict):
         return close_metrics
     return _calculate_live_trade_close_metrics(active_trade, fallback_exit_price)
+
+
+def _normalized_order_id_text(value: Any) -> str:
+    text = str(value or "").strip()
+    return text
+
+
+def _find_projectx_recovered_close_for_trade(
+    trade: Optional[dict],
+    recovered_trades: list[dict],
+) -> Optional[dict]:
+    if not isinstance(trade, dict):
+        return None
+    exit_order_ids = {
+        text
+        for text in [
+            _normalized_order_id_text(trade.get("target_order_id")),
+            _normalized_order_id_text(trade.get("stop_order_id")),
+        ]
+        if text
+    }
+    entry_order_ids = {
+        _normalized_order_id_text(trade.get("entry_order_id")),
+    }
+    entry_order_ids = {text for text in entry_order_ids if text}
+    for recovered in recovered_trades or []:
+        if not isinstance(recovered, dict):
+            continue
+        recovered_order_id = _normalized_order_id_text(recovered.get("order_id"))
+        if recovered_order_id and recovered_order_id in exit_order_ids:
+            return recovered
+    for recovered in recovered_trades or []:
+        if not isinstance(recovered, dict):
+            continue
+        recovered_entry_ids = {
+            _normalized_order_id_text(recovered.get("entry_order_id")),
+        }
+        recovered_entry_ids.update(
+            _normalized_order_id_text(value)
+            for value in list(recovered.get("entry_order_ids") or [])
+        )
+        recovered_entry_ids = {text for text in recovered_entry_ids if text}
+        if entry_order_ids and recovered_entry_ids.intersection(entry_order_ids):
+            return recovered
+    return None
 
 
 def _infer_de3_lane_from_variant(variant_id: Optional[str]) -> str:
@@ -2565,8 +2515,7 @@ def _build_live_active_trade(
         logging.error("Order details missing sl/tp after execution; using 0.0 for tracking")
     tp_dist = _coerce_float(tp_dist_raw or 0.0, 0.0)
     sl_dist = _coerce_float(sl_dist_raw or 0.0, 0.0)
-    raw_size = _coerce_int(order_details.get("size", signal.get("size", 5)), 5)
-    size = raw_size if raw_size <= 0 else max(1, raw_size)
+    size = max(1, _coerce_int(order_details.get("size", signal.get("size", 5)), 5))
     side = str(signal.get("side", "") or "").upper()
 
     signal["tp_dist"] = tp_dist
@@ -2663,6 +2612,11 @@ def _build_live_active_trade(
         "combo_key": signal.get("combo_key") or signal.get("sub_strategy"),
         "side": side,
         "entry_price": entry_price,
+        "signal_entry_price": _coerce_float(
+            signal.get("signal_entry_price"),
+            current_price,
+        ),
+        "broker_entry_price": entry_price,
         "entry_time": current_time,
         "entry_order_id": (
             order_details.get("broker_order_id")
@@ -3579,56 +3533,6 @@ def _evaluate_live_early_exit_reason(
     return None
 
 
-def _check_kalshi_sentiment_exit(
-    trade: Optional[dict],
-    current_price: float,
-    current_time: Optional[datetime.datetime],
-) -> Optional[str]:
-    """Hour-turn exit: close profitable positions when Kalshi crowd flips.
-
-    Checks only at the top of each hour (first 2 minutes) during settlement
-    hours (10 AM - 4 PM ET).  If the crowd sentiment flips against a
-    profitable position, returns an exit reason string.
-    """
-    if not isinstance(trade, dict) or current_time is None:
-        return None
-    try:
-        minute = int(getattr(current_time, "minute", 99))
-    except (TypeError, ValueError):
-        return None
-    if minute > 2:
-        return None
-
-    kalshi = _get_kalshi_provider()
-    if kalshi is None or not getattr(kalshi, "enabled", False) or not getattr(kalshi, "is_healthy", False):
-        return None
-
-    settlement_hour = _active_kalshi_settlement_hour_et(kalshi)
-    if settlement_hour not in _KALSHI_GATING_HOURS_ET:
-        return None
-
-    side = str(trade.get("side", "") or "").upper()
-    entry_price = _coerce_float(trade.get("entry_price"), math.nan)
-    if not math.isfinite(entry_price):
-        return None
-    if side == "LONG" and current_price <= entry_price:
-        return None
-    if side == "SHORT" and current_price >= entry_price:
-        return None
-
-    sentiment = kalshi.get_sentiment(current_price)
-    probability = sentiment.get("probability")
-    if probability is None:
-        return None
-
-    # Only act on high-confidence crowd flips (60%+ = 70% accuracy)
-    if side == "LONG" and probability < 0.40:
-        return f"KALSHI HOUR-TURN: Crowd flipped bearish (prob={probability:.2f})"
-    if side == "SHORT" and probability > 0.60:
-        return f"KALSHI HOUR-TURN: Crowd flipped bullish (prob={probability:.2f})"
-    return None
-
-
 def _resolve_live_early_exit_config(trade: Optional[dict]) -> dict:
     if not isinstance(trade, dict):
         return {}
@@ -3932,6 +3836,29 @@ def update_live_opposite_reversal_confirmation_state(
     }
     confirmed = int(new_count) >= max(1, int(required_confirmations))
     return confirmed, int(new_count), next_state
+
+
+def _live_trade_close_hit_stop(row: Optional[Dict[str, Any]]) -> bool:
+    return de3_trade_close_hit_stop(row)
+
+
+def _live_de3_flip_flop_guard_reason(
+    signal_payload: Optional[Dict[str, Any]],
+    active_trades_payload: Optional[list[dict]],
+    recent_closed_trades_payload: Optional[list[dict]],
+    current_time: datetime.datetime,
+    *,
+    cfg: Optional[dict] = None,
+) -> Optional[str]:
+    guard_cfg = cfg if isinstance(cfg, dict) else (CONFIG.get("LIVE_DE3_ANTI_FLIP", {}) or {})
+    return de3_flip_flop_guard_reason(
+        signal_payload,
+        active_trades_payload,
+        recent_closed_trades_payload,
+        current_time,
+        cfg=guard_cfg,
+        default_tz=NY_TZ,
+    )
 
 
 def parse_continuation_key(strategy_name: Optional[str]) -> Optional[str]:
@@ -5107,6 +5034,129 @@ class TradeFactorCsvLogger:
                 out.add(text)
         return out
 
+    @classmethod
+    def _row_close_order_ids(cls, row: Optional[Dict[str, Any]]) -> set[str]:
+        if not isinstance(row, dict):
+            return set()
+        order_details = cls._json_dict(row.get("order_details_json"))
+        signal_factors = cls._json_dict(row.get("signal_factors_json"))
+        close_details = cls._json_dict(row.get("close_details_json"))
+        candidate_values = [
+            row.get("close_order_id"),
+            row.get("stop_order_id"),
+            row.get("target_order_id"),
+            close_details.get("order_id"),
+            order_details.get("stop_order_id"),
+            order_details.get("target_order_id"),
+            signal_factors.get("stop_order_id"),
+            signal_factors.get("target_order_id"),
+        ]
+        out: set[str] = set()
+        for value in candidate_values:
+            text = str(value or "").strip()
+            if text:
+                out.add(text)
+        return out
+
+    def _build_trade_identity_from_row(self, row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not isinstance(row, dict):
+            return None
+        order_details = self._json_dict(row.get("order_details_json"))
+        signal_factors = self._json_dict(row.get("signal_factors_json"))
+        entry_time = self._coerce_event_time(
+            row.get("event_time") or row.get("bar_time"),
+            self.tz,
+        )
+        combo_key = (
+            signal_factors.get("combo_key")
+            or order_details.get("combo_key")
+            or row.get("sub_strategy")
+        )
+        return {
+            "strategy": str(row.get("strategy") or "").strip(),
+            "sub_strategy": str(row.get("sub_strategy") or "").strip(),
+            "combo_key": str(combo_key or "").strip(),
+            "side": str(row.get("side") or "").strip().upper(),
+            "size": int(_coerce_int(row.get("size"), 0) or 0),
+            "entry_price": float(_coerce_float(row.get("entry_price"), 0.0)),
+            "entry_time": entry_time,
+            "entry_order_id": str(
+                row.get("entry_order_id")
+                or order_details.get("order_id")
+                or signal_factors.get("entry_order_id")
+                or ""
+            ).strip(),
+            "stop_order_id": str(
+                row.get("stop_order_id")
+                or order_details.get("stop_order_id")
+                or signal_factors.get("stop_order_id")
+                or ""
+            ).strip(),
+            "target_order_id": str(
+                row.get("target_order_id")
+                or order_details.get("target_order_id")
+                or signal_factors.get("target_order_id")
+                or ""
+            ).strip(),
+            "entry_mode": str(row.get("entry_mode") or "").strip(),
+            "vol_regime": str(row.get("vol_regime") or "").strip(),
+        }
+
+    def lookup_trade_identity(
+        self,
+        *,
+        close_order_id: Optional[Any] = None,
+        entry_order_id: Optional[Any] = None,
+        side: Optional[str] = None,
+        size: Optional[int] = None,
+        entry_price: Optional[float] = None,
+        entry_time: Optional[datetime.datetime] = None,
+    ) -> Optional[Dict[str, Any]]:
+        if not self.csv_path.exists():
+            return None
+        try:
+            with self.csv_path.open("r", newline="", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+        except Exception as exc:
+            logging.warning("Trade-factor logger identity lookup failed (%s): %s", self.csv_path, exc)
+            return None
+
+        target_close_order_id = str(close_order_id or "").strip()
+        target_entry_order_id = str(entry_order_id or "").strip()
+        target_side = str(side or "").strip().upper()
+        target_size = int(_coerce_int(size, 0) or 0)
+        target_entry_price = round(float(_coerce_float(entry_price, 0.0)), 4)
+        target_entry_time = self._coerce_event_time(entry_time, self.tz)
+
+        if target_close_order_id:
+            for row in reversed(rows):
+                if target_close_order_id in self._row_close_order_ids(row):
+                    return self._build_trade_identity_from_row(row)
+
+        if target_entry_order_id:
+            for row in reversed(rows):
+                if target_entry_order_id in self._row_entry_order_ids(row):
+                    return self._build_trade_identity_from_row(row)
+
+        for row in reversed(rows):
+            if target_side and str(row.get("side") or "").strip().upper() != target_side:
+                continue
+            row_size = int(_coerce_int(row.get("size"), 0) or 0)
+            if target_size > 0 and row_size not in (0, target_size):
+                continue
+            row_entry_price = round(float(_coerce_float(row.get("entry_price"), 0.0)), 4)
+            if target_entry_price and abs(row_entry_price - target_entry_price) > 1e-4:
+                continue
+            row_entry_time = self._coerce_event_time(
+                row.get("event_time") or row.get("bar_time"),
+                self.tz,
+            )
+            if isinstance(target_entry_time, datetime.datetime):
+                if row_entry_time is None or abs((row_entry_time - target_entry_time).total_seconds()) > 5.0:
+                    continue
+            return self._build_trade_identity_from_row(row)
+        return None
+
     @staticmethod
     def _coerce_event_time(value: Any, fallback_tz: ZoneInfo) -> Optional[datetime.datetime]:
         if isinstance(value, str):
@@ -5217,9 +5267,12 @@ class TradeFactorCsvLogger:
             ]
             if text
         }
+        target_close_order_id = str(metrics.get("order_id") or "").strip()
         target_strategy = str(trade.get("strategy") or "").strip()
         target_sub_strategy = str(trade.get("sub_strategy") or "").strip()
         target_side = str(trade.get("side") or "").strip().upper()
+        target_size = int(_coerce_int(trade.get("size"), 0) or 0)
+        target_entry_time = self._coerce_event_time(trade.get("entry_time"), self.tz)
         target_entry_price = round(
             float(
                 _coerce_float(
@@ -5229,6 +5282,8 @@ class TradeFactorCsvLogger:
             ),
             4,
         )
+        target_exit_price = round(float(_coerce_float(metrics.get("exit_price"), 0.0)), 4)
+        target_pnl_dollars = round(float(_coerce_float(metrics.get("pnl_dollars"), 0.0)), 2)
         try:
             with self.csv_path.open("r", newline="", encoding="utf-8") as f:
                 reader = csv.DictReader(f)
@@ -5238,7 +5293,16 @@ class TradeFactorCsvLogger:
             return False
 
         match_index = None
+        if target_close_order_id:
+            for index in range(len(rows) - 1, -1, -1):
+                row = rows[index]
+                row_close_ids = self._row_close_order_ids(row)
+                if target_close_order_id and target_close_order_id in row_close_ids:
+                    match_index = index
+                    break
         for index in range(len(rows) - 1, -1, -1):
+            if match_index is not None:
+                break
             row = rows[index]
             row_entry_ids = self._row_entry_order_ids(row)
             if target_entry_ids and row_entry_ids.intersection(target_entry_ids):
@@ -5261,11 +5325,7 @@ class TradeFactorCsvLogger:
                 match_index = index
                 break
         if match_index is None:
-            target_close_order_id = str(metrics.get("order_id") or "").strip()
-            target_exit_price = round(float(_coerce_float(metrics.get("exit_price"), 0.0)), 4)
-            close_time_iso = close_time_value.astimezone(self.tz).isoformat()
             repair_index = None
-            target_size = int(_coerce_int(trade.get("size"), 0) or 0)
             for index in range(len(rows) - 1, -1, -1):
                 row = rows[index]
                 if str(row.get("strategy") or "").strip() != target_strategy:
@@ -5300,9 +5360,39 @@ class TradeFactorCsvLogger:
             if repair_index is not None:
                 match_index = repair_index
 
+        if match_index is None and isinstance(target_entry_time, datetime.datetime):
+            for index in range(len(rows) - 1, -1, -1):
+                row = rows[index]
+                if str(row.get("strategy") or "").strip() != target_strategy:
+                    continue
+                if str(row.get("sub_strategy") or "").strip() != target_sub_strategy:
+                    continue
+                if str(row.get("side") or "").strip().upper() != target_side:
+                    continue
+                row_entry_time = self._coerce_event_time(
+                    row.get("event_time") or row.get("bar_time"),
+                    self.tz,
+                )
+                if row_entry_time is None or abs((row_entry_time - target_entry_time).total_seconds()) > 5.0:
+                    continue
+                row_size = int(_coerce_int(row.get("size"), 0) or 0)
+                if target_size > 0 and row_size not in (0, target_size):
+                    continue
+                row_entry_price = round(float(_coerce_float(row.get("entry_price"), 0.0)), 4)
+                if abs(row_entry_price - target_entry_price) > 1e-4:
+                    continue
+                row_exit_price = round(float(_coerce_float(row.get("exit_price"), 0.0)), 4)
+                if row_exit_price and abs(row_exit_price - target_exit_price) > 1e-4:
+                    continue
+                row_pnl_dollars = round(float(_coerce_float(row.get("pnl_dollars"), 0.0)), 2)
+                if row_pnl_dollars and abs(row_pnl_dollars - target_pnl_dollars) > 0.01:
+                    continue
+                if not str(row.get("close_time") or "").strip():
+                    continue
+                match_index = index
+                break
+
         if match_index is None:
-            target_close_order_id = str(metrics.get("order_id") or "").strip()
-            target_exit_price = round(float(_coerce_float(metrics.get("exit_price"), 0.0)), 4)
             close_time_iso = close_time_value.astimezone(self.tz).isoformat()
             duplicate_exists = False
             for row in rows:
@@ -5347,15 +5437,19 @@ class TradeFactorCsvLogger:
             return True
 
         row = dict(rows[match_index])
+        resolved_entry_order_id = str(
+            metrics.get("entry_order_id")
+            or trade.get("entry_order_id")
+            or row.get("entry_order_id")
+            or ""
+        ).strip()
+        row_entry_ids = self._row_entry_order_ids(row)
+        if row_entry_ids and resolved_entry_order_id and resolved_entry_order_id not in row_entry_ids:
+            resolved_entry_order_id = str(row.get("entry_order_id") or "").strip() or resolved_entry_order_id
         pnl_dollars = float(_coerce_float(metrics.get("pnl_dollars"), 0.0))
         row.update(
             {
-                "entry_order_id": str(
-                    metrics.get("entry_order_id")
-                    or trade.get("entry_order_id")
-                    or row.get("entry_order_id")
-                    or ""
-                ),
+                "entry_order_id": resolved_entry_order_id,
                 "close_time": close_time_value.astimezone(self.tz).isoformat(),
                 "close_source": str(metrics.get("source") or ""),
                 "close_order_id": str(metrics.get("order_id") or ""),
@@ -5980,6 +6074,8 @@ async def run_bot():
                 logging.warning("ProjectX user stream did not start; continuing with REST fallbacks")
         except Exception as exc:
             logging.warning("ProjectX user stream startup failed: %s", exc)
+    else:
+        logging.info("ProjectX user stream disabled by config; using REST polling only")
 
     filterless_only_mode = (
         str(os.environ.get("JULIE_FILTERLESS_ONLY", "")).strip().lower() in TRUTHY_ENV_VALUES
@@ -6049,7 +6145,7 @@ async def run_bot():
         return
 
     # Initialize all strategies
-    truth_social_cfg = _truth_social_cfg()
+    truth_social_cfg = CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {}
     truth_social_enabled = bool(truth_social_cfg.get("enabled", False))
     sentiment_service = build_truth_social_sentiment_service(truth_social_cfg) if truth_social_enabled else None
     if filterless_only_mode:
@@ -6490,11 +6586,23 @@ async def run_bot():
     opposite_reversal_require_same_sub_strategy = bool(
         opposite_reversal_cfg.get("require_same_sub_strategy", False)
     )
+    opposite_reversal_require_multi_family_consensus = bool(
+        opposite_reversal_cfg.get(
+            "require_all_active_trade_families_for_multi_strategy_reversal",
+            False,
+        )
+    )
     opposite_reversal_state = {
         "count": 0,
         "side": None,
         "bar_index": None,
         "strategy_family": None,
+    }
+    opposite_reversal_multi_family_state = {
+        "side": None,
+        "bar_index": None,
+        "active_families": (),
+        "family_signal_bars": {},
     }
     pending_impulse_rescues = []
 
@@ -6556,6 +6664,17 @@ async def run_bot():
         previous_family = str(
             opposite_reversal_state.get("strategy_family") or ""
         ).strip()
+        prior_multi_family_side = _normalize_live_side(
+            opposite_reversal_multi_family_state.get("side")
+        )
+        prior_multi_family_active = tuple(
+            str(family).strip()
+            for family in (opposite_reversal_multi_family_state.get("active_families") or [])
+            if str(family).strip()
+        )
+        prior_multi_family_bars = opposite_reversal_multi_family_state.get(
+            "family_signal_bars"
+        ) or {}
         if reason and (previous_count > 0 or previous_side):
             logging.info(
                 "Reset opposite reversal confirmation state: %s (count=%s side=%s family=%s)",
@@ -6564,10 +6683,29 @@ async def run_bot():
                 previous_side or "NONE",
                 previous_family or "ANY",
             )
+        elif reason and (prior_multi_family_side or prior_multi_family_bars):
+            logging.info(
+                "Reset opposite reversal consensus state: %s (side=%s active_families=%s confirmed=%s)",
+                reason,
+                prior_multi_family_side or "NONE",
+                ",".join(prior_multi_family_active) if prior_multi_family_active else "NONE",
+                ",".join(
+                    sorted(
+                        str(family).strip()
+                        for family in prior_multi_family_bars.keys()
+                        if str(family).strip()
+                    )
+                )
+                or "NONE",
+            )
         opposite_reversal_state["count"] = 0
         opposite_reversal_state["side"] = None
         opposite_reversal_state["bar_index"] = None
         opposite_reversal_state["strategy_family"] = None
+        opposite_reversal_multi_family_state["side"] = None
+        opposite_reversal_multi_family_state["bar_index"] = None
+        opposite_reversal_multi_family_state["active_families"] = ()
+        opposite_reversal_multi_family_state["family_signal_bars"] = {}
 
     def note_opposite_reversal_signal(
         signal_payload: Optional[dict],
@@ -6598,6 +6736,145 @@ async def run_bot():
             " (confirmed)" if confirmed else "",
         )
         return confirmed, int(new_count)
+
+    def _active_trade_reversal_families(
+        active_trades_payload: Optional[list[dict]],
+    ) -> list[str]:
+        families = sorted(
+            {
+                str(
+                    get_live_opposite_reversal_family_key(
+                        trade,
+                        require_sub_strategy=opposite_reversal_require_same_sub_strategy,
+                    )
+                    or ""
+                ).strip()
+                for trade in (active_trades_payload or [])
+                if isinstance(trade, dict)
+            }
+            - {""}
+        )
+        return list(families)
+
+    def note_opposite_reversal_multi_family_consensus(
+        signal_payload: Optional[dict],
+        active_trades_payload: Optional[list[dict]],
+        current_bar_index: int,
+    ) -> Tuple[bool, list[str]]:
+        if not opposite_reversal_require_multi_family_consensus:
+            return True, []
+        active_families = _active_trade_reversal_families(active_trades_payload)
+        if len(active_families) <= 1:
+            return True, []
+        signal_family = get_live_opposite_reversal_family_key(
+            signal_payload,
+            require_sub_strategy=opposite_reversal_require_same_sub_strategy,
+        )
+        signal_side = _normalize_live_side(
+            signal_payload.get("side") if isinstance(signal_payload, dict) else None
+        )
+        confirmed, next_state, missing_families = update_multi_family_reversal_consensus_state(
+            opposite_reversal_multi_family_state,
+            signal_side=signal_side,
+            signal_family=signal_family,
+            active_families=active_families,
+            current_bar_index=current_bar_index,
+            window_bars=opposite_reversal_window_bars,
+        )
+        opposite_reversal_multi_family_state.update(next_state)
+        confirmed_families = sorted(
+            str(family).strip()
+            for family in (next_state.get("family_signal_bars") or {}).keys()
+            if str(family).strip()
+        )
+        logging.info(
+            "Opposite reversal multi-family consensus: %s %s/%s within %s bars | confirmed=%s%s",
+            signal_side or "UNKNOWN",
+            len(confirmed_families),
+            len(active_families),
+            opposite_reversal_window_bars,
+            ",".join(confirmed_families) if confirmed_families else "NONE",
+            " (confirmed)" if confirmed else "",
+        )
+        return confirmed, list(missing_families)
+
+    def evaluate_opposite_reversal_confirmation(
+        signal_payload: Optional[dict],
+        active_trades_payload: Optional[list[dict]],
+        current_bar_index: int,
+        *,
+        confirmation_prefix: str,
+    ) -> Tuple[bool, int]:
+        signal_side = (
+            signal_payload.get("side") if isinstance(signal_payload, dict) else None
+        )
+        prior_confirmed = reversal_confirmation_state_is_confirmed(
+            opposite_reversal_state,
+            signal_side=signal_side,
+            current_bar_index=current_bar_index,
+            required_confirmations=opposite_reversal_required,
+            window_bars=opposite_reversal_window_bars,
+        )
+        consensus_confirmed, missing_families = note_opposite_reversal_multi_family_consensus(
+            signal_payload,
+            active_trades_payload,
+            current_bar_index,
+        )
+        reverse_confirmed, reverse_state_count = note_opposite_reversal_signal(
+            signal_payload,
+            current_bar_index,
+        )
+        effective_confirmed = bool(
+            reverse_confirmed or (prior_confirmed and consensus_confirmed)
+        )
+        if not consensus_confirmed:
+            active_families = _active_trade_reversal_families(active_trades_payload)
+            confirmed_family_count = len(
+                {
+                    str(family).strip()
+                    for family in (
+                        opposite_reversal_multi_family_state.get("family_signal_bars") or {}
+                    ).keys()
+                    if str(family).strip()
+                }
+            )
+            waiting_label = ", ".join(missing_families) if missing_families else "other active families"
+            logging.info(
+                "Holding position: %s %s/%s families for %s "
+                "(waiting on %s within %s bars)",
+                confirmation_prefix,
+                confirmed_family_count,
+                max(1, len(active_families)),
+                signal_payload.get("side") if isinstance(signal_payload, dict) else "UNKNOWN",
+                waiting_label,
+                opposite_reversal_window_bars,
+            )
+            return False, int(reverse_state_count)
+        if not effective_confirmed:
+            remaining = max(
+                0,
+                opposite_reversal_required - int(reverse_state_count),
+            )
+            logging.info(
+                "Holding position: %s %s/%s for %s "
+                "(need %s more within %s bars)",
+                confirmation_prefix,
+                reverse_state_count,
+                opposite_reversal_required,
+                signal_payload.get("side") if isinstance(signal_payload, dict) else "UNKNOWN",
+                remaining,
+                opposite_reversal_window_bars,
+            )
+            return False, int(reverse_state_count)
+        if prior_confirmed and consensus_confirmed and not reverse_confirmed:
+            logging.info(
+                "Opposite reversal confirmed via multi-strategy consensus for %s",
+                signal_payload.get("side") if isinstance(signal_payload, dict) else "UNKNOWN",
+            )
+        return True, max(
+            int(reverse_state_count),
+            int(opposite_reversal_required),
+        )
 
     def opposite_reversal_matches_active_trade_family(
         signal_payload: Optional[dict],
@@ -6661,6 +6938,23 @@ async def run_bot():
             signal_family,
             active_family_label,
         )
+
+    def opposite_reversal_gate_allows(
+        signal_payload: Optional[dict],
+        active_trades_payload: Optional[list[dict]],
+        *,
+        prefix: str = "Holding position",
+    ) -> bool:
+        gate_reason = opposite_reversal_gate_reason(
+            signal_payload,
+            active_trades_payload,
+            cfg=opposite_reversal_cfg,
+        )
+        if not gate_reason:
+            return True
+        reset_opposite_reversal_state("opposite reversal policy gate")
+        logging.info("%s: %s", prefix, gate_reason)
+        return False
 
     def _promote_parallel_trade_if_needed() -> None:
         nonlocal active_trade, parallel_active_trades
@@ -6738,9 +7032,38 @@ async def run_bot():
     persisted_state = load_bot_state(STATE_PATH)
     set_sentiment_state(normalize_sentiment_state(persisted_state.get("sentiment")))
     live_drawdown_state = _normalize_live_drawdown_state(persisted_state.get("live_drawdown"))
+    persisted_live_drawdown_account_id = live_drawdown_state.get("account_id")
+    skip_account_scoped_state_restore = False
     last_state_save = 0.0
     last_live_drawdown_refresh = 0.0
     state_restored = False
+    account_scoped_reset_at = parse_dt(persisted_state.get("account_scoped_reset_at"))
+
+    def persisted_account_scoped_state_is_stale() -> bool:
+        circuit_state = persisted_state.get("circuit_breaker") or {}
+        realized_pnl = float(live_drawdown_state.get("realized_pnl", 0.0) or 0.0)
+        current_dd = float(live_drawdown_state.get("current_drawdown_usd", 0.0) or 0.0)
+        daily_pnl = _coerce_float(circuit_state.get("daily_pnl"), 0.0) or 0.0
+        source = str(live_drawdown_state.get("source", "") or "").strip().lower()
+        last_trade_close = live_drawdown_state.get("last_trade_close")
+        return (
+            source == "account_balance"
+            and (
+                (
+                    abs(realized_pnl) <= 1e-9
+                    and abs(current_dd) <= 1e-9
+                )
+                or (
+                    last_trade_close in (None, "")
+                    and abs(realized_pnl) <= 25.0
+                    and abs(current_dd) <= 25.0
+                )
+            )
+            and (
+                bool(circuit_state.get("is_tripped"))
+                or abs(float(daily_pnl)) > 25.0
+            )
+        )
 
     def log_trade_factor_snapshot(
         *,
@@ -6816,15 +7139,24 @@ async def run_bot():
         exit_price = round(float(_coerce_float(row.get("exit_price"), 0.0) or 0.0), 4)
         pnl_dollars = round(float(_coerce_float(row.get("pnl_dollars"), 0.0) or 0.0), 2)
         close_time = str(row.get("time") or "").strip()
+        opened_at = str(row.get("opened_at") or "").strip()
         order_id = str(row.get("order_id") or "").strip()
         entry_order_id = str(row.get("entry_order_id") or "").strip()
+        stop_order_id = str(row.get("stop_order_id") or "").strip()
+        target_order_id = str(row.get("target_order_id") or "").strip()
         keys: set[tuple[Any, ...]] = {
             ("snapshot", strategy, side, entry_price, exit_price, pnl_dollars, close_time)
         }
+        if opened_at:
+            keys.add(("opened", strategy, side, opened_at, entry_price, exit_price, pnl_dollars))
         if order_id:
             keys.add(("order", order_id))
         if entry_order_id:
             keys.add(("entry_order", entry_order_id, strategy, side, exit_price, pnl_dollars))
+        if stop_order_id:
+            keys.add(("stop_order", stop_order_id, strategy, side))
+        if target_order_id:
+            keys.add(("target_order", target_order_id, strategy, side))
         return keys
 
     def _find_projectx_backfill_match_index(closed_trade: Optional[dict]) -> Optional[int]:
@@ -6840,7 +7172,11 @@ async def run_bot():
             row = recent_closed_trades[index]
             row_order_id = str(row.get("order_id") or "").strip()
             row_entry_order_id = str(row.get("entry_order_id") or "").strip()
+            row_stop_order_id = str(row.get("stop_order_id") or "").strip()
+            row_target_order_id = str(row.get("target_order_id") or "").strip()
             if incoming_order_id and row_order_id == incoming_order_id:
+                return index
+            if incoming_order_id and incoming_order_id in {row_stop_order_id, row_target_order_id}:
                 return index
             if incoming_entry_order_id and row_entry_order_id == incoming_entry_order_id:
                 return index
@@ -6948,6 +7284,22 @@ async def run_bot():
                     entry_time = entry_time.replace(tzinfo=NY_TZ)
                 else:
                     entry_time = entry_time.astimezone(NY_TZ)
+            identity_row: dict[str, Any] = {}
+            if trade_factor_logger is not None:
+                try:
+                    identity_row = (
+                        trade_factor_logger.lookup_trade_identity(
+                            close_order_id=recovered.get("order_id"),
+                            entry_order_id=recovered.get("entry_order_id"),
+                            side=recovered.get("side"),
+                            size=recovered.get("size"),
+                            entry_price=recovered.get("entry_price"),
+                            entry_time=entry_time,
+                        )
+                        or {}
+                    )
+                except Exception as exc:
+                    logging.warning("ProjectX trade identity lookup failed: %s", exc)
             match_index = _find_projectx_backfill_match_index(
                 {
                     "time": exit_time.isoformat(),
@@ -6960,17 +7312,67 @@ async def run_bot():
                 }
             )
             existing_row = recent_closed_trades[match_index] if match_index is not None else {}
+            resolved_entry_time = entry_time
+            identity_entry_time = identity_row.get("entry_time")
+            if isinstance(identity_entry_time, datetime.datetime):
+                if identity_entry_time.tzinfo is None:
+                    resolved_entry_time = identity_entry_time.replace(tzinfo=NY_TZ)
+                else:
+                    resolved_entry_time = identity_entry_time.astimezone(NY_TZ)
+            else:
+                existing_opened_at = parse_dt(existing_row.get("opened_at"))
+                if isinstance(existing_opened_at, datetime.datetime):
+                    if existing_opened_at.tzinfo is None:
+                        resolved_entry_time = existing_opened_at.replace(tzinfo=NY_TZ)
+                    else:
+                        resolved_entry_time = existing_opened_at.astimezone(NY_TZ)
             strategy_name = str(
                 existing_row.get("strategy")
+                or identity_row.get("strategy")
                 or recovered.get("strategy")
                 or "ProjectXHistoryBackfill"
             )
-            sub_strategy_name = existing_row.get("sub_strategy") or recovered.get("sub_strategy")
-            combo_key = existing_row.get("combo_key") or recovered.get("combo_key") or sub_strategy_name
+            sub_strategy_name = (
+                existing_row.get("sub_strategy")
+                or identity_row.get("sub_strategy")
+                or recovered.get("sub_strategy")
+            )
+            combo_key = (
+                existing_row.get("combo_key")
+                or identity_row.get("combo_key")
+                or recovered.get("combo_key")
+                or sub_strategy_name
+            )
             pnl_dollars = float(_coerce_float(recovered.get("pnl_dollars"), 0.0) or 0.0)
             pnl_points = _coerce_float(recovered.get("pnl_points"), None)
             exit_price = _coerce_float(recovered.get("exit_price"), None)
-            entry_price = _coerce_float(recovered.get("entry_price"), None)
+            entry_price = _coerce_float(
+                existing_row.get(
+                    "entry_price",
+                    identity_row.get("entry_price", recovered.get("entry_price")),
+                ),
+                None,
+            )
+            resolved_size = max(
+                1,
+                _coerce_int(
+                    existing_row.get("size", identity_row.get("size", recovered.get("size"))),
+                    max(1, _coerce_int(recovered.get("size"), 1)),
+                ),
+            )
+            resolved_entry_order_id = (
+                existing_row.get("entry_order_id")
+                or identity_row.get("entry_order_id")
+                or recovered.get("entry_order_id")
+            )
+            resolved_stop_order_id = (
+                existing_row.get("stop_order_id")
+                or identity_row.get("stop_order_id")
+            )
+            resolved_target_order_id = (
+                existing_row.get("target_order_id")
+                or identity_row.get("target_order_id")
+            )
             if pnl_points is None and entry_price is not None and exit_price is not None:
                 if str(recovered.get("side") or "").upper() == "LONG":
                     pnl_points = float(exit_price - entry_price)
@@ -6983,7 +7385,7 @@ async def run_bot():
                 "sub_strategy": sub_strategy_name,
                 "combo_key": combo_key,
                 "side": str(recovered.get("side") or ""),
-                "size": max(1, _coerce_int(recovered.get("size"), 1)),
+                "size": resolved_size,
                 "entry_price": float(entry_price) if entry_price is not None else None,
                 "signal_entry_price": existing_row.get("signal_entry_price"),
                 "exit_price": float(exit_price) if exit_price is not None else None,
@@ -6992,8 +7394,14 @@ async def run_bot():
                 "result": "win" if pnl_dollars > 0.0 else "loss" if pnl_dollars < 0.0 else "flat",
                 "source": "projectx_trade_history",
                 "order_id": recovered.get("order_id"),
-                "entry_order_id": recovered.get("entry_order_id"),
-                "opened_at": entry_time.isoformat() if isinstance(entry_time, datetime.datetime) else existing_row.get("opened_at"),
+                "entry_order_id": resolved_entry_order_id,
+                "stop_order_id": resolved_stop_order_id,
+                "target_order_id": resolved_target_order_id,
+                "opened_at": (
+                    resolved_entry_time.isoformat()
+                    if isinstance(resolved_entry_time, datetime.datetime)
+                    else existing_row.get("opened_at")
+                ),
                 "de3_management_close_reason": str(existing_row.get("de3_management_close_reason") or ""),
                 "de3_management": (
                     dict(existing_row.get("de3_management"))
@@ -7012,10 +7420,12 @@ async def run_bot():
                             "sub_strategy": sub_strategy_name,
                             "combo_key": combo_key,
                             "side": str(recovered.get("side") or ""),
-                            "size": max(1, _coerce_int(recovered.get("size"), 1)),
+                            "size": resolved_size,
                             "entry_price": float(entry_price) if entry_price is not None else None,
-                            "entry_time": entry_time,
-                            "entry_order_id": recovered.get("entry_order_id"),
+                            "entry_time": resolved_entry_time,
+                            "entry_order_id": resolved_entry_order_id,
+                            "stop_order_id": resolved_stop_order_id,
+                            "target_order_id": resolved_target_order_id,
                             "entry_mode": existing_row.get("entry_mode", "projectx_backfill"),
                             "vol_regime": existing_row.get("vol_regime"),
                             "tracking_restored": bool(existing_row.get("source") in {"broker_flat_cleanup", "price_snapshot"}),
@@ -7028,7 +7438,7 @@ async def run_bot():
                             "pnl_dollars": float(pnl_dollars),
                             "exit_time": exit_time,
                             "order_id": recovered.get("order_id"),
-                            "entry_order_id": recovered.get("entry_order_id"),
+                            "entry_order_id": resolved_entry_order_id,
                         },
                         close_time=exit_time,
                         close_details={
@@ -7185,6 +7595,10 @@ async def run_bot():
             "tp_dist": float(tp_dist),
             "sl_dist": float(sl_dist),
             "size": int(size),
+            "signal_entry_price": _coerce_float(
+                position_snapshot.get("signal_entry_price"),
+                snapshot_entry_price,
+            ),
         }
         restored_variant_id = str(
             position_snapshot.get("de3_v4_selected_variant_id")
@@ -7565,7 +7979,10 @@ async def run_bot():
         if close_time_value.tzinfo is None:
             close_time_value = close_time_value.replace(tzinfo=NY_TZ)
         close_time_iso = close_time_value.astimezone(NY_TZ).isoformat()
-        signal_entry_price = _coerce_float(trade.get("entry_price"), math.nan)
+        signal_entry_price = _coerce_float(
+            trade.get("signal_entry_price"),
+            _coerce_float(trade.get("entry_price"), math.nan),
+        )
         closed_trade = {
             "time": close_time_iso,
             "strategy": trade.get("strategy"),
@@ -7590,6 +8007,8 @@ async def run_bot():
             "source": close_source,
             "order_id": metrics.get("order_id"),
             "entry_order_id": metrics.get("entry_order_id") or trade.get("entry_order_id"),
+            "stop_order_id": trade.get("stop_order_id"),
+            "target_order_id": trade.get("target_order_id"),
             "de3_management_close_reason": str(
                 de3_management_log.get("close_reason") or ""
             ),
@@ -7611,6 +8030,8 @@ async def run_bot():
             ),
             None,
         )
+        if duplicate_index is None:
+            duplicate_index = _find_projectx_backfill_match_index(closed_trade)
         if duplicate_index is not None or any(key in seen_closed_trade_keys for key in incoming_keys):
             if duplicate_index is not None:
                 merged_trade = dict(recent_closed_trades[duplicate_index])
@@ -7675,6 +8096,107 @@ async def run_bot():
             f"live_dd=${float(live_dd_metrics.get('current_drawdown_usd', 0.0) or 0.0):.2f} | "
             f"de3_reason={closed_trade.get('de3_management_close_reason') or ''}"
         )
+
+    def _recover_tracked_trade_closes_from_projectx(
+        current_time: datetime.datetime,
+        market_price: float,
+    ) -> int:
+        if client is None or not hasattr(client, "reconstruct_closed_trades"):
+            return 0
+        open_trades = tracked_live_trades()
+        if not open_trades:
+            return 0
+        entry_times: list[datetime.datetime] = []
+        for trade in open_trades:
+            entry_time = trade.get("entry_time")
+            if not isinstance(entry_time, datetime.datetime):
+                continue
+            if entry_time.tzinfo is None:
+                entry_time = entry_time.replace(tzinfo=NY_TZ)
+            else:
+                entry_time = entry_time.astimezone(NY_TZ)
+            entry_times.append(entry_time)
+        search_start = (
+            min(entry_times) - datetime.timedelta(minutes=2)
+            if entry_times
+            else current_time - datetime.timedelta(minutes=45)
+        )
+        search_end = current_time + datetime.timedelta(minutes=2)
+        try:
+            recovered_trades = client.reconstruct_closed_trades(
+                search_start,
+                search_end,
+                include_stream_trades=True,
+            )
+        except Exception as exc:
+            logging.warning("ProjectX tracked-trade recovery failed: %s", exc)
+            return 0
+        if not recovered_trades:
+            return 0
+
+        recovered_queue = [
+            dict(row)
+            for row in recovered_trades
+            if isinstance(row, dict)
+        ]
+        recovered_count = 0
+        for trade in list(tracked_live_trades()):
+            recovered_match = _find_projectx_recovered_close_for_trade(trade, recovered_queue)
+            if not isinstance(recovered_match, dict):
+                continue
+            close_order_id = _coerce_int(recovered_match.get("order_id"), None)
+            exit_time = recovered_match.get("exit_time")
+            if not isinstance(exit_time, datetime.datetime):
+                exit_time = current_time
+            if exit_time.tzinfo is None:
+                exit_time = exit_time.replace(tzinfo=NY_TZ)
+            else:
+                exit_time = exit_time.astimezone(NY_TZ)
+            fallback_exit_price = _coerce_float(
+                recovered_match.get("exit_price"),
+                market_price,
+            )
+            close_metrics = _reconcile_live_trade_close(
+                client,
+                trade,
+                exit_time,
+                fallback_exit_price=fallback_exit_price,
+                close_order_id=close_order_id,
+            )
+            if not isinstance(close_metrics, dict):
+                close_metrics = _calculate_live_trade_close_metrics_from_price(
+                    trade,
+                    fallback_exit_price,
+                    source="projectx_trade_history",
+                    exit_time=exit_time,
+                    order_id=close_order_id,
+                )
+            else:
+                close_metrics = dict(close_metrics)
+            close_metrics["source"] = str(
+                recovered_match.get("source")
+                or close_metrics.get("source")
+                or "projectx_trade_history"
+            )
+            if close_order_id is not None:
+                close_metrics["order_id"] = close_order_id
+            if not isinstance(close_metrics.get("exit_time"), datetime.datetime):
+                close_metrics["exit_time"] = exit_time
+            if not close_metrics.get("entry_order_id"):
+                close_metrics["entry_order_id"] = trade.get("entry_order_id")
+            finalize_live_trade_close(
+                trade,
+                close_metrics,
+                exit_time,
+                log_prefix="Trade closed (ProjectX recovery)",
+            )
+            remove_tracked_live_trade(trade)
+            recovered_queue = [
+                row for row in recovered_queue
+                if row is not recovered_match
+            ]
+            recovered_count += 1
+        return recovered_count
 
     def sync_tracked_trades_with_broker_state(
         current_time: datetime.datetime,
@@ -7781,15 +8303,49 @@ async def run_bot():
             logging.warning("Position stale during broker sync; skipping flat check.")
             return
 
+        broker_side = _normalize_live_side(broker_pos.get("side"))
+        broker_size = max(0, _coerce_int(broker_pos.get("size"), 0))
+        current_trades = tracked_live_trades()
+        total_tracked_size = sum(
+            max(0, _coerce_int(trade.get("size"), 0))
+            for trade in current_trades
+            if isinstance(trade, dict)
+        )
+        if current_trades and broker_side in {"LONG", "SHORT"} and 0 <= broker_size < total_tracked_size:
+            recovered_count = _recover_tracked_trade_closes_from_projectx(current_time, market_price)
+            if recovered_count:
+                state_changed = True
+                current_trades = tracked_live_trades()
+
         is_flat = broker_pos.get("side") is None or broker_pos.get("size", 0) == 0
         if is_flat:
             flat_position_streak += 1
         else:
             flat_position_streak = 0
             broker_avg_price = _coerce_float(broker_pos.get("avg_price"), math.nan)
-            current_trades = tracked_live_trades()
             if math.isfinite(broker_avg_price) and len(current_trades) == 1:
-                current_trades[0]["broker_entry_price"] = float(broker_avg_price)
+                tracked_trade = current_trades[0]
+                tracked_trade["broker_entry_price"] = float(broker_avg_price)
+                tracked_entry_price = _coerce_float(
+                    tracked_trade.get("entry_price"),
+                    math.nan,
+                )
+                if (
+                    math.isfinite(tracked_entry_price)
+                    and abs(tracked_entry_price - broker_avg_price) > 1e-9
+                ):
+                    if not math.isfinite(
+                        _coerce_float(
+                            tracked_trade.get("signal_entry_price"),
+                            math.nan,
+                        )
+                    ):
+                        tracked_trade["signal_entry_price"] = float(
+                            tracked_entry_price
+                        )
+                    tracked_trade["entry_price"] = float(broker_avg_price)
+                    _refresh_live_de3_management_profile_flags(tracked_trade)
+                    state_changed = True
 
         # Require two consecutive broker flat reads to avoid transient stream gaps.
         if not is_flat or flat_position_streak < 2:
@@ -7798,6 +8354,17 @@ async def run_bot():
             return
 
         logging.info("Broker reports flat while tracking live trades; clearing local state (confirmed).")
+        recovered_count = _recover_tracked_trade_closes_from_projectx(current_time, market_price)
+        if recovered_count:
+            state_changed = True
+        if not tracked_live_trades():
+            reset_opposite_reversal_state("broker_flat_cleanup")
+            client._local_position = {"side": None, "size": 0, "avg_price": 0.0}
+            client._active_stop_order_id = None
+            client._active_target_order_id = None
+            flat_position_streak = 0
+            persist_runtime_state(current_time, reason="broker_flat_cleanup")
+            return
         close_order_details = getattr(client, "_last_close_order_details", None) or {}
         shared_exit_price = _coerce_float(close_order_details.get("exit_price"), market_price)
         try:
@@ -7871,8 +8438,6 @@ async def run_bot():
 
         extension_filter.load_state(persisted_state.get("extension_filter"))
         chop_filter.load_state(persisted_state.get("chop_filter"))
-        directional_loss_blocker.load_state(persisted_state.get("directional_loss_blocker"))
-        circuit_breaker.load_state(persisted_state.get("circuit_breaker"))
         if penalty_blocker is not None:
             penalty_blocker.load_state(persisted_state.get("penalty_box_blocker"))
         if penalty_blocker_asia is not None:
@@ -7880,13 +8445,30 @@ async def run_bot():
         rejection_filter.load_state(persisted_state.get("rejection_filter"))
         if bank_filter is not None:
             bank_filter.load_state(persisted_state.get("bank_filter"))
-        restored_closed_trades = persisted_state.get("recent_closed_trades")
-        if isinstance(restored_closed_trades, list):
-            recent_closed_trades = [
-                row for row in restored_closed_trades
-                if isinstance(row, dict)
-            ][-max_recent_closed_trades:]
-            rebuild_seen_closed_trade_keys()
+        if skip_account_scoped_state_restore:
+            logging.warning(
+                "Skipping persisted account-scoped state restore because the runtime account changed "
+                "from %s to %s.",
+                persisted_live_drawdown_account_id,
+                live_drawdown_state.get("account_id"),
+            )
+            reset_account_scoped_runtime_state(
+                current_time,
+                reason=(
+                    f"startup_account_switch_{persisted_live_drawdown_account_id}_"
+                    f"to_{live_drawdown_state.get('account_id')}"
+                ),
+            )
+        else:
+            directional_loss_blocker.load_state(persisted_state.get("directional_loss_blocker"))
+            circuit_breaker.load_state(persisted_state.get("circuit_breaker"))
+            restored_closed_trades = persisted_state.get("recent_closed_trades")
+            if isinstance(restored_closed_trades, list):
+                recent_closed_trades = [
+                    row for row in restored_closed_trades
+                    if isinstance(row, dict)
+                ][-max_recent_closed_trades:]
+                rebuild_seen_closed_trade_keys()
 
         trend_state = persisted_state.get("trend_day", {})
         trend_day_tier = int(trend_state.get("trend_day_tier", trend_day_tier))
@@ -7918,25 +8500,26 @@ async def run_bot():
         sticky_opposite_count = int(trend_state.get("sticky_opposite_count", sticky_opposite_count))
         last_trend_session = trend_state.get("last_trend_session", last_trend_session)
 
-        mom_state = persisted_state.get("mom_rescue", {})
-        mom_rescue_date_val = mom_state.get("mom_rescue_date")
-        if mom_rescue_date_val:
-            try:
-                mom_rescue_date = date.fromisoformat(mom_rescue_date_val)
-            except Exception:
-                pass
-        mom_rescue_scores = mom_state.get("mom_rescue_scores", mom_rescue_scores)
+        if not skip_account_scoped_state_restore:
+            mom_state = persisted_state.get("mom_rescue", {})
+            mom_rescue_date_val = mom_state.get("mom_rescue_date")
+            if mom_rescue_date_val:
+                try:
+                    mom_rescue_date = date.fromisoformat(mom_rescue_date_val)
+                except Exception:
+                    pass
+            mom_rescue_scores = mom_state.get("mom_rescue_scores", mom_rescue_scores)
 
-        hostile_state = persisted_state.get("hostile_day", {})
-        hostile_day_active = bool(hostile_state.get("hostile_day_active", hostile_day_active))
-        hostile_day_reason = hostile_state.get("hostile_day_reason", hostile_day_reason)
-        hostile_day_date_val = hostile_state.get("hostile_day_date")
-        if hostile_day_date_val:
-            try:
-                hostile_day_date = date.fromisoformat(hostile_day_date_val)
-            except Exception:
-                pass
-        hostile_engine_stats = hostile_state.get("hostile_engine_stats", hostile_engine_stats)
+            hostile_state = persisted_state.get("hostile_day", {})
+            hostile_day_active = bool(hostile_state.get("hostile_day_active", hostile_day_active))
+            hostile_day_reason = hostile_state.get("hostile_day_reason", hostile_day_reason)
+            hostile_day_date_val = hostile_state.get("hostile_day_date")
+            if hostile_day_date_val:
+                try:
+                    hostile_day_date = date.fromisoformat(hostile_day_date_val)
+                except Exception:
+                    pass
+            hostile_engine_stats = hostile_state.get("hostile_engine_stats", hostile_engine_stats)
 
         if regime_manifold_engine is not None and manifold_persist_state:
             try:
@@ -8069,7 +8652,10 @@ async def run_bot():
         prefer_stop_order_id = None
         prefer_target_order_id = None
         if isinstance(tracked_trade, dict):
-            signal_entry_price = _coerce_float(tracked_trade.get("entry_price"), math.nan)
+            signal_entry_price = _coerce_float(
+                tracked_trade.get("signal_entry_price"),
+                _coerce_float(tracked_trade.get("entry_price"), math.nan),
+            )
             tp_dist = _coerce_float(tracked_trade.get("tp_dist"), math.nan)
             current_stop_price = _coerce_float(tracked_trade.get("current_stop_price"), math.nan)
             current_target_price = _coerce_float(tracked_trade.get("current_target_price"), math.nan)
@@ -8207,6 +8793,7 @@ async def run_bot():
             "current_session": current_session_name,
             "session": current_session_name or base_session_name,
             "trading_day_start": trading_day_start(current_time).isoformat(),
+            "account_scoped_reset_at": account_scoped_reset_at.isoformat() if isinstance(account_scoped_reset_at, datetime.datetime) else None,
             "last_bar_ts": current_time.isoformat(),
             "extension_filter": extension_filter.get_state(),
             "chop_filter": chop_filter.get_state(),
@@ -8289,116 +8876,6 @@ async def run_bot():
 
     client._persist_runtime_state = _persist_runtime_state_from_position_sync
 
-    async def process_truth_social_emergency_exit(
-        current_time: datetime.datetime,
-        current_price: float,
-    ) -> bool:
-        nonlocal active_trade, parallel_active_trades
-
-        snapshot = get_sentiment_state()
-        broker_position = (
-            client._local_position.copy()
-            if isinstance(getattr(client, "_local_position", None), dict)
-            else {}
-        )
-        position_side = _normalize_live_side(broker_position.get("side"))
-        if position_side is None:
-            tracked = tracked_live_trades()
-            if tracked:
-                position_side = _normalize_live_side(tracked[0].get("side"))
-                broker_position = {
-                    "side": position_side,
-                    "size": sum(max(0, _coerce_int(trade.get("size"), 0)) for trade in tracked),
-                    "avg_price": _coerce_float(tracked[0].get("entry_price"), 0.0),
-                }
-        exit_reason = _evaluate_truth_social_emergency_exit(snapshot, position_side)
-        if not exit_reason:
-            return False
-
-        tracked_before_exit = [dict(trade) for trade in tracked_live_trades()]
-        entry_price_for_log = (
-            _coerce_float(tracked_before_exit[0].get("entry_price"), current_price)
-            if tracked_before_exit
-            else _coerce_float(broker_position.get("avg_price"), current_price)
-        )
-        try:
-            finbert_conf = _coerce_float(snapshot.get("finbert_confidence"), math.nan)
-            event_logger.log_sentiment_event(
-                "Truth Social emergency exit triggered",
-                {
-                    "strategy": "TruthSocialEngine",
-                    "side": position_side,
-                    "sentiment_score": snapshot.get("sentiment_score"),
-                    "finbert_confidence": round(finbert_conf, 4) if math.isfinite(finbert_conf) else None,
-                    "post_id": snapshot.get("latest_post_id"),
-                    "reason": exit_reason,
-                },
-                level="WARNING",
-            )
-        except Exception:
-            pass
-        event_logger.log_early_exit(
-            reason=exit_reason,
-            bars_held=max(
-                [_coerce_int(trade.get("bars_held"), 0) for trade in tracked_before_exit] or [0]
-            ),
-            current_price=current_price,
-            entry_price=entry_price_for_log,
-        )
-
-        position = await client.async_get_position(prefer_stream=True, require_open_pnl=False)
-        if not isinstance(position, dict):
-            position = {}
-        if _normalize_live_side(position.get("side")) is None:
-            position = broker_position
-        if _normalize_live_side(position.get("side")) is None:
-            logging.warning("Truth Social emergency exit fired but no broker position was available to flatten.")
-            return False
-
-        if not await client.async_emergency_flatten_position(position, exit_reason):
-            logging.warning("Truth Social emergency exit flatten failed; keeping tracked trades intact.")
-            return False
-
-        close_order_details = getattr(client, "_last_close_order_details", {}) or {}
-        shared_exit_price = _coerce_float(close_order_details.get("exit_price"), current_price)
-        for tracked_trade in tracked_before_exit:
-            close_order_id = close_order_details.get("order_id")
-            if len(tracked_before_exit) == 1:
-                close_metrics = _reconcile_live_trade_close(
-                    client,
-                    tracked_trade,
-                    current_time,
-                    fallback_exit_price=shared_exit_price,
-                    close_order_id=close_order_id,
-                )
-            else:
-                close_metrics = _calculate_live_trade_close_metrics_from_price(
-                    tracked_trade,
-                    shared_exit_price,
-                    source="truth_social_emergency_exit",
-                    exit_time=current_time,
-                    order_id=_coerce_int(close_order_id, None),
-                )
-            if not isinstance(close_metrics, dict):
-                close_metrics = _calculate_live_trade_close_metrics_from_price(
-                    tracked_trade,
-                    shared_exit_price,
-                    source="truth_social_emergency_exit_fallback",
-                    exit_time=current_time,
-                    order_id=_coerce_int(close_order_id, None),
-                )
-            finalize_live_trade_close(
-                tracked_trade,
-                close_metrics,
-                current_time,
-                log_prefix="📊 Truth Social emergency exit closed",
-            )
-
-        active_trade = None
-        parallel_active_trades = []
-        persist_runtime_state(current_time, reason="truth_social_emergency_exit")
-        return True
-
     def reset_mom_rescues(day: date) -> None:
         nonlocal mom_rescue_date, mom_rescue_scores
         mom_rescue_date = day
@@ -8468,6 +8945,29 @@ async def run_bot():
             "DynamicEngine": {"trades": 0, "losses": 0},
             "Continuation": {"trades": 0, "losses": 0},
         }
+
+    def reset_account_scoped_runtime_state(
+        current_time: Optional[datetime.datetime] = None,
+        *,
+        reason: Optional[str] = None,
+    ) -> None:
+        nonlocal recent_closed_trades, seen_closed_trade_keys, account_scoped_reset_at
+        reset_time = current_time or datetime.datetime.now(NY_TZ)
+        if reset_time.tzinfo is None:
+            reset_time = reset_time.replace(tzinfo=NY_TZ)
+        reset_day = reset_time.astimezone(NY_TZ).date()
+        circuit_breaker.reset_daily()
+        directional_loss_blocker.reset_daily()
+        reset_mom_rescues(reset_day)
+        reset_hostile_day(reset_day)
+        recent_closed_trades = []
+        seen_closed_trade_keys.clear()
+        account_scoped_reset_at = reset_time.astimezone(NY_TZ)
+        logging.warning(
+            "Reset account-scoped runtime state for live account %s (%s)",
+            live_drawdown_state.get("account_id"),
+            reason or "account change",
+        )
 
     def update_hostile_day_on_close(strategy_name: Optional[str], pnl_points: float, exit_time: datetime.datetime) -> None:
         nonlocal hostile_day_active, hostile_day_reason
@@ -8557,6 +9057,24 @@ async def run_bot():
         ):
             last_live_drawdown_refresh = time.time()
             dd_metrics = _current_live_drawdown_metrics(live_drawdown_state)
+            current_live_account_id = live_drawdown_state.get("account_id")
+            if (
+                persisted_live_drawdown_account_id is not None
+                and current_live_account_id is not None
+                and int(current_live_account_id) != int(persisted_live_drawdown_account_id)
+            ):
+                skip_account_scoped_state_restore = True
+                logging.warning(
+                    "Detected startup account change: persisted account %s -> live account %s.",
+                    persisted_live_drawdown_account_id,
+                    current_live_account_id,
+                )
+            elif persisted_account_scoped_state_is_stale():
+                skip_account_scoped_state_restore = True
+                logging.warning(
+                    "Detected stale persisted account-scoped runtime state after account rebasing; "
+                    "daily risk/trade history will be reset on restore."
+                )
             logging.info(
                 "Live drawdown state seeded: dd=$%.2f source=%s balance=%s peak=%s",
                 float(dd_metrics.get("current_drawdown_usd", 0.0) or 0.0),
@@ -9054,6 +9572,7 @@ async def run_bot():
                 or (time.time() - last_live_drawdown_refresh) >= 60.0
             )
             if refresh_needed:
+                previous_live_account_id = live_drawdown_state.get("account_id")
                 if _refresh_live_drawdown_from_client(
                     client,
                     live_drawdown_state,
@@ -9061,6 +9580,23 @@ async def run_bot():
                     force_refresh=bool(live_drawdown_state.get("balance_pending_refresh", False)),
                 ):
                     last_live_drawdown_refresh = time.time()
+                    refreshed_live_account_id = live_drawdown_state.get("account_id")
+                    if (
+                        previous_live_account_id is not None
+                        and refreshed_live_account_id is not None
+                        and int(refreshed_live_account_id) != int(previous_live_account_id)
+                    ):
+                        reset_account_scoped_runtime_state(
+                            current_time,
+                            reason=(
+                                f"live_account_switch_{previous_live_account_id}_"
+                                f"to_{refreshed_live_account_id}"
+                            ),
+                        )
+                        persist_runtime_state(
+                            current_time,
+                            reason="account_switch_reset",
+                        )
 
             rejection_filter.update(current_time, currbar['high'], currbar['low'], currbar['close'])
             if bank_filter is not None:
@@ -9744,18 +10280,14 @@ async def run_bot():
                             trade['profit_crosses'] = trade.get('profit_crosses', 0) + 1
                         trade['was_green'] = is_green
 
-                        # Kalshi hour-turn sentiment exit (independent of early exit config)
-                        kalshi_exit = _check_kalshi_sentiment_exit(trade, current_price, current_time)
-                        if kalshi_exit:
-                            exit_reason = kalshi_exit
-                        elif early_exit_config.get('enabled', False):
-                            exit_reason = _evaluate_live_early_exit_reason(
-                                trade,
-                                current_price,
-                                early_exit_config,
-                            )
-                        else:
-                            exit_reason = None
+                        if not early_exit_config.get('enabled', False):
+                            continue
+
+                        exit_reason = _evaluate_live_early_exit_reason(
+                            trade,
+                            current_price,
+                            early_exit_config,
+                        )
 
                         if not exit_reason:
                             continue
@@ -9835,10 +10367,6 @@ async def run_bot():
                     if trade_state_changed:
                         persist_runtime_state(current_time, reason="trade_management_close")
 
-                if await process_truth_social_emergency_exit(current_time, current_price):
-                    await asyncio.sleep(2.0)
-                    continue
-
                 # === STRATEGY EXECUTION ===
                 if news_blocked:
                     logging.info("📰 NEWS BLACKOUT: Skipping trade execution (data continues)")
@@ -9862,6 +10390,33 @@ async def run_bot():
                         bucket.append(label)
                     elif slot_key == "executed":
                         strategy_results[slot_key] = label
+
+                def log_directional_conflict_rejection(
+                    reason: str,
+                    signal_payload: Optional[dict],
+                    fallback_name: Optional[str],
+                ) -> None:
+                    strategy_name = (
+                        signal_payload.get("strategy", fallback_name)
+                        if isinstance(signal_payload, dict)
+                        else fallback_name
+                    )
+                    side_name = _normalize_live_side(
+                        signal_payload.get("side") if isinstance(signal_payload, dict) else None
+                    )
+                    add_strategy_slot(
+                        "rejected",
+                        strategy_name,
+                        signal_payload if isinstance(signal_payload, dict) else None,
+                        fallback=fallback_name,
+                    )
+                    event_logger.log_filter_check(
+                        "DirectionalConflict",
+                        side_name or "UNKNOWN",
+                        False,
+                        reason,
+                        strategy=strategy_name,
+                    )
 
                 regime_meta = None
                 if regime_manifold_engine is not None:
@@ -9957,9 +10512,6 @@ async def run_bot():
                                 live_drawdown_state,
                                 tracked_live_trades(),
                             )
-                            if pending_signal["size"] <= 0:
-                                logging.info("Kalshi HARD VETO — rescued trade blocked (size=0): %s", pending_signal.get("strategy", "PendingRescue"))
-                                continue
                             if _same_side_active_trade(active_trade, pending_signal):
                                 reset_opposite_reversal_state("same-side rescued signal")
                                 logging.info(
@@ -9983,6 +10535,14 @@ async def run_bot():
                                 )
                                 continue
 
+                            if old_trades and not opposite_reversal_gate_allows(
+                                pending_signal,
+                                current_trades,
+                            ):
+                                executed_rescue = True
+                                pending_impulse_rescues.clear()
+                                break
+
                             if old_trades and not opposite_reversal_matches_active_trade_family(
                                 pending_signal,
                                 current_trades,
@@ -10001,24 +10561,13 @@ async def run_bot():
 
                             reverse_state_count = 0
                             if old_trades:
-                                reverse_confirmed, reverse_state_count = note_opposite_reversal_signal(
+                                reverse_confirmed, reverse_state_count = evaluate_opposite_reversal_confirmation(
                                     pending_signal,
+                                    current_trades,
                                     bar_count,
+                                    confirmation_prefix="opposite rescue confirmation",
                                 )
                                 if not reverse_confirmed:
-                                    remaining = max(
-                                        0,
-                                        opposite_reversal_required - reverse_state_count,
-                                    )
-                                    logging.info(
-                                        "Holding position: opposite rescue confirmation %s/%s for %s "
-                                        "(need %s more within %s bars)",
-                                        reverse_state_count,
-                                        opposite_reversal_required,
-                                        pending_signal.get("side"),
-                                        remaining,
-                                        opposite_reversal_window_bars,
-                                    )
                                     executed_rescue = True
                                     pending_impulse_rescues.clear()
                                     break
@@ -10244,10 +10793,7 @@ async def run_bot():
                                 signal.get('strategy', strat_name),
                                 signal
                             )
-                            log_info = {
-                                "status": "CANDIDATE",
-                                "priority": "FAST",
-                            }
+                            log_info = {"status": "CANDIDATE", "priority": "FAST"}
                             if log_sub:
                                 log_info["sub_strategy"] = log_sub
                             for extra_key in (
@@ -10270,10 +10816,7 @@ async def run_bot():
                                 price=current_price,
                                 additional_info=log_info
                             )
-                            if candidate_priority == 0:
-                                logging.info(f"📊 CANDIDATE (SENTIMENT): {strat_name} {signal['side']} @ {current_price:.2f}")
-                            else:
-                                logging.info(f"📊 CANDIDATE (FAST): {strat_name} {signal['side']} @ {current_price:.2f}")
+                            logging.info(f"📊 CANDIDATE (FAST): {strat_name} {signal['side']} @ {current_price:.2f}")
 
                     except Exception as e:
                         logging.exception("Error in %s", strat_name)
@@ -10777,67 +11320,39 @@ async def run_bot():
                             )
 
                 signal_executed = False
-                surviving_direction_counts = {"LONG": 0, "SHORT": 0}
-                for _, _, sig, _ in candidate_signals:
-                    side = _normalize_live_side(sig.get("side") if isinstance(sig, dict) else None)
-                    if side in surviving_direction_counts:
-                        surviving_direction_counts[side] += 1
-                if surviving_direction_counts["LONG"] > 0 and surviving_direction_counts["SHORT"] > 0:
-                    if consensus_side in {"LONG", "SHORT"}:
-                        resolved_candidates = []
-                        resolution_reason = (
-                            "mixed same-bar directions resolved by consensus "
-                            f"{consensus_side} ({surviving_direction_counts['LONG']} LONG / "
-                            f"{surviving_direction_counts['SHORT']} SHORT)"
+                has_directional_conflict, surviving_direction_counts = _has_live_direction_conflict(candidate_signals)
+                if has_directional_conflict:
+                    conflict_reason = (
+                        "mixed same-bar directions after filtering "
+                        f"({surviving_direction_counts['LONG']} LONG / "
+                        f"{surviving_direction_counts['SHORT']} SHORT)"
+                    )
+                    for _, _, sig, strat_name in candidate_signals:
+                        log_directional_conflict_rejection(
+                            conflict_reason,
+                            sig if isinstance(sig, dict) else None,
+                            strat_name,
                         )
-                        for priority, strat, sig, strat_name in candidate_signals:
-                            side = _normalize_live_side(sig.get("side") if isinstance(sig, dict) else None)
-                            if side == consensus_side:
-                                resolved_candidates.append((priority, strat, sig, strat_name))
-                                continue
-                            add_strategy_slot(
-                                "rejected",
-                                sig.get("strategy", strat_name) if isinstance(sig, dict) else strat_name,
-                                sig if isinstance(sig, dict) else None,
-                                fallback=strat_name,
-                            )
-                            event_logger.log_filter_check(
-                                "DirectionalConflict",
-                                side or "UNKNOWN",
-                                False,
-                                resolution_reason,
-                                strategy=(sig.get("strategy", strat_name) if isinstance(sig, dict) else strat_name),
-                            )
-                        candidate_signals = resolved_candidates
-                        logging.info("🧭 DIRECTIONAL CONFLICT RESOLVED: %s", resolution_reason)
-                    else:
-                        conflict_reason = (
-                            "mixed same-bar directions after filtering "
-                            f"({surviving_direction_counts['LONG']} LONG / "
-                            f"{surviving_direction_counts['SHORT']} SHORT)"
-                        )
-                        for _, _, sig, strat_name in candidate_signals:
-                            side = _normalize_live_side(sig.get("side") if isinstance(sig, dict) else None)
-                            add_strategy_slot(
-                                "rejected",
-                                sig.get("strategy", strat_name) if isinstance(sig, dict) else strat_name,
-                                sig if isinstance(sig, dict) else None,
-                                fallback=strat_name,
-                            )
-                            event_logger.log_filter_check(
-                                "DirectionalConflict",
-                                side or "UNKNOWN",
-                                False,
-                                conflict_reason,
-                                strategy=(sig.get("strategy", strat_name) if isinstance(sig, dict) else strat_name),
-                            )
-                        logging.info("⛔ DIRECTIONAL CONFLICT: %s; skipping bar", conflict_reason)
-                        reset_opposite_reversal_state("directional_conflict")
-                        signal_executed = True
-                        candidate_signals = []
+                    logging.info("⛔ DIRECTIONAL CONFLICT: %s; skipping bar", conflict_reason)
+                    reset_opposite_reversal_state("directional_conflict")
+                    signal_executed = True
+                    candidate_signals = []
+                apply_shared_consensus_bracket = _should_apply_shared_consensus_bracket(
+                    consensus_tp_signal,
+                    candidate_signals,
+                )
+                if (
+                    isinstance(consensus_tp_signal, dict)
+                    and not apply_shared_consensus_bracket
+                    and len(candidate_signals) > 1
+                ):
+                    logging.info(
+                        "🧮 CONSENSUS TP SKIPPED: preserving native brackets for %s same-bar candidate(s)",
+                        len(candidate_signals),
+                    )
                 for priority, strat, sig, strat_name in candidate_signals:
                     signal = sig
-                    priority_label = "SENTIMENT" if priority == 0 else ("FAST" if priority == 1 else "STANDARD")
+                    priority_label = "FAST" if priority == 1 else "STANDARD"
                     do_execute = False
                     signal.setdefault("strategy", strat_name)
                     trend_day_counter = False
@@ -10848,6 +11363,8 @@ async def run_bot():
                         )
                         signal["trend_day_tier"] = trend_day_tier
                         signal["trend_day_dir"] = trend_day_dir
+                    if vol_regime_current and not signal.get("vol_regime"):
+                        signal["vol_regime"] = vol_regime_current
                     origin_strategy = signal.get("strategy", strat_name)
                     origin_sub_strategy = signal.get("sub_strategy")
                     allow_rescue = not str(origin_strategy).startswith("MLPhysics")
@@ -10877,6 +11394,37 @@ async def run_bot():
                             strategy=signal.get('strategy', strat_name)
                         )
                         logging.info(f"🛑 HOSTILE DAY: Skipping {strat_name}")
+                        continue
+
+                    anti_flip_reason = _live_de3_flip_flop_guard_reason(
+                        signal,
+                        tracked_live_trades(),
+                        recent_closed_trades,
+                        current_time,
+                    )
+                    if anti_flip_reason:
+                        add_strategy_slot(
+                            "rejected",
+                            signal.get("strategy", strat_name),
+                            signal,
+                            fallback=strat_name,
+                        )
+                        event_logger.log_filter_check(
+                            "DE3AntiFlip",
+                            signal["side"],
+                            False,
+                            anti_flip_reason,
+                            strategy=signal.get("strategy", strat_name),
+                        )
+                        if any(
+                            _normalize_live_side(trade.get("side")) not in {None, _normalize_live_side(signal.get("side"))}
+                            for trade in tracked_live_trades()
+                            if isinstance(trade, dict)
+                        ):
+                            reset_opposite_reversal_state("DE3 anti-flip guard")
+                            logging.info("Holding position: %s", anti_flip_reason)
+                        else:
+                            logging.info("Skipping signal: %s", anti_flip_reason)
                         continue
 
                     def should_log_ui(current_signal, fallback_name):
@@ -11150,7 +11698,7 @@ async def run_bot():
                                     f"⛔ CONSENSUS BLOCKED by TrendDayTier{trend_day_tier}"
                                 )
                                 continue
-                        if consensus_tp_signal is not None:
+                        if apply_shared_consensus_bracket:
                             signal['tp_dist'] = consensus_tp_signal.get('tp_dist', signal.get('tp_dist'))
                             signal['sl_dist'] = consensus_tp_signal.get('sl_dist', signal.get('sl_dist'))
                             if consensus_tp_source:
@@ -11820,9 +12368,6 @@ async def run_bot():
                         live_drawdown_state,
                         tracked_live_trades(),
                     )
-                    if signal["size"] <= 0:
-                        logging.info("Kalshi HARD VETO — trade blocked (size=0): %s", signal.get("strategy", strat_name))
-                        continue
                     if _same_side_active_trade(active_trade, signal):
                         if _allow_same_side_parallel_entry(active_trade, signal, tracked_live_trades()):
                             reset_opposite_reversal_state("same-side coexist signal")
@@ -12019,6 +12564,12 @@ async def run_bot():
                     log_rescue_success()
                     current_trades = tracked_live_trades()
                     old_trades = [dict(trade) for trade in current_trades]
+                    if old_trades and not opposite_reversal_gate_allows(
+                        signal,
+                        current_trades,
+                    ):
+                        signal_executed = True
+                        break
                     if old_trades and not opposite_reversal_matches_active_trade_family(
                         signal,
                         current_trades,
@@ -12045,24 +12596,13 @@ async def run_bot():
                     # Close and Reverse logic...
                     reverse_state_count = 0
                     if old_trades:
-                        reverse_confirmed, reverse_state_count = note_opposite_reversal_signal(
+                        reverse_confirmed, reverse_state_count = evaluate_opposite_reversal_confirmation(
                             signal,
+                            current_trades,
                             bar_count,
+                            confirmation_prefix="opposite confirmation",
                         )
                         if not reverse_confirmed:
-                            remaining = max(
-                                0,
-                                opposite_reversal_required - reverse_state_count,
-                            )
-                            logging.info(
-                                "Holding position: opposite confirmation %s/%s for %s "
-                                "(need %s more within %s bars)",
-                                reverse_state_count,
-                                opposite_reversal_required,
-                                signal.get("side"),
-                                remaining,
-                                opposite_reversal_window_bars,
-                            )
                             signal_executed = True
                             break
 
@@ -12161,6 +12701,32 @@ async def run_bot():
 # 2c. LOOSE STRATEGIES (Queued)
                 if not signal_executed:
                     if is_new_bar:
+                        pending_directional_conflict, pending_direction_counts = _has_live_direction_conflict(
+                            pending_loose_signals
+                        )
+                        if pending_directional_conflict:
+                            pending_conflict_reason = (
+                                "mixed queued loose directions "
+                                f"({pending_direction_counts['LONG']} LONG / "
+                                f"{pending_direction_counts['SHORT']} SHORT)"
+                            )
+                            for queued_name, queued_payload in list(pending_loose_signals.items()):
+                                queued_signal = (
+                                    queued_payload.get("signal")
+                                    if isinstance(queued_payload, dict)
+                                    else None
+                                )
+                                log_directional_conflict_rejection(
+                                    pending_conflict_reason,
+                                    queued_signal if isinstance(queued_signal, dict) else None,
+                                    queued_name,
+                                )
+                            pending_loose_signals.clear()
+                            logging.info(
+                                "⛔ LOOSE DIRECTIONAL CONFLICT: %s; clearing queued signals",
+                                pending_conflict_reason,
+                            )
+                            reset_opposite_reversal_state("loose_directional_conflict")
                         # Process Pending
                         for s_name in list(pending_loose_signals.keys()):
                             pending = pending_loose_signals[s_name]
@@ -12255,6 +12821,38 @@ async def run_bot():
                                     sig["sltp_bracket"] = fixed_details.get("bracket")
                                     sig["vol_regime"] = fixed_details.get("vol_regime", sig.get("vol_regime"))
                                     log_fixed_sltp(fixed_details, sig.get("strategy", s_name))
+
+                                if trend_day_tier > 0 and trend_day_dir:
+                                    sig["trend_day_tier"] = trend_day_tier
+                                    sig["trend_day_dir"] = trend_day_dir
+                                if vol_regime_current and not sig.get("vol_regime"):
+                                    sig["vol_regime"] = vol_regime_current
+
+                                anti_flip_reason = _live_de3_flip_flop_guard_reason(
+                                    sig,
+                                    tracked_live_trades(),
+                                    recent_closed_trades,
+                                    current_time,
+                                )
+                                if anti_flip_reason:
+                                    event_logger.log_filter_check(
+                                        "DE3AntiFlip",
+                                        sig["side"],
+                                        False,
+                                        anti_flip_reason,
+                                        strategy=sig.get("strategy", s_name),
+                                    )
+                                    if any(
+                                        _normalize_live_side(trade.get("side")) not in {None, _normalize_live_side(sig.get("side"))}
+                                        for trade in tracked_live_trades()
+                                        if isinstance(trade, dict)
+                                    ):
+                                        reset_opposite_reversal_state("DE3 anti-flip guard")
+                                        logging.info("Holding position: %s", anti_flip_reason)
+                                    else:
+                                        logging.info("Skipping signal: %s", anti_flip_reason)
+                                    del pending_loose_signals[s_name]
+                                    continue
 
                                 # Enforce HTF range fade directional restriction
                                 if trend_day_tier > 0 and trend_day_dir:
@@ -12559,10 +13157,6 @@ async def run_bot():
                                     live_drawdown_state,
                                     tracked_live_trades(),
                                 )
-                                if sig["size"] <= 0:
-                                    logging.info("Kalshi HARD VETO — loose trade blocked (size=0): %s", sig.get("strategy", s_name))
-                                    del pending_loose_signals[s_name]
-                                    continue
                                 if _same_side_active_trade(active_trade, sig):
                                     if _allow_same_side_parallel_entry(active_trade, sig, tracked_live_trades()):
                                         reset_opposite_reversal_state("same-side loose coexist signal")
@@ -12786,6 +13380,13 @@ async def run_bot():
 
                                 current_trades = tracked_live_trades()
                                 old_trades = [dict(trade) for trade in current_trades]
+                                if old_trades and not opposite_reversal_gate_allows(
+                                    sig,
+                                    current_trades,
+                                ):
+                                    del pending_loose_signals[s_name]
+                                    signal_executed = True
+                                    break
                                 if old_trades and not opposite_reversal_matches_active_trade_family(
                                     sig,
                                     current_trades,
@@ -12804,24 +13405,13 @@ async def run_bot():
 
                                 reverse_state_count = 0
                                 if old_trades:
-                                    reverse_confirmed, reverse_state_count = note_opposite_reversal_signal(
+                                    reverse_confirmed, reverse_state_count = evaluate_opposite_reversal_confirmation(
                                         sig,
+                                        current_trades,
                                         bar_count,
+                                        confirmation_prefix="loose opposite confirmation",
                                     )
                                     if not reverse_confirmed:
-                                        remaining = max(
-                                            0,
-                                            opposite_reversal_required - reverse_state_count,
-                                        )
-                                        logging.info(
-                                            "Holding position: loose opposite confirmation %s/%s for %s "
-                                            "(need %s more within %s bars)",
-                                            reverse_state_count,
-                                            opposite_reversal_required,
-                                            sig.get("side"),
-                                            remaining,
-                                            opposite_reversal_window_bars,
-                                        )
                                         del pending_loose_signals[s_name]
                                         signal_executed = True
                                         break
@@ -13279,6 +13869,43 @@ async def run_bot():
                                             signal,
                                             fallback=s_name,
                                         )
+                                        queued_direction_counts = _live_signal_direction_counts(
+                                            pending_loose_signals
+                                        )
+                                        queued_side = _normalize_live_side(signal.get("side"))
+                                        queued_conflict = (
+                                            (queued_side == "LONG" and queued_direction_counts["SHORT"] > 0)
+                                            or (queued_side == "SHORT" and queued_direction_counts["LONG"] > 0)
+                                        )
+                                        if queued_conflict:
+                                            queued_conflict_reason = (
+                                                "mixed loose directions on the same evaluation bar "
+                                                f"({queued_direction_counts['LONG']} LONG / "
+                                                f"{queued_direction_counts['SHORT']} SHORT + {queued_side or 'UNKNOWN'})"
+                                            )
+                                            for queued_name, queued_payload in list(pending_loose_signals.items()):
+                                                queued_signal = (
+                                                    queued_payload.get("signal")
+                                                    if isinstance(queued_payload, dict)
+                                                    else None
+                                                )
+                                                log_directional_conflict_rejection(
+                                                    queued_conflict_reason,
+                                                    queued_signal if isinstance(queued_signal, dict) else None,
+                                                    queued_name,
+                                                )
+                                            log_directional_conflict_rejection(
+                                                queued_conflict_reason,
+                                                signal,
+                                                s_name,
+                                            )
+                                            pending_loose_signals.clear()
+                                            logging.info(
+                                                "⛔ LOOSE DIRECTIONAL CONFLICT: %s; clearing queued signals",
+                                                queued_conflict_reason,
+                                            )
+                                            reset_opposite_reversal_state("loose_new_signal_directional_conflict")
+                                            continue
                                         logging.info(f"🕐 Queuing {s_name} signal")
                                         pending_loose_signals[s_name] = {'signal': signal, 'bar_count': 0}
                                 except Exception as e:

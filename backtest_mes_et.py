@@ -67,6 +67,8 @@ from de3_walkforward_gate import (
     load_model_bundle as load_de3_walkforward_model_bundle,
 )
 from event_logger import event_logger
+from de3_anti_flip_guard import de3_flip_flop_guard_reason
+from opposite_reversal_policy import opposite_reversal_gate_reason
 
 
 def safe_float(value, default=0.0):
@@ -228,6 +230,25 @@ TREND_UP_ATR_EXP = 1.4
 TREND_UP_ABOVE_EMA50_WINDOW = 10
 TREND_UP_ABOVE_EMA50_COUNT = 8
 TREND_UP_HL_SEGMENT = 5
+
+
+def _backtest_strategy_family_name(value: Optional[str]) -> str:
+    strategy_name = str(value or "").strip()
+    if strategy_name.startswith("DynamicEngine3") or strategy_name in {
+        "DynamicEngine",
+        "DynamicEngineStrategy",
+    }:
+        return "de3"
+    if strategy_name in {
+        "RegimeAdaptive",
+        "RegimeAdaptiveStrategy",
+        "AuctionReversion",
+        "SmoothTrendAsia",
+    }:
+        return "regimeadaptive"
+    if strategy_name == "AetherFlowStrategy":
+        return "aetherflow"
+    return str(strategy_name).casefold()
 TREND_DOWN_EMA_SLOPE_BARS = 20
 TREND_DOWN_ATR_EXP = 1.4
 TREND_DOWN_BELOW_EMA50_WINDOW = 10
@@ -6962,33 +6983,53 @@ def run_backtest(
         except Exception:
             pass
 
-    trend_day_context_required = bool(TREND_DAY_ENABLED and enabled_filter_trend_day_tier)
+    backtest_de3_anti_flip_cfg = CONFIG.get("BACKTEST_DE3_ANTI_FLIP", {}) or {}
+    backtest_de3_anti_flip_enabled = bool(backtest_de3_anti_flip_cfg.get("enabled", False))
+    opposite_reversal_runtime_cfg = CONFIG.get("LIVE_OPPOSITE_REVERSAL", {}) or {}
+    opposite_reversal_trend_context_required = bool(
+        (opposite_reversal_runtime_cfg or {}).get("block_countertrend_in_trend_day", False)
+    )
+
+    trend_day_context_required = bool(
+        TREND_DAY_ENABLED
+        and (
+            enabled_filter_trend_day_tier
+            or backtest_de3_anti_flip_enabled
+            or opposite_reversal_trend_context_required
+        )
+    )
     if trend_day_context_required:
-        emit_init_status("Computing trend-day context...")
+        if enabled_filter_trend_day_tier:
+            emit_init_status("Computing trend-day context...")
+        else:
+            emit_init_status(
+                "Computing trend-day context for backtest reversal research..."
+            )
         trend_day_source_df = full_df
         if TREND_DAY_TIMEFRAME_MINUTES > 1:
             trend_day_source_df = resample_dataframe(full_df, TREND_DAY_TIMEFRAME_MINUTES)
         trend_day_series_raw = compute_trend_day_series(trend_day_source_df)
-        trend_day_series = align_trend_day_series(trend_day_series_raw, full_df.index)
-        td_ema50 = trend_day_series["ema50"]
-        td_ema200 = trend_day_series["ema200"]
-        td_atr_exp = trend_day_series["atr_expansion"]
-        td_vwap = trend_day_series["vwap"]
-        td_vwap_sigma = trend_day_series["vwap_sigma_dist"]
-        td_reclaim_down = trend_day_series["reclaim_down"]
-        td_reclaim_up = trend_day_series["reclaim_up"]
-        td_no_reclaim_down_t1 = trend_day_series["no_reclaim_down_t1"]
-        td_no_reclaim_up_t1 = trend_day_series["no_reclaim_up_t1"]
-        td_no_reclaim_down_t2 = trend_day_series["no_reclaim_down_t2"]
-        td_no_reclaim_up_t2 = trend_day_series["no_reclaim_up_t2"]
-        td_session_open = trend_day_series["session_open"]
-        td_prior_session_low = trend_day_series["prior_session_low"]
-        td_prior_session_high = trend_day_series["prior_session_high"]
-        td_trend_up_alt = trend_day_series["trend_up_alt"]
-        td_trend_down_alt = trend_day_series["trend_down_alt"]
-        td_adx_strong_up = trend_day_series["adx_strong_up"]
-        td_adx_strong_down = trend_day_series["adx_strong_down"]
-        td_day_index = trend_day_series["day_index"]
+        trend_day_context_series = align_trend_day_series(trend_day_series_raw, full_df.index)
+        trend_day_series = trend_day_context_series if enabled_filter_trend_day_tier else None
+        td_ema50 = trend_day_context_series["ema50"]
+        td_ema200 = trend_day_context_series["ema200"]
+        td_atr_exp = trend_day_context_series["atr_expansion"]
+        td_vwap = trend_day_context_series["vwap"]
+        td_vwap_sigma = trend_day_context_series["vwap_sigma_dist"]
+        td_reclaim_down = trend_day_context_series["reclaim_down"]
+        td_reclaim_up = trend_day_context_series["reclaim_up"]
+        td_no_reclaim_down_t1 = trend_day_context_series["no_reclaim_down_t1"]
+        td_no_reclaim_up_t1 = trend_day_context_series["no_reclaim_up_t1"]
+        td_no_reclaim_down_t2 = trend_day_context_series["no_reclaim_down_t2"]
+        td_no_reclaim_up_t2 = trend_day_context_series["no_reclaim_up_t2"]
+        td_session_open = trend_day_context_series["session_open"]
+        td_prior_session_low = trend_day_context_series["prior_session_low"]
+        td_prior_session_high = trend_day_context_series["prior_session_high"]
+        td_trend_up_alt = trend_day_context_series["trend_up_alt"]
+        td_trend_down_alt = trend_day_context_series["trend_down_alt"]
+        td_adx_strong_up = trend_day_context_series["adx_strong_up"]
+        td_adx_strong_down = trend_day_context_series["adx_strong_down"]
+        td_day_index = trend_day_context_series["day_index"]
         td_ema50_arr = td_ema50.to_numpy()
         td_ema200_arr = td_ema200.to_numpy()
         td_atr_exp_arr = td_atr_exp.to_numpy()
@@ -7902,6 +7943,35 @@ def run_backtest(
     pending_exit_reason = None
     pending_loose_signals = {}
     opposite_signal_count = 0
+    opposite_reversal_cfg = CONFIG.get("LIVE_OPPOSITE_REVERSAL", {}) or {}
+    opposite_signal_threshold = int(
+        max(
+            1,
+            _coerce_int(
+                opposite_reversal_cfg.get("required_confirmations"),
+                OPPOSITE_SIGNAL_THRESHOLD,
+            ),
+        )
+    )
+    opposite_reversal_require_same_strategy_family = bool(
+        opposite_reversal_cfg.get("require_same_strategy_family", False)
+    )
+    opposite_reversal_require_same_active_trade_family = bool(
+        opposite_reversal_cfg.get("require_same_active_trade_family", False)
+    )
+    opposite_signal_family = None
+    opposite_reversal_policy_checked = 0
+    opposite_reversal_policy_blocked = 0
+    opposite_reversal_policy_reason_counts = Counter()
+    backtest_de3_anti_flip_checked = 0
+    backtest_de3_anti_flip_blocked = 0
+    backtest_de3_anti_flip_reason_counts = Counter()
+    recent_closed_de3_trades: deque[dict] = deque(
+        maxlen=max(
+            16,
+            _coerce_int(backtest_de3_anti_flip_cfg.get("stop_reentry_cooldown_bars"), 0) + 8,
+        )
+    )
     bar_count = 0
     processed_bars = 0
     cancelled = False
@@ -7927,6 +7997,8 @@ def run_backtest(
 
     trend_day_tier = 0
     trend_day_dir = None
+    trend_day_context_tier = 0
+    trend_day_context_dir = None
     trend_day_max_sigma = 0.0
     impulse_day = None
     impulse_active = False
@@ -8139,7 +8211,7 @@ def run_backtest(
     def _resolve_runtime_vol_regime(signal_payload: Optional[dict], _bar_index: Optional[int]) -> Optional[str]:
         if isinstance(signal_payload, dict):
             signal_regime = signal_payload.get("vol_regime")
-            if signal_regime not in (None, "", "UNKNOWN"):
+            if signal_regime not in (None, "", "UNKNOWN", "BYPASS"):
                 return str(signal_regime)
         if vol_regime_current not in (None, "", "UNKNOWN"):
             return str(vol_regime_current)
@@ -8319,13 +8391,18 @@ def run_backtest(
             return None
         return int(start_index + int(hit_positions[0]))
 
+    def reset_opposite_signal_confirmation() -> None:
+        nonlocal opposite_signal_count, opposite_signal_family
+        opposite_signal_count = 0
+        opposite_signal_family = None
+
     def close_trade(
         exit_price: float,
         exit_time: dt.datetime,
         exit_reason: str = "unknown",
         bar_index: Optional[int] = None,
     ) -> None:
-        nonlocal equity, peak, max_dd, trades, wins, losses, active_trade, opposite_signal_count
+        nonlocal equity, peak, max_dd, trades, wins, losses, active_trade
         nonlocal sl_cap_shadow_lock_until_index, sl_cap_shadow_lock_trigger_count
         nonlocal de3_early_exit_close_count
         nonlocal de3_entry_trade_day_extreme_early_exit_close_profile_hits
@@ -8452,6 +8529,19 @@ def run_backtest(
             if key in active_trade:
                 trade_record[key] = active_trade.get(key)
         tracker.record_trade(trade_record)
+        if str(trade_record.get("strategy", "")).startswith("DynamicEngine3"):
+            recent_closed_de3_trades.append(
+                {
+                    "strategy": trade_record.get("strategy"),
+                    "side": trade_record.get("side"),
+                    "sub_strategy": trade_record.get("sub_strategy"),
+                    "combo_key": trade_record.get("combo_key"),
+                    "exit_time": trade_record.get("exit_time"),
+                    "exit_reason": trade_record.get("exit_reason"),
+                    "de3_management_close_reason": trade_record.get("de3_management_close_reason"),
+                    "close_source": trade_record.get("close_source"),
+                }
+            )
         _record_de3_variant_adaptation_outcome(trade_record)
         _record_de3_backtest_walkforward_gate_outcome(trade_record)
         _record_de3_backtest_admission_outcome(trade_record)
@@ -8514,7 +8604,7 @@ def run_backtest(
                             )
                             sl_cap_shadow_lock_trigger_count += 1
         active_trade = None
-        opposite_signal_count = 0
+        reset_opposite_signal_confirmation()
 
     def _cached_recent_trades() -> list[str]:
         nonlocal progress_recent_trades_cache, progress_recent_trades_last_trade_count
@@ -10404,6 +10494,9 @@ def run_backtest(
         requested_tp = _coerce_float(signal.get("tp_dist", MIN_TP), MIN_TP)
         sl_dist = round_points_to_tick(max(requested_sl, MIN_SL))
         tp_dist = round_points_to_tick(max(requested_tp, MIN_TP))
+        resolved_vol_regime = _resolve_runtime_vol_regime(signal, bar_index)
+        if resolved_vol_regime and signal.get("vol_regime") in (None, "", "UNKNOWN", "BYPASS"):
+            signal["vol_regime"] = str(resolved_vol_regime)
         strategy_name = str(signal.get("strategy", "") or "")
         bypass_sl_cap_ml = bool(
             BACKTEST_DISABLE_MAX_STOPLOSS_FOR_MLPHYSICS
@@ -10768,7 +10861,7 @@ def run_backtest(
             "profit_crosses": 0,
             "was_green": None,
             "entry_mode": signal.get("entry_mode", "standard"),
-            "vol_regime": signal.get("vol_regime", "UNKNOWN"),
+            "vol_regime": signal.get("vol_regime", resolved_vol_regime or "UNKNOWN"),
             "mfe_points": 0.0,
             "mae_points": 0.0,
             "rescue_from_strategy": signal.get("rescue_from_strategy"),
@@ -11309,7 +11402,9 @@ def run_backtest(
         return None
 
     def handle_signal(signal: dict, bar_index: Optional[int] = None) -> None:
-        nonlocal pending_entry, pending_exit, pending_exit_reason, opposite_signal_count
+        nonlocal pending_entry, pending_exit, pending_exit_reason, opposite_signal_count, opposite_signal_family
+        nonlocal backtest_de3_anti_flip_checked, backtest_de3_anti_flip_blocked
+        nonlocal opposite_reversal_policy_checked, opposite_reversal_policy_blocked
         if isinstance(signal, dict) and "market_conditions" not in signal:
             signal["market_conditions"] = _snapshot_market_conditions(
                 signal,
@@ -11319,35 +11414,90 @@ def run_backtest(
                 execution_price=bar_close,
             )
         if isinstance(signal, dict):
+            runtime_vol_regime = _resolve_runtime_vol_regime(signal, bar_index)
+            current_signal_regime = signal.get("vol_regime")
+            if runtime_vol_regime and current_signal_regime in (None, "", "UNKNOWN", "BYPASS"):
+                signal["vol_regime"] = str(runtime_vol_regime)
+            if trend_day_context_tier > 0 and trend_day_context_dir:
+                signal.setdefault("trend_day_tier", trend_day_context_tier)
+                signal.setdefault("trend_day_dir", trend_day_context_dir)
             if not _apply_de3_backtest_intraday_regime_control(
                 signal,
                 current_time,
                 bar_index=bar_index,
             ):
-                opposite_signal_count = 0
+                reset_opposite_signal_confirmation()
                 return
             if not _apply_de3_backtest_walkforward_gate(signal, current_time):
-                opposite_signal_count = 0
+                reset_opposite_signal_confirmation()
                 return
             if not _apply_de3_backtest_admission_control(signal):
-                opposite_signal_count = 0
+                reset_opposite_signal_confirmation()
                 return
+            if backtest_de3_anti_flip_enabled and str(signal.get("strategy", "")).startswith("DynamicEngine3"):
+                backtest_de3_anti_flip_checked += 1
+                anti_flip_reason = de3_flip_flop_guard_reason(
+                    signal,
+                    [active_trade] if isinstance(active_trade, dict) else [],
+                    list(recent_closed_de3_trades),
+                    current_time,
+                    cfg=backtest_de3_anti_flip_cfg,
+                    default_tz=NY_TZ,
+                )
+                if anti_flip_reason:
+                    signal["de3_anti_flip_block_reason"] = anti_flip_reason
+                    backtest_de3_anti_flip_blocked += 1
+                    backtest_de3_anti_flip_reason_counts[anti_flip_reason] += 1
+                    record_filter("DE3AntiFlip")
+                    reset_opposite_signal_confirmation()
+                    return
 
         if active_trade is None:
             if pending_entry is None:
                 pending_entry = signal
-            opposite_signal_count = 0
+            reset_opposite_signal_confirmation()
             return
         if active_trade["side"] == signal["side"]:
-            opposite_signal_count = 0
+            reset_opposite_signal_confirmation()
             return
-        opposite_signal_count += 1
-        if opposite_signal_count >= OPPOSITE_SIGNAL_THRESHOLD:
+        opposite_reversal_policy_checked += 1
+        opposite_reversal_gate = opposite_reversal_gate_reason(
+            signal,
+            [active_trade] if isinstance(active_trade, dict) else [],
+            cfg=opposite_reversal_cfg,
+        )
+        if opposite_reversal_gate:
+            opposite_reversal_policy_blocked += 1
+            opposite_reversal_policy_reason_counts[opposite_reversal_gate] += 1
+            reset_opposite_signal_confirmation()
+            return
+        signal_family = _backtest_strategy_family_name(signal.get("strategy"))
+        active_trade_family = _backtest_strategy_family_name(active_trade.get("strategy"))
+        if (
+            opposite_reversal_require_same_active_trade_family
+            and signal_family
+            and active_trade_family
+            and signal_family != active_trade_family
+        ):
+            reset_opposite_signal_confirmation()
+            return
+        if opposite_reversal_require_same_strategy_family:
+            if not signal_family:
+                reset_opposite_signal_confirmation()
+                return
+            if opposite_signal_family != signal_family:
+                opposite_signal_count = 1
+            else:
+                opposite_signal_count += 1
+            opposite_signal_family = signal_family
+        else:
+            opposite_signal_count += 1
+        if opposite_signal_count >= opposite_signal_threshold:
             pending_exit = True
             pending_exit_reason = "reverse"
             if pending_entry is None:
                 pending_entry = signal
-            opposite_signal_count = 0
+            reset_opposite_signal_confirmation()
 
     mnq_pos = None
     vix_pos = None
@@ -13044,7 +13194,7 @@ def run_backtest(
             else:
                 asia_tf_box_range_current = math.nan
 
-        if TREND_DAY_ENABLED and enabled_filter_trend_day_tier:
+        if trend_day_context_required:
             if last_trend_session != trend_session:
                 last_trend_session = trend_session
                 trend_day_tier = 0
@@ -13387,7 +13537,7 @@ def run_backtest(
                                 f"{TREND_DAY_DEACTIVATE_SIGMA_DECAY_BARS} bars)",
                                 current_time,
                             )
-            if trend_day_tier > 0 and (
+            if enabled_filter_trend_day_tier and trend_day_tier > 0 and (
                 trend_day_tier != last_trend_day_tier or trend_day_dir != last_trend_day_dir
             ):
                 if BACKTEST_TRENDDAY_VERBOSE:
@@ -13413,11 +13563,20 @@ def run_backtest(
                         f"adx_dn={adx_strong_down} adx_up={adx_strong_up} "
                         f"sticky_dir={sticky_trend_dir} computed_dir={computed_dir} computed_tier={computed_tier}"
                     )
+            trend_day_context_tier = trend_day_tier
+            trend_day_context_dir = trend_day_dir
             last_trend_day_tier = trend_day_tier
             last_trend_day_dir = trend_day_dir
+            if not enabled_filter_trend_day_tier:
+                trend_day_tier = 0
+                trend_day_dir = None
+                last_trend_day_tier = 0
+                last_trend_day_dir = None
         else:
             trend_day_tier = 0
             trend_day_dir = None
+            trend_day_context_tier = 0
+            trend_day_context_dir = None
             last_trend_day_tier = 0
             last_trend_day_dir = None
             sticky_trend_dir = None
@@ -13439,7 +13598,7 @@ def run_backtest(
                 holiday_flat_closes += 1
                 pending_exit = False
                 pending_exit_reason = None
-                opposite_signal_count = 0
+                reset_opposite_signal_confirmation()
             if holiday_closed_now and pending_loose_signals:
                 pending_loose_signals.clear()
             if force_flat_now and active_trade is not None:
@@ -13452,7 +13611,7 @@ def run_backtest(
                 session_flat_closes += 1
                 pending_exit = False
                 pending_exit_reason = None
-                opposite_signal_count = 0
+                reset_opposite_signal_confirmation()
             if pending_exit and active_trade is not None:
                 close_trade(
                     bar_open,
@@ -13976,6 +14135,10 @@ def run_backtest(
             chop_reason = ""
             allowed_chop_side = None
             vol_regime_current = None
+            try:
+                vol_regime_current, _, _ = volatility_filter.get_regime(history_df)
+            except Exception:
+                vol_regime_current = None
             asia_viable = True
             asia_trend_bias_side = None
             de3_signal = None
@@ -13991,6 +14154,11 @@ def run_backtest(
             if de3_signal:
                 apply_multipliers(de3_signal, strategy_hint="DynamicEngine3Strategy")
                 de3_signal.setdefault("strategy", "DynamicEngine3Strategy")
+                if (
+                    vol_regime_current not in (None, "", "UNKNOWN")
+                    and de3_signal.get("vol_regime") in (None, "", "UNKNOWN", "BYPASS")
+                ):
+                    de3_signal["vol_regime"] = str(vol_regime_current)
                 if _de3_manifold_adaptation_allows_signal(
                     de3_signal,
                     "DynamicEngine3Strategy",
@@ -18727,6 +18895,61 @@ def run_backtest(
                 {"key": str(name), "actions": int(count)}
                 for name, count in de3_admission_key_actions.most_common(10)
             ],
+        },
+        "de3_anti_flip_summary": {
+            "enabled": bool(backtest_de3_anti_flip_enabled),
+            "checked": int(backtest_de3_anti_flip_checked),
+            "blocked": int(backtest_de3_anti_flip_blocked),
+            "apply_vol_regimes": list(backtest_de3_anti_flip_cfg.get("apply_vol_regimes") or []),
+            "block_countertrend_reversal_in_trend_day": bool(
+                backtest_de3_anti_flip_cfg.get("block_countertrend_reversal_in_trend_day", True)
+            ),
+            "stop_reentry_cooldown_bars": int(
+                max(0, _coerce_int(backtest_de3_anti_flip_cfg.get("stop_reentry_cooldown_bars"), 0))
+            ),
+            "stop_reentry_same_sub_strategy_only": bool(
+                backtest_de3_anti_flip_cfg.get("stop_reentry_same_sub_strategy_only", True)
+            ),
+            "reason_counts": {
+                str(name): int(count)
+                for name, count in backtest_de3_anti_flip_reason_counts.items()
+            },
+        },
+        "opposite_reversal_summary": {
+            "enabled": bool(opposite_reversal_cfg.get("enabled", True)),
+            "checked": int(opposite_reversal_policy_checked),
+            "blocked": int(opposite_reversal_policy_blocked),
+            "required_confirmations": int(opposite_signal_threshold),
+            "window_bars": int(
+                max(
+                    1,
+                    _coerce_int(
+                        opposite_reversal_cfg.get("window_bars"),
+                        1,
+                    ),
+                )
+            ),
+            "require_same_strategy_family": bool(
+                opposite_reversal_require_same_strategy_family
+            ),
+            "require_same_active_trade_family": bool(
+                opposite_reversal_require_same_active_trade_family
+            ),
+            "require_same_sub_strategy": bool(
+                opposite_reversal_cfg.get("require_same_sub_strategy", False)
+            ),
+            "allowed_vol_regimes": list(
+                opposite_reversal_cfg.get("allowed_vol_regimes")
+                or opposite_reversal_cfg.get("apply_vol_regimes")
+                or []
+            ),
+            "block_countertrend_in_trend_day": bool(
+                opposite_reversal_cfg.get("block_countertrend_in_trend_day", False)
+            ),
+            "reason_counts": {
+                str(name): int(count)
+                for name, count in opposite_reversal_policy_reason_counts.items()
+            },
         },
         "de3_entry_model_margin_summary": {
             "enabled": bool(de3_entry_margin_enabled),
