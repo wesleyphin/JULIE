@@ -14,7 +14,56 @@ from threading import Thread
 from config import CONFIG
 from terminal_ui import get_ui
 from account_selector import select_account_interactive
-from aetherflow_features import generate_daily_miva
+def generate_daily_miva(kalshi, es_price: float):
+    """Market-Implied Value Area from the 4pm ET KXINXU daily event."""
+    if kalshi is None:
+        return None
+    from datetime import datetime
+    import pytz
+    et = pytz.timezone("US/Eastern")
+    now = datetime.now(et)
+    date_str = now.strftime("%y%b%d").upper()
+    daily_event_ticker = f"{kalshi.series}-{date_str}H1600"
+    markets = kalshi._fetch_event_markets(daily_event_ticker)
+    if len(markets) < 5:
+        return None
+    densities = []
+    midpoints = []
+    for i in range(len(markets) - 1):
+        ds = float(markets[i + 1]["strike"]) - float(markets[i]["strike"])
+        if ds <= 0:
+            continue
+        dp = float(markets[i]["probability"]) - float(markets[i + 1]["probability"])
+        densities.append(max(0.0, dp / ds))
+        midpoints.append((float(markets[i]["strike"]) + float(markets[i + 1]["strike"])) / 2.0)
+    if not densities:
+        return None
+    total = sum(densities)
+    if total <= 0:
+        return None
+    densities = [v / total for v in densities]
+    cumulative = 0.0
+    bottom = midpoints[0]
+    top = midpoints[-1]
+    bottom_set = False
+    for midpoint, density in zip(midpoints, densities):
+        cumulative += density
+        if cumulative >= 0.15 and not bottom_set:
+            bottom = midpoint
+            bottom_set = True
+        if cumulative >= 0.85:
+            top = midpoint
+            break
+    spx_price = float(es_price) - float(kalshi.basis_offset)
+    width = top - bottom
+    pct_rank = (spx_price - bottom) / width if width > 0 else 0.5
+    return {
+        "top": round(float(top), 2),
+        "bottom": round(float(bottom), 2),
+        "width": round(float(width), 2),
+        "midpoint": round((float(top) + float(bottom)) / 2.0, 2),
+        "pct_rank_of_price": round(min(max(float(pct_rank), 0.0), 1.0), 4),
+    }
 try:
     from config_secrets import SECRETS
 except Exception:
