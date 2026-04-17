@@ -2770,8 +2770,9 @@ class ContinuationRescueManager:
         current_price: Optional[float] = None,
         trend_day_series: Optional[dict] = None,
         signal_mode: Optional[str] = None,
+        respect_runtime_toggle: bool = False,
     ):
-        if not CONFIG.get("CONTINUATION_ENABLED", True):
+        if respect_runtime_toggle and not CONFIG.get("CONTINUATION_ENABLED", True):
             return None
         if df.empty:
             return None
@@ -15264,6 +15265,7 @@ def run_backtest(
                             current_price=bar_close,
                             trend_day_series=trend_day_series,
                             signal_mode=continuation_signal_mode,
+                            respect_runtime_toggle=True,
                         )
                         if not continuation_rescue_allowed(
                             potential_rescue,
@@ -15506,6 +15508,7 @@ def run_backtest(
                     current_price=bar_close,
                     trend_day_series=trend_day_series,
                     signal_mode=continuation_signal_mode,
+                    respect_runtime_toggle=True,
                 )
             if not continuation_rescue_allowed(
                 potential_rescue,

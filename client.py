@@ -292,6 +292,17 @@ class ProjectXClient:
         self._yielding_to_external_session = False
         self._yielding_to_external_session_since = 0.0
         self._yielding_to_external_session_reason = ""
+        self._order_submission_lockout_until_ts = 0.0
+        self._order_submission_lockout_reason = ""
+        self._order_submission_lockout_log_ts = 0.0
+        self._order_submission_lockout_cooldown_sec = max(
+            0.0,
+            self._coerce_float(
+                CONFIG.get("PROJECTX_ORDER_LOCKOUT_COOLDOWN_SEC", 60.0),
+                60.0,
+            )
+            or 60.0,
+        )
         self.session.hooks.setdefault("response", []).append(self._requests_response_auth_hook)
 
     def _warn_async_http_fallback_once(self) -> None:
@@ -299,6 +310,55 @@ class ProjectXClient:
             return
         self._aiohttp_fallback_warned = True
         logging.warning("aiohttp not installed; falling back to sync REST calls for async background tasks")
+
+    def _error_indicates_order_lockout(self, message: Optional[str]) -> bool:
+        text = str(message or "").strip().lower()
+        if not text:
+            return False
+        return ("locked out" in text) or ("lockout expires" in text)
+
+    def _clear_order_submission_lockout(self) -> None:
+        self._order_submission_lockout_until_ts = 0.0
+        self._order_submission_lockout_reason = ""
+        self._order_submission_lockout_log_ts = 0.0
+
+    def _arm_order_submission_lockout(self, reason: Optional[str]) -> None:
+        cooldown_sec = float(self._order_submission_lockout_cooldown_sec)
+        if cooldown_sec <= 0.0:
+            return
+        now = time.time()
+        reason_text = str(reason or "").strip() or "broker lockout"
+        new_until_ts = now + cooldown_sec
+        should_log = new_until_ts > self._order_submission_lockout_until_ts + 1e-9
+        self._order_submission_lockout_until_ts = max(
+            self._order_submission_lockout_until_ts,
+            new_until_ts,
+        )
+        self._order_submission_lockout_reason = reason_text
+        if should_log:
+            logging.warning(
+                "Broker order lockout detected; pausing new order submissions for %.0fs: %s",
+                cooldown_sec,
+                reason_text,
+            )
+            self._order_submission_lockout_log_ts = now
+
+    def _order_submission_lockout_active(self) -> bool:
+        now = time.time()
+        until_ts = float(self._order_submission_lockout_until_ts or 0.0)
+        if until_ts <= now:
+            if until_ts > 0.0:
+                self._clear_order_submission_lockout()
+            return False
+        if (now - float(self._order_submission_lockout_log_ts or 0.0)) >= 30.0:
+            remaining_sec = max(0.0, until_ts - now)
+            logging.warning(
+                "Skipping order submission for another %.0fs due to broker lockout: %s",
+                remaining_sec,
+                self._order_submission_lockout_reason or "broker lockout",
+            )
+            self._order_submission_lockout_log_ts = now
+        return True
 
     def _check_general_rate_limit(self) -> bool:
         """Check if we're within general rate limits"""
@@ -1430,6 +1490,8 @@ class ProjectXClient:
         if not self._check_general_rate_limit():
             logging.error("Rate limit reached, cannot place order")
             return
+        if self._order_submission_lockout_active():
+            return
 
         if self.account_id is None:
             logging.error("No account ID set. Call fetch_accounts() first.")
@@ -1559,6 +1621,8 @@ class ProjectXClient:
                 return None
 
             if resp.status_code != 200:
+                if self._error_indicates_order_lockout(resp.text):
+                    self._arm_order_submission_lockout(resp.text)
                 logging.error(f"HTTP Error {resp.status_code}: {resp.text[:500] if resp.text else 'Empty response'}")
                 return None
 
@@ -1572,6 +1636,8 @@ class ProjectXClient:
             # Check for business logic success
             if resp_data.get('success') is False:
                 err_msg = resp_data.get('errorMessage', 'Unknown Rejection')
+                if self._error_indicates_order_lockout(err_msg):
+                    self._arm_order_submission_lockout(err_msg)
                 logging.error(f"Order Rejected by Engine: {err_msg}")
 
                 # Enhanced event logging: Order rejected
@@ -1583,6 +1649,7 @@ class ProjectXClient:
                 )
                 return None
 
+            self._clear_order_submission_lockout()
             logging.info(f"Order Placed Successfully [{unique_order_id[:8]}]")
 
             entry_price = current_price

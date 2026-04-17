@@ -4,7 +4,7 @@ import pandas as pd
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from continuation_strategy import FractalSweepStrategy, STRATEGY_CONFIGS
-from julie001 import ContinuationRescueManager
+from julie001 import CONFIG, ContinuationRescueManager
 
 class TestContinuationFixes(unittest.TestCase):
     def setUp(self):
@@ -74,6 +74,28 @@ class TestContinuationFixes(unittest.TestCase):
         self.assertEqual(result['strategy'], "Continuation_Q4_W45_D7_Asia")
         self.assertTrue(result['rescued'])
         self.assertEqual(result['side'], "LONG")
+
+    def test_continuation_rescue_manager_runtime_toggle_is_opt_in(self):
+        manager = ContinuationRescueManager()
+        original_enabled = CONFIG.get("CONTINUATION_ENABLED", True)
+        CONFIG["CONTINUATION_ENABLED"] = False
+        try:
+            direct_result = manager.get_active_continuation_signal(
+                self.df,
+                self.target_utc_time,
+                required_bias="LONG",
+            )
+            runtime_result = manager.get_active_continuation_signal(
+                self.df,
+                self.target_utc_time,
+                required_bias="LONG",
+                respect_runtime_toggle=True,
+            )
+        finally:
+            CONFIG["CONTINUATION_ENABLED"] = original_enabled
+
+        self.assertIsNotNone(direct_result)
+        self.assertIsNone(runtime_result)
 
     def test_timezone_conversion_logic(self):
         # Explicitly test the timezone logic used in the fix

@@ -1102,6 +1102,36 @@ def _live_strategy_family_name(value: Optional[str]) -> str:
     return ""
 
 
+def _live_strategy_identity_key(value: Optional[str]) -> str:
+    family_name = _live_strategy_family_name(value)
+    if family_name:
+        return family_name
+    return str(value or "").strip().casefold()
+
+
+def _find_live_trade_for_strategy(
+    tracked_live_trades: Optional[list[dict]],
+    signal: Optional[dict],
+    *,
+    require_same_side: bool = False,
+) -> Optional[dict]:
+    if not isinstance(signal, dict):
+        return None
+    strategy_key = _live_strategy_identity_key(signal.get("strategy"))
+    if not strategy_key:
+        return None
+    if not isinstance(tracked_live_trades, (list, tuple)):
+        return None
+    for trade in tracked_live_trades:
+        if not isinstance(trade, dict):
+            continue
+        if _live_strategy_identity_key(trade.get("strategy")) == strategy_key:
+            if require_same_side and not _same_side_active_trade(trade, signal):
+                continue
+            return trade
+    return None
+
+
 def _count_same_side_live_family_trades(
     tracked_live_trades: Optional[list[dict]],
     signal: Optional[dict],
@@ -1130,6 +1160,12 @@ def _allow_same_side_parallel_entry(
     if not _same_side_active_trade(primary_trade, signal):
         return False
     if not isinstance(primary_trade, dict) or not isinstance(signal, dict):
+        return False
+    if _find_live_trade_for_strategy(
+        tracked_live_trades,
+        signal,
+        require_same_side=True,
+    ) is not None:
         return False
     primary_family = _live_strategy_family_name(primary_trade.get("strategy"))
     signal_family = _live_strategy_family_name(signal.get("strategy"))
@@ -5681,11 +5717,15 @@ class ContinuationRescueManager:
     Acts as a 'Second Opinion' when trades are blocked by filters.
     """
     def __init__(self):
-        self.configs = None
+        self.configs = {}
         self.strategy_instances = {}
         self.strategy_cls = None
         # 1. TIMEZONE FIX: Strategies operate on NY Time
         self.ny_tz = ZoneInfo('America/New_York')
+        try:
+            self._ensure_loaded()
+        except Exception as exc:
+            logging.warning("Continuation rescue manager preload failed: %s", exc)
 
     def _ensure_loaded(self) -> None:
         if self.configs is not None and self.strategy_cls is not None:
@@ -5772,18 +5812,23 @@ class ContinuationRescueManager:
         self,
         df: pd.DataFrame,
         current_time,
-        required_side: str,
+        required_side: Optional[str] = None,
+        required_bias: Optional[str] = None,
         current_price: Optional[float] = None,
         trend_day_series: Optional[dict] = None,
         signal_mode: Optional[str] = None,
+        respect_runtime_toggle: bool = False,
     ):
         """
         Checks if the current time matches a known Continuation Strategy window.
         Returns a rescue signal if valid for the REQUIRED_SIDE.
         """
-        if not CONFIG.get("CONTINUATION_ENABLED", True):
+        if respect_runtime_toggle and not CONFIG.get("CONTINUATION_ENABLED", True):
             return None
         if df.empty:
+            return None
+        resolved_side = str(required_side or required_bias or "").strip().upper()
+        if resolved_side not in {"LONG", "SHORT"}:
             return None
 
         mode = str(
@@ -5792,9 +5837,16 @@ class ContinuationRescueManager:
             or "calendar"
         ).lower()
         if mode == "structure":
-            return self._structure_break_signal(
-                df, current_time, required_side, current_price, trend_day_series
+            structure_signal = self._structure_break_signal(
+                df, current_time, resolved_side, current_price, trend_day_series
             )
+            if (
+                structure_signal is not None
+                or signal_mode is not None
+                or trend_day_series is not None
+            ):
+                return structure_signal
+            mode = "calendar"
 
         self._ensure_loaded()
 
@@ -5855,7 +5907,7 @@ class ContinuationRescueManager:
 
                     return {
                         'strategy': f"Continuation_{candidate_key}",
-                        'side': required_side, # FORCE the direction we need (The Rescue Side)
+                        'side': resolved_side, # FORCE the direction we need (The Rescue Side)
                         'tp_dist': tp_dist,
                         'sl_dist': sl_dist,
                         'size': 5,
@@ -10996,6 +11048,7 @@ async def run_bot():
                                 current_price=current_price,
                                 trend_day_series=trend_day_series,
                                 signal_mode=continuation_signal_mode,
+                                respect_runtime_toggle=True,
                             )
                             if not continuation_rescue_allowed(
                                 potential_rescue,
@@ -11292,6 +11345,7 @@ async def run_bot():
                                 current_price=current_price,
                                 trend_day_series=trend_day_series,
                                 signal_mode=continuation_signal_mode,
+                                respect_runtime_toggle=True,
                             )
                         if not continuation_rescue_allowed(
                             potential_rescue,
