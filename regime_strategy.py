@@ -486,6 +486,7 @@ class RegimeAdaptiveStrategy:
         signal = None
         original_signal = None
         revert = False
+        signal_already_finalized = False
         early_exit_enabled = None
         selected_rule_id = None
         selected_sma_fast = sma_fast
@@ -576,6 +577,7 @@ class RegimeAdaptiveStrategy:
             signal = str(chosen["signal"])
             original_signal = str(chosen["original_signal"])
             revert = bool(chosen["revert"])
+            signal_already_finalized = True
             early_exit_enabled = chosen.get("early_exit_enabled")
             selected_rule_id = chosen.get("rule_id")
             selected_sma_fast = float(chosen.get("sma_fast_value", sma_fast))
@@ -610,8 +612,10 @@ class RegimeAdaptiveStrategy:
                 revert = self.enable_signal_reversion and should_revert_signal(ts)
 
         # Apply reversion if needed
-        if revert:
+        if revert and not signal_already_finalized:
             signal = 'SHORT' if signal == 'LONG' else 'LONG'
+            logging.info(f"RegimeAdaptive: Signal REVERTED {original_signal}->{signal} for {combo_key}")
+        elif revert:
             logging.info(f"RegimeAdaptive: Signal REVERTED {original_signal}->{signal} for {combo_key}")
         else:
             logging.info(f"RegimeAdaptive: {signal} signal generated | Combo: {combo_key}")
