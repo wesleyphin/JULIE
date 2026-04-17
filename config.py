@@ -30,10 +30,56 @@ CONFIG = {
     "RTC_USER_HUB": "https://rtc.topstepx.com/hubs/user",
     "RTC_MARKET_HUB": "https://rtc.topstepx.com/hubs/market",
     # ProjectX user hub: event-driven account/position/trade updates.
-    "PROJECTX_USER_STREAM_ENABLED": True,
+    # Keep this off in the retail TopstepX setup so the browser session can
+    # stay active while the bot runs on REST polling + cached local state.
+    "PROJECTX_USER_STREAM_ENABLED": False,
     "PROJECTX_USER_STREAM_TRADE_CACHE": 256,
     "PROJECTX_USER_STREAM_MAX_POSITION_AGE_SEC": 15.0,
     "PROJECTX_USER_STREAM_MAX_ACCOUNT_AGE_SEC": 300.0,
+    # TopstepX currently allows one concurrent user session. When the browser
+    # or another device takes the session, `GatewayLogout` is emitted on the
+    # API stream. `yield` prevents the bot from immediately logging back in and
+    # kicking that interactive session back out. Set to `reclaim` if the bot
+    # should take priority instead.
+    "PROJECTX_SESSION_CONFLICT_POLICY": "yield",
+    # Optional delay before auth recovery is allowed again after a known
+    # external-session takeover. Keep 0 for manual restart-only recovery.
+    "PROJECTX_EXTERNAL_SESSION_RETRY_SEC": 0.0,
+    # --- VISUAL-ONLY KALSHI DASHBOARD FEED ---
+    # This is intentionally observation-only in the local build. The bridge/UI
+    # can read the hourly ladder and crowd probabilities, but live trading
+    # logic should not resize, block, or exit trades from Kalshi data.
+    "KALSHI": {
+        "key_id": str(SECRETS.get("KALSHI_KEY_ID", "") or ""),
+        "private_key_path": str(SECRETS.get("KALSHI_PRIVATE_KEY_PATH", "") or ""),
+        "base_url": "https://api.elections.kalshi.com/trade-api/v2",
+        "series": "KXINXU",
+        "polling_interval": 300,
+        "cache_ttl": 120,
+        "rate_limit_delay": 0.4,
+        "request_timeout": 15,
+        "max_retries": 3,
+        "enabled": True,
+        "observer_only": True,
+        "trade_gating_enabled": False,
+        "basis_offset": 0.0,
+    },
+    "TRUTH_SOCIAL_SENTIMENT": {
+        "enabled": True,
+        "poll_interval": 120,
+        "pump_threshold": 0.85,
+        "emergency_exit_threshold": -0.75,
+        "finbert_local_path": "./models/finbert",
+        "target_handle": str(
+            SECRETS.get("TRUTHSOCIAL_TARGET_HANDLE", os.environ.get("TRUTH_SOCIAL_TARGET_HANDLE", "realDonaldTrump"))
+            or "realDonaldTrump"
+        ),
+        "signal_max_age_seconds": 1800,
+        "emergency_exit_max_age_seconds": 3600,
+        "quick_pump_tp_points": 4.0,
+        "quick_pump_sl_points": 2.0,
+        "observer_only": True,
+    },
 
     # --- SYSTEM SETTINGS ---
     "MAX_DAILY_LOSS": 1000.0,
@@ -758,45 +804,6 @@ CONFIG = {
         "hazard_block_regimes": ["ROTATIONAL_TURBULENCE"],
         "log_evals": True,
     },
-    "KALSHI": {
-        "key_id": str(SECRETS.get("KALSHI_KEY_ID", "") or ""),
-        "private_key_path": str(SECRETS.get("KALSHI_PRIVATE_KEY_PATH", "") or ""),
-        "base_url": "https://api.elections.kalshi.com/trade-api/v2",
-        "series": "KXINXU",
-        "polling_interval": 300,
-        "cache_ttl": 120,
-        "rate_limit_delay": 0.4,
-        "request_timeout": 15,
-        "max_retries": 3,
-        "enabled": True,
-        "basis_offset": 0.0,
-        "sentiment_thresholds": {
-            "strong_bull": 0.70,
-            "mild_bull": 0.60,
-            "neutral_low": 0.45,
-            "neutral_high": 0.55,
-            "mild_bear": 0.40,
-            "strong_bear": 0.30,
-        },
-        "veto_mode": "soft",
-        "extreme_hard_veto_low": 0.10,
-        "extreme_hard_veto_high": 0.90,
-    },
-    "TRUTH_SOCIAL_SENTIMENT": {
-        "enabled": True,
-        "poll_interval": 120,
-        "pump_threshold": 0.85,
-        "emergency_exit_threshold": -0.75,
-        "finbert_local_path": "./models/finbert",
-        "target_handle": str(
-            SECRETS.get("TRUTHSOCIAL_TARGET_HANDLE", os.environ.get("TRUTH_SOCIAL_TARGET_HANDLE", "realDonaldTrump"))
-            or "realDonaldTrump"
-        ),
-        "signal_max_age_seconds": 1800,
-        "emergency_exit_max_age_seconds": 3600,
-        "quick_pump_tp_points": 4.0,
-        "quick_pump_sl_points": 2.0,
-    },
     # Optional macro-regime feature (disabled by default for robustness)
     "ML_PHYSICS_USE_MACRO_REGIME": False,
     "ML_PHYSICS_REGIMES_FILE": "regimes.json",
@@ -1261,10 +1268,12 @@ CONFIG = {
         "disable_max_stoploss_for_mlphysics": False,
         # Backtest-only: bypass global SL cap for DynamicEngine3 when runtime DB is v2.
         "disable_max_stoploss_for_de3_v2": False,
-        # Backtest-only session guard (US/Eastern):
-        # no new entries during [start_hour, end_hour), force-flat open positions at force_flat time.
-        "no_new_entries_start_hour_et": 16,
+        # Session guard (US/Eastern):
+        # no new entries during [start_time, end_time); active live trades continue to be managed.
+        "no_new_entries_start_hour_et": 15,
+        "no_new_entries_start_minute_et": 58,
         "no_new_entries_end_hour_et": 18,
+        "no_new_entries_end_minute_et": 0,
         "enforce_no_new_entries_window": True,
         "force_flat_at_time": True,
         "force_flat_hour_et": 16,
@@ -4617,11 +4626,39 @@ CONFIG = {
     # immediately flip the whole book. When same_active_trade_family is on,
     # a strategy family can only reverse its own family's active trade.
     "LIVE_OPPOSITE_REVERSAL": {
+        "enabled": True,
         "required_confirmations": 3,
         "window_bars": 3,
         "require_same_strategy_family": True,
         "require_same_active_trade_family": True,
         "require_same_sub_strategy": False,
+        "require_all_active_trade_families_for_multi_strategy_reversal": True,
+        "allowed_vol_regimes": [],
+        "block_countertrend_in_trend_day": False,
+    },
+
+    # Live-only DE3 anti-whipsaw guard.
+    # Keeps filterless/high-vol sessions from immediately re-entering the same
+    # stopped setup and blocks DE3 reversals that fight the current trend day.
+    "LIVE_DE3_ANTI_FLIP": {
+        "enabled": True,
+        "apply_vol_regimes": ["high"],
+        "block_countertrend_reversal_in_trend_day": True,
+        "stop_reentry_cooldown_bars": 4,
+        "stop_reentry_same_sub_strategy_only": True,
+        "bar_seconds": 60,
+    },
+
+    # Backtest-only mirror of the live DE3 anti-whipsaw guard.
+    # Keep disabled by default so historical baselines stay comparable unless
+    # we explicitly turn the guard on for evaluation.
+    "BACKTEST_DE3_ANTI_FLIP": {
+        "enabled": False,
+        "apply_vol_regimes": ["high"],
+        "block_countertrend_reversal_in_trend_day": True,
+        "stop_reentry_cooldown_bars": 4,
+        "stop_reentry_same_sub_strategy_only": True,
+        "bar_seconds": 60,
     },
 
     # --- BREAK-EVEN LOGIC ---
@@ -4867,15 +4904,3 @@ _apply_runtime_experimental_artifacts()
 
 # Initialize TARGET_SYMBOL at import time
 refresh_target_symbol()
-
-
-SENTIMENT_ENABLED = bool((CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {}).get("enabled", True))
-SENTIMENT_POLL_INTERVAL = int((CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {}).get("poll_interval", 30) or 30)
-SENTIMENT_PUMP_THRESHOLD = float((CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {}).get("pump_threshold", 0.85) or 0.85)
-EMERGENCY_EXIT_THRESHOLD = float(
-    (CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {}).get("emergency_exit_threshold", -0.75) or -0.75
-)
-FINBERT_LOCAL_PATH = str(
-    (CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {}).get("finbert_local_path", "./models/finbert")
-    or "./models/finbert"
-)
