@@ -82,6 +82,251 @@ from kalshi_trade_overlay import (
     build_trade_plan as build_kalshi_trade_plan,
     compute_tp_trail_stop as compute_kalshi_tp_trail_stop,
 )
+from pct_level_overlay import PctLevelOverlay, DEFAULT_OVERLAY_CONFIG as _PCT_LEVEL_OVERLAY_DEFAULTS
+
+_PCT_LEVEL_OVERLAY: "Optional[PctLevelOverlay]" = None
+
+
+def _get_pct_level_overlay() -> "Optional[PctLevelOverlay]":
+    return _PCT_LEVEL_OVERLAY
+
+
+def _init_pct_level_overlay() -> "Optional[PctLevelOverlay]":
+    global _PCT_LEVEL_OVERLAY
+    cfg_block = {}
+    if isinstance(CONFIG, dict):
+        cfg_block = CONFIG.get("PCT_LEVEL_OVERLAY") or {}
+    if not bool(cfg_block.get("enabled", True)):
+        _PCT_LEVEL_OVERLAY = None
+        return None
+    # also respect a top-level feature flag if present
+    flag = cfg_block.get("feature_flag", "ENABLE_PCT_LEVEL_OVERLAY")
+    if flag and isinstance(CONFIG, dict) and not bool(CONFIG.get(flag, True)):
+        _PCT_LEVEL_OVERLAY = None
+        return None
+    _PCT_LEVEL_OVERLAY = PctLevelOverlay(cfg_block)
+    return _PCT_LEVEL_OVERLAY
+
+
+def _update_pct_level_overlay(ts, open_, high, low, close):
+    ov = _get_pct_level_overlay()
+    if ov is None:
+        return None
+    try:
+        return ov.update(ts, float(open_), float(high), float(low), float(close))
+    except Exception:
+        logging.debug("pct_level_overlay update failed", exc_info=True)
+        return None
+
+
+def _attach_pct_overlay_snapshot(signal):
+    """Stamp pct overlay state onto a signal at signal-birth time.
+
+    Called on every freshly minted candidate signal so its overlay decision
+    travels with it through any deferral (LFO queue, opposite-reversal counter,
+    impulse-rescue queue) instead of being recomputed at the moment of
+    placement (when overlay state has shifted to a different bar).
+
+    Idempotent: if a snapshot already exists, this is a no-op.
+    """
+    if not isinstance(signal, dict):
+        return
+    if "pct_overlay_snapshot" in signal:
+        return
+    ov = _get_pct_level_overlay()
+    if ov is None or not ov.enabled:
+        signal["pct_overlay_snapshot"] = {
+            "size_mult": 1.0,
+            "tp_mult": 1.0,
+            "veto_reason": None,
+            "bar_ts": None,
+            "at_level": False,
+            "engaged": False,
+        }
+        return
+    state = ov.state
+    if not state.at_level:
+        signal["pct_overlay_snapshot"] = {
+            "size_mult": 1.0,
+            "tp_mult": 1.0,
+            "veto_reason": None,
+            "bar_ts": str(state.ts) if state.ts else None,
+            "at_level": False,
+            "engaged": False,
+        }
+        return
+    side = str(signal.get("side", "?") or "?")
+    size_mult = float(ov.size_multiplier(side))
+    mod = ov.tp_trail_modifier(side)
+    tp_extend = float(mod.get("tp_extend_pct", 0.0) or 0.0)
+    tp_tighten = float(mod.get("trail_tighten_pct", 0.0) or 0.0)
+    if tp_extend > 0.0:
+        tp_mult = 1.0 + tp_extend
+    elif tp_tighten > 0.0:
+        tp_mult = max(0.5, 1.0 - tp_tighten)
+    else:
+        tp_mult = 1.0
+    veto, reason = ov.should_veto(side)
+    # Cast every field to a Python-native type so the snapshot survives
+    # json.dumps regardless of numpy types upstream.
+    snap = {
+        "size_mult": float(size_mult),
+        "tp_mult": float(tp_mult),
+        "veto_reason": str(reason) if veto else None,
+        "bar_ts": str(state.ts) if state.ts else None,
+        "at_level": True,
+        "engaged": bool(
+            abs(size_mult - 1.0) > 1e-3
+            or abs(tp_mult - 1.0) > 1e-3
+            or veto
+        ),
+        "level": float(state.nearest_level) if state.nearest_level is not None else None,
+        "tier": str(state.tier),
+        "bias": str(state.bias),
+        "confidence": float(state.confidence),
+    }
+    signal["pct_overlay_snapshot"] = snap
+    if snap["engaged"]:
+        logging.info(
+            "Pct overlay snapshot: %s %s | level=%+.2f%% bias=%s conf=%.2f | size_mult=%.3f tp_mult=%.3f veto=%s",
+            signal.get("strategy", "?"), side,
+            state.nearest_level or 0.0, state.bias, float(state.confidence),
+            size_mult, tp_mult, snap["veto_reason"] or "-",
+        )
+
+
+def _resolve_pct_overlay_snapshot(signal):
+    """Apply snapshotted overlay decisions to a signal just before order placement.
+
+    Returns False if the snapshot says veto (caller should reject the signal).
+    Otherwise applies size_mult and tp_mult in place and returns True.
+
+    Idempotent: marking signal["pct_overlay_snapshot_resolved"] prevents double
+    application if a code path resolves the same signal twice.
+    """
+    if not isinstance(signal, dict):
+        return True
+    snap = signal.get("pct_overlay_snapshot")
+    if not isinstance(snap, dict):
+        logging.warning(
+            "Pct overlay: missing snapshot at order placement (%s %s) — applying no-op",
+            signal.get("strategy", "?"), signal.get("side", "?"),
+        )
+        return True
+    if signal.get("pct_overlay_snapshot_resolved"):
+        return True
+    signal["pct_overlay_snapshot_resolved"] = True
+
+    if snap.get("veto_reason"):
+        signal["pct_overlay_resolved_veto"] = True
+        logging.info(
+            "Pct overlay VETO (resolved): %s %s | reason=%s",
+            signal.get("strategy", "?"), signal.get("side", "?"),
+            snap["veto_reason"],
+        )
+        return False
+
+    base_size = max(1, int(signal.get("size", 1) or 1))
+    size_mult = float(snap.get("size_mult", 1.0) or 1.0)
+    if abs(size_mult - 1.0) > 1e-3:
+        scaled = max(1, int(round(base_size * size_mult)))
+        if scaled != base_size:
+            signal["pct_overlay_resolved_size_before"] = base_size
+            signal["pct_overlay_resolved_size_after"] = scaled
+            signal["pct_overlay_resolved_size_mult"] = size_mult
+            signal["size"] = scaled
+            logging.info(
+                "Pct overlay size resolve: %s %s | snapshot mult=%.3f | size %d -> %d",
+                signal.get("strategy", "?"), signal.get("side", "?"),
+                size_mult, base_size, scaled,
+            )
+
+    tp_mult = float(snap.get("tp_mult", 1.0) or 1.0)
+    if abs(tp_mult - 1.0) > 1e-3:
+        try:
+            tp_dist = float(signal.get("tp_dist", 0.0) or 0.0)
+            if tp_dist > 0.0:
+                new_tp = float(tp_dist * tp_mult)
+                signal["pct_overlay_resolved_tp_before"] = tp_dist
+                signal["pct_overlay_resolved_tp_after"] = new_tp
+                signal["pct_overlay_resolved_tp_mult"] = tp_mult
+                signal["tp_dist"] = new_tp
+                logging.info(
+                    "Pct overlay TP resolve: %s %s | snapshot mult=%.3f | tp %.2f -> %.2f",
+                    signal.get("strategy", "?"), signal.get("side", "?"),
+                    tp_mult, tp_dist, new_tp,
+                )
+        except Exception:
+            pass
+
+    return True
+
+
+def _apply_pct_level_overlay_to_signal(signal):
+    """Legacy hook retained as a thin wrapper for any callers we haven't migrated.
+
+    Option B replaces this with snapshot-at-birth + resolve-at-placement. New
+    code should call ``_attach_pct_overlay_snapshot`` at signal birth and
+    ``_resolve_pct_overlay_snapshot`` immediately before order placement.
+    """
+    if not isinstance(signal, dict):
+        return True
+    ov = _get_pct_level_overlay()
+    if ov is None or not ov.enabled:
+        return True
+    state = ov.state
+    if not state.at_level:
+        signal["pct_level_overlay_applied"] = False
+        return True
+    side = str(signal.get("side", "?") or "?")
+    size_mult = ov.size_multiplier(side)
+    signal["pct_level_overlay_applied"] = True
+    signal["pct_level_overlay_tier"] = state.tier
+    signal["pct_level_overlay_bias"] = state.bias
+    signal["pct_level_overlay_confidence"] = float(state.confidence)
+    signal["pct_level_overlay_level"] = state.nearest_level
+    signal["pct_level_overlay_size_multiplier"] = float(size_mult)
+    base_size = max(1, int(signal.get("size", 1) or 1))
+    if size_mult < 0.999 or size_mult > 1.001:
+        scaled = max(1, int(round(float(base_size) * float(size_mult))))
+        if scaled != base_size:
+            signal["pct_level_overlay_size_before"] = int(base_size)
+            signal["size"] = int(scaled)
+            logging.info(
+                "Pct overlay size adjust: %s %s | level=%+.2f%% bias=%s conf=%.2f | size %d -> %d",
+                signal.get("strategy", "Unknown"), side,
+                state.nearest_level or 0.0, state.bias,
+                float(state.confidence), int(base_size), int(scaled),
+            )
+    # TP nudge: if pivot_lean aligned with trade side, tighten TP.
+    mod = ov.tp_trail_modifier(side)
+    tp_ext = float(mod.get("tp_extend_pct", 0.0))
+    tp_tight = float(mod.get("trail_tighten_pct", 0.0))
+    if tp_ext > 0.0 or tp_tight > 0.0:
+        try:
+            tp_dist = float(signal.get("tp_dist", 0.0) or 0.0)
+            if tp_dist > 0.0:
+                if tp_ext > 0.0:
+                    signal["tp_dist"] = float(tp_dist * (1.0 + tp_ext))
+                    signal["pct_level_overlay_tp_extend"] = tp_ext
+                elif tp_tight > 0.0:
+                    signal["tp_dist"] = float(tp_dist * max(0.5, 1.0 - tp_tight))
+                    signal["pct_level_overlay_tp_tighten"] = tp_tight
+        except Exception:
+            pass
+    # Hard veto only in exhaustion_pivot zone.
+    veto, reason = ov.should_veto(side)
+    if veto:
+        signal["pct_level_overlay_veto"] = True
+        signal["pct_level_overlay_veto_reason"] = reason
+        logging.info(
+            "Pct overlay VETO: %s %s | level=%+.2f%% reason=%s",
+            signal.get("strategy", "Unknown"), side,
+            state.nearest_level or 0.0, reason,
+        )
+        return False
+    return True
+
 import param_scaler
 from bot_state import (
     STATE_PATH,
@@ -1535,6 +1780,8 @@ def _apply_kalshi_trade_overlay_to_signal(
                 signal.get("kalshi_entry_support_score"),
             )
 
+    # Pct overlay used to chain here; Option B handles it via snapshot at
+    # signal birth + resolver before order placement.
     return True
 
 
@@ -6903,6 +7150,7 @@ async def run_bot():
         else None
     )
     structural_tracker = StructuralLevelTracker()
+    _init_pct_level_overlay()
     _lfo_enabled = bool(CONFIG.get("LEVEL_FILL_OPTIMIZER_ENABLED", True))
     level_fill_optimizer = LevelFillOptimizer() if _lfo_enabled else None
     pending_level_fills: dict = {}   # uid → {signal, target_price, …}
@@ -10036,6 +10284,11 @@ async def run_bot():
                 float(currbar['open']), float(currbar['high']),
                 float(currbar['low']),  float(currbar['close']),
             )
+            _update_pct_level_overlay(
+                current_time,
+                currbar['open'], currbar['high'],
+                currbar['low'], currbar['close'],
+            )
             chop_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             extension_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             structure_blocker.update(new_df)
@@ -10952,6 +11205,14 @@ async def run_bot():
                                     _lf_sig.get("side", "?"),
                                     _lf_result["reason"],
                                 )
+                                if not _resolve_pct_overlay_snapshot(_lf_sig):
+                                    pending_level_fills.pop(_lf_uid, None)
+                                    logging.info(
+                                        "📌 LevelFill ABORT: pct overlay snapshot vetoed %s %s",
+                                        _lf_sig.get("strategy", "?"),
+                                        _lf_sig.get("side", "?"),
+                                    )
+                                    continue
                                 _lf_resp = await client.async_place_order(_lf_sig, current_price)
                                 if _lf_resp is not None:
                                     _lf_od = getattr(client, "_last_order_details", None) or {}
@@ -11183,6 +11444,10 @@ async def run_bot():
                                 pending_impulse_rescues.clear()
                                 break
 
+                            if not _resolve_pct_overlay_snapshot(pending_signal):
+                                pending_impulse_rescues.clear()
+                                break
+
                             success, reverse_state_count = await client.async_close_and_reverse(
                                 pending_signal,
                                 current_price,
@@ -11390,6 +11655,7 @@ async def run_bot():
 
                 # Inject a staged bank fill candidate from a prior bar's trigger
                 if _staged_bank_fill_candidate is not None:
+                    _attach_pct_overlay_snapshot(_staged_bank_fill_candidate[2])
                     candidate_signals.append(_staged_bank_fill_candidate)
                     logging.info(
                         "🏦 Staged bank fill injected into candidates: %s %s",
@@ -11508,6 +11774,7 @@ async def run_bot():
                                     logging.debug("Bank fill park check (fast) error: %s", _bfe3)
 
                             # Add to candidate list (Priority 1 = FAST)
+                            _attach_pct_overlay_snapshot(signal)
                             add_strategy_slot(
                                 "checked",
                                 signal.get("strategy", strat_name),
@@ -11734,6 +12001,7 @@ async def run_bot():
                             signal,
                             fallback=strat_name,
                         )
+                        _attach_pct_overlay_snapshot(signal)
                         candidate_signals.append((priority, strat, signal, strat_name))
 
                         # Log as candidate
@@ -13081,6 +13349,7 @@ async def run_bot():
                                     "⏳ RESCUE DEFERRED: cleared pending opposite-direction rescue"
                                 )
                         if not pending_impulse_rescues or pending_impulse_rescues[0]["signal"].get("side") == new_side:
+                            _attach_pct_overlay_snapshot(pending_entry["signal"])
                             pending_impulse_rescues.append(pending_entry)
                             logging.info("⏳ RESCUE DEFERRED: waiting for next bar confirmation")
                         signal_executed = True
@@ -13257,6 +13526,15 @@ async def run_bot():
                                 signal['side'],
                                 active_trade.get("strategy"),
                             )
+                            if not _resolve_pct_overlay_snapshot(signal):
+                                add_strategy_slot(
+                                    "rejected",
+                                    signal.get("strategy", strat_name),
+                                    signal,
+                                    fallback=strat_name,
+                                )
+                                signal_executed = True
+                                break
                             order_response = await client.async_place_order(signal, current_price)
                             if order_response is not None:
                                 order_details = getattr(client, "_last_order_details", None) or {}
@@ -13400,6 +13678,7 @@ async def run_bot():
                         import uuid as _uuid_mod
                         _lfo_uid = str(_uuid_mod.uuid4())[:8]
                         signal["entry_mode"] = "level_fill_pending"
+                        _attach_pct_overlay_snapshot(signal)
                         level_fill_optimizer.add_pending(_lfo_uid, signal, _lfo_decision, float(current_price))
                         pending_level_fills[_lfo_uid] = level_fill_optimizer.get_pending_signal(_lfo_uid)
                         add_strategy_slot("rejected", signal.get("strategy", strat_name), signal, fallback=strat_name)
@@ -13461,6 +13740,16 @@ async def run_bot():
                             )
                             signal_executed = True
                             break
+
+                    if not _resolve_pct_overlay_snapshot(signal):
+                        add_strategy_slot(
+                            "rejected",
+                            signal.get("strategy", strat_name),
+                            signal,
+                            fallback=strat_name,
+                        )
+                        signal_executed = True
+                        break
 
                     success, reverse_state_count = await client.async_close_and_reverse(
                         signal,
@@ -14094,6 +14383,16 @@ async def run_bot():
                                             side=sig.get("side"),
                                             price=current_price,
                                         )
+                                        if not _resolve_pct_overlay_snapshot(sig):
+                                            add_strategy_slot(
+                                                "rejected",
+                                                sig.get("strategy", s_name),
+                                                sig,
+                                                fallback=s_name,
+                                            )
+                                            del pending_loose_signals[s_name]
+                                            signal_executed = True
+                                            break
                                         add_strategy_slot(
                                             "executed",
                                             sig.get("strategy", s_name),
@@ -14266,6 +14565,17 @@ async def run_bot():
                                         del pending_loose_signals[s_name]
                                         signal_executed = True
                                         break
+
+                                if not _resolve_pct_overlay_snapshot(sig):
+                                    add_strategy_slot(
+                                        "rejected",
+                                        sig.get("strategy", s_name),
+                                        sig,
+                                        fallback=s_name,
+                                    )
+                                    del pending_loose_signals[s_name]
+                                    signal_executed = True
+                                    break
 
                                 success, reverse_state_count = await client.async_close_and_reverse(
                                     sig,
@@ -14721,6 +15031,7 @@ async def run_bot():
                                             fallback=s_name,
                                         )
                                         logging.info(f"🕐 Queuing {s_name} signal")
+                                        _attach_pct_overlay_snapshot(signal)
                                         pending_loose_signals[s_name] = {'signal': signal, 'bar_count': 0}
                                 except Exception as e:
                                     logging.exception("Error in %s", s_name)

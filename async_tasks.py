@@ -180,3 +180,21 @@ async def sentiment_monitor_task(sentiment_service, on_poll_complete=None):
         except Exception as exc:
             logging.error("❌ Sentiment monitor task error: %s", exc)
             await asyncio.sleep(5)
+
+
+async def kalshi_refresh_task(kalshi_provider, interval: int = 60):
+    """Background loop to refresh the Kalshi provider cache."""
+    if kalshi_provider is None:
+        return
+    while True:
+        try:
+            if hasattr(kalshi_provider, "async_refresh"):
+                await kalshi_provider.async_refresh()
+            elif hasattr(kalshi_provider, "refresh"):
+                kalshi_provider.refresh()
+            await asyncio.sleep(max(1, int(interval)))
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logging.debug("kalshi_refresh_task error: %s", exc)
+            await asyncio.sleep(max(1, int(interval)))

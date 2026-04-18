@@ -388,6 +388,36 @@ class ReplaySession:
         size = max(1, int(signal.get("size") or 1))
         tp_points = float(signal.get("tp_dist") or 0.0)
         sl_points = float(signal.get("sl_dist") or 0.0)
+
+        # Option B assertion: if a pct overlay snapshot is on the signal, the
+        # resolver must have been invoked before order placement. (We check
+        # the flag — not the size_before field — because rounding can produce
+        # a no-op even when the resolver ran correctly.)
+        snap = signal.get("pct_overlay_snapshot")
+        if isinstance(snap, dict) and snap.get("engaged"):
+            if not signal.get("pct_overlay_snapshot_resolved"):
+                logging.error(
+                    "[PCT_ASSERTION_FAIL] open_leg: engaged snapshot but resolver "
+                    "never ran. size=%d size_mult=%.3f tp_mult=%.3f veto=%s "
+                    "strategy=%s side=%s",
+                    size,
+                    float(snap.get("size_mult", 1.0) or 1.0),
+                    float(snap.get("tp_mult", 1.0) or 1.0),
+                    snap.get("veto_reason") or "-",
+                    signal.get("strategy"), side,
+                )
+            elif signal.get("pct_overlay_resolved_size_before") is not None:
+                base = int(signal["pct_overlay_resolved_size_before"])
+                size_mult = float(snap.get("size_mult", 1.0) or 1.0)
+                expected = max(1, int(round(base * size_mult)))
+                if expected != size:
+                    logging.error(
+                        "[PCT_ASSERTION_FAIL] open_leg size mismatch: "
+                        "expected %d (base=%d × mult=%.3f), got size=%d. "
+                        "strategy=%s side=%s",
+                        expected, base, size_mult, size,
+                        signal.get("strategy"), side,
+                    )
         entry_order_id = self._new_id()
         stop_order_id = self._new_id()
         target_order_id = self._new_id()
