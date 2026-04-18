@@ -27,6 +27,7 @@ except Exception:
 
 from config import CONFIG, refresh_target_symbol, determine_current_contract_symbol
 from event_logger import event_logger
+from oanda_mirror import OandaMirrorBridge
 
 try:
     from signalrcore_async.hub_connection_builder import HubConnectionBuilder
@@ -292,6 +293,7 @@ class ProjectXClient:
         self._yielding_to_external_session = False
         self._yielding_to_external_session_since = 0.0
         self._yielding_to_external_session_reason = ""
+        self._oanda_mirror = OandaMirrorBridge(CONFIG.get("OANDA_MIRROR"))
         self.session.hooks.setdefault("response", []).append(self._requests_response_auth_hook)
 
     def _warn_async_http_fallback_once(self) -> None:
@@ -353,6 +355,33 @@ class ProjectXClient:
             if parsed is not None:
                 return parsed
         return fallback
+
+    def _queue_oanda_entry_mirror(self, side: str) -> None:
+        if self._oanda_mirror is None:
+            return
+        try:
+            source_order_id = None
+            if isinstance(self._last_order_details, dict):
+                source_order_id = self._last_order_details.get("order_id")
+            self._oanda_mirror.submit_entry(
+                contract_root=self.contract_root,
+                side=side,
+                source_order_id=source_order_id,
+            )
+        except Exception as exc:
+            logging.warning("Failed to queue OANDA entry mirror: %s", exc)
+
+    def _queue_oanda_flatten_mirror(self, side: Optional[str], reason: str = "") -> None:
+        if self._oanda_mirror is None:
+            return
+        try:
+            self._oanda_mirror.submit_flatten(
+                contract_root=self.contract_root,
+                side=side,
+                reason=reason,
+            )
+        except Exception as exc:
+            logging.warning("Failed to queue OANDA flatten mirror: %s", exc)
 
     def _normalize_position(self, raw_position: Optional[Dict]) -> Dict:
         if not isinstance(raw_position, dict):
@@ -1682,6 +1711,7 @@ class ProjectXClient:
             if target_order_id is not None:
                 self._active_target_order_id = target_order_id
 
+            self._queue_oanda_entry_mirror(signal['side'])
             return resp_data
 
         except Exception as e:
@@ -1899,6 +1929,10 @@ class ProjectXClient:
                 pnl=0.0,
                 reason="Manual Close"
             )
+            self._queue_oanda_flatten_mirror(
+                position.get('side'),
+                reason=close_method or "close_position",
+            )
 
             time.sleep(0.35)
             post_close_position = self.get_position()
@@ -2015,6 +2049,10 @@ class ProjectXClient:
                 exit_price=close_price if close_price is not None else position.get('avg_price', 0.0),
                 pnl=0.0,
                 reason=f"Emergency Exit: {reason_text}",
+            )
+            self._queue_oanda_flatten_mirror(
+                side_name,
+                reason=reason_text,
             )
             time.sleep(0.35)
             self.cancel_open_exit_orders(side=None, reason=f"{reason_text} cleanup")

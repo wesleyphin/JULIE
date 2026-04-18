@@ -358,7 +358,7 @@ def _simulate(
     early_exit_cfg = (CONFIG.get("EARLY_EXIT", {}) or {}).get("RegimeAdaptive", {}) or {}
     early_exit_enabled = bool(early_exit_cfg.get("enabled", False))
     early_exit_bars = int(early_exit_cfg.get("exit_if_not_green_by", 30) or 30)
-    early_exit_crosses = int(early_exit_cfg.get("max_profit_crosses", 4) or 4)
+    early_exit_crosses = int(early_exit_cfg.get("max_profit_crosses", 8) or 8)
 
     index = df.index
     opens = df["open"].to_numpy(dtype=np.float64)

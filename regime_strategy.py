@@ -486,7 +486,6 @@ class RegimeAdaptiveStrategy:
         signal = None
         original_signal = None
         revert = False
-        signal_already_finalized = False
         early_exit_enabled = None
         selected_rule_id = None
         selected_sma_fast = sma_fast
@@ -549,7 +548,7 @@ class RegimeAdaptiveStrategy:
                 candidates.append(
                     {
                         "original_signal": candidate_side,
-                        "signal": final_signal,
+                        "signal": candidate_side,  # store pre-revert; shared revert block below applies flip once
                         "revert": bool(candidate_revert),
                         "early_exit_enabled": self.artifact.get_early_exit_enabled(combo_key, candidate_side),
                         "rule_id": candidate.get("rule_id"),
@@ -577,7 +576,6 @@ class RegimeAdaptiveStrategy:
             signal = str(chosen["signal"])
             original_signal = str(chosen["original_signal"])
             revert = bool(chosen["revert"])
-            signal_already_finalized = True
             early_exit_enabled = chosen.get("early_exit_enabled")
             selected_rule_id = chosen.get("rule_id")
             selected_sma_fast = float(chosen.get("sma_fast_value", sma_fast))
@@ -612,10 +610,8 @@ class RegimeAdaptiveStrategy:
                 revert = self.enable_signal_reversion and should_revert_signal(ts)
 
         # Apply reversion if needed
-        if revert and not signal_already_finalized:
+        if revert:
             signal = 'SHORT' if signal == 'LONG' else 'LONG'
-            logging.info(f"RegimeAdaptive: Signal REVERTED {original_signal}->{signal} for {combo_key}")
-        elif revert:
             logging.info(f"RegimeAdaptive: Signal REVERTED {original_signal}->{signal} for {combo_key}")
         else:
             logging.info(f"RegimeAdaptive: {signal} signal generated | Combo: {combo_key}")
@@ -658,7 +654,7 @@ class RegimeAdaptiveStrategy:
                 early_exit_cfg.get("exit_if_not_green_by", 30) or 30
             )
             payload["early_exit_max_profit_crosses"] = int(
-                early_exit_cfg.get("max_profit_crosses", 4) or 4
+                early_exit_cfg.get("max_profit_crosses", 8) or 8
             )
         return payload
 

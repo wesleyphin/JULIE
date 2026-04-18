@@ -6,6 +6,12 @@ import os
 SECRETS = {
     "USERNAME": os.environ.get("TOPSTEPX_USERNAME", ""),
     "API_KEY": os.environ.get("TOPSTEPX_API_KEY", ""),
+    "OANDA_API_KEY": os.environ.get("OANDA_API_KEY", ""),
+    "OANDA_ACCOUNT_ID": os.environ.get("OANDA_ACCOUNT_ID", ""),
+    "OANDA_PRACTICE_URL": os.environ.get(
+        "OANDA_PRACTICE_URL",
+        "https://api-fxpractice.oanda.com",
+    ),
     "GEMINI_API_KEY": os.environ.get("GEMINI_API_KEY", ""),
     "KALSHI_KEY_ID": os.environ.get("KALSHI_KEY_ID", "your-key-id-here"),
     "KALSHI_PRIVATE_KEY_PATH": os.environ.get("KALSHI_PRIVATE_KEY_PATH", "path/to/your/kalshi_key.pem"),

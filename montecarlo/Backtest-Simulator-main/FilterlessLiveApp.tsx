@@ -654,6 +654,9 @@ function FilterlessLiveApp() {
       try {
         const response = await fetch(`/filterless_live_state.json?ts=${Date.now()}`, {
           cache: 'no-store',
+          headers: {
+            'ngrok-skip-browser-warning': 'true',
+          },
           signal: controller.signal,
         });
         if (!response.ok) {

@@ -60,6 +60,14 @@ from dynamic_sltp_params import dynamic_sltp_engine, get_sltp
 from volatility_filter import volatility_filter, check_volatility, VolRegime
 from fixed_sltp_framework import apply_fixed_sltp, log_fixed_sltp, asia_viability_gate
 from regime_strategy import RegimeAdaptiveStrategy
+from structural_level_tracker import StructuralLevelTracker
+from level_fill_optimizer import (
+    AT_LEVEL_THRESHOLD,
+    LevelFillOptimizer,
+    FILL_IMMEDIATE,
+    FILL_AT_LEVEL,
+    FILL_WAIT,
+)
 from dynamic_chop import DynamicChopAnalyzer
 from ml_physics_strategy import MLPhysicsStrategy
 from dynamic_engine3_strategy import DynamicEngine3Strategy
@@ -69,6 +77,11 @@ from event_logger import event_logger
 from circuit_breaker import CircuitBreaker
 from news_filter import NewsFilter
 from client import ProjectXClient
+from kalshi_trade_overlay import (
+    analyze_recent_price_action as analyze_kalshi_recent_price_action,
+    build_trade_plan as build_kalshi_trade_plan,
+    compute_tp_trail_stop as compute_kalshi_tp_trail_stop,
+)
 import param_scaler
 from bot_state import (
     STATE_PATH,
@@ -91,7 +104,13 @@ try:
     from async_market_stream import AsyncMarketDataManager
 except Exception:
     AsyncMarketDataManager = None
-from async_tasks import heartbeat_task, htf_structure_task, position_sync_task, sentiment_monitor_task
+from async_tasks import (
+    heartbeat_task,
+    htf_structure_task,
+    kalshi_refresh_task,
+    position_sync_task,
+    sentiment_monitor_task,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +125,38 @@ _KALSHI_SETTLEMENT_HOURS_ET = [10, 11, 12, 13, 14, 15, 16]
 # Hours where Kalshi crowd has directional edge (backtest: 70% at 60%+ conf)
 # 10-11 AM excluded: crowd is contrarian (39.5% accuracy)
 _KALSHI_GATING_HOURS_ET = [12, 13, 14, 15, 16]
+
+# ---------------------------------------------------------------------------
+# MLPhysics adaptive bank fill — US session only (Macros 13-19)
+# Backtest: +0.508 pts/trade delta on reversal signals, consistent across
+# all 60 quarters 2011-2026. Only active during US session macro trigger bars.
+#
+# US session macros = Macro_13..Macro_19 = PT hours 6-12 = ET hours 9-15
+# ---------------------------------------------------------------------------
+_BANK_FILL_US_SESSION_HOURS_ET: frozenset[int] = frozenset({9, 10, 11, 12, 13, 14, 15})
+_BANK_FILL_MACRO_TRIGGER_MINUTE: int = 50   # macro windows fire at :50
+_BANK_FILL_WINDOW_BARS: int = 30            # max bars to wait for bank fill
+_BANK_FILL_STRONG_RANGE_ATR: float = 2.5   # bar range / ATR >= this → strong
+_BANK_FILL_STRONG_SPAN_MIN: int = 3        # bank levels spanned >= this → strong
+_BANK_FILL_STEP: float = 12.5              # ES bank level increment in points
+_BANK_FILL_TREND_LOOKBACK: int = 30        # bars of lookback for reversal detection
+# Strategies (besides MLPhysics) that participate in adaptive bank fill
+_BANK_FILL_ELIGIBLE_STRATEGIES: frozenset[str] = frozenset({
+    "DynamicEngine3Strategy", "AetherFlowStrategy", "RegimeAdaptiveStrategy",
+})
+
+# --- Pivot-level trailing stop ---
+# When a confirmed swing pivot is detected during a US-session trade, the hard
+# stop is ratcheted to just behind the highest/lowest bank level the pivot
+# reached.  The ratchet is one-way (SL only moves in the favorable direction).
+_PIVOT_TRAIL_LOOKBACK: int = 5        # bars in the swing-detection window
+_PIVOT_TRAIL_BUFFER: float = 0.25     # 1 tick of clearance beyond the anchor level
+_PIVOT_TRAIL_MIN_PROFIT_PTS: float = 12.5  # minimum unrealised PnL before trail arms
+# Short-form strategy labels as stored on live trade dicts (vs the ``*Strategy``
+# class names used by _BANK_FILL_ELIGIBLE_STRATEGIES above).
+_PIVOT_TRAIL_ELIGIBLE_STRATEGIES: frozenset[str] = frozenset({
+    "DynamicEngine3", "AetherFlow", "RegimeAdaptive",
+})
 
 
 def _active_kalshi_settlement_hour_et(kalshi: Optional[Any]) -> Optional[int]:
@@ -139,6 +190,238 @@ def _get_kalshi_provider():
         logging.warning("Kalshi provider not available for trade gating: %s", exc)
         _KALSHI_PROVIDER = None
     return _KALSHI_PROVIDER
+
+
+def _mlphysics_is_us_macro_bar(current_time: datetime.datetime) -> bool:
+    """True when current_time is a US session macro trigger bar (:50 minute, ET 9-15)."""
+    try:
+        ct_et = (
+            current_time.astimezone(NY_TZ)
+            if current_time.tzinfo is not None
+            else current_time.replace(tzinfo=NY_TZ)
+        )
+        return ct_et.hour in _BANK_FILL_US_SESSION_HOURS_ET and ct_et.minute == _BANK_FILL_MACRO_TRIGGER_MINUTE
+    except Exception:
+        return False
+
+
+def _mlphysics_bank_break_is_strong(df: "pd.DataFrame") -> bool:
+    """True if the current macro bar is a STRONG break (fill immediately).
+    Strong = bar spanned >= 3 bank levels OR bar range >= 2.5x ATR.
+    Defaults to True on any error so we never incorrectly park a signal.
+    """
+    try:
+        bar = df.iloc[-1]
+        bar_range = float(bar["high"]) - float(bar["low"])
+        # Bank span count
+        if bar_range / _BANK_FILL_STEP >= _BANK_FILL_STRONG_SPAN_MIN:
+            return True
+        # ATR over last 14 bars
+        if len(df) >= 15:
+            trs = []
+            for i in range(-14, 0):
+                h = float(df.iloc[i]["high"])
+                l = float(df.iloc[i]["low"])
+                cp = float(df.iloc[i - 1]["close"])
+                trs.append(max(h - l, abs(h - cp), abs(l - cp)))
+            atr = sum(trs) / len(trs) if trs else bar_range
+        else:
+            atr = bar_range
+        return (bar_range / atr) >= _BANK_FILL_STRONG_RANGE_ATR if atr > 0 else True
+    except Exception:
+        return True  # safe default — never wrongly park a signal
+
+
+def _mlphysics_is_reversal(signal: dict, df: "pd.DataFrame") -> bool:
+    """True if signal direction is fading intraday momentum (reversal trade).
+    Uses a 30-bar price change as the trend proxy.
+    Breakout = trading WITH momentum; Reversal = fading it.
+    """
+    try:
+        side = str(signal.get("side", "") or "").upper()
+        if side not in ("LONG", "SHORT"):
+            return False
+        lookback = min(_BANK_FILL_TREND_LOOKBACK, len(df) - 1)
+        if lookback < 5:
+            return False
+        price_now = float(df.iloc[-1]["close"])
+        price_then = float(df.iloc[-lookback]["close"])
+        trend_up = price_now > price_then
+        # Reversal: going against the prevailing trend
+        return (side == "LONG" and not trend_up) or (side == "SHORT" and trend_up)
+    except Exception:
+        return False
+
+
+def _mlphysics_bank_fill_target(side: str, price: float) -> float:
+    """Nearest 12.5-pt bank level for a limit fill.
+    LONG → bank at or below price (buy the pullback).
+    SHORT → bank at or above price (sell the pump).
+    """
+    step = _BANK_FILL_STEP
+    if side == "LONG":
+        return math.floor(price / step) * step
+    return math.ceil(price / step) * step
+
+
+def _detect_pivot_high(df: "pd.DataFrame", lookback: int = 5) -> Optional[float]:
+    """Return the confirmed swing-high price from ~lookback//2 bars ago, or None.
+
+    A swing high is confirmed when the bar at position [-lookback//2] (within
+    the last `lookback` bars) has the highest high of the entire window.  Using
+    the middle bar means the pivot is confirmed by at least one subsequent lower
+    bar, giving a reasonable lag vs. responsiveness trade-off on 5-min data.
+    """
+    half = lookback // 2
+    if len(df) < lookback:
+        return None
+    try:
+        highs = df["high"].iloc[-lookback:].values.astype(float)
+        ph = highs[half]
+        if all(ph >= highs[i] - 1e-9 for i in range(len(highs)) if i != half):
+            return float(ph)
+    except Exception:
+        pass
+    return None
+
+
+def _detect_pivot_low(df: "pd.DataFrame", lookback: int = 5) -> Optional[float]:
+    """Return the confirmed swing-low price from ~lookback//2 bars ago, or None."""
+    half = lookback // 2
+    if len(df) < lookback:
+        return None
+    try:
+        lows = df["low"].iloc[-lookback:].values.astype(float)
+        pl = lows[half]
+        if all(pl <= lows[i] + 1e-9 for i in range(len(lows)) if i != half):
+            return float(pl)
+    except Exception:
+        pass
+    return None
+
+
+def _compute_pivot_trail_sl(
+    side: str,
+    pivot_price: float,
+    entry_price: float,
+    current_sl: float,
+    min_profit_pts: float = _PIVOT_TRAIL_MIN_PROFIT_PTS,
+    step: float = _BANK_FILL_STEP,
+    buffer: float = _PIVOT_TRAIL_BUFFER,
+) -> Optional[float]:
+    """Compute a trailing SL candidate triggered by a confirmed pivot.
+
+    Two-tier anchor selection (LONG — symmetric for SHORT):
+
+    Reading B (default — one level of room):
+        anchor = highest bank level at-or-below pivot  MINUS one step
+        SL     = anchor - buffer
+        Gives the trade one full bank-width of breathing room after the pivot.
+        Example: pivot 5248, anchor_C = 5237.5, anchor_B = 5225 → SL 5224.75
+
+    Fallback to Reading C (when B would be at or below entry):
+        anchor = highest bank level at-or-below pivot  (no step back)
+        SL     = anchor - buffer
+        Used when the "one step back" level doesn't lock any profit.
+        Example: pivot 5212.5, entry 5200 → B would be 5199.75 (loss) → use C → SL 5212.25
+
+    Ratchet: candidate only returned if it IMPROVES the current SL and locks
+    genuine profit above (LONG) / below (SHORT) entry.
+    """
+    side = str(side).upper()
+    if side == "LONG":
+        profit_pts = pivot_price - entry_price
+        if profit_pts < min_profit_pts - 1e-9:
+            return None
+        # Pivot-level anchor (Reading C)
+        l_anchor_c = math.floor(pivot_price / step) * step
+        # One level back toward entry (Reading B)
+        l_anchor_b = l_anchor_c - step
+        candidate_b = round(l_anchor_b - buffer, 4)
+        if candidate_b > entry_price + 1e-9:
+            candidate = candidate_b   # Reading B — one level of room
+        else:
+            candidate = round(l_anchor_c - buffer, 4)  # fallback to Reading C
+        # Ratchet: only move SL up, and only if it locks real profit
+        if candidate <= current_sl + 1e-9 or candidate <= entry_price + 1e-9:
+            return None
+        return candidate
+    elif side == "SHORT":
+        profit_pts = entry_price - pivot_price
+        if profit_pts < min_profit_pts - 1e-9:
+            return None
+        # Pivot-level anchor (Reading C)
+        l_anchor_c = math.ceil(pivot_price / step) * step
+        # One level back toward entry (Reading B)
+        l_anchor_b = l_anchor_c + step
+        candidate_b = round(l_anchor_b + buffer, 4)
+        if candidate_b < entry_price - 1e-9:
+            candidate = candidate_b   # Reading B — one level of room
+        else:
+            candidate = round(l_anchor_c + buffer, 4)  # fallback to Reading C
+        # Ratchet: only move SL down, and only if it locks real profit
+        if candidate >= current_sl - 1e-9 or candidate >= entry_price - 1e-9:
+            return None
+        return candidate
+    return None
+
+
+def _live_pivot_trail_candidate(
+    trade: Optional[dict],
+    *,
+    pivot_high: Optional[float],
+    pivot_low: Optional[float],
+    pivot_bar_index: Optional[int],
+) -> Optional[float]:
+    if not isinstance(trade, dict):
+        return None
+    side_name = str(trade.get("side", "") or "").upper()
+    entry_price = _coerce_float(trade.get("entry_price"), math.nan)
+    current_stop_price = _coerce_float(trade.get("current_stop_price"), math.nan)
+    if (
+        side_name not in {"LONG", "SHORT"}
+        or not math.isfinite(entry_price)
+        or not math.isfinite(current_stop_price)
+    ):
+        return None
+
+    entry_bar_index = _coerce_int(trade.get("entry_bar"), None)
+    if pivot_bar_index is None:
+        return None
+    if entry_bar_index is not None and int(pivot_bar_index) <= int(entry_bar_index):
+        return None
+
+    if side_name == "LONG" and pivot_high is not None:
+        return _compute_pivot_trail_sl(
+            "LONG",
+            float(pivot_high),
+            float(entry_price),
+            float(current_stop_price),
+        )
+    if side_name == "SHORT" and pivot_low is not None:
+        return _compute_pivot_trail_sl(
+            "SHORT",
+            float(pivot_low),
+            float(entry_price),
+            float(current_stop_price),
+        )
+    return None
+
+
+def _level_fill_live_execution_allowed(
+    entry: Optional[dict],
+    current_price: float,
+    *,
+    tolerance: float = AT_LEVEL_THRESHOLD,
+) -> Tuple[bool, Optional[float]]:
+    if not isinstance(entry, dict):
+        return False, None
+    target_price = _coerce_float(entry.get("target_price"), math.nan)
+    live_price = _coerce_float(current_price, math.nan)
+    if not math.isfinite(target_price) or not math.isfinite(live_price):
+        return True, None
+    market_distance = abs(float(live_price) - float(target_price))
+    return market_distance <= float(tolerance) + 1e-9, float(market_distance)
 
 
 def _truth_social_cfg() -> Dict[str, Any]:
@@ -462,12 +745,22 @@ def _signal_base_size(signal: Optional[dict], fallback: int = 5) -> int:
     return max(1, size)
 
 
-def _coerce_float(value, fallback: float) -> float:
+def _coerce_float(value, fallback: Optional[float]) -> Optional[float]:
+    if value is None:
+        return None if fallback is None else float(fallback)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text or text.lower() in {"none", "null", "nan"}:
+            return None if fallback is None else float(fallback)
     try:
         out = float(value)
     except Exception:
+        if fallback is None:
+            return None
         return float(fallback)
     if not math.isfinite(out):
+        if fallback is None:
+            return None
         return float(fallback)
     return float(out)
 
@@ -1054,14 +1347,293 @@ def _apply_kalshi_gate_size(signal: Optional[dict], size: int) -> int:
         signal["kalshi_gate_reason"] = reason
         signal["kalshi_gate_multiplier"] = float(multiplier)
 
+    is_aetherflow = _live_strategy_family_name(signal.get("strategy")) == "aetherflow"
+
     if not allowed:
-        logging.info("Kalshi VETO: %s — size set to 0", reason)
+        if is_aetherflow:
+            logging.info("Kalshi VETO skipped for AetherFlow (sizing-only mode): %s — size unchanged", reason)
+            return size
+        logging.info("Kalshi HARD VETO: %s — size set to 0", reason)
         return 0
 
-    gated_size = max(1, int(size * multiplier))
+    # For Aetherflow: only apply upward multipliers (boost), never reduce
+    if is_aetherflow and multiplier < 1.0:
+        logging.info("Kalshi soft veto skipped for AetherFlow (sizing-only mode): %s — size unchanged", reason)
+        return size
+
+    scaled_size = float(size) * float(multiplier)
+    if multiplier < 1.0:
+        gated_size = int(math.floor(scaled_size + 1e-9))
+        if gated_size <= 0:
+            logging.info(
+                "Kalshi soft veto escalated to block for minimum-size trade: %s — size %d → 0 (%.1fx)",
+                reason,
+                size,
+                multiplier,
+            )
+            return 0
+    else:
+        gated_size = max(1, int(round(scaled_size)))
     if multiplier != 1.0:
         logging.info("Kalshi gate: %s — size %d → %d (%.1fx)", reason, size, gated_size, multiplier)
     return gated_size
+
+
+def _apply_kalshi_trade_overlay_to_signal(
+    signal: Optional[dict],
+    current_price: float,
+    market_df: Optional[pd.DataFrame],
+    *,
+    price_action_profile: Optional[dict] = None,
+) -> bool:
+    if not isinstance(signal, dict):
+        return True
+
+    overlay_cfg = CONFIG.get("KALSHI_TRADE_OVERLAY", {}) if isinstance(CONFIG, dict) else {}
+    if not bool((overlay_cfg or {}).get("enabled", False)):
+        signal["kalshi_trade_overlay_applied"] = False
+        signal["kalshi_trade_overlay_reason"] = "disabled"
+        return True
+
+    signal.setdefault("entry_price", _coerce_float(signal.get("entry_price"), current_price))
+    kalshi = _get_kalshi_provider()
+
+    settlement_hour = _active_kalshi_settlement_hour_et(kalshi)
+    if settlement_hour not in _KALSHI_GATING_HOURS_ET:
+        signal["kalshi_trade_overlay_applied"] = False
+        signal["kalshi_trade_overlay_reason"] = "outside_gating_hours"
+        signal["kalshi_entry_blocked"] = False
+        signal["kalshi_tp_trail_enabled"] = False
+        return True
+
+    plan = build_kalshi_trade_plan(
+        signal,
+        current_price,
+        kalshi,
+        price_action_profile=price_action_profile,
+        overlay_cfg=overlay_cfg,
+        tick_size=TICK_SIZE,
+    )
+
+    signal["kalshi_trade_overlay_applied"] = bool(plan.get("applied", False))
+    signal["kalshi_trade_overlay_reason"] = str(plan.get("reason", "") or "")
+    signal["kalshi_trade_overlay_role"] = str(plan.get("role", "") or "")
+    signal["kalshi_trade_overlay_mode"] = str(plan.get("mode", "") or "")
+    signal["kalshi_trade_overlay_forward_weight"] = float(
+        _coerce_float(plan.get("forward_weight"), 0.0)
+    )
+    signal["kalshi_curve_informative"] = bool(plan.get("curve_informative", False))
+    signal["kalshi_entry_probability"] = plan.get("entry_probability")
+    signal["kalshi_probe_price"] = plan.get("probe_price")
+    signal["kalshi_probe_probability"] = plan.get("probe_probability")
+    signal["kalshi_momentum_delta"] = plan.get("momentum_delta")
+    signal["kalshi_momentum_retention"] = plan.get("momentum_retention")
+    signal["kalshi_entry_support_score"] = plan.get("entry_support_score")
+    signal["kalshi_entry_threshold"] = plan.get("entry_threshold")
+    signal["kalshi_entry_directional_distance_points"] = plan.get("directional_distance_points")
+    signal["kalshi_sentiment_momentum"] = plan.get("sentiment_momentum")
+    signal["kalshi_support_price"] = plan.get("support_price")
+    signal["kalshi_fade_price"] = plan.get("fade_price")
+    signal["kalshi_tp_anchor_price"] = plan.get("anchor_price")
+    signal["kalshi_tp_anchor_probability"] = plan.get("anchor_probability")
+    signal["kalshi_fade_reason"] = plan.get("fade_reason")
+    signal["kalshi_support_span_points"] = plan.get("support_span_points")
+    signal["kalshi_tp_trail_enabled"] = bool(plan.get("trail_enabled", False))
+    signal["kalshi_tp_trigger_price"] = plan.get("trail_trigger_price")
+    signal["kalshi_tp_trail_buffer_ticks"] = int(_coerce_int(plan.get("trail_buffer_ticks"), 0) or 0)
+
+    if not bool(plan.get("applied", False)):
+        return True
+
+    if bool(plan.get("entry_blocked", False)):
+        event_logger.log_kalshi_entry_view(
+            str(signal.get("strategy", "Unknown") or "Unknown"),
+            str(signal.get("side", "?") or "?"),
+            float(_coerce_float(signal.get("entry_price"), current_price)),
+            str(signal.get("kalshi_trade_overlay_role", "") or ""),
+            "BLOCK",
+            entry_probability=_coerce_float(signal.get("kalshi_entry_probability"), math.nan),
+            probe_price=_coerce_float(signal.get("kalshi_probe_price"), math.nan),
+            probe_probability=_coerce_float(signal.get("kalshi_probe_probability"), math.nan),
+            momentum_delta=_coerce_float(signal.get("kalshi_momentum_delta"), math.nan),
+            momentum_retention=_coerce_float(signal.get("kalshi_momentum_retention"), math.nan),
+            support_score=_coerce_float(signal.get("kalshi_entry_support_score"), math.nan),
+            threshold=_coerce_float(signal.get("kalshi_entry_threshold"), math.nan),
+        )
+        logging.info(
+            "Kalshi overlay blocked entry: %s %s | role=%s | score=%s<thresh=%s | reason=%s",
+            signal.get("strategy", "Unknown"),
+            signal.get("side", "?"),
+            signal.get("kalshi_trade_overlay_role", ""),
+            signal.get("kalshi_entry_support_score"),
+            signal.get("kalshi_entry_threshold"),
+            signal.get("kalshi_trade_overlay_reason", ""),
+        )
+        signal["kalshi_entry_blocked"] = True
+        return False
+
+    signal["kalshi_entry_blocked"] = False
+    event_logger.log_kalshi_entry_view(
+        str(signal.get("strategy", "Unknown") or "Unknown"),
+        str(signal.get("side", "?") or "?"),
+        float(_coerce_float(signal.get("entry_price"), current_price)),
+        str(signal.get("kalshi_trade_overlay_role", "") or ""),
+        "PASS" if bool(plan.get("applied", False)) else "SKIP",
+        entry_probability=_coerce_float(signal.get("kalshi_entry_probability"), math.nan),
+        probe_price=_coerce_float(signal.get("kalshi_probe_price"), math.nan),
+        probe_probability=_coerce_float(signal.get("kalshi_probe_probability"), math.nan),
+        momentum_delta=_coerce_float(signal.get("kalshi_momentum_delta"), math.nan),
+        momentum_retention=_coerce_float(signal.get("kalshi_momentum_retention"), math.nan),
+        support_score=_coerce_float(signal.get("kalshi_entry_support_score"), math.nan),
+        threshold=_coerce_float(signal.get("kalshi_entry_threshold"), math.nan),
+    )
+    size_multiplier = _coerce_float(plan.get("size_multiplier"), 1.0)
+    base_size = max(1, _coerce_int(signal.get("size"), 1) or 1)
+    if size_multiplier < 0.999:
+        trimmed_size = max(1, int(math.floor((float(base_size) * float(size_multiplier)) + 1e-9)))
+        if trimmed_size != base_size:
+            signal["kalshi_entry_size_before"] = int(base_size)
+            signal["kalshi_entry_size_multiplier"] = float(size_multiplier)
+            signal["size"] = int(trimmed_size)
+            logging.info(
+                "Kalshi overlay size trim: %s %s | role=%s | size %s -> %s | score=%.3f thresh=%.3f",
+                signal.get("strategy", "Unknown"),
+                signal.get("side", "?"),
+                signal.get("kalshi_trade_overlay_role", ""),
+                int(base_size),
+                int(trimmed_size),
+                float(_coerce_float(signal.get("kalshi_entry_support_score"), 0.0)),
+                float(_coerce_float(signal.get("kalshi_entry_threshold"), 0.0)),
+            )
+
+    adjusted_tp = _coerce_float(plan.get("tp_dist"), math.nan)
+    old_tp = _coerce_float(signal.get("tp_dist"), math.nan)
+    if math.isfinite(adjusted_tp) and adjusted_tp > 0.0 and math.isfinite(old_tp):
+        signal["kalshi_tp_target_price"] = plan.get("target_price")
+        signal["kalshi_tp_adjusted"] = bool(plan.get("tp_adjusted", False))
+        if bool(plan.get("tp_adjusted", False)) and abs(old_tp - adjusted_tp) > 1e-9:
+            signal["tp_dist"] = float(adjusted_tp)
+            event_logger.log_kalshi_tp_adjust(
+                str(signal.get("strategy", "Unknown") or "Unknown"),
+                str(signal.get("side", "?") or "?"),
+                float(old_tp),
+                float(adjusted_tp),
+                fade_strike=_coerce_float(signal.get("kalshi_tp_anchor_price"), math.nan),
+                fade_probability=_coerce_float(signal.get("kalshi_tp_anchor_probability"), math.nan),
+                role=str(signal.get("kalshi_trade_overlay_role", "") or ""),
+                reason=str(signal.get("kalshi_fade_reason", "") or ""),
+            )
+            logging.info(
+                "Kalshi TP overlay: %s %s | role=%s | tp %.2f -> %.2f | anchor=%s | entry_prob=%s | score=%s",
+                signal.get("strategy", "Unknown"),
+                signal.get("side", "?"),
+                signal.get("kalshi_trade_overlay_role", ""),
+                float(old_tp),
+                float(adjusted_tp),
+                signal.get("kalshi_tp_anchor_price"),
+                signal.get("kalshi_entry_probability"),
+                signal.get("kalshi_entry_support_score"),
+            )
+
+    return True
+
+
+def _apply_kalshi_tp_trail(
+    client: Optional[ProjectXClient],
+    trade: Optional[dict],
+    *,
+    current_time: Optional[datetime.datetime],
+    market_price: float,
+    bar_high: float,
+    bar_low: float,
+    bar_index: Optional[int] = None,
+) -> Optional[dict]:
+    if client is None or not isinstance(trade, dict):
+        return None
+    trail_plan = compute_kalshi_tp_trail_stop(
+        trade,
+        market_price=market_price,
+        bar_high=bar_high,
+        bar_low=bar_low,
+        tick_size=TICK_SIZE,
+    )
+    if not bool(trail_plan.get("triggered", False)):
+        return None
+
+    trade["kalshi_tp_trail_seen"] = True
+    target_stop_price = _coerce_float(trail_plan.get("stop_price"), math.nan)
+    if not bool(trail_plan.get("should_update", False)) or not math.isfinite(target_stop_price):
+        return {"status": "unchanged"}
+
+    side_name = str(trade.get("side", "") or "").upper()
+    current_stop_price = _coerce_float(trade.get("current_stop_price"), math.nan)
+    stop_order_id = _coerce_int(trade.get("stop_order_id"), None)
+
+    if _live_market_has_crossed_stop(target_stop_price, side_name, market_price):
+        return _force_close_live_trade_for_crossed_stop(
+            client,
+            trade,
+            current_time,
+            market_price=market_price,
+            target_stop_price=target_stop_price,
+            failure_reason="kalshi_tp_trail_market_already_through_stop",
+        )
+
+    if not client.modify_stop_to_breakeven(
+        stop_price=target_stop_price,
+        side=side_name,
+        known_size=max(1, _coerce_int(trade.get("size"), 1) or 1),
+        stop_order_id=stop_order_id,
+        current_stop_price=current_stop_price,
+    ):
+        if (
+            _live_market_has_crossed_stop(target_stop_price, side_name, market_price)
+            or _live_bar_has_crossed_stop(target_stop_price, side_name, bar_high, bar_low)
+        ):
+            return _force_close_live_trade_for_crossed_stop(
+                client,
+                trade,
+                current_time,
+                market_price=market_price,
+                target_stop_price=target_stop_price,
+                failure_reason="kalshi_tp_trail_stop_update_failed_after_cross",
+            )
+        logging.warning(
+            "Kalshi TP trail stop update failed for %s %s -> %.2f",
+            str(trade.get("strategy", "Unknown") or "Unknown"),
+            side_name,
+            float(target_stop_price),
+        )
+        return {"status": "failed"}
+
+    trade["current_stop_price"] = float(target_stop_price)
+    trade["kalshi_tp_trail_triggered"] = True
+    trade["kalshi_tp_trail_trigger_count"] = int(
+        _coerce_int(trade.get("kalshi_tp_trail_trigger_count"), 0) or 0
+    ) + 1
+    trade["kalshi_tp_trail_last_update_bar_index"] = bar_index
+    updated_stop_order_id = getattr(client, "_active_stop_order_id", None)
+    if updated_stop_order_id is not None:
+        trade["stop_order_id"] = updated_stop_order_id
+
+    event_logger.log_trade_modified(
+        "KalshiTPTrailStop",
+        float(current_stop_price),
+        float(target_stop_price),
+        f"lock fade strike {float(_coerce_float(trade.get('kalshi_tp_anchor_price'), target_stop_price)):.2f}",
+    )
+    logging.info(
+        "Kalshi TP trail ratchet: %s %s | stop -> %.2f | anchor=%.2f | role=%s",
+        str(trade.get("strategy", "Unknown") or "Unknown"),
+        side_name,
+        float(target_stop_price),
+        float(_coerce_float(trade.get("kalshi_tp_anchor_price"), target_stop_price)),
+        str(trade.get("kalshi_trade_overlay_role", "") or ""),
+    )
+    return {
+        "status": "updated",
+        "target_stop_price": float(target_stop_price),
+    }
 
 
 def _apply_live_execution_size(
@@ -1100,6 +1672,22 @@ def _live_strategy_family_name(value: Optional[str]) -> str:
     if strategy_name == "AetherFlowStrategy":
         return "aetherflow"
     return ""
+
+
+def _live_strategy_identity_key(payload: Optional[dict]) -> Optional[str]:
+    if not isinstance(payload, dict):
+        return None
+    strategy_name = str(payload.get("strategy") or "").strip()
+    if not strategy_name:
+        return None
+    sub_strategy = str(
+        payload.get("sub_strategy")
+        or payload.get("combo_key")
+        or ""
+    ).strip()
+    if sub_strategy:
+        return f"{strategy_name}:{sub_strategy}"
+    return strategy_name
 
 
 def _count_same_side_live_family_trades(
@@ -2647,6 +3235,34 @@ def _build_live_active_trade(
         "vol_regime": signal.get("vol_regime"),
         "gate_prob": signal.get("gate_prob"),
         "gate_threshold": signal.get("gate_threshold"),
+        "kalshi_trade_overlay_applied": bool(signal.get("kalshi_trade_overlay_applied", False)),
+        "kalshi_trade_overlay_reason": signal.get("kalshi_trade_overlay_reason"),
+        "kalshi_trade_overlay_role": signal.get("kalshi_trade_overlay_role"),
+        "kalshi_trade_overlay_mode": signal.get("kalshi_trade_overlay_mode"),
+        "kalshi_trade_overlay_forward_weight": signal.get("kalshi_trade_overlay_forward_weight"),
+        "kalshi_curve_informative": bool(signal.get("kalshi_curve_informative", False)),
+        "kalshi_entry_probability": signal.get("kalshi_entry_probability"),
+        "kalshi_probe_price": signal.get("kalshi_probe_price"),
+        "kalshi_probe_probability": signal.get("kalshi_probe_probability"),
+        "kalshi_momentum_delta": signal.get("kalshi_momentum_delta"),
+        "kalshi_momentum_retention": signal.get("kalshi_momentum_retention"),
+        "kalshi_entry_support_score": signal.get("kalshi_entry_support_score"),
+        "kalshi_entry_threshold": signal.get("kalshi_entry_threshold"),
+        "kalshi_entry_directional_distance_points": signal.get("kalshi_entry_directional_distance_points"),
+        "kalshi_sentiment_momentum": signal.get("kalshi_sentiment_momentum"),
+        "kalshi_support_price": signal.get("kalshi_support_price"),
+        "kalshi_fade_price": signal.get("kalshi_fade_price"),
+        "kalshi_tp_anchor_price": signal.get("kalshi_tp_anchor_price"),
+        "kalshi_tp_anchor_probability": signal.get("kalshi_tp_anchor_probability"),
+        "kalshi_fade_reason": signal.get("kalshi_fade_reason"),
+        "kalshi_support_span_points": signal.get("kalshi_support_span_points"),
+        "kalshi_tp_trail_enabled": bool(signal.get("kalshi_tp_trail_enabled", False)),
+        "kalshi_tp_trigger_price": signal.get("kalshi_tp_trigger_price"),
+        "kalshi_tp_trail_buffer_ticks": int(
+            _coerce_int(signal.get("kalshi_tp_trail_buffer_ticks"), 0) or 0
+        ),
+        "kalshi_tp_trail_triggered": False,
+        "kalshi_tp_trail_trigger_count": 0,
         "profit_crosses": 0,
         "was_green": None,
         "mfe_points": 0.0,
@@ -3413,6 +4029,53 @@ def _stage_live_de3_break_even_stop_update(
         from_pending=False,
         bar_index=bar_index,
     )
+
+
+def _apply_pivot_trail_sl(
+    client: Optional["ProjectXClient"],
+    trade: Optional[dict],
+    target_stop_price: float,
+    *,
+    current_time: "datetime.datetime",
+    market_price: float,
+    bar_high: float,
+    bar_low: float,
+    bar_index: Optional[int] = None,
+) -> Optional[dict]:
+    """Move the hard stop to *target_stop_price* via the broker API.
+
+    Reuses _apply_live_de3_break_even_stop_update() after injecting the
+    required management-context fields into the trade dict.  The ratchet
+    check (target must improve current SL) is already done by the caller
+    via _compute_pivot_trail_sl(), but the underlying function double-checks.
+    """
+    if not isinstance(trade, dict):
+        return None
+    trade["_management_current_time"] = current_time
+    trade["_management_market_price"] = float(market_price)
+    trade["_management_bar_high"] = float(bar_high)
+    trade["_management_bar_low"] = float(bar_low)
+    try:
+        result = _apply_live_de3_break_even_stop_update(
+            client,
+            trade,
+            target_stop_price,
+            from_pending=False,
+            bar_index=bar_index,
+        )
+        if isinstance(result, dict) and result.get("status") == "updated":
+            logging.info(
+                "[PivotTrail] %s %s SL → %.2f",
+                str(trade.get("strategy", "")),
+                str(trade.get("side", "")),
+                float(target_stop_price),
+            )
+        return result
+    finally:
+        trade.pop("_management_current_time", None)
+        trade.pop("_management_market_price", None)
+        trade.pop("_management_bar_high", None)
+        trade.pop("_management_bar_low", None)
 
 
 def _process_live_trade_management_bar(
@@ -6239,6 +6902,10 @@ async def run_bot():
         if (filter_stack_runtime_enabled or gemini_runtime_enabled)
         else None
     )
+    structural_tracker = StructuralLevelTracker()
+    _lfo_enabled = bool(CONFIG.get("LEVEL_FILL_OPTIMIZER_ENABLED", True))
+    level_fill_optimizer = LevelFillOptimizer() if _lfo_enabled else None
+    pending_level_fills: dict = {}   # uid → {signal, target_price, …}
     chop_filter = ChopFilterCls(lookback=20)
     extension_filter = ExtensionFilterCls()
     # 4-Tier Trend Filter (merged with Impulse logic)
@@ -6331,6 +6998,9 @@ async def run_bot():
     manifold_enforce_side_bias = bool(regime_manifold_cfg.get("enforce_side_bias", True))
     manifold_persist_state = bool(regime_manifold_cfg.get("persist_state", True))
     last_regime_manifold_label = None
+    kalshi_price_action_profile: dict = {}
+    last_kalshi_overlay_role = None
+    last_kalshi_overlay_mode = None
     if regime_manifold_engine is not None:
         logging.info("RegimeManifold active (mode=%s)", regime_manifold_mode)
 
@@ -6415,6 +7085,14 @@ async def run_bot():
     htf_updater = None
     if htf_fvg_enabled_live:
         htf_updater = asyncio.create_task(htf_structure_task(client, htf_fvg_filter, interval=60))
+    kalshi_updater = None
+    kalshi_provider = _get_kalshi_provider()
+    if kalshi_provider is not None and getattr(kalshi_provider, "enabled", False):
+        kalshi_interval = max(
+            15,
+            int(_coerce_int((CONFIG.get("KALSHI", {}) or {}).get("cache_ttl"), 120) or 120) // 2,
+        )
+        kalshi_updater = asyncio.create_task(kalshi_refresh_task(kalshi_provider, interval=kalshi_interval))
 
     # === TRACKING VARIABLES ===
     # Position sync now handled by independent async task - removed manual tracking
@@ -6422,6 +7100,7 @@ async def run_bot():
     # Track pending signals for delayed execution
     pending_loose_signals = {}
     last_processed_bar = None
+    _cb_last_day: Optional[date] = None
     opposite_reversal_cfg = CONFIG.get("LIVE_OPPOSITE_REVERSAL", {}) or {}
     opposite_reversal_required = int(
         max(1, _coerce_int(opposite_reversal_cfg.get("required_confirmations"), 3))
@@ -6446,11 +7125,18 @@ async def run_bot():
     }
     pending_impulse_rescues = []
 
+    # Adaptive bank fill: pending reversal signal waiting for bank level touch
+    _pending_mlphysics_bank_fill: Optional[dict] = None
+    _pending_mlphysics_bank_fill_bars: int = 0
+    # Staged bank fill for non-MLPhysics strategies (injected into candidate_signals)
+    _staged_bank_fill_candidate: Optional[tuple] = None
+
     # Early Exit Tracking
     active_trade = None
     parallel_active_trades = []
     bar_count = 0
     flat_position_streak = 0
+    position_stale_streak = 0
     recent_closed_trades = []
     seen_closed_trade_keys: set[tuple[Any, ...]] = set()
     max_recent_closed_trades = 40
@@ -6574,6 +7260,53 @@ async def run_bot():
         if not active_families:
             return True
         return signal_family in active_families
+
+    def same_strategy_opposite_reversal_blocked(
+        signal_payload: Optional[dict],
+        active_trades_payload: Optional[list[dict]],
+    ) -> bool:
+        signal_side = _normalize_live_side(
+            signal_payload.get("side") if isinstance(signal_payload, dict) else None
+        )
+        signal_strategy_key = _live_strategy_identity_key(signal_payload)
+        if signal_side is None or not signal_strategy_key:
+            return False
+        for trade in active_trades_payload or []:
+            if not isinstance(trade, dict):
+                continue
+            trade_side = _normalize_live_side(trade.get("side"))
+            if trade_side is None or trade_side == signal_side:
+                continue
+            if _live_strategy_identity_key(trade) == signal_strategy_key:
+                return True
+        return False
+
+    def log_same_strategy_opposite_reversal_block(
+        signal_payload: Optional[dict],
+        active_trades_payload: Optional[list[dict]],
+        *,
+        prefix: str = "Holding position",
+    ) -> None:
+        signal_side = _normalize_live_side(
+            signal_payload.get("side") if isinstance(signal_payload, dict) else None
+        )
+        signal_strategy_key = _live_strategy_identity_key(signal_payload) or "UNKNOWN"
+        active_matches = sorted(
+            {
+                str(_live_strategy_identity_key(trade) or "").strip()
+                for trade in (active_trades_payload or [])
+                if isinstance(trade, dict)
+                and _normalize_live_side(trade.get("side")) != signal_side
+            }
+            - {""}
+        )
+        active_label = ", ".join(active_matches) if active_matches else "UNKNOWN"
+        logging.info(
+            "%s: blocked same-strategy opposite reversal for %s against active %s",
+            prefix,
+            signal_strategy_key,
+            active_label,
+        )
 
     def log_opposite_reversal_active_trade_family_block(
         signal_payload: Optional[dict],
@@ -6998,6 +7731,163 @@ async def run_bot():
             logging.info("ProjectX trade-history backfill reconciled %s closed trade(s)", updates)
             persist_runtime_state(current_time, reason="projectx_trade_backfill")
         return updates
+
+    def _match_recent_closed_trade_to_tracked_trade(
+        trade: Optional[dict],
+        *,
+        current_time: Optional[datetime.datetime] = None,
+    ) -> Optional[dict]:
+        if not isinstance(trade, dict):
+            return None
+        trade_side = str(trade.get("side") or "").strip().upper()
+        if trade_side not in {"LONG", "SHORT"}:
+            return None
+        trade_entry_order_id = str(trade.get("entry_order_id") or "").strip()
+        trade_size = max(0, _coerce_int(trade.get("size"), 0))
+        trade_entry_price = _coerce_float(
+            trade.get("broker_entry_price", trade.get("entry_price")),
+            math.nan,
+        )
+        trade_entry_time = trade.get("entry_time")
+        if isinstance(trade_entry_time, datetime.datetime):
+            if trade_entry_time.tzinfo is None:
+                trade_entry_time = trade_entry_time.replace(tzinfo=NY_TZ)
+            else:
+                trade_entry_time = trade_entry_time.astimezone(NY_TZ)
+        search_now = current_time
+        if isinstance(search_now, datetime.datetime):
+            if search_now.tzinfo is None:
+                search_now = search_now.replace(tzinfo=NY_TZ)
+            else:
+                search_now = search_now.astimezone(NY_TZ)
+
+        for row in reversed(recent_closed_trades):
+            if not isinstance(row, dict):
+                continue
+            row_side = str(row.get("side") or "").strip().upper()
+            if row_side != trade_side:
+                continue
+
+            row_entry_order_id = str(row.get("entry_order_id") or "").strip()
+            if trade_entry_order_id and row_entry_order_id and row_entry_order_id == trade_entry_order_id:
+                return row
+
+            row_size = max(0, _coerce_int(row.get("size"), 0))
+            if trade_size > 0 and row_size not in (0, trade_size):
+                continue
+
+            row_entry_price = _coerce_float(row.get("entry_price"), math.nan)
+            if math.isfinite(trade_entry_price) and math.isfinite(row_entry_price):
+                if abs(float(row_entry_price) - float(trade_entry_price)) > 0.26:
+                    continue
+            elif trade_entry_order_id:
+                continue
+
+            row_opened_at = parse_dt(row.get("opened_at"))
+            if isinstance(row_opened_at, datetime.datetime):
+                if row_opened_at.tzinfo is None:
+                    row_opened_at = row_opened_at.replace(tzinfo=NY_TZ)
+                else:
+                    row_opened_at = row_opened_at.astimezone(NY_TZ)
+            row_closed_at = parse_dt(row.get("time"))
+            if isinstance(row_closed_at, datetime.datetime):
+                if row_closed_at.tzinfo is None:
+                    row_closed_at = row_closed_at.replace(tzinfo=NY_TZ)
+                else:
+                    row_closed_at = row_closed_at.astimezone(NY_TZ)
+
+            if isinstance(trade_entry_time, datetime.datetime) and isinstance(row_closed_at, datetime.datetime):
+                if row_closed_at < (trade_entry_time - datetime.timedelta(minutes=2)):
+                    continue
+                if row_closed_at > (trade_entry_time + datetime.timedelta(hours=12)):
+                    continue
+
+            if isinstance(trade_entry_time, datetime.datetime) and isinstance(row_opened_at, datetime.datetime):
+                if abs((row_opened_at - trade_entry_time).total_seconds()) > 1800.0:
+                    continue
+            elif trade_entry_order_id:
+                continue
+
+            if isinstance(search_now, datetime.datetime) and isinstance(row_closed_at, datetime.datetime):
+                if abs((search_now - row_closed_at).total_seconds()) > 14400.0:
+                    continue
+
+            return row
+        return None
+
+    def _reconcile_stale_tracked_trades_from_recent_history(
+        current_time: datetime.datetime,
+        market_price: float,
+    ) -> int:
+        nonlocal active_trade, parallel_active_trades, flat_position_streak
+        recovered = 0
+        for trade in list(tracked_live_trades()):
+            matched_close = _match_recent_closed_trade_to_tracked_trade(
+                trade,
+                current_time=current_time,
+            )
+            if not isinstance(matched_close, dict):
+                continue
+
+            close_time = parse_dt(matched_close.get("time"))
+            if isinstance(close_time, datetime.datetime):
+                if close_time.tzinfo is None:
+                    close_time = close_time.replace(tzinfo=NY_TZ)
+                else:
+                    close_time = close_time.astimezone(NY_TZ)
+            else:
+                close_time = current_time
+
+            entry_price = _coerce_float(
+                matched_close.get(
+                    "entry_price",
+                    trade.get("broker_entry_price", trade.get("entry_price")),
+                ),
+                _coerce_float(trade.get("entry_price"), market_price),
+            )
+            exit_price = _coerce_float(
+                matched_close.get("exit_price"),
+                _coerce_float(trade.get("current_stop_price"), market_price),
+            )
+            pnl_points = _coerce_float(matched_close.get("pnl_points"), math.nan)
+            if not math.isfinite(pnl_points):
+                if str(trade.get("side") or "").strip().upper() == "LONG":
+                    pnl_points = float(exit_price - entry_price)
+                else:
+                    pnl_points = float(entry_price - exit_price)
+
+            close_metrics = {
+                "entry_price": float(entry_price),
+                "exit_price": float(exit_price),
+                "pnl_points": float(pnl_points),
+                "pnl_dollars": float(
+                    _coerce_float(matched_close.get("pnl_dollars"), 0.0) or 0.0
+                ),
+                "exit_time": close_time,
+                "order_id": _coerce_int(matched_close.get("order_id"), None),
+                "entry_order_id": _coerce_int(matched_close.get("entry_order_id"), None),
+                "source": str(
+                    matched_close.get("source") or "projectx_trade_history"
+                ),
+            }
+            finalize_live_trade_close(
+                trade,
+                close_metrics,
+                close_time,
+                log_prefix="Trade closed (stale-history recovery)",
+            )
+            remove_tracked_live_trade(trade)
+            recovered += 1
+
+        if recovered:
+            if not tracked_live_trades():
+                reset_opposite_reversal_state("stale history reconciliation")
+                client._local_position = {"side": None, "size": 0, "avg_price": 0.0}
+                client._active_stop_order_id = None
+                client._active_target_order_id = None
+                flat_position_streak = 0
+            persist_runtime_state(current_time, reason="stale_history_reconciliation")
+        return recovered
 
     def rebuild_seen_closed_trade_keys() -> None:
         nonlocal seen_closed_trade_keys
@@ -7492,6 +8382,7 @@ async def run_bot():
             return
         metrics = dict(close_metrics or {})
         trade_side = str(trade.get("side", "") or "").upper()
+        trade_size = max(1, _coerce_int(trade.get("size", 1), 1))
         entry_price = _coerce_float(
             metrics.get("entry_price", trade.get("broker_entry_price", trade.get("entry_price", 0.0))),
             0.0,
@@ -7499,9 +8390,18 @@ async def run_bot():
         exit_price = _coerce_float(metrics.get("exit_price", entry_price), entry_price)
         pnl_points = _coerce_float(metrics.get("pnl_points", 0.0), 0.0)
         pnl_dollars = _coerce_float(metrics.get("pnl_dollars", 0.0), 0.0)
-        pnl_dollars_gross = _coerce_float(metrics.get("pnl_dollars_gross"), pnl_dollars)
+        pnl_dollars_gross = _coerce_float(metrics.get("pnl_dollars_gross"), None)
         pnl_fee_dollars = _coerce_float(metrics.get("pnl_fee_dollars"), None)
         pnl_dollars_net = _coerce_float(metrics.get("pnl_dollars_net"), pnl_dollars)
+        if pnl_dollars_net is None:
+            pnl_dollars_net = pnl_dollars
+        if pnl_fee_dollars is None:
+            if pnl_dollars_gross is not None:
+                pnl_fee_dollars = max(0.0, float(pnl_dollars_gross) - float(pnl_dollars_net))
+            else:
+                pnl_fee_dollars = float(_trade_reporting_round_turn_fee_per_contract() * float(trade_size))
+        if pnl_dollars_gross is None:
+            pnl_dollars_gross = float(pnl_dollars_net) + float(pnl_fee_dollars)
         trade_label, trade_sub = get_log_strategy_info(trade.get("strategy"), trade)
         if trade_sub:
             trade_label = f"{trade_label}:{trade_sub}"
@@ -7521,7 +8421,7 @@ async def run_bot():
             "sub_strategy": trade.get("sub_strategy"),
             "combo_key": trade.get("combo_key") or trade.get("sub_strategy"),
             "side": trade_side,
-            "size": max(1, _coerce_int(trade.get("size", 1), 1)),
+            "size": trade_size,
             "entry_price": float(entry_price),
             "signal_entry_price": (
                 float(signal_entry_price)
@@ -7628,7 +8528,7 @@ async def run_bot():
         current_time: datetime.datetime,
         market_price: float,
     ) -> None:
-        nonlocal active_trade, parallel_active_trades, flat_position_streak
+        nonlocal active_trade, parallel_active_trades, flat_position_streak, position_stale_streak
         open_trades = tracked_live_trades()
         if not open_trades:
             broker_pos = client._local_position if isinstance(client._local_position, dict) else {}
@@ -7638,6 +8538,7 @@ async def run_bot():
                 if restore_live_trade_tracking_from_state(current_time, broker_pos):
                     persist_runtime_state(current_time, reason="tracked_trade_restore")
             flat_position_streak = 0
+            position_stale_streak = 0
             return
 
         state_changed = False
@@ -7726,8 +8627,33 @@ async def run_bot():
 
         broker_pos = client.get_position()
         if broker_pos.get("stale"):
+            position_stale_streak += 1
+            recovered_from_history = 0
+            if position_stale_streak % 10 == 0:
+                auth_temporarily_unavailable = False
+                try:
+                    auth_temporarily_unavailable = bool(client._auth_temporarily_unavailable())
+                except Exception:
+                    auth_temporarily_unavailable = False
+                if auth_temporarily_unavailable:
+                    logging.warning(
+                        "Position still stale after %s sync checks; waiting for ProjectX session recovery.",
+                        position_stale_streak,
+                    )
+                else:
+                    backfill_recent_closed_trades_from_projectx(current_time, force=True)
+                    recovered_from_history = _reconcile_stale_tracked_trades_from_recent_history(
+                        current_time,
+                        market_price,
+                    )
+            if recovered_from_history:
+                position_stale_streak = 0
+                return
             logging.warning("Position stale during broker sync; skipping flat check.")
+            if state_changed:
+                persist_runtime_state(current_time, reason="tracked_trade_sync_update")
             return
+        position_stale_streak = 0
 
         is_flat = broker_pos.get("side") is None or broker_pos.get("size", 0) == 0
         if is_flat:
@@ -7813,6 +8739,7 @@ async def run_bot():
         nonlocal sticky_trend_dir, sticky_reclaim_count, sticky_opposite_count, last_trend_session
         nonlocal trend_day_max_sigma
         nonlocal recent_closed_trades
+        nonlocal kalshi_price_action_profile, last_kalshi_overlay_role, last_kalshi_overlay_mode
 
         if state_restored or not _state_is_fresh(current_time):
             return
@@ -7828,6 +8755,7 @@ async def run_bot():
         rejection_filter.load_state(persisted_state.get("rejection_filter"))
         if bank_filter is not None:
             bank_filter.load_state(persisted_state.get("bank_filter"))
+        structural_tracker.load_state(persisted_state.get("structural_tracker", {}))
         restored_closed_trades = persisted_state.get("recent_closed_trades")
         if isinstance(restored_closed_trades, list):
             recent_closed_trades = [
@@ -7885,6 +8813,15 @@ async def run_bot():
             except Exception:
                 pass
         hostile_engine_stats = hostile_state.get("hostile_engine_stats", hostile_engine_stats)
+
+        kalshi_overlay_state = persisted_state.get("kalshi_trade_overlay", {})
+        if isinstance(kalshi_overlay_state, dict):
+            restored_profile = kalshi_overlay_state.get("profile")
+            if isinstance(restored_profile, dict):
+                kalshi_price_action_profile = dict(restored_profile)
+            restored_role = kalshi_overlay_state.get("last_role")
+            if restored_role is not None:
+                last_kalshi_overlay_role = str(restored_role or "")
 
         if regime_manifold_engine is not None and manifold_persist_state:
             try:
@@ -8052,6 +8989,14 @@ async def run_bot():
                     "gate_threshold": _coerce_float(tracked_trade.get("gate_threshold"), math.nan),
                     "signal_entry_price": float(signal_entry_price) if math.isfinite(signal_entry_price) else None,
                     "signal_side": tracked_trade.get("side"),
+                    "kalshi_trade_overlay_role": tracked_trade.get("kalshi_trade_overlay_role"),
+                    "kalshi_trade_overlay_mode": tracked_trade.get("kalshi_trade_overlay_mode"),
+                    "kalshi_entry_probability": _coerce_float(tracked_trade.get("kalshi_entry_probability"), math.nan),
+                    "kalshi_probe_probability": _coerce_float(tracked_trade.get("kalshi_probe_probability"), math.nan),
+                    "kalshi_momentum_delta": _coerce_float(tracked_trade.get("kalshi_momentum_delta"), math.nan),
+                    "kalshi_momentum_retention": _coerce_float(tracked_trade.get("kalshi_momentum_retention"), math.nan),
+                    "kalshi_entry_support_score": _coerce_float(tracked_trade.get("kalshi_entry_support_score"), math.nan),
+                    "kalshi_tp_anchor_price": _coerce_float(tracked_trade.get("kalshi_tp_anchor_price"), math.nan),
                 }
             )
             if _is_de3_v4_trade_management_payload(tracked_trade):
@@ -8164,6 +9109,7 @@ async def run_bot():
             "penalty_box_blocker_asia": penalty_blocker_asia.get_state() if penalty_blocker_asia is not None else None,
             "rejection_filter": rejection_filter.get_state(),
             "bank_filter": bank_filter.get_state() if bank_filter is not None else None,
+            "structural_tracker": structural_tracker.get_state(),
             "trend_day": {
                 "trend_day_tier": trend_day_tier,
                 "trend_day_dir": trend_day_dir,
@@ -8208,6 +9154,10 @@ async def run_bot():
                 if isinstance(row, dict)
             ],
             "recent_closed_trades": list(recent_closed_trades),
+            "kalshi_trade_overlay": {
+                "profile": dict(kalshi_price_action_profile) if isinstance(kalshi_price_action_profile, dict) else {},
+                "last_role": last_kalshi_overlay_role,
+            },
             "regime_manifold": (
                 regime_manifold_engine.get_state()
                 if (regime_manifold_engine is not None and manifold_persist_state)
@@ -8555,9 +9505,25 @@ async def run_bot():
             market_time_et = market_time_utc.astimezone(NY_TZ)
 
             # === GLOBAL RISK & NEWS FILTERS ===
+            # Reset CB at day boundary so replay doesn't freeze forever after a daily-loss hit
+            _cb_today = market_time_et.date()
+            if _cb_last_day is not None and _cb_today != _cb_last_day:
+                circuit_breaker.reset_daily()
+                logging.info("🔄 Circuit Breaker: daily reset for new trading day %s", _cb_today)
+            _cb_last_day = _cb_today
+
             cb_blocked, cb_reason = circuit_breaker.should_block_trade()
             if cb_blocked:
                 logging.info(f"🚫 Circuit Breaker Block: {cb_reason}")
+                # Advance bar data so replay doesn't hang frozen on the CB-blocked bar
+                try:
+                    _cb_recent = await client.async_get_market_data(lookback_minutes=15, force_fetch=True)
+                    if not _cb_recent.empty:
+                        master_df = pd.concat([master_df, _cb_recent])
+                        master_df = master_df[~master_df.index.duplicated(keep="last")]
+                        master_df.sort_index(inplace=True)
+                except Exception:
+                    pass
                 await asyncio.sleep(60)
                 continue
 
@@ -8674,6 +9640,10 @@ async def run_bot():
             if regime_changed:
                 if session_changed:
                     logging.info(f"🔄 SESSION HANDOVER: {last_processed_session} -> {current_session_name} Q{current_quarter} (Base: {base_session})")
+                    if pending_level_fills:
+                        if level_fill_optimizer is not None:
+                            level_fill_optimizer.clear_all("session handover")
+                        pending_level_fills.clear()
                 elif quarter_changed:
                     logging.info(f"🔄 QUARTER CHANGE: {current_session_name} Q{last_processed_quarter} -> Q{current_quarter}")
                 else:
@@ -8996,6 +9966,54 @@ async def run_bot():
                     last_processed_bar = current_time
                     continue
 
+            if is_new_bar:
+                try:
+                    kalshi_price_action_profile = analyze_kalshi_recent_price_action(
+                        new_df,
+                        CONFIG.get("KALSHI_TRADE_OVERLAY", {}),
+                    )
+                except Exception as exc:
+                    logging.warning("Kalshi recent-price-action profile failed: %s", exc)
+                    kalshi_price_action_profile = {}
+                kalshi_overlay_role = str(kalshi_price_action_profile.get("role", "") or "")
+                kalshi_overlay_mode = str(kalshi_price_action_profile.get("mode", "level") or "level")
+                if kalshi_overlay_role and (
+                    kalshi_overlay_role != last_kalshi_overlay_role
+                    or kalshi_overlay_mode != last_kalshi_overlay_mode
+                ):
+                    event_logger.log_kalshi_regime(
+                        kalshi_overlay_mode,
+                        kalshi_overlay_role,
+                        forward_weight=_coerce_float(kalshi_price_action_profile.get("forward_weight"), math.nan),
+                        mean_day_range=_coerce_float(kalshi_price_action_profile.get("mean_day_range_points"), math.nan),
+                        max_day_range=_coerce_float(kalshi_price_action_profile.get("max_day_range_points"), math.nan),
+                        mean_true_range=_coerce_float(kalshi_price_action_profile.get("mean_true_range_points"), math.nan),
+                        mean_flip_rate=_coerce_float(kalshi_price_action_profile.get("mean_flip_rate"), math.nan),
+                        trade_days=_coerce_int(kalshi_price_action_profile.get("trade_days_considered"), 0),
+                        score=_coerce_int(kalshi_price_action_profile.get("score"), 0),
+                    )
+                    logging.info(
+                        "Kalshi forward regime: %s | weight=%.2f | mean_range=%s | max_range=%s | flip=%s | large_share=%s | days=%s | score=%s"
+                        " | today_range=%s | today_net_ratio=%s | today_signal=%s | breach_up=%s | breach_down=%s",
+                        kalshi_overlay_mode,
+                        float(_coerce_float(kalshi_price_action_profile.get("forward_weight"), 0.0)),
+                        kalshi_price_action_profile.get("mean_day_range_points"),
+                        kalshi_price_action_profile.get("max_day_range_points"),
+                        kalshi_price_action_profile.get("mean_flip_rate"),
+                        kalshi_price_action_profile.get("mean_large_bar_share"),
+                        kalshi_price_action_profile.get("trade_days_considered"),
+                        kalshi_price_action_profile.get("score"),
+                        kalshi_price_action_profile.get("today_range_points"),
+                        kalshi_price_action_profile.get("today_net_ratio"),
+                        kalshi_price_action_profile.get("today_signal"),
+                        kalshi_price_action_profile.get("today_breach_up"),
+                        kalshi_price_action_profile.get("today_breach_down"),
+                    )
+                    last_kalshi_overlay_role = kalshi_overlay_role
+                    last_kalshi_overlay_mode = kalshi_overlay_mode
+                    if bool(getattr(client, "_runtime_state_persist_ready", False)):
+                        persist_runtime_state(current_time, reason="kalshi_regime_shift")
+
             refresh_needed = (
                 live_drawdown_state.get("balance") is None
                 or bool(live_drawdown_state.get("balance_pending_refresh", False))
@@ -9013,6 +10031,11 @@ async def run_bot():
             rejection_filter.update(current_time, currbar['high'], currbar['low'], currbar['close'])
             if bank_filter is not None:
                 bank_filter.update(current_time, currbar['high'], currbar['low'], currbar['close'])
+            structural_tracker.update(
+                current_time,
+                float(currbar['open']), float(currbar['high']),
+                float(currbar['low']),  float(currbar['close']),
+            )
             chop_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             extension_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             structure_blocker.update(new_df)
@@ -9654,6 +10677,25 @@ async def run_bot():
                     trade_state_changed = False
                     bar_high = _coerce_float(currbar.get('high'), current_price)
                     bar_low = _coerce_float(currbar.get('low'), current_price)
+                    # Pivot-trail: detect confirmed swing pivots once per bar
+                    # (US session only — same gate as bank fill)
+                    _pt_us_session = (
+                        current_time.astimezone(NY_TZ).hour
+                        in _BANK_FILL_US_SESSION_HOURS_ET
+                    )
+                    _pt_pivot_high = (
+                        _detect_pivot_high(new_df, _PIVOT_TRAIL_LOOKBACK)
+                        if _pt_us_session else None
+                    )
+                    _pt_pivot_low = (
+                        _detect_pivot_low(new_df, _PIVOT_TRAIL_LOOKBACK)
+                        if _pt_us_session else None
+                    )
+                    _pt_pivot_bar_index = (
+                        int(bar_count - (_PIVOT_TRAIL_LOOKBACK // 2))
+                        if _pt_us_session
+                        else None
+                    )
                     for trade in list(tracked_before_management):
                         management_result = _process_live_trade_management_bar(
                             client,
@@ -9675,6 +10717,65 @@ async def run_bot():
                                 ),
                             )
                             remove_tracked_live_trade(trade)
+                            trade_state_changed = True
+                            continue  # skip pivot trail on already-closed trade
+                        # --- Pivot-trail SL ratchet (DE3 / AetherFlow / RegimeAdaptive only) ---
+                        if _pt_us_session and str(trade.get("strategy", "")) in _PIVOT_TRAIL_ELIGIBLE_STRATEGIES:
+                            _pt_new_sl = _live_pivot_trail_candidate(
+                                trade,
+                                pivot_high=_pt_pivot_high,
+                                pivot_low=_pt_pivot_low,
+                                pivot_bar_index=_pt_pivot_bar_index,
+                            )
+                            if _pt_new_sl is not None:
+                                _pt_result = _apply_pivot_trail_sl(
+                                    client,
+                                    trade,
+                                    _pt_new_sl,
+                                    current_time=current_time,
+                                    market_price=current_price,
+                                    bar_high=bar_high,
+                                    bar_low=bar_low,
+                                    bar_index=bar_count,
+                                )
+                                if (
+                                    isinstance(_pt_result, dict)
+                                    and _pt_result.get("status") == "closed"
+                                ):
+                                    finalize_live_trade_close(
+                                        trade,
+                                        _pt_result.get("close_metrics"),
+                                        current_time,
+                                        log_prefix="[PivotTrail] closed — market through new SL",
+                                    )
+                                    remove_tracked_live_trade(trade)
+                                    trade_state_changed = True
+                                    continue
+                        _kalshi_tp_result = _apply_kalshi_tp_trail(
+                            client,
+                            trade,
+                            current_time=current_time,
+                            market_price=current_price,
+                            bar_high=bar_high,
+                            bar_low=bar_low,
+                            bar_index=bar_count,
+                        )
+                        if (
+                            isinstance(_kalshi_tp_result, dict)
+                            and _kalshi_tp_result.get("status") == "closed"
+                        ):
+                            finalize_live_trade_close(
+                                trade,
+                                _kalshi_tp_result.get("close_metrics"),
+                                current_time,
+                                log_prefix="[KalshiTrail] closed — market through TP-zone stop",
+                            )
+                            remove_tracked_live_trade(trade)
+                            trade_state_changed = True
+                        elif (
+                            isinstance(_kalshi_tp_result, dict)
+                            and _kalshi_tp_result.get("status") == "updated"
+                        ):
                             trade_state_changed = True
 
                     for trade in list(tracked_live_trades()):
@@ -9792,6 +10893,92 @@ async def run_bot():
                     logging.info("📰 NEWS BLACKOUT: Skipping trade execution (data continues)")
                     await asyncio.sleep(10)
                     continue
+
+                # === LEVEL-FILL PENDING QUEUE ===
+                # Fire any deferred signals whose target level has been touched,
+                # or abort them if price ran away. Runs before new signal eval.
+                if is_new_bar and level_fill_optimizer is not None and pending_level_fills:
+                    _lf_active = (
+                        active_trade is not None or bool(tracked_live_trades())
+                    )
+                    if _lf_active:
+                        level_fill_optimizer.clear_all("position already active")
+                        pending_level_fills.clear()
+                    else:
+                        _lf_bar = {
+                            "open":  float(currbar["open"]),
+                            "high":  float(currbar["high"]),
+                            "low":   float(currbar["low"]),
+                            "close": float(currbar["close"]),
+                        }
+                        for _lf_uid in list(pending_level_fills.keys()):
+                            _lf_result = level_fill_optimizer.check_pending(_lf_uid, _lf_bar)
+                            if _lf_result["fire"]:
+                                _lf_entry = pending_level_fills.get(_lf_uid)
+                                if _lf_entry is None:
+                                    pending_level_fills.pop(_lf_uid, None)
+                                    continue
+                                _lf_allowed, _lf_market_dist = _level_fill_live_execution_allowed(
+                                    _lf_entry,
+                                    current_price,
+                                )
+                                if not _lf_allowed:
+                                    _lf_target = _coerce_float(_lf_entry.get("target_price"), math.nan)
+                                    pending_level_fills.pop(_lf_uid, None)
+                                    logging.info(
+                                        "📌 LevelFill ABORT: touched previously but market is now %.2fpts from target %.2f",
+                                        float(_lf_market_dist or 0.0),
+                                        float(_lf_target),
+                                    )
+                                    continue
+                                pending_level_fills.pop(_lf_uid, None)
+                                _lf_sig = _lf_entry["signal"]
+                                _lf_sig["level_fill_trigger"] = _lf_result["reason"]
+                                if not _apply_kalshi_trade_overlay_to_signal(
+                                    _lf_sig,
+                                    current_price,
+                                    new_df,
+                                    price_action_profile=kalshi_price_action_profile,
+                                ):
+                                    logging.info(
+                                        "📌 LevelFill ABORT: Kalshi overlay blocked %s %s",
+                                        _lf_sig.get("strategy", "?"),
+                                        _lf_sig.get("side", "?"),
+                                    )
+                                    continue
+                                logging.info(
+                                    "📌 LevelFill FIRE: %s %s — %s",
+                                    _lf_sig.get("strategy", "?"),
+                                    _lf_sig.get("side", "?"),
+                                    _lf_result["reason"],
+                                )
+                                _lf_resp = await client.async_place_order(_lf_sig, current_price)
+                                if _lf_resp is not None:
+                                    _lf_od = getattr(client, "_last_order_details", None) or {}
+                                    _lf_ep = _lf_od.get("entry_price", current_price)
+                                    _lf_sig["tp_dist"]    = _lf_od.get("tp_points", _lf_sig.get("tp_dist", 0.0))
+                                    _lf_sig["sl_dist"]    = _lf_od.get("sl_points", _lf_sig.get("sl_dist", 0.0))
+                                    _lf_sig["size"]       = _lf_od.get("size", _lf_sig.get("size", 1))
+                                    _lf_sig["entry_price"] = _lf_ep
+                                    add_tracked_live_trade(
+                                        _build_live_active_trade(
+                                            _lf_sig, _lf_od, current_price, current_time,
+                                            bar_count, market_df=new_df,
+                                            stop_order_id=_lf_od.get(
+                                                "stop_order_id",
+                                                getattr(client, "_active_stop_order_id", None),
+                                            ),
+                                        )
+                                    )
+                                    persist_runtime_state(current_time, reason="level_fill_execution")
+                                break  # one fill per bar
+                            elif _lf_result["abort"]:
+                                pending_level_fills.pop(_lf_uid, None)
+                                logging.info(
+                                    "📌 LevelFill ABORT: %s",
+                                    _lf_result["reason"],
+                                )
+
                 strategy_results = {'checked': [], 'rejected': [], 'executed': None}
                 ui_slot_limit = max(1, int(CONFIG.get("UI_STRATEGY_SLOT_LIMIT", 8) or 8))
 
@@ -9947,6 +11134,22 @@ async def run_bot():
                                 pending_impulse_rescues.clear()
                                 break
 
+                            if old_trades and same_strategy_opposite_reversal_blocked(
+                                pending_signal,
+                                current_trades,
+                            ):
+                                reset_opposite_reversal_state(
+                                    "same-strategy opposite rescue reversal blocked"
+                                )
+                                log_same_strategy_opposite_reversal_block(
+                                    pending_signal,
+                                    current_trades,
+                                    prefix="Holding position",
+                                )
+                                executed_rescue = True
+                                pending_impulse_rescues.clear()
+                                break
+
                             reverse_state_count = 0
                             if old_trades:
                                 reverse_confirmed, reverse_state_count = note_opposite_reversal_signal(
@@ -9970,6 +11173,15 @@ async def run_bot():
                                     executed_rescue = True
                                     pending_impulse_rescues.clear()
                                     break
+
+                            if not _apply_kalshi_trade_overlay_to_signal(
+                                pending_signal,
+                                current_price,
+                                new_df,
+                                price_action_profile=kalshi_price_action_profile,
+                            ):
+                                pending_impulse_rescues.clear()
+                                break
 
                             success, reverse_state_count = await client.async_close_and_reverse(
                                 pending_signal,
@@ -10071,6 +11283,32 @@ async def run_bot():
                         signal_executed = True
                         continue
 
+# ── Adaptive bank fill: check pending reversal signal ──
+                _bank_fill_triggered = False
+                if _pending_mlphysics_bank_fill is not None:
+                    _pending_mlphysics_bank_fill_bars -= 1
+                    _bfill_side = str(_pending_mlphysics_bank_fill.get("side", "")).upper()
+                    _bfill_target = float(_pending_mlphysics_bank_fill.get("bank_target", 0.0))
+                    _bfill_bar_low = float(new_df.iloc[-1]["low"])
+                    _bfill_bar_high = float(new_df.iloc[-1]["high"])
+                    _bfill_touched = (
+                        (_bfill_side == "LONG" and _bfill_bar_low <= _bfill_target)
+                        or (_bfill_side == "SHORT" and _bfill_bar_high >= _bfill_target)
+                    )
+                    if _bfill_touched:
+                        logging.info(
+                            "🏦 Bank fill triggered: %s target=%.2f (bar L=%.2f H=%.2f, bars_left=%d)",
+                            _bfill_side, _bfill_target, _bfill_bar_low, _bfill_bar_high,
+                            _pending_mlphysics_bank_fill_bars,
+                        )
+                        _bank_fill_triggered = True
+                    elif _pending_mlphysics_bank_fill_bars <= 0:
+                        logging.info(
+                            "🏦 Bank fill expired (no touch): %s target=%.2f after %d bars",
+                            _bfill_side, _bfill_target, _BANK_FILL_WINDOW_BARS,
+                        )
+                        _pending_mlphysics_bank_fill = None
+
 # Run ML Analysis
                 ml_signal = None
                 if ml_strategy is not None and ml_strategy.model_loaded:
@@ -10097,6 +11335,68 @@ async def run_bot():
                 # Collect ALL potential signals from ALL strategies BEFORE filtering
                 # This enables opportunity cost analysis - see what was blocked
                 candidate_signals = []  # List of (priority, strategy_instance, signal_dict, strat_name)
+
+                # ── Adaptive bank fill: inject triggered pending signal ──
+                _staged_bank_fill_candidate = None  # reset each bar
+                if _bank_fill_triggered and _pending_mlphysics_bank_fill is not None:
+                    _bfill_inj = dict(_pending_mlphysics_bank_fill)
+                    _pending_mlphysics_bank_fill = None
+                    _pending_mlphysics_bank_fill_bars = 0
+                    if _bfill_inj.get("_bank_fill_source") == "harvest":
+                        # DE3 / AetherFlow / RegimeAdaptive — stage for candidate_signals
+                        _staged_bank_fill_candidate = (
+                            int(_bfill_inj.get("_bank_fill_priority", 1)),
+                            _bfill_inj.get("_bank_fill_strat_ref"),
+                            _bfill_inj,
+                            str(_bfill_inj.get("_bank_fill_strat_name",
+                                               _bfill_inj.get("strategy", ""))),
+                        )
+                        logging.info(
+                            "🏦 Bank fill triggered → staging candidate: %s %s @ %.2f",
+                            _bfill_inj.get("_bank_fill_strat_name"),
+                            _bfill_inj.get("side"),
+                            _bfill_inj.get("bank_target", 0.0),
+                        )
+                    else:
+                        # MLPhysics — inject as ml_signal (existing path)
+                        ml_signal = _bfill_inj
+                        logging.info(
+                            "🏦 Injecting bank fill signal: %s @ bank_target=%.2f",
+                            ml_signal.get("side"), ml_signal.get("bank_target", 0.0),
+                        )
+                # ── Adaptive bank fill: park weak US-session reversal signals ──
+                elif ml_signal and _pending_mlphysics_bank_fill is None:
+                    try:
+                        if (
+                            _mlphysics_is_us_macro_bar(current_time)
+                            and not _mlphysics_bank_break_is_strong(new_df)
+                            and _mlphysics_is_reversal(ml_signal, new_df)
+                        ):
+                            _bfill_park_target = _mlphysics_bank_fill_target(
+                                str(ml_signal.get("side", "")), float(current_price)
+                            )
+                            _pending_mlphysics_bank_fill = dict(ml_signal)
+                            _pending_mlphysics_bank_fill["bank_target"] = _bfill_park_target
+                            _pending_mlphysics_bank_fill_bars = _BANK_FILL_WINDOW_BARS
+                            logging.info(
+                                "🏦 Parking weak reversal for bank fill: %s target=%.2f "
+                                "(window=%d bars, macro_bar=%s)",
+                                ml_signal.get("side"), _bfill_park_target,
+                                _BANK_FILL_WINDOW_BARS, current_time,
+                            )
+                            ml_signal = None
+                    except Exception as _bfe:
+                        logging.debug("Bank fill park check error: %s", _bfe)
+
+                # Inject a staged bank fill candidate from a prior bar's trigger
+                if _staged_bank_fill_candidate is not None:
+                    candidate_signals.append(_staged_bank_fill_candidate)
+                    logging.info(
+                        "🏦 Staged bank fill injected into candidates: %s %s",
+                        _staged_bank_fill_candidate[3],
+                        _staged_bank_fill_candidate[2].get("side"),
+                    )
+                    _staged_bank_fill_candidate = None
 
                 # -----------------------------------------------------------------
                 # HARVEST PHASE 1: FAST STRATEGIES (Priority 1)
@@ -10178,6 +11478,35 @@ async def run_bot():
                                 )
                                 continue
 
+                            # ── Adaptive bank fill: park weak US-session reversal ──
+                            if _pending_mlphysics_bank_fill is None and strat_name in _BANK_FILL_ELIGIBLE_STRATEGIES:
+                                try:
+                                    _bfill_hour = current_time.astimezone(NY_TZ).hour
+                                    if (
+                                        _bfill_hour in _BANK_FILL_US_SESSION_HOURS_ET
+                                        and not _mlphysics_bank_break_is_strong(new_df)
+                                        and _mlphysics_is_reversal(signal, new_df)
+                                    ):
+                                        _bfill_t = _mlphysics_bank_fill_target(
+                                            str(signal.get("side", "")), float(current_price)
+                                        )
+                                        _pending_mlphysics_bank_fill = dict(signal)
+                                        _pending_mlphysics_bank_fill["bank_target"] = _bfill_t
+                                        _pending_mlphysics_bank_fill["_bank_fill_source"] = "harvest"
+                                        _pending_mlphysics_bank_fill["_bank_fill_strat_ref"] = strat
+                                        _pending_mlphysics_bank_fill["_bank_fill_priority"] = 1
+                                        _pending_mlphysics_bank_fill["_bank_fill_strat_name"] = strat_name
+                                        _pending_mlphysics_bank_fill_bars = _BANK_FILL_WINDOW_BARS
+                                        logging.info(
+                                            "🏦 Parking %s weak reversal: %s target=%.2f "
+                                            "(window=%d bars)",
+                                            strat_name, signal.get("side"), _bfill_t,
+                                            _BANK_FILL_WINDOW_BARS,
+                                        )
+                                        continue  # skip appending to candidates this bar
+                                except Exception as _bfe3:
+                                    logging.debug("Bank fill park check (fast) error: %s", _bfe3)
+
                             # Add to candidate list (Priority 1 = FAST)
                             add_strategy_slot(
                                 "checked",
@@ -10218,10 +11547,9 @@ async def run_bot():
                                 price=current_price,
                                 additional_info=log_info
                             )
-                            if candidate_priority == 0:
-                                logging.info(f"📊 CANDIDATE (SENTIMENT): {strat_name} {signal['side']} @ {current_price:.2f}")
-                            else:
-                                logging.info(f"📊 CANDIDATE (FAST): {strat_name} {signal['side']} @ {current_price:.2f}")
+                            logging.info(
+                                f"📊 CANDIDATE (FAST): {strat_name} {signal['side']} @ {current_price:.2f}"
+                            )
 
                     except Exception as e:
                         logging.exception("Error in %s", strat_name)
@@ -10370,6 +11698,36 @@ async def run_bot():
                             )
                             logging.info(f"🛑 HOSTILE DAY: Skipping {strat_name}")
                             continue
+
+                        # ── Adaptive bank fill: park weak US-session reversal ──
+                        if _pending_mlphysics_bank_fill is None and strat_name in _BANK_FILL_ELIGIBLE_STRATEGIES:
+                            try:
+                                _bfill_hour = current_time.astimezone(NY_TZ).hour
+                                if (
+                                    _bfill_hour in _BANK_FILL_US_SESSION_HOURS_ET
+                                    and not _mlphysics_bank_break_is_strong(new_df)
+                                    and _mlphysics_is_reversal(signal, new_df)
+                                ):
+                                    _bfill_t = _mlphysics_bank_fill_target(
+                                        str(signal.get("side", "")), float(current_price)
+                                    )
+                                    _pending_mlphysics_bank_fill = dict(signal)
+                                    _pending_mlphysics_bank_fill["bank_target"] = _bfill_t
+                                    _pending_mlphysics_bank_fill["_bank_fill_source"] = "harvest"
+                                    _pending_mlphysics_bank_fill["_bank_fill_strat_ref"] = strat
+                                    _pending_mlphysics_bank_fill["_bank_fill_priority"] = priority
+                                    _pending_mlphysics_bank_fill["_bank_fill_strat_name"] = strat_name
+                                    _pending_mlphysics_bank_fill_bars = _BANK_FILL_WINDOW_BARS
+                                    logging.info(
+                                        "🏦 Parking %s weak reversal: %s target=%.2f "
+                                        "(window=%d bars)",
+                                        strat_name, signal.get("side"), _bfill_t,
+                                        _BANK_FILL_WINDOW_BARS,
+                                    )
+                                    continue  # skip appending to candidates this bar
+                            except Exception as _bfe4:
+                                logging.debug("Bank fill park check (standard) error: %s", _bfe4)
+
                         add_strategy_slot(
                             "checked",
                             signal.get("strategy", strat_name),
@@ -11872,6 +13230,19 @@ async def run_bot():
                                         )
                                     ),
                                 )
+                            if not _apply_kalshi_trade_overlay_to_signal(
+                                signal,
+                                current_price,
+                                new_df,
+                                price_action_profile=kalshi_price_action_profile,
+                            ):
+                                add_strategy_slot(
+                                    "rejected",
+                                    signal.get("strategy", strat_name),
+                                    signal,
+                                    fallback=strat_name,
+                                )
+                                continue
                             log_rescue_success()
                             add_strategy_slot(
                                 "executed",
@@ -11979,6 +13350,85 @@ async def run_bot():
                         )
                         signal_executed = True
                         break
+
+                    if old_trades and same_strategy_opposite_reversal_blocked(
+                        signal,
+                        current_trades,
+                    ):
+                        reset_opposite_reversal_state(
+                            "same-strategy opposite reversal blocked"
+                        )
+                        log_same_strategy_opposite_reversal_block(
+                            signal,
+                            current_trades,
+                            prefix="Holding position",
+                        )
+                        signal_executed = True
+                        break
+
+                    # === LEVEL-AWARE FILL CHECK ===
+                    # Evaluate proximity to structural / bank levels.
+                    # WAIT  → defer signal; fire on level touch (up to 3 bars)
+                    # AT_LEVEL → execute immediately with a "best fill" log
+                    # IMMEDIATE → proceed normally (default behaviour)
+                    _lfo_decision = None
+                    if (
+                        level_fill_optimizer is not None
+                        and not is_rescued
+                        and not pending_level_fills
+                        and signal.get("entry_mode") not in ("loose", "level_fill")
+                    ):
+                        try:
+                            _lfo_bar = {
+                                "open":  float(currbar["open"]),
+                                "high":  float(currbar["high"]),
+                                "low":   float(currbar["low"]),
+                                "close": float(currbar["close"]),
+                            }
+                            _lfo_decision = level_fill_optimizer.evaluate(
+                                signal,
+                                float(current_price),
+                                structural_tracker,
+                                bank_filter,
+                                bar_candle=_lfo_bar,
+                            )
+                        except Exception as _lfo_exc:
+                            logging.warning("LevelFillOptimizer error: %s", _lfo_exc)
+                            _lfo_decision = None
+
+                    if _lfo_decision is not None and _lfo_decision.get("mode") == FILL_WAIT:
+                        import uuid as _uuid_mod
+                        _lfo_uid = str(_uuid_mod.uuid4())[:8]
+                        signal["entry_mode"] = "level_fill_pending"
+                        level_fill_optimizer.add_pending(_lfo_uid, signal, _lfo_decision, float(current_price))
+                        pending_level_fills[_lfo_uid] = level_fill_optimizer.get_pending_signal(_lfo_uid)
+                        add_strategy_slot("rejected", signal.get("strategy", strat_name), signal, fallback=strat_name)
+                        signal_executed = True
+                        break  # wait for level touch on next bar(s)
+
+                    if _lfo_decision is not None and _lfo_decision.get("mode") == FILL_AT_LEVEL:
+                        logging.info(
+                            "📌 LevelFill AT LEVEL: %s %s @ %s (%.2f pts) — best fill",
+                            signal.get("strategy", strat_name),
+                            signal.get("side"),
+                            _lfo_decision.get("target_name"),
+                            _lfo_decision.get("dist") or 0,
+                        )
+
+                    if not _apply_kalshi_trade_overlay_to_signal(
+                        signal,
+                        current_price,
+                        new_df,
+                        price_action_profile=kalshi_price_action_profile,
+                    ):
+                        add_strategy_slot(
+                            "rejected",
+                            signal.get("strategy", strat_name),
+                            signal,
+                            fallback=strat_name,
+                        )
+                        continue
+
                     add_strategy_slot(
                         "executed",
                         signal.get("strategy", strat_name),
@@ -12619,6 +14069,20 @@ async def run_bot():
                                                     )
                                                 ),
                                             )
+                                        if not _apply_kalshi_trade_overlay_to_signal(
+                                            sig,
+                                            current_price,
+                                            new_df,
+                                            price_action_profile=kalshi_price_action_profile,
+                                        ):
+                                            add_strategy_slot(
+                                                "rejected",
+                                                sig.get("strategy", s_name),
+                                                sig,
+                                                fallback=s_name,
+                                            )
+                                            del pending_loose_signals[s_name]
+                                            continue
                                         exec_strategy, exec_sub = get_log_strategy_info(s_name, sig)
                                         if exec_sub:
                                             exec_name = f"{exec_strategy} ({exec_sub})"
@@ -12717,6 +14181,21 @@ async def run_bot():
                                     del pending_loose_signals[s_name]
                                     continue
 
+                                if not _apply_kalshi_trade_overlay_to_signal(
+                                    sig,
+                                    current_price,
+                                    new_df,
+                                    price_action_profile=kalshi_price_action_profile,
+                                ):
+                                    add_strategy_slot(
+                                        "rejected",
+                                        sig.get("strategy", s_name),
+                                        sig,
+                                        fallback=s_name,
+                                    )
+                                    del pending_loose_signals[s_name]
+                                    continue
+
                                 logging.info(f"✅ LOOSE EXEC: {s_name}")
                                 exec_strategy, exec_sub = get_log_strategy_info(s_name, sig)
                                 if exec_sub:
@@ -12740,6 +14219,22 @@ async def run_bot():
                                         "loose opposite active-trade family mismatch"
                                     )
                                     log_opposite_reversal_active_trade_family_block(
+                                        sig,
+                                        current_trades,
+                                        prefix="Holding position",
+                                    )
+                                    del pending_loose_signals[s_name]
+                                    signal_executed = True
+                                    break
+
+                                if old_trades and same_strategy_opposite_reversal_blocked(
+                                    sig,
+                                    current_trades,
+                                ):
+                                    reset_opposite_reversal_state(
+                                        "same-strategy loose opposite reversal blocked"
+                                    )
+                                    log_same_strategy_opposite_reversal_block(
                                         sig,
                                         current_trades,
                                         prefix="Holding position",

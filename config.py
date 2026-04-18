@@ -10,6 +10,13 @@ except Exception:
     SECRETS = {}
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
+
+
 # Core runtime configuration for the bot. This was pulled directly from the
 # original julie001.py entrypoint so other modules can import it without
 # bringing in the full bot runtime.
@@ -34,6 +41,26 @@ CONFIG = {
     "PROJECTX_USER_STREAM_TRADE_CACHE": 256,
     "PROJECTX_USER_STREAM_MAX_POSITION_AGE_SEC": 15.0,
     "PROJECTX_USER_STREAM_MAX_ACCOUNT_AGE_SEC": 300.0,
+    # Retry after external/browser session conflicts instead of yielding forever.
+    "PROJECTX_EXTERNAL_SESSION_RETRY_SEC": 20.0,
+    "OANDA_MIRROR": {
+        "enabled": _env_flag(
+            "OANDA_MIRROR_ENABLED",
+            default=bool(SECRETS.get("OANDA_API_KEY") and SECRETS.get("OANDA_ACCOUNT_ID")),
+        ),
+        "base_url": str(
+            SECRETS.get("OANDA_PRACTICE_URL", "https://api-fxpractice.oanda.com")
+            or "https://api-fxpractice.oanda.com"
+        ),
+        "account_id": str(SECRETS.get("OANDA_ACCOUNT_ID", "") or ""),
+        "api_key": str(SECRETS.get("OANDA_API_KEY", "") or ""),
+        "timeout_sec": os.environ.get("OANDA_MIRROR_TIMEOUT_SEC", "3.0"),
+        "entry_units": os.environ.get("OANDA_MIRROR_ENTRY_UNITS", "1"),
+        "symbol_map": {
+            "MES": "SPX500_USD",
+            "MNQ": "NAS100_USD",
+        },
+    },
 
     # --- SYSTEM SETTINGS ---
     "MAX_DAILY_LOSS": 1000.0,
@@ -636,53 +663,47 @@ CONFIG = {
         "enabled_live": True,
         "enabled_backtest": False,
         "backtest_hard_filters_only": True,
-        "model_file": "artifacts/aetherflow_live_erasia_londonnative015_tb_er_af_candidate/model.pkl",
-        "thresholds_file": "artifacts/aetherflow_live_erasia_londonnative015_tb_er_af_candidate/thresholds.json",
-        "metrics_file": "artifacts/aetherflow_live_erasia_londonnative015_tb_er_af_candidate/metrics.json",
+        "model_file": "model_aetherflow_deploy_2026oos.pkl",
+        "thresholds_file": "aetherflow_thresholds_deploy_2026oos.json",
+        "metrics_file": "aetherflow_metrics_deploy_2026oos.json",
         "min_bars": 320,
-        # Corrected April 16, 2026 AF London-native retune:
-        # keep the Asia-native ER head and the TB+ER+AF live family set,
-        # but replace the generic London TB add-on with the new London-only
-        # TB model at 0.15. On the exact live family matrix this improved
-        # 2025 OOS, raised London coverage, and also improved the fresh
-        # 2026 confirmation slice.
+        # Corrected April 12-13, 2026 AF regime-aware balance retune:
+        # keep CR selective, run TB slightly tighter overall, but allow a
+        # dedicated NY_AM CHOP_SPIRAL TB slice at 0.54 for extra coverage.
+        # aligned_flow stays in the profitable NY_AM/NY_PM slices, with a mild
+        # positive d_alignment_3 filter and a tighter NY_AM directional-VWAP
+        # distance cap. On corrected data this adds both recent OOS equity and
+        # trade count while also improving long-history equity and drawdown.
         "threshold_override": 0.55,
-        "min_confidence": 0.50,
+        "min_confidence": 0.55,
         "size": 5,
-        # Keep AetherFlow to a single live leg per direction.
-        "live_same_side_parallel_max_legs": 1,
-        # Disable the live-only AetherFlow size press. We keep the same
-        # add-on-leg behavior and bracket management, but remove the solo
-        # size doubler so AetherFlow stays at its base requested size.
+        # Allow one same-direction AetherFlow add-on live, with its own bracket.
+        # Research favored a 2-leg cap over 3 legs for a cleaner risk/robustness balance.
+        "live_same_side_parallel_max_legs": 2,
+        # Let AetherFlow press when it is entering alone, but keep it at
+        # base size when it is stacking same-side alongside another live leg.
+        # This is applied in the live bot after strategy sizing and before the
+        # live drawdown cap, so existing risk guardrails still get the final say.
         "conditional_live_sizing": {
-            "enabled": False,
+            "enabled": True,
             "solo_multiplier": 2.0,
             "stacked_multiplier": 1.0,
             "max_contracts": 10,
         },
         "max_feature_bars": 900,
         "allowed_session_ids": [1, 2, 3],
-        "allowed_setup_families": ["aligned_flow", "transition_burst", "exhaustion_reversal"],
+        "allowed_setup_families": ["aligned_flow", "compression_release", "transition_burst"],
         "family_policies": {
+            "compression_release": {
+                "threshold": 0.58,
+                "allowed_session_ids": [1, 2, 3],
+                "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+            },
             "transition_burst": {
                 "threshold": 0.555,
                 "allowed_session_ids": [1, 2, 3],
                 "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
-                # TB labels are trained with a finite setup horizon. Respect
-                # that time stop in live/backtest management instead of
-                # letting TB positions run open-ended against only SL/TP.
-                "use_horizon_time_stop": True,
                 "policy_rules": [
-                    {
-                        "name": "asia_disp_054",
-                        "match_session_ids": [0],
-                        "match_regimes": ["DISPERSED"],
-                        "threshold": 0.54,
-                        "allowed_session_ids": [0],
-                        "allowed_regimes": ["DISPERSED"],
-                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
-                        "use_horizon_time_stop": True,
-                    },
                     {
                         "name": "nyam_chop_054",
                         "match_session_ids": [2],
@@ -691,7 +712,6 @@ CONFIG = {
                         "allowed_session_ids": [2],
                         "allowed_regimes": ["CHOP_SPIRAL"],
                         "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
-                        "use_horizon_time_stop": True,
                     },
                 ],
             },
@@ -707,20 +727,6 @@ CONFIG = {
                 "selection_score_bias": 0.01,
                 "entry_mode": "market_next_bar",
                 "policy_rules": [
-                    {
-                        "name": "nyam_disp_raw",
-                        "match_session_ids": [2],
-                        "match_regimes": ["DISPERSED"],
-                        "threshold": 0.56,
-                        "allowed_session_ids": [2],
-                        "allowed_regimes": ["DISPERSED"],
-                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
-                        "entry_mode": "market_next_bar",
-                        "min_setup_strength": 0.0,
-                        "min_d_alignment_3": None,
-                        "max_directional_vwap_dist_atr": 5.0,
-                        "max_flow_mag_slow": 1.0,
-                    },
                     {
                         "name": "nypm_disp",
                         "match_session_ids": [3],
@@ -749,11 +755,6 @@ CONFIG = {
                     },
                 ],
             },
-            "exhaustion_reversal": {
-                "threshold": 0.58,
-                "allowed_session_ids": [0],
-                "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
-            },
         },
         "hazard_block_regimes": ["ROTATIONAL_TURBULENCE"],
         "log_evals": True,
@@ -781,6 +782,89 @@ CONFIG = {
         "veto_mode": "soft",
         "extreme_hard_veto_low": 0.10,
         "extreme_hard_veto_high": 0.90,
+    },
+    "KALSHI_TRADE_OVERLAY": {
+        "enabled": True,
+        "lookback_bars": 20000,
+        "lookback_trade_days": 10,
+        "min_trade_days": 6,
+        "strike_window_size": 120,
+        "min_curve_points": 8,
+        "min_curve_range": 0.08,
+        "min_unique_probabilities": 4,
+        "max_target_window_points": 32.0,
+        "max_target_window_tp_mult": 3.5,
+        "momentum_probe_points": 5.0,
+        "fade_absolute_threshold": {
+            "background": 0.48,
+            "balanced": 0.50,
+            "forward_primary": 0.52,
+        },
+        "fade_adjacent_delta_threshold": {
+            "background": 0.20,
+            "balanced": 0.18,
+            "forward_primary": 0.16,
+        },
+        "support_probability_floor": {
+            "background": 0.46,
+            "balanced": 0.52,
+            "forward_primary": 0.57,
+        },
+        "entry_threshold": {
+            "background": 0.45,
+            "balanced": 0.50,
+            "forward_primary": 0.55,
+        },
+        "momentum_retention_floor": {
+            "background": 0.72,
+            "balanced": 0.76,
+            "forward_primary": 0.80,
+        },
+        # Background mode trims confidence only lightly; non-background modes can block weak entries.
+        "entry_block_buffer": {
+            "background": 1.0,
+            "balanced": 0.10,
+            "forward_primary": 0.12,
+        },
+        "entry_size_floor": {
+            "background": 0.85,
+            "balanced": 0.60,
+            "forward_primary": 0.45,
+        },
+        "forward_weight": {
+            "background": 0.20,
+            "balanced": 0.48,
+            "forward_primary": 0.78,
+        },
+        "min_tp_multiplier": 0.55,
+        "max_tp_multiplier": 1.75,
+        "trail_enabled_roles": ["balanced", "forward_primary"],
+        "trail_buffer_ticks": {
+            "background": 6,
+            "balanced": 4,
+            "forward_primary": 4,
+        },
+        "recent_price_action": {
+            "uncertain_mean_day_range": 85.0,
+            "outrageous_mean_day_range": 100.0,
+            "uncertain_max_day_range": 130.0,
+            "outrageous_max_day_range": 150.0,
+            "uncertain_flip_rate": 0.39,
+            "outrageous_flip_rate": 0.42,
+            "uncertain_large_bar_share": 0.14,
+            "outrageous_large_bar_share": 0.17,
+            "uncertain_mean_true_range": 1.55,
+            "outrageous_mean_true_range": 1.85,
+            "uncertain_min_score": 3,
+            "outrageous_min_score": 5,
+            "today_breakout_min_range_points": 70.0,
+            "today_breakout_min_net_ratio": 0.60,
+            "today_breakout_level_lookback_days": 3,
+            "today_breakout_level_tolerance_points": 0.75,
+            "today_chop_min_range_points": 30.0,
+            "today_chop_min_flip_rate": 0.45,
+        },
+        "breakout_max_tp_multiplier": 2.5,
     },
     "TRUTH_SOCIAL_SENTIMENT": {
         "enabled": True,
@@ -4558,10 +4642,7 @@ CONFIG = {
         "RegimeAdaptive": {
             "enabled": True,
             "exit_if_not_green_by": 30,   # If still red after 30 bars, bail
-            # 2026-04-16 validation: 8 chop flips kept the timeout protection
-            # while materially reducing premature exits on the all-session
-            # wildcard v2 artifact.
-            "max_profit_crosses": 8
+            "max_profit_crosses": 8       # Allow up to 8 profit/loss crosses before we exit as chop
         },
         "IntradayDip": {
             "enabled": True,
@@ -4579,15 +4660,7 @@ CONFIG = {
     # --- RegimeAdaptive Filterless Defaults ---
     "REGIME_ADAPTIVE_TUNING": {
         "mode": "filterless",
-        "artifact_path": "artifacts/regimeadaptive_v19_liveplus_allsession_wildcard_v2/latest.json",
-        # 2026-04-16 all-session wildcard v2:
-        # keep the strict-gated ASIA / LONDON / NY wildcard layer, then add a
-        # stricter Q2_W3_ALL_ASIA long fallback (0.62 floor) and a stricter
-        # Q1_W3_ALL_NY_PM long fallback (0.66 floor). Under the checked-in
-        # LONDON=0.51 runtime this improved the 2025 holdout from
-        # 956 / +5390.15 to 1012 / +6718.86, and improved the fresh
-        # 2026-01-01..2026-01-26 slice from 83 / +68.51 to 84 / +180.19.
-        "gate_threshold_overrides_by_session": {"LONDON": 0.51},
+        "artifact_path": "artifacts/regimeadaptive_v19_live/latest.json",
         "sma_fast": 20,
         "sma_slow": 200,
         "atr_period": 20,
@@ -4609,19 +4682,6 @@ CONFIG = {
         "require_low_vol_trend": False,
         "require_range_spike": False,
         "enable_signal_reversion": False,
-    },
-
-    # --- Shared Live Opposite-Side Reversal Confirmation ---
-    # Applies to the shared live reverse path across strategies, so a DE3
-    # opposite signal cannot chain with a RegimeAdaptive opposite signal and
-    # immediately flip the whole book. When same_active_trade_family is on,
-    # a strategy family can only reverse its own family's active trade.
-    "LIVE_OPPOSITE_REVERSAL": {
-        "required_confirmations": 3,
-        "window_bars": 3,
-        "require_same_strategy_family": True,
-        "require_same_active_trade_family": True,
-        "require_same_sub_strategy": False,
     },
 
     # --- BREAK-EVEN LOGIC ---

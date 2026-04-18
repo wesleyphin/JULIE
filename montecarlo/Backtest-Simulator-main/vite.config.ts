@@ -8,6 +8,12 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
+        allowedHosts: [
+          'localhost',
+          '127.0.0.1',
+          '.ngrok-free.dev',
+          '.ngrok.app',
+        ],
         watch: {
           ignored: [
             '**/public/filterless_live_state.json*',

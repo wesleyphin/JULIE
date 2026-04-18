@@ -310,6 +310,121 @@ class EventLogger:
                        f"⏰ Early exit triggered: {reason}",
                        details)
 
+    def log_kalshi_entry_view(
+        self,
+        strategy: str,
+        side: str,
+        entry_price: float,
+        role: str,
+        decision: str,
+        *,
+        entry_probability: Optional[float] = None,
+        probe_price: Optional[float] = None,
+        probe_probability: Optional[float] = None,
+        momentum_delta: Optional[float] = None,
+        momentum_retention: Optional[float] = None,
+        support_score: Optional[float] = None,
+        threshold: Optional[float] = None,
+    ) -> None:
+        details = {
+            "strategy": strategy,
+            "side": side,
+            "entry_price": f"{float(entry_price):.2f}",
+            "role": role,
+            "decision": decision,
+        }
+        if entry_probability is not None:
+            details["entry_probability"] = f"{float(entry_probability):.4f}"
+        if probe_price is not None:
+            details["probe_price"] = f"{float(probe_price):.2f}"
+        if probe_probability is not None:
+            details["probe_probability"] = f"{float(probe_probability):.4f}"
+        if momentum_delta is not None:
+            details["momentum_delta"] = f"{float(momentum_delta):.4f}"
+        if momentum_retention is not None:
+            details["momentum_retention"] = f"{float(momentum_retention):.4f}"
+        if support_score is not None:
+            details["support_score"] = f"{float(support_score):.4f}"
+        if threshold is not None:
+            details["threshold"] = f"{float(threshold):.4f}"
+        self._log_event(
+            "INFO",
+            "KALSHI_ENTRY_VIEW",
+            f"Kalshi entry view: {strategy} {side} | {decision}",
+            details,
+        )
+
+    def log_kalshi_tp_adjust(
+        self,
+        strategy: str,
+        side: str,
+        old_tp: float,
+        new_tp: float,
+        *,
+        fade_strike: Optional[float] = None,
+        fade_probability: Optional[float] = None,
+        role: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> None:
+        details = {
+            "strategy": strategy,
+            "side": side,
+            "old_tp": f"{float(old_tp):.2f}",
+            "new_tp": f"{float(new_tp):.2f}",
+        }
+        if fade_strike is not None:
+            details["fade_strike"] = f"{float(fade_strike):.2f}"
+        if fade_probability is not None:
+            details["fade_probability"] = f"{float(fade_probability):.4f}"
+        if role:
+            details["role"] = role
+        if reason:
+            details["reason"] = reason
+        self._log_event(
+            "INFO",
+            "KALSHI_TP_ADJUST",
+            f"New TP: {float(new_tp):.2f} | Fade Strike: {float(fade_strike):.2f}" if fade_strike is not None else f"New TP: {float(new_tp):.2f}",
+            details,
+        )
+
+    def log_kalshi_regime(
+        self,
+        mode: str,
+        role: str,
+        *,
+        forward_weight: Optional[float] = None,
+        mean_day_range: Optional[float] = None,
+        max_day_range: Optional[float] = None,
+        mean_true_range: Optional[float] = None,
+        mean_flip_rate: Optional[float] = None,
+        trade_days: Optional[int] = None,
+        score: Optional[int] = None,
+    ) -> None:
+        details = {
+            "mode": mode,
+            "role": role,
+        }
+        if forward_weight is not None:
+            details["forward_weight"] = f"{float(forward_weight):.2f}"
+        if mean_day_range is not None:
+            details["mean_day_range"] = f"{float(mean_day_range):.2f}"
+        if max_day_range is not None:
+            details["max_day_range"] = f"{float(max_day_range):.2f}"
+        if mean_true_range is not None:
+            details["mean_true_range"] = f"{float(mean_true_range):.4f}"
+        if mean_flip_rate is not None:
+            details["mean_flip_rate"] = f"{float(mean_flip_rate):.4f}"
+        if trade_days is not None:
+            details["trade_days"] = int(trade_days)
+        if score is not None:
+            details["score"] = int(score)
+        self._log_event(
+            "INFO",
+            "KALSHI_REGIME",
+            f"Kalshi regime {mode} ({role})",
+            details,
+        )
+
     # ==================== SYSTEM EVENTS ====================
 
     def log_system_event(self, event_type: str, message: str, details: Optional[Dict] = None):
