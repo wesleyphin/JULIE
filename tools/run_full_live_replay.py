@@ -498,7 +498,6 @@ class ReplayProjectXClient:
         self._runtime_state_persist_ready = False
         self._startup_history_served = False
         self._user_stream = None
-        self._oanda_mirror = None
         self.__class__.instances.append(self)
         if self.contract_root == "MES" and self.__class__.primary is None:
             self.__class__.primary = self
@@ -924,10 +923,6 @@ def _prepare_simulation_env(run_dir: Path, account_id: int, contract_root: str) 
     truth_cfg = CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {}
     if isinstance(truth_cfg, dict):
         truth_cfg["enabled"] = False
-    oanda_cfg = CONFIG.get("OANDA_MIRROR", {}) or {}
-    if isinstance(oanda_cfg, dict):
-        oanda_cfg["enabled_live"] = False
-        oanda_cfg["default"] = False
     disabled = {
         str(item).strip().lower()
         for item in (CONFIG.get("FILTERLESS_LIVE_DISABLED_STRATEGIES", []) or [])
