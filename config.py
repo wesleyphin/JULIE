@@ -43,24 +43,6 @@ CONFIG = {
     "PROJECTX_USER_STREAM_MAX_ACCOUNT_AGE_SEC": 300.0,
     # Retry after external/browser session conflicts instead of yielding forever.
     "PROJECTX_EXTERNAL_SESSION_RETRY_SEC": 20.0,
-    "OANDA_MIRROR": {
-        "enabled": _env_flag(
-            "OANDA_MIRROR_ENABLED",
-            default=bool(SECRETS.get("OANDA_API_KEY") and SECRETS.get("OANDA_ACCOUNT_ID")),
-        ),
-        "base_url": str(
-            SECRETS.get("OANDA_PRACTICE_URL", "https://api-fxpractice.oanda.com")
-            or "https://api-fxpractice.oanda.com"
-        ),
-        "account_id": str(SECRETS.get("OANDA_ACCOUNT_ID", "") or ""),
-        "api_key": str(SECRETS.get("OANDA_API_KEY", "") or ""),
-        "timeout_sec": os.environ.get("OANDA_MIRROR_TIMEOUT_SEC", "3.0"),
-        "entry_units": os.environ.get("OANDA_MIRROR_ENTRY_UNITS", "1"),
-        "symbol_map": {
-            "MES": "SPX500_USD",
-            "MNQ": "NAS100_USD",
-        },
-    },
 
     # --- SYSTEM SETTINGS ---
     "MAX_DAILY_LOSS": 1000.0,

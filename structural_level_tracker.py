@@ -21,6 +21,12 @@ import datetime
 import logging
 from typing import Optional, List, Dict
 
+try:
+    from zoneinfo import ZoneInfo
+    _NY_TZ = ZoneInfo("America/New_York")
+except Exception:  # pragma: no cover
+    _NY_TZ = None
+
 
 _TRUE_OPEN_TIMES: Dict[str, tuple] = {
     "ASIA":   (22, 30),
@@ -93,7 +99,9 @@ class StructuralLevelTracker:
         l: float,
         c: float,
     ) -> None:
-        """Feed one completed bar. ts must be timezone-aware (ET preferred)."""
+        """Feed one completed bar. ts should be timezone-aware; converted to ET."""
+        if ts.tzinfo is not None and _NY_TZ is not None:
+            ts = ts.astimezone(_NY_TZ)
         et_h = ts.hour
         et_m = ts.minute
         session = _session_for_hour(et_h)

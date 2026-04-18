@@ -9522,8 +9522,8 @@ async def run_bot():
                         master_df = pd.concat([master_df, _cb_recent])
                         master_df = master_df[~master_df.index.duplicated(keep="last")]
                         master_df.sort_index(inplace=True)
-                except Exception:
-                    pass
+                except Exception as _cb_fetch_exc:
+                    logging.debug("Circuit-breaker bar advance fetch failed: %s", _cb_fetch_exc)
                 await asyncio.sleep(60)
                 continue
 
