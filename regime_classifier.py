@@ -317,12 +317,24 @@ def apply_regime_size_cap(signal: dict) -> bool:
 
 
 def apply_dead_tape_brackets(signal: dict) -> bool:
-    """When regime=dead_tape, rewrite signal tp_dist/sl_dist to scalp values.
+    """When regime=dead_tape, rewrite signal tp_dist/sl_dist to scalp values,
+    force size to 1, and disable the BE-arm mechanism.
+
     Mutates signal in place. Returns True if applied.
 
     DE3's default 25/10 TP/SL and BE-at-10pt never activate on dead-tape days
-    (max MFE 3-6pt). Tighten to TP=3/SL=5/BE-trigger=3 so the day's micro-moves
-    actually settle trades green.
+    (max MFE 3-6pt). Tighten to TP=3/SL=5 so the day's micro-moves actually
+    settle trades green.
+
+    Size override: strategy-internal sizing can multiply a -0.25pt wiggle
+    into a significant loss on dead-tape days. Force size=1 so the 3pt
+    scalp risk matches reward.
+
+    BE-arm disable: BE-arm on a 3pt trigger with 5pt SL + entry slippage
+    creates a race condition where the bot moves stop above current market,
+    detects the "crossed stop" and force-flattens for a small loss. Safer
+    to let the fixed 5pt SL run to completion; TP=3 is tight enough that
+    BE adds force-flatten risk without adding reward.
     """
     if _CLASSIFIER is None:
         return False
@@ -332,16 +344,23 @@ def apply_dead_tape_brackets(signal: dict) -> bool:
         return False
     original_tp = signal.get("tp_dist")
     original_sl = signal.get("sl_dist")
+    original_size = signal.get("size")
     signal["tp_dist"] = DEAD_TAPE_TP_PTS
     signal["sl_dist"] = DEAD_TAPE_SL_PTS
+    signal["size"] = 1
+    # Disable BE-arm (race-condition on tight stops, see docstring).
+    signal["de3_break_even_enabled"] = False
+    signal["de3_break_even_activate_on_next_bar"] = False
+    # Audit trail
     signal["dead_tape_original_tp_dist"] = original_tp
     signal["dead_tape_original_sl_dist"] = original_sl
+    signal["dead_tape_original_size"] = original_size
     signal["dead_tape_be_trigger_pts"] = DEAD_TAPE_BE_TRIGGER_PTS
     signal["dead_tape_regime_active"] = True
     logging.info(
-        "Dead-tape bracket rewrite: %s %s | tp %s->%.1f sl %s->%.1f be_trigger=%.1f | vol=%.2fbp",
+        "Dead-tape bracket rewrite: %s %s | tp %s->%.1f sl %s->%.1f size %s->1 BE=off | vol=%.2fbp",
         signal.get("strategy", "?"), signal.get("side", "?"),
         original_tp, DEAD_TAPE_TP_PTS, original_sl, DEAD_TAPE_SL_PTS,
-        DEAD_TAPE_BE_TRIGGER_PTS, _CLASSIFIER.state.vol_bp,
+        original_size, _CLASSIFIER.state.vol_bp,
     )
     return True
