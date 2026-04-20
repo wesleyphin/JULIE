@@ -100,6 +100,7 @@ from regime_classifier import (
     init_regime_classifier as _init_regime_classifier,
     update_regime_classifier as _update_regime_classifier,
     apply_regime_size_cap as _apply_regime_size_cap,
+    apply_dead_tape_brackets as _apply_dead_tape_brackets,
 )
 from loss_factor_guard import (
     init_guard as _init_loss_factor_guard,
@@ -115,13 +116,22 @@ from signal_gate_2025 import (
 
 
 def _signal_birth_hook(signal):
-    """Called at every signal-birth site. Does two things:
-      1. Apply the regime size-cap (filter D), if enabled.
-      2. Score the signal with filter G in shadow mode and log the prediction
+    """Called at every signal-birth site. Does three things:
+      1. On dead_tape regime, rewrite signal tp_dist / sl_dist to scalp
+         values (TP=3 / SL=5 by default) before any downstream
+         consumer captures them.
+      2. Apply the regime size-cap (filter D), if enabled.
+      3. Score the signal with filter G in shadow mode and log the prediction
          — runs on every signal regardless of what upstream filters (Kalshi,
          FILTER_CHECK) will do, so we accumulate calibration data for G even
          when Kalshi short-circuits first.
     Never raises — all failures silently no-op."""
+    # Dead-tape bracket rewrite runs FIRST so the size-cap + shadow-log
+    # see the scalp tp_dist / sl_dist values when dead_tape is active.
+    try:
+        _apply_dead_tape_brackets(signal)
+    except Exception:
+        pass
     try:
         _apply_regime_size_cap(signal)
     except Exception:
