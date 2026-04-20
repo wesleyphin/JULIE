@@ -1996,7 +1996,18 @@ def _is_de3_v4_trade_management_payload(payload: Optional[dict]) -> bool:
     ).strip()
     inferred_lane = _infer_de3_lane_from_variant(variant_hint)
     if strategy_name and not strategy_name.startswith("DynamicEngine3"):
-        return bool(strategy_name == "RestoredLivePosition" and inferred_lane)
+        # Restored positions (synced from broker after a crash/restart) often
+        # have no sub_strategy/combo_key, so the variant-based lane inferrer
+        # returns "". Fall back to side-based default so the management layer
+        # can still arm BE/trailing on an orphan trade rather than leaving it
+        # to static broker brackets. The default lane applies default BE/trail
+        # params — approximate-but-useful beats zero management.
+        if strategy_name == "RestoredLivePosition":
+            if inferred_lane:
+                return True
+            side = str(payload.get("side", "") or "").upper()
+            return side in ("LONG", "SHORT")
+        return False
     if str(payload.get("de3_version", "") or "").strip().lower() == "v4":
         return True
     if payload.get("de3_v4_selected_variant_id"):
