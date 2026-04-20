@@ -10095,6 +10095,26 @@ async def run_bot():
         logging.warning("⚠️ Startup fetch returned empty data (MES). Bot will attempt to build history in loop.")
         master_df = pd.DataFrame()
 
+    # Pre-warm the regime classifier with the last 120 bars from the startup
+    # history fetch, so the first live bar arrives with the classifier already
+    # out of warmup. Without this, classifier needs ~2h of live bars before it
+    # emits a regime signal — missing today's dead-tape opportunity entirely.
+    if not master_df.empty and _init_regime_classifier is not None:
+        from regime_classifier import get_regime_classifier as _get_rc
+        _rc = _get_rc()
+        if _rc is not None:
+            warmup_bars = master_df.tail(120)
+            try:
+                _close_col = "close" if "close" in warmup_bars.columns else "Close"
+                for _ts, _row in warmup_bars.iterrows():
+                    _update_regime_classifier(_ts, float(_row[_close_col]))
+                logging.info(
+                    "Regime classifier pre-warmed with %d historical bars | current regime=%s vol=%.2fbp eff=%.3f",
+                    len(warmup_bars), _rc.regime, _rc.state.vol_bp, _rc.state.eff,
+                )
+            except Exception as _rc_exc:
+                logging.warning("Regime classifier pre-warm failed: %s", _rc_exc)
+
     if bar_logger is not None and not master_df.empty:
         appended = bar_logger.append_from_df(master_df)
         if appended:
