@@ -67,19 +67,25 @@ CB_CONSEC_CALM = int(os.environ.get("JULIE_REGIME_CONSEC_CALM", "7"))
 WHIPSAW_VETO_ENABLED = os.environ.get("JULIE_REGIME_WHIPSAW_VETO", "0").strip() == "1"
 
 # Filter D — regime-gated size cap. When regime is whipsaw or calm_trend
-# (i.e. NOT neutral), cap incoming signal size to 1 contract. Validated on
-# 27-day outrageous set: cuts DD>$350 violations 16→7 while preserving most
-# of the +$817 PnL improvement from filter C.
+# (i.e. NOT neutral), cap incoming signal size to 1 contract.
 REGIME_SIZE_CAP_ENABLED = os.environ.get("JULIE_REGIME_SIZE_CAP", "0").strip() == "1"
 REGIME_SIZE_CAP_VALUE = int(os.environ.get("JULIE_REGIME_SIZE_CAP_VALUE", "1"))
 
 # Filter E — green-day size unlock. On trend regimes where filter D would
 # normally cap to 1, recover upside by raising the cap once daily PnL proves
-# the direction. Validated: C + D + green_unlock@$200→3 gives +$3,319 PnL
-# on 27-day outrageous set (vs +$2,503 shipped C+D) with 8 violations (vs 7).
-# Apr 9 rally recovers from $1,039 to $2,347 while chop-day protection holds.
+# the direction.
 REGIME_GREEN_UNLOCK_THRESHOLD = float(os.environ.get("JULIE_REGIME_GREEN_UNLOCK_PNL", "200"))
 REGIME_GREEN_UNLOCK_SIZE = int(os.environ.get("JULIE_REGIME_GREEN_UNLOCK_SIZE", "3"))
+
+# Dead-tape regime: bottom-percentile-vol session where DE3's 25/10 TP/SL +
+# BE-at-10pt never activate (max MFE caps at 3-6pt on these days).
+# When the dead_tape branch classifies the session, signal brackets get
+# rewritten to scalp-sized values before the downstream BE/trail logic
+# sees them.
+DEAD_TAPE_VOL_BP = float(os.environ.get("JULIE_REGIME_DEAD_VOL_BP", "1.5"))
+DEAD_TAPE_TP_PTS = float(os.environ.get("JULIE_REGIME_DEAD_TP", "3.0"))
+DEAD_TAPE_SL_PTS = float(os.environ.get("JULIE_REGIME_DEAD_SL", "5.0"))
+DEAD_TAPE_BE_TRIGGER_PTS = float(os.environ.get("JULIE_REGIME_DEAD_BE_TRIGGER", "3.0"))
 
 
 @dataclass
@@ -151,6 +157,11 @@ class RegimeClassifier:
         return vol_bp, eff
 
     def _classify(self, vol_bp: float, eff: float) -> str:
+        # Dead-tape = exceptionally low volatility regardless of eff. DE3's
+        # default 25pt TP / 10pt SL / 10pt BE-trigger never activate here.
+        # Checked first so it wins over calm_trend when vol is in bottom tail.
+        if vol_bp < DEAD_TAPE_VOL_BP:
+            return "dead_tape"
         # Whipsaw = violent chop: BOTH high vol AND low eff (e.g. tariff-week
         # tape). Pure-eff low with low vol is just a flat tape (not a whipsaw,
         # stays neutral so the bot can still fish).
@@ -175,6 +186,16 @@ class RegimeClassifier:
             buf["forward_primary"] = self._baseline_buf_fp
             rev_cfg["required_confirmations"] = CALM_REV_CONFIRM
             cb_cap, cb_consec = CB_CAP_CALM, CB_CONSEC_CALM
+        elif new_regime == "dead_tape":
+            # Keep Kalshi buf baseline, keep reversal baseline. The TP/SL
+            # override is consumed via apply_dead_tape_brackets() at signal
+            # birth — config mutation here is informational only; DE3 still
+            # generates signals with original TP/SL, the override is applied
+            # to the signal payload by the caller.
+            buf["balanced"] = self._baseline_buf_balanced
+            buf["forward_primary"] = self._baseline_buf_fp
+            rev_cfg["required_confirmations"] = self._baseline_rev_confirm
+            cb_cap, cb_consec = CB_CAP_WHIPSAW, CB_CONSEC_WHIPSAW
         else:
             buf["balanced"] = self._baseline_buf_balanced
             buf["forward_primary"] = self._baseline_buf_fp
@@ -253,8 +274,7 @@ def apply_regime_size_cap(signal: dict) -> bool:
     modified, False otherwise. Idempotent and mutation is visible to the
     pct_overlay snapshot + downstream consumers.
 
-    Gated by JULIE_REGIME_SIZE_CAP=1. Validated on 27-day outrageous 2025 set:
-    chops unaffected, breakouts capped (Apr 9 reduced but net still positive).
+    Gated by JULIE_REGIME_SIZE_CAP=1.
     """
     if _CLASSIFIER is None or not REGIME_SIZE_CAP_ENABLED:
         return False
@@ -292,5 +312,36 @@ def apply_regime_size_cap(signal: dict) -> bool:
         "Regime size cap (%s%s): %s %s | size %d -> %d",
         regime, " unlocked" if signal.get("regime_size_cap_unlocked") else "",
         signal.get("strategy", "?"), signal.get("side", "?"), base, cap,
+    )
+    return True
+
+
+def apply_dead_tape_brackets(signal: dict) -> bool:
+    """When regime=dead_tape, rewrite signal tp_dist/sl_dist to scalp values.
+    Mutates signal in place. Returns True if applied.
+
+    DE3's default 25/10 TP/SL and BE-at-10pt never activate on dead-tape days
+    (max MFE 3-6pt). Tighten to TP=3/SL=5/BE-trigger=3 so the day's micro-moves
+    actually settle trades green.
+    """
+    if _CLASSIFIER is None:
+        return False
+    if _CLASSIFIER.regime != "dead_tape":
+        return False
+    if not isinstance(signal, dict):
+        return False
+    original_tp = signal.get("tp_dist")
+    original_sl = signal.get("sl_dist")
+    signal["tp_dist"] = DEAD_TAPE_TP_PTS
+    signal["sl_dist"] = DEAD_TAPE_SL_PTS
+    signal["dead_tape_original_tp_dist"] = original_tp
+    signal["dead_tape_original_sl_dist"] = original_sl
+    signal["dead_tape_be_trigger_pts"] = DEAD_TAPE_BE_TRIGGER_PTS
+    signal["dead_tape_regime_active"] = True
+    logging.info(
+        "Dead-tape bracket rewrite: %s %s | tp %s->%.1f sl %s->%.1f be_trigger=%.1f | vol=%.2fbp",
+        signal.get("strategy", "?"), signal.get("side", "?"),
+        original_tp, DEAD_TAPE_TP_PTS, original_sl, DEAD_TAPE_SL_PTS,
+        DEAD_TAPE_BE_TRIGGER_PTS, _CLASSIFIER.state.vol_bp,
     )
     return True
