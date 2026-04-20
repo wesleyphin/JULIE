@@ -117,8 +117,13 @@ def parse_json_object(value: Any) -> Dict[str, Any]:
 
 
 def parse_logged_at(value: str) -> Optional[datetime]:
+    # Bot log timestamps are written in the host's local wall-clock time (PDT
+    # on Mac, etc.), NOT in NY_TZ. Interpret them as local and convert to ET
+    # so freshness checks against datetime.now(NY_TZ) don't create a phantom
+    # multi-hour age gap on non-NY hosts.
     try:
-        return datetime.strptime(value, "%Y-%m-%d %H:%M:%S,%f").replace(tzinfo=NY_TZ)
+        naive = datetime.strptime(value, "%Y-%m-%d %H:%M:%S,%f")
+        return naive.astimezone(NY_TZ)
     except ValueError:
         return None
 
