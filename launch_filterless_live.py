@@ -90,6 +90,29 @@ _stabilize_windows_platform_queries()
 os.environ.setdefault("JULIE_FILTERLESS_ONLY", "1")
 os.environ.setdefault("JULIE_DISABLE_STRATEGY_FILTERS", "1")
 
+# --- iter-11 risk layer (regime-adaptive CB + LossFactorGuard) ---
+# Validated on Oct 2025 (+$1,246 swing vs v4) and Apr 2026 Wk1+Wk2 (+$1,086).
+# See commit 5d682cd. Any of these can be overridden via shell env.
+os.environ.setdefault("JULIE_CB", "1")
+os.environ.setdefault("JULIE_DLB", "1")
+os.environ.setdefault("JULIE_DD_SCALE", "1")
+os.environ.setdefault("JULIE_KALSHI_CONTINUATION_TP", "1")
+os.environ.setdefault("JULIE_REGIME_CLASSIFIER", "1")
+os.environ.setdefault("JULIE_REGIME_ADAPTIVE_CB", "1")
+os.environ.setdefault("JULIE_LOSS_FACTOR_GUARD", "1")
+os.environ.setdefault("JULIE_CB_MAX_DAILY_LOSS", "350")
+os.environ.setdefault("JULIE_CB_MAX_CONSEC_LOSSES", "5")
+os.environ.setdefault("JULIE_REGIME_CB_WHIPSAW", "250")
+os.environ.setdefault("JULIE_REGIME_CB_NEUTRAL", "350")
+os.environ.setdefault("JULIE_REGIME_CB_CALM", "500")
+os.environ.setdefault("JULIE_REGIME_CONSEC_WHIPSAW", "4")
+os.environ.setdefault("JULIE_REGIME_CONSEC_NEUTRAL", "5")
+os.environ.setdefault("JULIE_REGIME_CONSEC_CALM", "7")
+os.environ.setdefault("JULIE_LFG_MORNING_CASCADE", "99")
+os.environ.setdefault("JULIE_LFG_LONG_STREAK", "5")
+os.environ.setdefault("JULIE_LFG_SHORT_STREAK", "6")
+os.environ.setdefault("JULIE_LFG_AFT_SHUTDOWN_PNL", "-250")
+
 from bot_state import load_bot_state
 from config import CONFIG
 from config_secrets import SECRETS
