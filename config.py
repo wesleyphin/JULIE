@@ -841,8 +841,8 @@ CONFIG = {
             "balanced": 0.48,
             "forward_primary": 0.78,
         },
-        "min_tp_multiplier": 0.55,
-        "max_tp_multiplier": 1.75,
+        "min_tp_multiplier": float(os.environ.get("JULIE_KALSHI_MIN_TP_MULT", "0.55")),
+        "max_tp_multiplier": float(os.environ.get("JULIE_KALSHI_MAX_TP_MULT", "1.75")),
         "trail_enabled_roles": ["balanced", "forward_primary"],
         "trail_buffer_ticks": {
             "background": 6,
@@ -885,6 +885,17 @@ CONFIG = {
         "emergency_exit_max_age_seconds": 3600,
         "quick_pump_tp_points": 4.0,
         "quick_pump_sl_points": 2.0,
+    },
+    # Opposite-direction reversal confirmation (env-var tunable).
+    # required_confirmations: how many consecutive opposite signals within window_bars
+    # are needed to close the active position and flip direction.
+    # Higher = fewer, slower reversals. Lower = more aggressive direction flipping.
+    "LIVE_OPPOSITE_REVERSAL": {
+        "required_confirmations": int(os.environ.get("JULIE_REVERSAL_CONFIRM", "3")),
+        "window_bars": int(os.environ.get("JULIE_REVERSAL_WINDOW", "3")),
+        "require_same_strategy_family": True,
+        "require_same_active_trade_family": False,
+        "require_same_sub_strategy": False,
     },
     # Optional macro-regime feature (disabled by default for robustness)
     "ML_PHYSICS_USE_MACRO_REGIME": False,
@@ -4944,3 +4955,19 @@ FINBERT_LOCAL_PATH = str(
     (CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {}).get("finbert_local_path", "./models/finbert")
     or "./models/finbert"
 )
+
+# --- Env-var tuning overrides for Kalshi entry block buffer ---
+# JULIE_KALSHI_BLOCK_BUF_BALANCED and JULIE_KALSHI_BLOCK_BUF_FP override the
+# entry_block_buffer for balanced and forward_primary roles respectively.
+# Higher value = fewer blocks (trades need to be more strongly opposed to be blocked).
+_kalshi_overlay_cfg = CONFIG.get("KALSHI_TRADE_OVERLAY") or {}
+_kalshi_block_buf = _kalshi_overlay_cfg.get("entry_block_buffer") or {}
+_bb_balanced = os.environ.get("JULIE_KALSHI_BLOCK_BUF_BALANCED")
+_bb_fp = os.environ.get("JULIE_KALSHI_BLOCK_BUF_FP")
+if _bb_balanced is not None:
+    _kalshi_block_buf["balanced"] = float(_bb_balanced)
+if _bb_fp is not None:
+    _kalshi_block_buf["forward_primary"] = float(_bb_fp)
+if _bb_balanced is not None or _bb_fp is not None:
+    _kalshi_overlay_cfg["entry_block_buffer"] = _kalshi_block_buf
+    CONFIG["KALSHI_TRADE_OVERLAY"] = _kalshi_overlay_cfg

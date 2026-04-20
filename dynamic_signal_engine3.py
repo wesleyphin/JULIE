@@ -6,6 +6,7 @@ Uses the same signal definition as DynamicEngine (prev candle body vs threshold)
 import json
 import logging
 import math
+import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional
@@ -86,7 +87,16 @@ class DynamicSignalEngine3:
     @staticmethod
     def _load_payload(path: Path) -> Optional[object]:
         if not path.exists():
-            return None
+            # If relative path fails (CWD may have been changed by replay harness),
+            # try resolving against sys.path[0] which points to ROOT.
+            if not path.is_absolute() and sys.path:
+                candidate = Path(sys.path[0]) / path
+                if candidate.exists():
+                    path = candidate
+                else:
+                    return None
+            else:
+                return None
         try:
             return json.loads(path.read_text(encoding="utf-8"))
         except Exception:

@@ -1,6 +1,9 @@
 import logging
 
 
+_GLOBAL_CB = None
+
+
 class CircuitBreaker:
     """
     Stops trading if Daily Max Loss or Max Consecutive Losses are hit.

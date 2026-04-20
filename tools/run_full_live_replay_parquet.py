@@ -53,6 +53,25 @@ def _parse_args() -> argparse.Namespace:
         help="Directory for isolated replay outputs.",
     )
     parser.add_argument("--log-level", default="INFO")
+    parser.add_argument(
+        "--bars-parquet",
+        default=None,
+        help=(
+            "Optional path to a parquet of 1-min OHLCV bars. When set, replay "
+            "skips the live ProjectX API fetch and loads bars from this file. "
+            "Expects a DatetimeIndex (tz-aware) and columns open/high/low/close/volume."
+        ),
+    )
+    parser.add_argument(
+        "--target-symbol",
+        default=None,
+        help="Override the wall-clock front-month symbol (used with --bars-parquet).",
+    )
+    parser.add_argument(
+        "--run-name",
+        default=None,
+        help="Explicit folder name under --report-dir (disambiguates parallel runs).",
+    )
     return parser.parse_args()
 
 
@@ -117,6 +136,105 @@ async def _pull_projectx_bars(
     df = await client.async_get_market_data(lookback_minutes=lookback_minutes, force_fetch=True)
     if df is None or df.empty:
         raise RuntimeError(f"ProjectX returned no bars for {contract_root}.")
+    return client, df
+
+
+def _load_bars_from_parquet(
+    *,
+    path: str,
+    contract_root: str,
+    start_time: dt.datetime,
+    end_time: dt.datetime,
+    lookback_minutes: int,
+    target_symbol: Optional[str],
+    account_id: Optional[int],
+) -> tuple[LiveProjectXClient, pd.DataFrame]:
+    """Load 1-min bars from a parquet file instead of calling ProjectX.
+
+    For use during historical replay when the API doesn't have the window.
+    Picks front-month per bar (max-volume symbol when duplicates exist) and
+    filters to [start - lookback, end].
+    """
+    df = pd.read_parquet(path)
+    if df.empty:
+        raise RuntimeError(f"Parquet {path} is empty.")
+    # Normalize index tz
+    if df.index.tz is None:
+        df.index = df.index.tz_localize("US/Eastern")
+    else:
+        df.index = df.index.tz_convert(NY_TZ)
+    # Filter to [start - lookback, end]
+    lookback = dt.timedelta(minutes=max(int(lookback_minutes), 0) + 60)
+    lo = start_time - lookback
+    hi = end_time + dt.timedelta(minutes=1)
+    mask = (df.index >= pd.Timestamp(lo)) & (df.index <= pd.Timestamp(hi))
+    df = df.loc[mask].copy().sort_index()
+    if df.empty:
+        raise RuntimeError(
+            f"Parquet has no bars in [{lo}, {hi}] — widen window or check source."
+        )
+    for col in ("open", "high", "low", "close", "volume"):
+        if col not in df.columns:
+            raise RuntimeError(f"Parquet missing required column: {col}")
+    # Front-month stitch: pick the symbol with highest daily volume per calendar
+    # day. The master_outrights parquet interleaves multiple outrights within
+    # the same window; without this step we'd get a 50pt zigzag when nearby
+    # contracts share timestamps with different prices (e.g. ESM5/ESU5 near
+    # the roll).
+    if "symbol" in df.columns and df["symbol"].nunique() > 1:
+        tmp = df.copy()
+        tmp["day"] = tmp.index.tz_convert(NY_TZ).date
+        daily_vol = tmp.groupby(["day", "symbol"])["volume"].sum().reset_index()
+        idx = daily_vol.groupby("day")["volume"].idxmax()
+        best = daily_vol.loc[idx, ["day", "symbol"]]
+        day_to_sym = dict(zip(best["day"], best["symbol"]))
+        tmp["front"] = tmp["day"].map(day_to_sym)
+        df = tmp.loc[tmp["symbol"] == tmp["front"], ["open", "high", "low", "close", "volume"]]
+    else:
+        df = df[["open", "high", "low", "close", "volume"]]
+    if df.index.has_duplicates:
+        df = df.loc[~df.index.duplicated(keep="first")]
+    df = df.sort_index()
+    # Reindex to a continuous 1-minute grid so the bot sees an unbroken tape.
+    # The source parquet is sparse (omits minutes with no trade); without this
+    # the replay trips BAR JUMP warnings every few bars and ML rolling windows
+    # drift out of sync. We forward-fill close into open/high/low; new bars
+    # get volume=0.
+    if len(df) >= 2:
+        full_idx = pd.date_range(df.index.min(), df.index.max(), freq="1min", tz=df.index.tz)
+        was_missing = ~full_idx.isin(df.index)
+        df = df.reindex(full_idx)
+        df["volume"] = df["volume"].fillna(0.0)
+        df["close"] = df["close"].ffill()
+        df["open"] = df["open"].where(~was_missing, df["close"])
+        df["high"] = df["high"].where(~was_missing, df["close"])
+        df["low"] = df["low"].where(~was_missing, df["close"])
+        # Drop any leading bars before the first real close (bot can't start with NaN)
+        df = df.dropna(subset=["close"])
+
+    # Build a live client (still needed for account id resolution, but we
+    # don't call .login() because we aren't hitting the live API.)
+    resolved_symbol = target_symbol or determine_current_contract_symbol(contract_root)
+    client = LiveProjectXClient(contract_root=contract_root, target_symbol=resolved_symbol)
+    # Resolve account id — prefer explicit, else config, else bot_state.
+    if account_id is not None:
+        client.account_id = int(account_id)
+    else:
+        cfg_account = CONFIG.get("ACCOUNT_ID")
+        if cfg_account not in (None, ""):
+            client.account_id = int(cfg_account)
+        else:
+            state_account = _discover_account_from_state()
+            client.account_id = int(state_account) if state_account is not None else 0
+    logging.info(
+        "Loaded %d bars from %s (%s .. %s) as %s (account=%s)",
+        len(df),
+        path,
+        df.index.min(),
+        df.index.max(),
+        resolved_symbol,
+        client.account_id,
+    )
     return client, df
 
 
@@ -475,6 +593,65 @@ class ReplaySession:
         self.manual_close_count += 1
         return int(close_order_id)
 
+    def close_leg(
+        self,
+        *,
+        trade: dict,
+        exit_price: float,
+        exit_time: dt.datetime,
+        reason: str,
+    ) -> Optional[int]:
+        """Close a single tracked same-side leg, matched by any live order id.
+
+        Live `close_trade_leg` cancels the leg's brackets and submits a market
+        order sized to `trade['size']`. In replay we don't need partial sizing:
+        we just pick the open leg whose stop/target/entry order id matches the
+        trade dict and fill it at the current bar price. Any other legs keep
+        running, which is exactly what live does.
+        """
+        if not self.open_legs:
+            return None
+        candidate_ids: set[int] = set()
+        for key in ("stop_order_id", "target_order_id", "entry_order_id", "broker_order_id", "order_id"):
+            raw = trade.get(key)
+            try:
+                if raw is not None:
+                    candidate_ids.add(int(raw))
+            except (TypeError, ValueError):
+                continue
+        match_index: Optional[int] = None
+        if candidate_ids:
+            for idx, leg in enumerate(self.open_legs):
+                leg_ids = {
+                    int(leg.get("stop_order_id") or 0),
+                    int(leg.get("target_order_id") or 0),
+                    int(leg.get("entry_order_id") or 0),
+                }
+                if leg_ids & candidate_ids:
+                    match_index = idx
+                    break
+        if match_index is None:
+            # Fall back to first same-side leg — live caller has already
+            # validated trade size ≤ position size, so this is safe.
+            side_name = str(trade.get("side") or "").upper()
+            for idx, leg in enumerate(self.open_legs):
+                if str(leg.get("side") or "").upper() == side_name:
+                    match_index = idx
+                    break
+        if match_index is None:
+            return None
+        close_order_id = self._new_id()
+        leg = self.open_legs.pop(match_index)
+        self._fill_leg(
+            leg,
+            exit_price=float(exit_price),
+            exit_time=exit_time,
+            order_id=int(close_order_id),
+            source=str(reason),
+        )
+        self.manual_close_count += 1
+        return int(close_order_id)
+
     def summary(self) -> dict:
         wins = sum(1 for row in self.closed_trades if float(row.get("pnl_dollars", 0.0)) > 0.0)
         losses = sum(1 for row in self.closed_trades if float(row.get("pnl_dollars", 0.0)) < 0.0)
@@ -642,6 +819,41 @@ class ReplayProjectXClient:
         self._active_stop_order_id = None
         self._active_target_order_id = None
         return True
+
+    def close_trade_leg(self, trade: dict) -> bool:
+        """Replay equivalent of live close_trade_leg — fills one tracked leg.
+
+        DE3 v4's break-even guard and the async partial-exit path both call
+        this when >1 leg is open and only one should be closed. Without it
+        the replay throws 'has no attribute close_trade_leg' and no trades
+        ever finalize, so Kalshi snapshot logs fire but `closed_trades`
+        stays empty (and pnl reads zero).
+        """
+        if not isinstance(trade, dict):
+            return False
+        current_price = self.session.current_price()
+        close_order_id = self.session.close_leg(
+            trade=trade,
+            exit_price=current_price,
+            exit_time=self.session.current_time(),
+            reason="close_trade_leg",
+        )
+        if close_order_id is None:
+            return False
+        self._last_close_order_details = {
+            "order_id": int(close_order_id),
+            "exit_price": float(current_price),
+        }
+        self._sync_local_position()
+        # Remaining legs may still own the live bracket ids; only clear the
+        # active refs if no legs remain.
+        if not self.session.open_legs:
+            self._active_stop_order_id = None
+            self._active_target_order_id = None
+        return True
+
+    async def async_close_trade_leg(self, trade: dict) -> bool:
+        return self.close_trade_leg(trade)
 
     def emergency_flatten_position(self, position: dict, reason: str = "") -> bool:
         del position
@@ -946,15 +1158,70 @@ def _restore_replay_clock(live_module: Any, original_datetime_cls: Any) -> None:
     live_module.datetime.datetime = original_datetime_cls
 
 
-def _prepare_simulation_env(run_dir: Path, account_id: int, contract_root: str) -> None:
+def _absolutize_config_paths() -> None:
+    """Resolve DE3 / RegimeAdaptive / AetherFlow relative paths against ROOT.
+
+    `os.chdir(run_dir)` below is necessary so run-local logs and reports land
+    in the per-month folder, but it breaks every CONFIG entry that names a DB
+    or artifact via a project-relative path. If we don't pin these to absolute
+    paths before the chdir, DE3 falls back to the empty v1 stub ("0
+    sub-strategies loaded | db_version=v1-fallback"), RegimeAdaptive loads no
+    artifact, and AetherFlow can't find its model — which is why the first
+    parallel replay attempt produced zero Kalshi engagement despite the
+    overlay code being correct.
+    """
+
+    def _fix_str(value: Any) -> Any:
+        if isinstance(value, str) and value and not os.path.isabs(value):
+            candidate = (ROOT / value).resolve()
+            if candidate.exists():
+                return str(candidate)
+        return value
+
+    def _fix_nested(cfg_key: str, path_keys: list[str]) -> None:
+        node = CONFIG.get(cfg_key)
+        if not isinstance(node, dict):
+            return
+        for path_key in path_keys:
+            if path_key in node:
+                node[path_key] = _fix_str(node[path_key])
+
+    # DynamicEngine3 (all versions) — member/family DBs and v4 bundle.
+    _fix_nested("DE3_V2", ["db_path"])
+    _fix_nested(
+        "DE3_V3",
+        ["member_db_path", "family_db_path", "family_inventory_legacy_path"],
+    )
+    _fix_nested("DE3_V4", ["member_db_path", "bundle_path"])
+    # DE3 context-veto model (both legacy and new-style keys).
+    _fix_nested("DE3_CONTEXT_VETO", ["model_path"])
+    # RegimeAdaptive artifact JSON — this is what drives the combo_key lookups
+    # we rely on to get NY trades (and therefore Kalshi engagement).
+    _fix_nested("REGIME_ADAPTIVE_TUNING", ["artifact_path"])
+    # AetherFlow model + threshold/metric companions.
+    _fix_nested(
+        "AETHERFLOW_STRATEGY",
+        ["model_file", "thresholds_file", "metrics_file"],
+    )
+
+
+def _prepare_simulation_env(
+    run_dir: Path,
+    account_id: int,
+    contract_root: str,
+    target_symbol: Optional[str] = None,
+) -> None:
     os.environ["JULIE_FILTERLESS_ONLY"] = "1"
     os.environ["JULIE_DISABLE_STRATEGY_FILTERS"] = "1"
     os.environ["JULIE_FILTERLESS_KEEP_GEMINI"] = "0"
     os.environ["JULIE_ACCOUNT_ID"] = str(account_id)
+    # MUST absolutize paths BEFORE chdir or DE3/RegimeAdaptive silently load
+    # empty fallbacks. See _absolutize_config_paths docstring.
+    _absolutize_config_paths()
     os.chdir(run_dir)
     CONFIG["ACCOUNT_ID"] = int(account_id)
     CONFIG["CONTRACT_ROOT"] = str(contract_root).upper()
-    CONFIG["TARGET_SYMBOL"] = determine_current_contract_symbol(contract_root)
+    CONFIG["TARGET_SYMBOL"] = target_symbol or determine_current_contract_symbol(contract_root)
     CONFIG["PROJECTX_USER_STREAM_ENABLED"] = False
     CONFIG["LIVE_MES_CSV_APPENDER_ENABLED"] = False
     CONFIG["LIVE_TRADE_FACTORS_LOGGER_ENABLED"] = False
@@ -1365,10 +1632,15 @@ def _fetch_kalshi_historical_window(
     start_dt: dt.datetime,
     end_dt: dt.datetime,
     force_refresh: bool = False,
+    cache_only: bool = False,
 ) -> dict[str, _HistoricalKalshiEvent]:
     """Pull real Kalshi event + candlestick data for every hourly event overlapping the window.
 
     Disk-cached per event in ``backtest_reports/kalshi_historical_cache/``.
+
+    When ``cache_only`` is True, missing cache entries are silently skipped
+    instead of falling through to the live Kalshi API. Use this for offline
+    historical replay when the cache is pre-populated from the S3 archive.
     """
 
     try:
@@ -1377,24 +1649,28 @@ def _fetch_kalshi_historical_window(
         logging.warning("Cannot import KalshiProvider: %s", exc)
         return {}
 
-    kalshi_cfg = CONFIG.get("KALSHI", {}) if isinstance(CONFIG, dict) else {}
-    provider = KalshiProvider(kalshi_cfg)
-    if not getattr(provider, "enabled", False):
-        logging.warning(
-            "Real KalshiProvider is disabled (missing creds?); skipping historical fetch."
-        )
-        return {}
+    if cache_only:
+        provider = None  # type: ignore[assignment]
+    else:
+        kalshi_cfg = CONFIG.get("KALSHI", {}) if isinstance(CONFIG, dict) else {}
+        provider = KalshiProvider(kalshi_cfg)
+        if not getattr(provider, "enabled", False):
+            logging.warning(
+                "Real KalshiProvider is disabled (missing creds?); skipping historical fetch."
+            )
+            return {}
 
     _KALSHI_HISTORICAL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
     start_et = start_dt.astimezone(NY_TZ)
     end_et = end_dt.astimezone(NY_TZ)
     events: dict[str, _HistoricalKalshiEvent] = {}
 
+    series_name = provider.series if provider is not None else "KXINXU"
     day_cursor = start_et.replace(hour=0, minute=0, second=0, microsecond=0)
     while day_cursor.date() <= end_et.date():
         for et_hour in _KALSHI_SETTLEMENT_HOURS_ET:
             event_ticker = (
-                f"{provider.series}-"
+                f"{series_name}-"
                 f"{day_cursor.strftime('%y%b%d').upper()}"
                 f"H{et_hour * 100}"
             )
@@ -1422,6 +1698,10 @@ def _fetch_kalshi_historical_window(
                     continue
                 except Exception as exc:
                     logging.warning("Corrupt Kalshi cache %s: %s", cache_path, exc)
+
+            if cache_only:
+                # No cache and cache_only mode — silently skip (weekends/holidays)
+                continue
 
             open_utc_ts = int(open_et.astimezone(dt.timezone.utc).timestamp())
             close_utc_ts = int(close_et.astimezone(dt.timezone.utc).timestamp())
@@ -1953,10 +2233,13 @@ def _install_kalshi_replay_provider(
     live_module: Any,
     start_dt: dt.datetime,
     end_dt: dt.datetime,
+    cache_only: bool = False,
 ) -> Any:
     """Prefer real pre-fetched Kalshi data; fall back to the synthesizer."""
     try:
-        events = _fetch_kalshi_historical_window(start_dt=start_dt, end_dt=end_dt)
+        events = _fetch_kalshi_historical_window(
+            start_dt=start_dt, end_dt=end_dt, cache_only=cache_only
+        )
     except Exception as exc:
         logging.warning("Kalshi historical prefetch failed: %s — using simulator", exc)
         events = {}
@@ -2050,22 +2333,39 @@ async def _run_replay(args: argparse.Namespace) -> tuple[Path, dict]:
     if start_time > end_time:
         raise ValueError("Start must be before end.")
 
-    live_client, bars_df = await _pull_projectx_bars(
-        contract_root=contract_root,
-        lookback_minutes=int(args.lookback_minutes),
-        account_id=args.account_id,
-    )
+    bars_parquet = getattr(args, "bars_parquet", None)
+    target_symbol_override = getattr(args, "target_symbol", None)
+    if bars_parquet:
+        live_client, bars_df = _load_bars_from_parquet(
+            path=str(bars_parquet),
+            contract_root=contract_root,
+            start_time=start_time,
+            end_time=end_time,
+            lookback_minutes=int(args.lookback_minutes),
+            target_symbol=target_symbol_override,
+            account_id=args.account_id,
+        )
+    else:
+        live_client, bars_df = await _pull_projectx_bars(
+            contract_root=contract_root,
+            lookback_minutes=int(args.lookback_minutes),
+            account_id=args.account_id,
+        )
     account_id = int(live_client.account_id)
     full_df = bars_df.loc[bars_df.index <= end_time].copy()
     if full_df.empty:
-        raise RuntimeError("Pulled ProjectX bars do not overlap the requested replay window.")
+        raise RuntimeError("Pulled bars do not overlap the requested replay window.")
 
     report_root = Path(args.report_dir)
     if not report_root.is_absolute():
         report_root = ROOT / report_root
     report_root.mkdir(parents=True, exist_ok=True)
-    stamp = dt.datetime.now(NY_TZ).strftime("%Y%m%d_%H%M%S")
-    run_dir = report_root / f"live_loop_{contract_root}_{stamp}"
+    run_name = getattr(args, "run_name", None)
+    if run_name:
+        run_dir = report_root / str(run_name)
+    else:
+        stamp = dt.datetime.now(NY_TZ).strftime("%Y%m%d_%H%M%S")
+        run_dir = report_root / f"live_loop_{contract_root}_{stamp}"
     run_dir.mkdir(parents=True, exist_ok=True)
 
     session = ReplaySession(
@@ -2075,13 +2375,25 @@ async def _run_replay(args: argparse.Namespace) -> tuple[Path, dict]:
         initial_balance=float(args.initial_balance),
     )
     ReplayProjectXClient.configure(session)
-    _prepare_simulation_env(run_dir, account_id, contract_root)
+    _prepare_simulation_env(run_dir, account_id, contract_root, target_symbol_override)
 
     import bot_state as bot_state_module
     import julie001 as live
 
     bot_state_module.STATE_PATH = run_dir / "bot_state.json"
     live.STATE_PATH = run_dir / "bot_state.json"
+
+    # Replace save_bot_state with a no-op in replay. The state file lives in
+    # a throwaway run_dir and isn't consumed on a later rerun, and the live
+    # serializer raises "Object of type bool is not JSON serializable" on
+    # some numpy.bool_ fields flowing through persist_runtime_state during
+    # Kalshi regime shifts — which would otherwise crash the main loop and
+    # burn 10s of wall clock per shift via the top-level except sleep.
+    def _replay_save_bot_state(state, path=None):  # noqa: ARG001
+        return None
+
+    bot_state_module.save_bot_state = _replay_save_bot_state
+    live.save_bot_state = _replay_save_bot_state
     live.ProjectXClient = ReplayProjectXClient
     live.heartbeat_task = _noop_background
     live.position_sync_task = _noop_background
@@ -2093,6 +2405,7 @@ async def _run_replay(args: argparse.Namespace) -> tuple[Path, dict]:
         live_module=live,
         start_dt=start_time,
         end_dt=end_time,
+        cache_only=bool(bars_parquet),
     )
     original_aetherflow_loader = _install_aetherflow_replay_precompute(
         full_df=full_df,

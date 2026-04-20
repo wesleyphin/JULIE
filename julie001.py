@@ -88,6 +88,15 @@ from pct_overlay_runtime import (
     init_pct_level_overlay as _init_pct_level_overlay,
     update_pct_level_overlay as _update_pct_level_overlay,
 )
+from regime_classifier import (
+    init_regime_classifier as _init_regime_classifier,
+    update_regime_classifier as _update_regime_classifier,
+)
+from loss_factor_guard import (
+    init_guard as _init_loss_factor_guard,
+    notify_trade_closed as _lfg_notify_trade_closed,
+    should_veto_entry as _lfg_should_veto_entry,
+)
 
 
 from pct_overlay_runtime import (
@@ -6920,6 +6929,8 @@ async def run_bot():
     )
     structural_tracker = StructuralLevelTracker()
     _init_pct_level_overlay()
+    _init_regime_classifier()
+    _init_loss_factor_guard()
     _lfo_enabled = bool(CONFIG.get("LEVEL_FILL_OPTIMIZER_ENABLED", True))
     level_fill_optimizer = LevelFillOptimizer() if _lfo_enabled else None
     pending_level_fills: dict = {}   # uid → {signal, target_price, …}
@@ -6966,7 +6977,14 @@ async def run_bot():
         else None
     )
     news_filter = NewsFilter()
-    circuit_breaker = CircuitBreaker(max_daily_loss=600, max_consecutive_losses=7)
+    _cb_max_daily = float(os.environ.get("JULIE_CB_MAX_DAILY_LOSS", "600"))
+    _cb_max_consec = int(os.environ.get("JULIE_CB_MAX_CONSEC_LOSSES", "7"))
+    circuit_breaker = CircuitBreaker(max_daily_loss=_cb_max_daily, max_consecutive_losses=_cb_max_consec)
+    import circuit_breaker as _cb_module
+    _cb_module._GLOBAL_CB = circuit_breaker  # expose for regime-adaptive retuning
+    logging.info(
+        "CircuitBreaker init: max_daily_loss=$%.0f max_consec_losses=%d", _cb_max_daily, _cb_max_consec,
+    )
     directional_loss_blocker = DirectionalLossBlockerCls(
         consecutive_loss_limit=3,
         block_minutes=15,
@@ -7224,11 +7242,15 @@ async def run_bot():
         signal_payload: Optional[dict],
         current_bar_index: int,
     ) -> Tuple[bool, int]:
+        # Re-read required_confirmations from CONFIG each call so the regime
+        # classifier (when enabled) can mutate it at runtime.
+        _live_rev_cfg = CONFIG.get("LIVE_OPPOSITE_REVERSAL", {}) or {}
+        _req_confirms = int(max(1, _coerce_int(_live_rev_cfg.get("required_confirmations"), opposite_reversal_required)))
         confirmed, new_count, next_state = update_live_opposite_reversal_confirmation_state(
             opposite_reversal_state,
             signal_payload,
             current_bar_index,
-            required_confirmations=opposite_reversal_required,
+            required_confirmations=_req_confirms,
             window_bars=opposite_reversal_window_bars,
             require_same_strategy_family=opposite_reversal_require_same_strategy_family,
             require_same_sub_strategy=opposite_reversal_require_same_sub_strategy,
@@ -7243,7 +7265,7 @@ async def run_bot():
             "Opposite reversal confirmation: %s %s/%s within %s bars | family=%s%s",
             side,
             new_count,
-            opposite_reversal_required,
+            _req_confirms,
             opposite_reversal_window_bars,
             strategy_family,
             " (confirmed)" if confirmed else "",
@@ -8499,6 +8521,7 @@ async def run_bot():
         update_hostile_day_on_close(trade.get("strategy"), pnl_points, close_time)
         directional_loss_blocker.record_trade_result(trade_side, pnl_points, close_time)
         circuit_breaker.update_trade_result(pnl_dollars)
+        _lfg_notify_trade_closed(closed_trade)
         _record_live_realized_pnl(live_drawdown_state, pnl_dollars, close_time=close_time)
         _refresh_live_drawdown_from_client(
             client,
@@ -9530,19 +9553,16 @@ async def run_bot():
             _cb_last_day = _cb_today
 
             cb_blocked, cb_reason = circuit_breaker.should_block_trade()
-            if cb_blocked:
-                logging.info(f"🚫 Circuit Breaker Block: {cb_reason}")
-                # Advance bar data so replay doesn't hang frozen on the CB-blocked bar
-                try:
-                    _cb_recent = await client.async_get_market_data(lookback_minutes=15, force_fetch=True)
-                    if not _cb_recent.empty:
-                        master_df = pd.concat([master_df, _cb_recent])
-                        master_df = master_df[~master_df.index.duplicated(keep="last")]
-                        master_df.sort_index(inplace=True)
-                except Exception as _cb_fetch_exc:
-                    logging.debug("Circuit-breaker bar advance fetch failed: %s", _cb_fetch_exc)
-                await asyncio.sleep(60)
-                continue
+            if cb_blocked and not getattr(circuit_breaker, "_cb_logged_today", False):
+                logging.info(f"🚫 Circuit Breaker Block: {cb_reason} — new entries paused until daily reset")
+                circuit_breaker._cb_logged_today = True
+            # NOTE: deliberately no `continue` / no sleep here. When CB trips, we
+            # still want bar-state updates (ML features, regime tracking, exits)
+            # to run. New entries are gated at the async_place_order sites via
+            # circuit_breaker.is_tripped checks. Daily reset on next-day bar
+            # clears _cb_logged_today.
+            if not cb_blocked:
+                circuit_breaker._cb_logged_today = False
 
             current_time = market_time_utc
             news_blocked, news_reason = news_filter.should_block_trade(current_time)
@@ -10058,6 +10078,7 @@ async def run_bot():
                 currbar['open'], currbar['high'],
                 currbar['low'], currbar['close'],
             )
+            _update_regime_classifier(current_time, currbar['close'])
             chop_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             extension_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             structure_blocker.update(new_df)
@@ -10982,6 +11003,21 @@ async def run_bot():
                                         _lf_sig.get("side", "?"),
                                     )
                                     continue
+                                if circuit_breaker.is_tripped:
+                                    logging.info("🚫 CB-entry-gate: skipping level-fill entry (%s %s)",
+                                                 _lf_sig.get("strategy","?"), _lf_sig.get("side","?"))
+                                    continue
+                                from regime_classifier import should_veto_entry as _regime_veto
+                                _rv, _rr = _regime_veto()
+                                if _rv:
+                                    logging.info("🚫 regime-veto: skipping level-fill entry (%s %s) — %s",
+                                                 _lf_sig.get("strategy","?"), _lf_sig.get("side","?"), _rr)
+                                    continue
+                                _lfgv, _lfgr = _lfg_should_veto_entry(_lf_sig, market_time_et)
+                                if _lfgv:
+                                    logging.info("🚫 lfg-veto: skipping level-fill entry (%s %s) — %s",
+                                                 _lf_sig.get("strategy","?"), _lf_sig.get("side","?"), _lfgr)
+                                    continue
                                 _lf_resp = await client.async_place_order(_lf_sig, current_price)
                                 if _lf_resp is not None:
                                     _lf_od = getattr(client, "_last_order_details", None) or {}
@@ -11217,6 +11253,21 @@ async def run_bot():
                                 pending_impulse_rescues.clear()
                                 break
 
+                            if circuit_breaker.is_tripped:
+                                logging.info("🚫 CB-entry-gate: skipping impulse-rescue reversal (%s %s)", pending_signal.get("strategy","?"), pending_signal.get("side","?"))
+                                pending_impulse_rescues.clear()
+                                break
+                            from regime_classifier import should_veto_entry as _regime_veto
+                            _rv, _rr = _regime_veto()
+                            if _rv:
+                                logging.info("🚫 regime-veto: skipping impulse-rescue reversal (%s %s) — %s", pending_signal.get("strategy","?"), pending_signal.get("side","?"), _rr)
+                                pending_impulse_rescues.clear()
+                                break
+                            _lfgv, _lfgr = _lfg_should_veto_entry(pending_signal, market_time_et)
+                            if _lfgv:
+                                logging.info("🚫 lfg-veto: skipping impulse-rescue reversal (%s %s) — %s", pending_signal.get("strategy","?"), pending_signal.get("side","?"), _lfgr)
+                                pending_impulse_rescues.clear()
+                                break
                             success, reverse_state_count = await client.async_close_and_reverse(
                                 pending_signal,
                                 current_price,
@@ -13304,6 +13355,24 @@ async def run_bot():
                                 )
                                 signal_executed = True
                                 break
+                            if circuit_breaker.is_tripped:
+                                logging.info("🚫 CB-entry-gate: skipping entry (%s %s)",
+                                             signal.get("strategy","?"), signal.get("side","?"))
+                                signal_executed = True
+                                break
+                            from regime_classifier import should_veto_entry as _regime_veto
+                            _rv, _rr = _regime_veto()
+                            if _rv:
+                                logging.info("🚫 regime-veto: skipping entry (%s %s) — %s",
+                                             signal.get("strategy","?"), signal.get("side","?"), _rr)
+                                signal_executed = True
+                                break
+                            _lfgv, _lfgr = _lfg_should_veto_entry(signal, market_time_et)
+                            if _lfgv:
+                                logging.info("🚫 lfg-veto: skipping entry (%s %s) — %s",
+                                             signal.get("strategy","?"), signal.get("side","?"), _lfgr)
+                                signal_executed = True
+                                break
                             order_response = await client.async_place_order(signal, current_price)
                             if order_response is not None:
                                 order_details = getattr(client, "_last_order_details", None) or {}
@@ -13520,6 +13589,21 @@ async def run_bot():
                         signal_executed = True
                         break
 
+                    if circuit_breaker.is_tripped:
+                        logging.info("🚫 CB-entry-gate: skipping reversal (%s %s)", signal.get("strategy","?"), signal.get("side","?"))
+                        signal_executed = True
+                        break
+                    from regime_classifier import should_veto_entry as _regime_veto
+                    _rv, _rr = _regime_veto()
+                    if _rv:
+                        logging.info("🚫 regime-veto: skipping reversal (%s %s) — %s", signal.get("strategy","?"), signal.get("side","?"), _rr)
+                        signal_executed = True
+                        break
+                    _lfgv, _lfgr = _lfg_should_veto_entry(signal, market_time_et)
+                    if _lfgv:
+                        logging.info("🚫 lfg-veto: skipping reversal (%s %s) — %s", signal.get("strategy","?"), signal.get("side","?"), _lfgr)
+                        signal_executed = True
+                        break
                     success, reverse_state_count = await client.async_close_and_reverse(
                         signal,
                         current_price,
@@ -14168,6 +14252,21 @@ async def run_bot():
                                             sig,
                                             fallback=s_name,
                                         )
+                                        if circuit_breaker.is_tripped:
+                                            logging.info("🚫 CB-entry-gate: skipping rescue entry (%s %s)",
+                                                         sig.get("strategy","?"), sig.get("side","?"))
+                                            continue
+                                        from regime_classifier import should_veto_entry as _regime_veto
+                                        _rv, _rr = _regime_veto()
+                                        if _rv:
+                                            logging.info("🚫 regime-veto: skipping rescue entry (%s %s) — %s",
+                                                         sig.get("strategy","?"), sig.get("side","?"), _rr)
+                                            continue
+                                        _lfgv, _lfgr = _lfg_should_veto_entry(sig, market_time_et)
+                                        if _lfgv:
+                                            logging.info("🚫 lfg-veto: skipping rescue entry (%s %s) — %s",
+                                                         sig.get("strategy","?"), sig.get("side","?"), _lfgr)
+                                            continue
                                         order_response = await client.async_place_order(sig, current_price)
                                         if order_response is not None:
                                             order_details = getattr(client, "_last_order_details", None) or {}
@@ -14346,6 +14445,21 @@ async def run_bot():
                                     signal_executed = True
                                     break
 
+                                if circuit_breaker.is_tripped:
+                                    logging.info("🚫 CB-entry-gate: skipping loose reversal (%s %s)", sig.get("strategy","?"), sig.get("side","?"))
+                                    signal_executed = True
+                                    break
+                                from regime_classifier import should_veto_entry as _regime_veto
+                                _rv, _rr = _regime_veto()
+                                if _rv:
+                                    logging.info("🚫 regime-veto: skipping loose reversal (%s %s) — %s", sig.get("strategy","?"), sig.get("side","?"), _rr)
+                                    signal_executed = True
+                                    break
+                                _lfgv, _lfgr = _lfg_should_veto_entry(sig, market_time_et)
+                                if _lfgv:
+                                    logging.info("🚫 lfg-veto: skipping loose reversal (%s %s) — %s", sig.get("strategy","?"), sig.get("side","?"), _lfgr)
+                                    signal_executed = True
+                                    break
                                 success, reverse_state_count = await client.async_close_and_reverse(
                                     sig,
                                     current_price,

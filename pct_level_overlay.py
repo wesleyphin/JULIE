@@ -20,6 +20,7 @@ proximity band of a level.
 
 from __future__ import annotations
 
+import os
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -67,8 +68,8 @@ DEFAULT_OVERLAY_CONFIG: Dict[str, Any] = {
     "size_tilt_conf_threshold": 0.30,
     "max_size_tilt_pct": 0.20,
     "min_size_tilt_pct": -0.30,
-    "trail_tp_extend_pct": 0.20,
-    "trail_tp_tighten_pct": 0.30,
+    "trail_tp_extend_pct": float(os.environ.get("JULIE_PCT_TRAIL_EXT", "0.20")),
+    "trail_tp_tighten_pct": float(os.environ.get("JULIE_PCT_TRAIL_TIGHT", "0.30")),
     # Hours where base edge is near zero or negative -> skip Tier 2.
     "dead_hours_et": [1, 7, 23],
 }
