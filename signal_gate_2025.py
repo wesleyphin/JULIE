@@ -1,23 +1,26 @@
-"""Runtime loader + predict wrapper for the 2025 signal-gate (filter G).
+"""Per-strategy signal-gate runtime (filter G).
 
-Separate from the main strategy artifacts — this is a curve-fit-to-2025
-bandaid that vetoes trades with a high predicted probability of blowing
-the -$100 floor. Toggle via JULIE_SIGNAL_GATE_2025=1 (default off).
+Routes each signal to a strategy-specific joblib model so each strategy
+gets calibrated for its own TP/SL geometry and signal selection profile.
+The DE3 model (model_de3.joblib) is what shipped originally as v1; AF and
+RegimeAdaptive models can be added later without code changes — just drop
+artifacts/signal_gate_2025/model_<strategy>.joblib in place.
 
-OOS validated on April 2026 (210 trades never seen in training):
-  Base P&L $+512  →  Kept P&L $+1,918  (Δ +$1,406)
-  DD>$350 viols: 4 → 2
-  Vetoed 58 trades (23W/35L); losers were bigger.
+Strategies without a model load a "no-op" gate (always pass), so we don't
+veto signals on strategies we haven't trained for. Shadow-mode telemetry
+still runs for every signal regardless.
 
-The gate expects a signal dict with bar-level context. Feature vector is
-computed the same way train_gate.py does:
-  - 10 close-based numerics (ret1_atr, down3, flips5, range10_atr,
-    dist_low5/high5_atr, velocity_30, dist_low30/high30_atr, ret30_atr)
-  - 3 categorical one-hots (side, regime, session)
-  - 1 ordinal (et_hour)
+Toggle via JULIE_SIGNAL_GATE_2025=1 (default off in env).
+Per-strategy override: JULIE_SIGNAL_GATE_2025_PATH_<STRATEGY>=/path/to/model.joblib
 
-Revert path: set JULIE_SIGNAL_GATE_2025=0 or delete
-artifacts/signal_gate_2025/model.joblib.
+Strategy mapping (signal["strategy"] → model file):
+  DynamicEngine3      → model_de3.joblib
+  DynamicEngine3Strategy → model_de3.joblib
+  AetherFlow          → model_aetherflow.joblib (no-op until trained)
+  AetherFlowStrategy  → model_aetherflow.joblib
+  RegimeAdaptive      → model_regimeadaptive.joblib (no-op until trained)
+  RegimeAdaptiveStrategy → model_regimeadaptive.joblib
+  MLPhysics, etc.     → no-op
 """
 from __future__ import annotations
 
@@ -27,16 +30,35 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
-import pandas as pd
 
 
-_GATE: Optional[Dict[str, Any]] = None
-_GATE_PATH = Path(
-    os.environ.get(
-        "JULIE_SIGNAL_GATE_2025_PATH",
-        str(Path(__file__).resolve().parent / "artifacts" / "signal_gate_2025" / "model.joblib"),
-    )
-)
+_ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts" / "signal_gate_2025"
+
+# Map: strategy-family (lowercased) → joblib filename
+_STRATEGY_MODEL_MAP = {
+    "de3": "model_de3.joblib",
+    "aetherflow": "model_aetherflow.joblib",
+    "regimeadaptive": "model_regimeadaptive.joblib",
+    "mlphysics": "model_mlphysics.joblib",
+}
+
+# In-memory loaded models keyed by family name. Empty when init_gate not yet
+# called. None entry means "tried to load, no file" → no-op gate for that family.
+_GATES: Dict[str, Optional[Dict[str, Any]]] = {}
+
+
+def _strategy_family(name: str) -> str:
+    """Normalise a signal's strategy field to a family key."""
+    n = str(name or "").strip().lower()
+    if n.startswith("dynamicengine") or n.startswith("de3"):
+        return "de3"
+    if n.startswith("aetherflow"):
+        return "aetherflow"
+    if n.startswith("regimeadaptive"):
+        return "regimeadaptive"
+    if n.startswith("mlphysics"):
+        return "mlphysics"
+    return n  # unknown → no model
 
 
 def _session_bucket(et_hour: int) -> str:
@@ -47,213 +69,79 @@ def _session_bucket(et_hour: int) -> str:
     return "POST"
 
 
-def init_gate() -> Optional[Dict[str, Any]]:
-    global _GATE
+def _resolve_model_path(family: str) -> Optional[Path]:
+    env_key = f"JULIE_SIGNAL_GATE_2025_PATH_{family.upper()}"
+    env_override = os.environ.get(env_key)
+    if env_override:
+        return Path(env_override)
+    fname = _STRATEGY_MODEL_MAP.get(family)
+    if not fname:
+        return None
+    return _ARTIFACT_DIR / fname
+
+
+def init_gate() -> Dict[str, Optional[Dict[str, Any]]]:
+    """Load all available per-strategy gate models.
+
+    Returns the dict (also stored in module-level _GATES). Strategies with
+    no model file are recorded as None (no-op) so callers can distinguish
+    "we tried and there was nothing" from "we never tried."
+    """
+    global _GATES
+    _GATES = {}
     if os.environ.get("JULIE_SIGNAL_GATE_2025", "0").strip() != "1":
-        _GATE = None
-        return None
-    if not _GATE_PATH.exists():
-        logging.warning(
-            "Signal gate 2025 enabled but model.joblib not found at %s — gate disabled.",
-            _GATE_PATH,
-        )
-        _GATE = None
-        return None
-    try:
-        import joblib
-        _GATE = joblib.load(_GATE_PATH)
-        veto_thr = _GATE.get("veto_threshold", 0.35)
-        rows = _GATE.get("training_rows", "?")
-        oos = _GATE.get("oos_april2026_result", {})
-        logging.info(
-            "Signal gate 2025 loaded: target=%s veto_thresh=%s train_rows=%s "
-            "OOS_apr26_delta=$%.2f",
-            _GATE.get("target"), veto_thr, rows, oos.get("delta", 0.0),
-        )
-        return _GATE
-    except Exception as exc:
-        logging.error("Signal gate 2025 load failed: %s", exc)
-        _GATE = None
-        return None
-
-
-def get_gate() -> Optional[Dict[str, Any]]:
-    return _GATE
-
-
-def _assemble_feature_row(
-    *,
-    side: str,
-    regime: str,
-    et_hour: int,
-    bar_features: Dict[str, float],
-) -> pd.DataFrame:
-    """Build a single-row DataFrame matching the training feature names exactly.
-    bar_features should contain the 10 numeric feature columns by name.
-    """
-    if _GATE is None:
-        raise RuntimeError("gate not initialised")
-    payload = _GATE
-    feature_names = payload["feature_names"]
-    numeric = payload["numeric_features"]
-    cat_maps = payload["categorical_maps"]
-    # Start with zeros for every feature column
-    row = {c: 0.0 for c in feature_names}
-    # Fill numerics (default 0 if missing or NaN)
-    for col in numeric:
-        v = bar_features.get(col, 0.0)
+        logging.info("Signal gate 2025: disabled (JULIE_SIGNAL_GATE_2025!=1)")
+        return _GATES
+    import joblib
+    loaded = []
+    skipped = []
+    for family in _STRATEGY_MODEL_MAP.keys():
+        path = _resolve_model_path(family)
+        if path is None or not path.exists():
+            _GATES[family] = None
+            skipped.append(family)
+            continue
         try:
-            v = float(v)
-            if not np.isfinite(v):
-                v = 0.0
-        except Exception:
-            v = 0.0
-        if col in row:
-            row[col] = v
-    # Fill categorical one-hots
-    cat_values = {
-        "side": str(side or "").upper(),
-        "regime": str(regime or "").lower(),
-        "session": _session_bucket(int(et_hour)),
-    }
-    for cat_col, known in cat_maps.items():
-        val = cat_values.get(cat_col, "")
-        for known_val in known:
-            col_name = f"{cat_col}__{known_val}"
-            if col_name in row and val == known_val:
-                row[col_name] = 1
-    # Fill ordinals
-    if "et_hour" in row:
-        row["et_hour"] = float(et_hour)
-    return pd.DataFrame([row])[feature_names]
+            payload = joblib.load(path)
+            _GATES[family] = payload
+            thr = payload.get("veto_threshold", 0.35)
+            rows = payload.get("training_rows", "?")
+            loaded.append(f"{family}(thr={thr}, n={rows})")
+        except Exception as exc:
+            logging.error("Signal gate %s load failed from %s: %s", family, path, exc)
+            _GATES[family] = None
+            skipped.append(f"{family}(load_error)")
+    logging.info(
+        "Signal gate 2025: per-strategy routing  loaded=[%s]  skipped=[%s]",
+        ", ".join(loaded) or "none",
+        ", ".join(skipped) or "none",
+    )
+    return _GATES
 
 
-def log_shadow_prediction(signal: dict, current_time_et=None) -> Optional[float]:
-    """Shadow-mode telemetry: score the signal with G and log the prediction
-    WITHOUT vetoing. Call this for every signal, including those upstream
-    filters (Kalshi, FILTER_CHECK) will block. Returns P(big_loss) or None.
-
-    Reads bars + regime from the runtime state (LFG + regime_classifier)
-    so callers don't need to pass them. Safe to call whether or not the
-    gate is enabled — returns None when the gate isn't loaded.
-    """
-    if _GATE is None:
-        return None
-    try:
-        import loss_factor_guard as _lfg_mod
-        import regime_classifier as _rc
-        guard = _lfg_mod.get_guard()
-        if guard is None or not getattr(guard, "_bar_cache", None):
-            return None
-        bars = list(guard._bar_cache)
-        if len(bars) < 45:
-            return None
-        regime = _rc.current_regime()
-        side = str(signal.get("side", "")).upper()
-        entry_price = signal.get("entry_price") or signal.get("price") or 0.0
-        # Derive et_hour from the most recent cached bar (ET-aware)
-        et_hour = 0
-        last_ts = bars[-1][0]
-        try:
-            from zoneinfo import ZoneInfo
-            et_hour = int(last_ts.astimezone(ZoneInfo("America/New_York")).hour)
-        except Exception:
-            try:
-                et_hour = int(last_ts.hour)
-            except Exception:
-                et_hour = 0
-
-        feats = compute_bar_features_from_ohlcv(bars)
-        if not feats:
-            return None
-        # Build feature vector matching training layout
-        gate = _GATE
-        feature_names = gate["feature_names"]
-        cat_maps = gate["categorical_maps"]
-        session = (
-            "ASIA" if (18 <= et_hour or et_hour < 3) else
-            "LONDON" if et_hour < 7 else
-            "NY_PRE" if et_hour < 9 else
-            "NY" if et_hour < 16 else "POST"
-        )
-        cat_values = {"side": side, "regime": regime, "session": session}
-        row = {c: 0.0 for c in feature_names}
-        for col in gate["numeric_features"]:
-            v = feats.get(col, 0.0)
-            try:
-                fv = float(v)
-                if fv != fv or abs(fv) == float("inf"):
-                    fv = 0.0
-            except Exception:
-                fv = 0.0
-            row[col] = fv
-        for cat_col, known in cat_maps.items():
-            val = cat_values.get(cat_col, "")
-            for kv in known:
-                name = f"{cat_col}__{kv}"
-                if name in row and val == kv:
-                    row[name] = 1
-        if "et_hour" in row:
-            row["et_hour"] = float(et_hour)
-        import numpy as np
-        X = np.array([[row[c] for c in feature_names]])
-        p_big_loss = float(gate["model"].predict_proba(X)[0, 1])
-        thr = float(gate.get("veto_threshold", 0.35))
-        would_veto = p_big_loss >= thr
-        sub = signal.get("sub_strategy") or ""
-        logging.info(
-            "[SHADOW_GATE_2025] side=%s entry=%.2f size=%s regime=%s "
-            "P(big_loss)=%.3f thresh=%.2f would_veto=%s sub=%s",
-            side, float(entry_price), signal.get("size", "?"),
-            regime, p_big_loss, thr, would_veto, sub[:40],
-        )
-        return p_big_loss
-    except Exception:
-        logging.debug("signal gate shadow log failed", exc_info=True)
-        return None
+def get_gate(strategy: str = "DynamicEngine3") -> Optional[Dict[str, Any]]:
+    """Return the loaded model payload for the given strategy, or None if
+    no model was loaded for that family. Default to DE3 for backwards-compat
+    with old callers."""
+    family = _strategy_family(strategy)
+    return _GATES.get(family)
 
 
-def should_veto_signal(
-    *,
-    side: str,
-    regime: str,
-    et_hour: int,
-    bar_features: Dict[str, float],
-) -> Tuple[bool, str]:
-    """Return (veto, reason). Veto if P(big_loss) >= veto_threshold."""
-    if _GATE is None:
-        return False, ""
-    try:
-        X = _assemble_feature_row(side=side, regime=regime, et_hour=et_hour,
-                                   bar_features=bar_features)
-        proba = _GATE["model"].predict_proba(X.values)[0, 1]
-        thr = float(_GATE.get("veto_threshold", 0.35))
-        if proba >= thr:
-            return True, f"signal_gate_2025 P(big_loss)={proba:.3f} >= {thr}"
-        return False, ""
-    except Exception:
-        logging.debug("signal gate predict failed", exc_info=True)
-        return False, ""
+def get_all_gates() -> Dict[str, Optional[Dict[str, Any]]]:
+    return dict(_GATES)
 
 
-def compute_bar_features_from_ohlcv(
-    bars: list,
-) -> Dict[str, float]:
+def compute_bar_features_from_ohlcv(bars: list) -> Dict[str, float]:
     """Compute features by calling _compute_feature_frame on a bar cache.
 
     Input: list of (ts, open, high, low, close, volume) tuples, oldest first.
     Need at least 45 bars for the features to be valid.
-
-    Returns all 16 feature columns (ATR, wicks, body, volume, trend etc).
-    Returns {} if insufficient history.
     """
     n = len(bars)
     if n < 45:
         return {}
     import pandas as pd
-    import numpy as np
     import sys
-    from pathlib import Path
     tools_path = str(Path(__file__).resolve().parent / "tools")
     if tools_path not in sys.path:
         sys.path.insert(0, tools_path)
@@ -269,7 +157,6 @@ def compute_bar_features_from_ohlcv(
     feats = _compute_feature_frame(df)
     if feats.empty or len(feats) < 2:
         return {}
-    # iloc[-2] matches the training extractor's `feats.iloc[searchsorted(et)-1]`
     last = feats.iloc[-2]
     out = {}
     for col in ENTRY_SHAPE_COLUMNS:
@@ -284,8 +171,145 @@ def compute_bar_features_from_ohlcv(
     return out
 
 
-# Backwards-compat alias for the old close-only signature.
+# Backwards-compat alias
 def compute_bar_features_from_closes(closes_and_ts: list) -> Dict[str, float]:
-    """Deprecated close-only entry point. Converts to OHLCV with h=l=o=c."""
     bars = [(t, p, p, p, p, float("nan")) for (t, p) in closes_and_ts]
     return compute_bar_features_from_ohlcv(bars)
+
+
+def _score_with_gate(
+    payload: Dict[str, Any],
+    *,
+    side: str,
+    regime: str,
+    et_hour: int,
+    bar_features: Dict[str, float],
+) -> Optional[float]:
+    """Run a specific model payload on the given context. Returns P(big_loss)
+    or None on error."""
+    try:
+        feature_names = payload["feature_names"]
+        cat_maps = payload.get("categorical_maps", {})
+        numeric = payload.get("numeric_features", [])
+        cat_values = {
+            "side": str(side or "").upper(),
+            "regime": str(regime or "").lower(),
+            "session": _session_bucket(int(et_hour)),
+        }
+        row = {c: 0.0 for c in feature_names}
+        for col in numeric:
+            v = bar_features.get(col, 0.0)
+            try:
+                fv = float(v)
+                if not np.isfinite(fv):
+                    fv = 0.0
+            except Exception:
+                fv = 0.0
+            if col in row:
+                row[col] = fv
+        for cat_col, known in cat_maps.items():
+            val = cat_values.get(cat_col, "")
+            for kv in known:
+                name = f"{cat_col}__{kv}"
+                if name in row and val == kv:
+                    row[name] = 1
+        if "et_hour" in row:
+            row["et_hour"] = float(et_hour)
+        X = np.array([[row[c] for c in feature_names]])
+        return float(payload["model"].predict_proba(X)[0, 1])
+    except Exception:
+        logging.debug("gate scoring failed", exc_info=True)
+        return None
+
+
+def should_veto_signal(
+    *,
+    side: str,
+    regime: str,
+    et_hour: int,
+    bar_features: Dict[str, float],
+    strategy: str = "DynamicEngine3",
+) -> Tuple[bool, str]:
+    """Active-veto path. Picks the per-strategy model and applies its threshold.
+    No-op (returns False) if there's no model for this strategy family."""
+    family = _strategy_family(strategy)
+    payload = _GATES.get(family)
+    if payload is None:
+        return False, ""
+    p = _score_with_gate(payload, side=side, regime=regime, et_hour=et_hour,
+                         bar_features=bar_features)
+    if p is None:
+        return False, ""
+    thr = float(payload.get("veto_threshold", 0.35))
+    if p >= thr:
+        return True, (
+            f"signal_gate_2025[{family}] P(big_loss)={p:.3f} >= {thr}"
+        )
+    return False, ""
+
+
+def log_shadow_prediction(signal: dict, current_time_et=None) -> Optional[float]:
+    """Shadow-mode telemetry: route to the per-strategy model and emit a log
+    line. Returns the prediction (or None if not scoreable)."""
+    if not _GATES:
+        return None
+    try:
+        import loss_factor_guard as _lfg_mod
+        import regime_classifier as _rc
+        guard = _lfg_mod.get_guard()
+        if guard is None or not getattr(guard, "_bar_cache", None):
+            return None
+        bars = list(guard._bar_cache)
+        if len(bars) < 45:
+            return None
+        regime = _rc.current_regime()
+        side = str(signal.get("side", "")).upper()
+        entry_price = float(signal.get("entry_price") or signal.get("price") or 0.0)
+        strategy = str(signal.get("strategy", "")).strip() or "DynamicEngine3"
+        family = _strategy_family(strategy)
+
+        last_ts = bars[-1][0]
+        et_hour = 0
+        try:
+            from zoneinfo import ZoneInfo
+            et_hour = int(last_ts.astimezone(ZoneInfo("America/New_York")).hour)
+        except Exception:
+            try:
+                et_hour = int(last_ts.hour)
+            except Exception:
+                et_hour = 0
+
+        feats = compute_bar_features_from_ohlcv(bars)
+        if not feats:
+            return None
+
+        payload = _GATES.get(family)
+        if payload is None:
+            # No model for this family — log that we'd need one
+            sub = signal.get("sub_strategy") or ""
+            logging.info(
+                "[SHADOW_GATE_2025] family=%s side=%s entry=%.2f size=%s regime=%s "
+                "P(big_loss)=N/A would_veto=N/A reason=no_model_for_family sub=%s",
+                family, side, entry_price, signal.get("size", "?"),
+                regime, sub[:40],
+            )
+            return None
+
+        p = _score_with_gate(
+            payload, side=side, regime=regime, et_hour=et_hour, bar_features=feats,
+        )
+        if p is None:
+            return None
+        thr = float(payload.get("veto_threshold", 0.35))
+        would_veto = p >= thr
+        sub = signal.get("sub_strategy") or ""
+        logging.info(
+            "[SHADOW_GATE_2025] family=%s side=%s entry=%.2f size=%s regime=%s "
+            "P(big_loss)=%.3f thresh=%.2f would_veto=%s sub=%s",
+            family, side, entry_price, signal.get("size", "?"),
+            regime, p, thr, would_veto, sub[:40],
+        )
+        return p
+    except Exception:
+        logging.debug("signal gate shadow log failed", exc_info=True)
+        return None

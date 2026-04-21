@@ -406,8 +406,10 @@ class LossFactorGuard:
         feats = sg.compute_bar_features_from_ohlcv(bars)
         if not feats:
             return False, ""
+        strategy = str(signal.get("strategy", "")).strip() or "DynamicEngine3"
         return sg.should_veto_signal(
             side=side, regime=regime, et_hour=et_hour, bar_features=feats,
+            strategy=strategy,
         )
 
 
