@@ -9516,6 +9516,26 @@ async def run_bot():
             volatility_filter.calibrate(master_df)
         except Exception as e:
             logging.error(f"❌ Calibration Failed: {e} (Continuing with static thresholds)")
+
+    # Backfill LFG's rolling bar cache with recent history so filters F + G
+    # can score signals from bar 1 (avoids a ~45min cold-start warmup).
+    if not master_df.empty:
+        try:
+            backfill_bars = master_df.tail(120)
+            for ts, row in backfill_bars.iterrows():
+                _lfg_notify_bar(
+                    ts, row.get('close'),
+                    open_price=row.get('open'),
+                    high_price=row.get('high'),
+                    low_price=row.get('low'),
+                    volume=row.get('volume'),
+                )
+            logging.info(
+                "LFG bar cache pre-warmed with %d historical bars (filters F+G ready)",
+                len(backfill_bars),
+            )
+        except Exception as exc:
+            logging.debug("LFG cache pre-warm failed: %s", exc, exc_info=True)
     # --- END CALIBRATION ---
 
     if mnq_client is not None and master_mnq_df.empty:
