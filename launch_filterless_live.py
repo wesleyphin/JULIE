@@ -102,6 +102,8 @@ os.environ.setdefault("JULIE_REGIME_ADAPTIVE_CB", "1")
 os.environ.setdefault("JULIE_LOSS_FACTOR_GUARD", "1")
 os.environ.setdefault("JULIE_CB_MAX_DAILY_LOSS", "350")
 os.environ.setdefault("JULIE_CB_MAX_CONSEC_LOSSES", "5")
+os.environ.setdefault("JULIE_CB_MAX_TRAILING_DD", "350")  # filter A: peak-to-trough trip
+os.environ.setdefault("JULIE_LFG_TREND_BIAS_MIN_TIER", "1")  # filter C: counter-trend Rev veto
 os.environ.setdefault("JULIE_REGIME_CB_WHIPSAW", "250")
 os.environ.setdefault("JULIE_REGIME_CB_NEUTRAL", "350")
 os.environ.setdefault("JULIE_REGIME_CB_CALM", "500")
