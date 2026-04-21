@@ -108,14 +108,25 @@ os.environ.setdefault("JULIE_CB_MAX_CONSEC_LOSSES", "5")
 # Apr 9 tariff-pause rally. Keep the code but default off (0 = disabled).
 # Re-enable via shell export if you want to experiment with higher thresholds.
 os.environ.setdefault("JULIE_CB_MAX_TRAILING_DD", "0")
-os.environ.setdefault("JULIE_LFG_TREND_BIAS_MIN_TIER", "1")  # filter C: counter-trend Rev veto (+$817 on 27-day outrageous set)
-os.environ.setdefault("JULIE_REGIME_SIZE_CAP", "1")  # filter D: cap size to 1 when whipsaw/calm_trend (16→7 DD violations)
+# Filters A/C/D/E/F ARCHIVED in favor of filter G (ML signal gate):
+# OOS on April 2026 (195 trades never seen in training):
+#   Filter stack C+D+E+F:   baseline $+484 → ~$+675  (Δ ~+$191)
+#   Filter G alone:         baseline $+484 → $+2,109 (Δ +$1,625)
+# G is a separate joblib classifier at artifacts/signal_gate_2025/model.joblib
+# that predicts P(pnl <= -$100) per trade and vetoes at P >= 0.35. Trained on
+# 1669 iter-11 2025 trades. Revert by setting JULIE_SIGNAL_GATE_2025=0 and
+# re-enabling the rules via the env vars below.
+#
+# Rules kept disabled as code paths (not deleted) so rollback is one env flip:
+os.environ.setdefault("JULIE_LFG_TREND_BIAS_MIN_TIER", "99")   # filter C OFF (99 = never fires)
+os.environ.setdefault("JULIE_REGIME_SIZE_CAP", "0")            # filter D OFF
 os.environ.setdefault("JULIE_REGIME_SIZE_CAP_VALUE", "1")
-# Filter E: green-day size unlock. Once daily PnL >= threshold on a trend regime,
-# raise the cap so proven-winning days aren't throttled. Simulation on the 27-day
-# outrageous set: C+D=+$2,503 → C+D+E=+$3,319 (+$816, +1 DD violation).
-os.environ.setdefault("JULIE_REGIME_GREEN_UNLOCK_PNL", "200")
+os.environ.setdefault("JULIE_REGIME_GREEN_UNLOCK_PNL", "999999")  # filter E OFF (unreachable threshold)
 os.environ.setdefault("JULIE_REGIME_GREEN_UNLOCK_SIZE", "3")
+os.environ.setdefault("JULIE_LFG_CHART_VETO", "0")             # filter F OFF
+#
+# Filter G ON (primary veto layer for 2025+ regime):
+os.environ.setdefault("JULIE_SIGNAL_GATE_2025", "1")
 os.environ.setdefault("JULIE_REGIME_CB_WHIPSAW", "250")
 os.environ.setdefault("JULIE_REGIME_CB_NEUTRAL", "350")
 os.environ.setdefault("JULIE_REGIME_CB_CALM", "500")

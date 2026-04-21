@@ -117,10 +117,10 @@ class LossFactorGuard:
     def __init__(self) -> None:
         self.enabled = True
         self.state = DailyState()
-        # Rolling bar cache for filter F (chart-derived bounce/dip-fade veto).
-        # Populated via notify_bar() from the main loop once per bar close.
-        # Size = CHART_VETO_WINDOW + small buffer so we always have >= WINDOW bars.
-        self._bar_cache: Deque[Tuple[datetime, float]] = deque(maxlen=CHART_VETO_WINDOW + 10)
+        # Rolling bar cache for filters F + G. F needs CHART_VETO_WINDOW bars
+        # (~30). G needs >= 45 bars (30-bar roll + 14-bar ATR + shift=44 min).
+        # Cache 60 bars to comfortably cover both.
+        self._bar_cache: Deque[Tuple[datetime, float]] = deque(maxlen=max(60, CHART_VETO_WINDOW + 30))
 
     def notify_bar(self, ts, close_price) -> None:
         """Called per bar from the main loop. Feeds price history for the
@@ -349,7 +349,51 @@ class LossFactorGuard:
         if chart_veto:
             return True, chart_reason
 
+        # Filter G: 2025 signal-gate (joblib ML classifier for P(big_loss)).
+        # Separate artifact from strategy models — bandaid for current tariff
+        # regime. See signal_gate_2025.py. Toggle via JULIE_SIGNAL_GATE_2025.
+        gate_veto, gate_reason = self._signal_gate_veto(signal)
+        if gate_veto:
+            return True, gate_reason
+
         return False, ""
+
+    def _signal_gate_veto(self, signal: dict) -> Tuple[bool, str]:
+        """Filter G — consult the 2025 signal-gate classifier."""
+        try:
+            import signal_gate_2025 as sg
+        except Exception:
+            return False, ""
+        gate = sg.get_gate()
+        if gate is None:
+            return False, ""
+        # Use the full (ts, close) bar cache — G's feature extractor needs
+        # timestamps to match training-time `_compute_feature_frame` output.
+        ts_closes = list(self._bar_cache)
+        if len(ts_closes) < 45:
+            return False, ""
+        try:
+            from regime_classifier import current_regime
+            regime = current_regime()
+        except Exception:
+            regime = "neutral"
+        side = str(signal.get("side", "")).upper()
+        et_hour = 0
+        if ts_closes:
+            last_ts = ts_closes[-1][0]
+            try:
+                et_hour = int(last_ts.astimezone(__import__("zoneinfo").ZoneInfo("America/New_York")).hour)
+            except Exception:
+                try:
+                    et_hour = int(last_ts.hour)
+                except Exception:
+                    et_hour = 0
+        feats = sg.compute_bar_features_from_closes(ts_closes)
+        if not feats:
+            return False, ""
+        return sg.should_veto_signal(
+            side=side, regime=regime, et_hour=et_hour, bar_features=feats,
+        )
 
 
 def _entry_hour_et(trade: dict) -> Optional[int]:

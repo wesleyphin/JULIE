@@ -30,6 +30,7 @@ montecarlo/Backtest-Simulator-main/.env.local
 *.pkl
 models/
 !artifacts/regimeadaptive_v19_live/regimeadaptive_gate_model.joblib
+!artifacts/signal_gate_2025/model.joblib
 !model_aetherflow_deploy_2026oos.pkl
 
 # Node

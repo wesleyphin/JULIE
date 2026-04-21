@@ -100,6 +100,7 @@ from loss_factor_guard import (
     notify_trade_closed as _lfg_notify_trade_closed,
     should_veto_entry as _lfg_should_veto_entry,
 )
+from signal_gate_2025 import init_gate as _init_signal_gate_2025
 
 
 from pct_overlay_runtime import (
@@ -6945,6 +6946,7 @@ async def run_bot():
     _init_pct_level_overlay()
     _init_regime_classifier()
     _init_loss_factor_guard()
+    _init_signal_gate_2025()  # filter G (ML classifier) — toggle via JULIE_SIGNAL_GATE_2025
     _lfo_enabled = bool(CONFIG.get("LEVEL_FILL_OPTIMIZER_ENABLED", True))
     level_fill_optimizer = LevelFillOptimizer() if _lfo_enabled else None
     pending_level_fills: dict = {}   # uid → {signal, target_price, …}
