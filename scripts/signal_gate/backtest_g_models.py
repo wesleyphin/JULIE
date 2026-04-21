@@ -99,7 +99,13 @@ def print_eval(label: str, ev: dict):
 
 def backtest_strategy(strategy: str, master_df: pd.DataFrame) -> dict:
     print(f"\n{'='*78}\nBACKTESTING {strategy} G GATE\n{'='*78}")
-    model_path = ART_DIR / f"model_{strategy.lower()}.joblib"
+    # Match the trainer's filename mapping: DynamicEngine3 → de3
+    _family_map = {
+        "dynamicengine3": "de3", "aetherflow": "aetherflow",
+        "regimeadaptive": "regimeadaptive", "mlphysics": "mlphysics",
+    }
+    fam = _family_map.get(strategy.lower(), strategy.lower())
+    model_path = ART_DIR / f"model_{fam}.joblib"
     if not model_path.exists():
         print(f"  [SKIP] no model at {model_path}")
         return {}

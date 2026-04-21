@@ -82,6 +82,11 @@ NUMERIC_FEATURES = [
     #   -1 when opposed, 0 when ambiguous. Lets G distinguish "high ATR +
     #   with trend = winner" from "high ATR + against trend = loser."
     "trend_align_ret1",
+    # Drawdown-state numerics (v5 — "session memory"). Computed per-trade by
+    # replaying same-day same-strategy trades in chronological order:
+    "cum_day_pnl_pre_trade",   # $ realized PnL for this strategy today before this entry
+    "consec_losses_pre_trade",  # count of consecutive losses leading into this entry (reset on a win)
+    "trades_today_pre_trade",   # count of prior same-day trades (0 = first of the day)
 ]
 CATEGORICAL_FEATURES = ["side", "session", "regime", "mkt_regime"]
 # regime     = AF manifold label (CHOP_SPIRAL | DISPERSED | TREND_GEODESIC | ROTATIONAL_TURBULENCE)
@@ -235,6 +240,40 @@ def compute_features_for_trades(trades, master_df):
     and compute features. Returns a DataFrame ready for training."""
     rows = []
     feature_cache = {}  # (symbol, day) → feature DataFrame
+
+    # Pre-pass: sort trades chronologically per ET trading day so we can
+    # compute running drawdown-state features (cum_day_pnl_pre_trade,
+    # consec_losses_pre_trade, trades_today_pre_trade). Returns a lookup
+    # dict {trade_id → (cum_pnl, consec_losses, count_prior)} where trade_id
+    # is the (entry_time, side, entry_price) tuple the rest of the code uses.
+    from zoneinfo import ZoneInfo as _ZI
+    _NY = _ZI("America/New_York")
+    by_day = defaultdict(list)
+    for t in trades:
+        try:
+            et = datetime.fromisoformat(t["entry_time"]).astimezone(_NY)
+        except Exception:
+            continue
+        by_day[et.date().isoformat()].append(t)
+    _DD_STATE = {}
+    for day, day_trades in by_day.items():
+        day_trades.sort(key=lambda x: str(x.get("entry_time", "")))
+        cum_pnl = 0.0
+        consec_losses = 0
+        count_prior = 0
+        for t in day_trades:
+            key = (str(t.get("entry_time")), t.get("side"),
+                   float(t.get("entry_price") or 0))
+            _DD_STATE[key] = (cum_pnl, consec_losses, count_prior)
+            pnl = float(t.get("pnl_dollars", 0) or 0)
+            cum_pnl += pnl
+            if pnl < 0:
+                consec_losses += 1
+            elif pnl > 0:
+                consec_losses = 0
+            # flat trade (pnl==0) preserves the streak
+            count_prior += 1
+
     for t in trades:
         try:
             from zoneinfo import ZoneInfo
@@ -298,6 +337,10 @@ def compute_features_for_trades(trades, master_df):
             mkt_regime = _mkt_regime_for(master_df, symbol, pd.Timestamp(et))
         except Exception:
             mkt_regime = ""
+        # Look up drawdown-state pre-computed in the pre-pass
+        _key = (str(t.get("entry_time")), t.get("side"),
+                float(t.get("entry_price") or 0))
+        _cum, _consec, _count = _DD_STATE.get(_key, (0.0, 0, 0))
         row = {
             "entry_time": et.isoformat(),
             "et_hour": et.hour,
@@ -306,6 +349,9 @@ def compute_features_for_trades(trades, master_df):
             "regime": regime,
             "mkt_regime": mkt_regime,
             "size": size,
+            "cum_day_pnl_pre_trade": float(_cum),
+            "consec_losses_pre_trade": int(_consec),
+            "trades_today_pre_trade": int(_count),
             "entry_price": float(t.get("entry_price", 0)),
             "pnl_dollars": pnl,
             "per_contract_pnl": per_contract,

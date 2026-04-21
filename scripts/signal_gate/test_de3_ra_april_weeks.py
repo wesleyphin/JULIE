@@ -68,6 +68,11 @@ def filter_trades(trades, strategy, start, end):
     return out
 
 
+# v5 regime-adaptive threshold multipliers
+_REGIME_THR_MULT = {"whipsaw": 0.60, "calm_trend": 1.05, "neutral": 1.0,
+                    "warmup": 1.0, "": 1.0}
+
+
 def kalshi_decision(et_dt, entry_price, side, cache):
     h = et_dt.hour
     if h not in KALSHI_GATING_HOURS_ET:
@@ -215,7 +220,12 @@ def main():
     # Load G models
     models = {}
     for strat in STRATEGIES:
-        p = ROOT / "artifacts" / "signal_gate_2025" / f"model_{strat.lower()}.joblib"
+        _family_map = {
+            "dynamicengine3": "de3", "aetherflow": "aetherflow",
+            "regimeadaptive": "regimeadaptive", "mlphysics": "mlphysics",
+        }
+        fam = _family_map.get(strat.lower(), strat.lower())
+        p = ROOT / "artifacts" / "signal_gate_2025" / f"model_{fam}.joblib"
         m = joblib.load(p)
         models[strat] = m
         print(f"  G model {strat}: thr={m['veto_threshold']}, "
@@ -249,7 +259,11 @@ def main():
                 et2["kalshi_decision"] = k_dec
                 et2["kalshi_aligned_prob"] = k_prob
                 et2["g_p_big_loss"] = g_p
-                et2["g_veto"] = g_p >= g["veto_threshold"]
+                # v5: regime-adaptive threshold
+                mult = _REGIME_THR_MULT.get((mkt_regime or "").lower(), 1.0)
+                eff_thr = g["veto_threshold"] * mult
+                et2["g_effective_thr"] = eff_thr
+                et2["g_veto"] = g_p >= eff_thr
                 et2["mkt_regime"] = mkt_regime
                 enriched.append(et2)
 

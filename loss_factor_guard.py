@@ -407,9 +407,14 @@ class LossFactorGuard:
         if not feats:
             return False, ""
         strategy = str(signal.get("strategy", "")).strip() or "DynamicEngine3"
+        # mkt_regime here IS the global regime classifier label (neutral /
+        # whipsaw / calm_trend). G gate v5 applies a regime-adaptive threshold
+        # multiplier on top of the per-strategy base threshold so it vetoes
+        # more aggressively during whipsaw and leans slightly looser on calm
+        # trend days.
         return sg.should_veto_signal(
             side=side, regime=regime, et_hour=et_hour, bar_features=feats,
-            strategy=strategy,
+            strategy=strategy, mkt_regime=regime,
         )
 
 

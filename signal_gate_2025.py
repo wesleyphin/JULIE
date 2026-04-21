@@ -222,6 +222,32 @@ def _score_with_gate(
         return None
 
 
+# Regime-adaptive threshold multipliers. Validation on Oct 2025 showed the
+# fixed-threshold gate was too lenient during whipsaw weeks (DE3 gate hurt
+# -$218 on Oct 6-10) and sometimes too aggressive on calm trends. These
+# multipliers are applied at runtime based on regime_classifier.current_regime()
+# and tunable via env vars.
+#   whipsaw    → 0.60× threshold (more aggressive veto — cuts more losers)
+#   calm_trend → 1.15× threshold (slightly more lenient — lets winners run)
+#   neutral    → 1.00× (unchanged)
+#   warmup     → 1.00× (no regime info yet)
+_REGIME_THR_MULT = {
+    "whipsaw":    float(os.environ.get("JULIE_GATE_WHIPSAW_THR_MULT",    "0.60")),
+    # calm_trend: was 1.15 in v5 initial, but that let too many losers through
+    # on smooth-directional fade days (April 6-10 DE3: -$500 regression). 1.05
+    # keeps a slight look-through for trend wins without blunting the gate.
+    "calm_trend": float(os.environ.get("JULIE_GATE_CALMTREND_THR_MULT",  "1.05")),
+    "neutral":    1.0,
+    "warmup":     1.0,
+}
+
+
+def _effective_threshold(base_thr: float, regime: str = "") -> Tuple[float, float]:
+    """Apply regime multiplier to a gate's base threshold. Returns (effective, multiplier)."""
+    mult = _REGIME_THR_MULT.get(str(regime or "").lower(), 1.0)
+    return float(base_thr) * mult, mult
+
+
 def should_veto_signal(
     *,
     side: str,
@@ -229,9 +255,15 @@ def should_veto_signal(
     et_hour: int,
     bar_features: Dict[str, float],
     strategy: str = "DynamicEngine3",
+    mkt_regime: str = "",
 ) -> Tuple[bool, str]:
     """Active-veto path. Picks the per-strategy model and applies its threshold.
-    No-op (returns False) if there's no model for this strategy family."""
+    No-op (returns False) if there's no model for this strategy family.
+
+    mkt_regime: the GLOBAL regime classifier label ("neutral" / "whipsaw" /
+    "calm_trend") — used to adapt the veto threshold. Callers that don't pass
+    it will fall through to the base threshold (same as pre-v5 behavior).
+    """
     family = _strategy_family(strategy)
     payload = _GATES.get(family)
     if payload is None:
@@ -240,10 +272,13 @@ def should_veto_signal(
                          bar_features=bar_features)
     if p is None:
         return False, ""
-    thr = float(payload.get("veto_threshold", 0.35))
-    if p >= thr:
+    base_thr = float(payload.get("veto_threshold", 0.35))
+    eff_thr, mult = _effective_threshold(base_thr, mkt_regime)
+    if p >= eff_thr:
+        mult_tag = f" x{mult:.2f}[{mkt_regime}]" if mult != 1.0 else ""
         return True, (
-            f"signal_gate_2025[{family}] P(big_loss)={p:.3f} >= {thr}"
+            f"signal_gate_2025[{family}] P(big_loss)={p:.3f} "
+            f">= {eff_thr:.3f}{mult_tag}"
         )
     return False, ""
 
