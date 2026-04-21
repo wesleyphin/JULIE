@@ -1,0 +1,13 @@
+{
+  "total_trades": 279,
+  "passed": 252,
+  "blocked": 27,
+  "auto_passed_outside_hours": 104,
+  "no_data_passed": 54,
+  "pnl_all": -3175.7747275529655,
+  "pnl_pass": -4301.777674265078,
+  "pnl_block": 1126.002946712113,
+  "winrate_pass": 0.3611111111111111,
+  "winrate_block": 0.5555555555555556,
+  "threshold": 0.55
+}

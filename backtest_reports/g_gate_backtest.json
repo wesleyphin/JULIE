@@ -1,0 +1,100 @@
+{
+  "AetherFlow": {
+    "in_sample": {
+      "n_total": 294,
+      "n_vetoed": 169,
+      "n_kept": 125,
+      "veto_rate": 0.5748299319727891,
+      "baseline_pnl": -4530.6225382564935,
+      "gated_pnl": 7547.838883688126,
+      "delta": 12078.46142194462,
+      "baseline_wr": 0.36394557823129253,
+      "gated_wr": 0.576,
+      "baseline_dd": 6633.29290167135,
+      "gated_dd": 533.3365056829962,
+      "vetoed_pnl_avoided": -12078.46142194462,
+      "vetoed_wr": 0.20710059171597633
+    },
+    "temporal_oos": {
+      "n_total": 45,
+      "n_vetoed": 19,
+      "n_kept": 26,
+      "veto_rate": 0.4222222222222222,
+      "baseline_pnl": -455.78674197255623,
+      "gated_pnl": -405.43579577304524,
+      "delta": 50.350946199510986,
+      "baseline_wr": 0.3111111111111111,
+      "gated_wr": 0.2692307692307692,
+      "baseline_dd": 1325.0082931194383,
+      "gated_dd": 879.7384942589332,
+      "vetoed_pnl_avoided": -50.350946199510815,
+      "vetoed_wr": 0.3684210526315789
+    },
+    "walk_forward": {
+      "n_total": 236,
+      "n_vetoed": 129,
+      "n_kept": 107,
+      "veto_rate": 0.5466101694915254,
+      "baseline_pnl": -5763.147581645535,
+      "gated_pnl": -1492.5994961675997,
+      "delta": 4270.548085477935,
+      "baseline_wr": NaN,
+      "gated_wr": 0.3644859813084112,
+      "baseline_dd": NaN,
+      "gated_dd": 1928.3367639503472,
+      "vetoed_pnl_avoided": -4270.548085477935,
+      "vetoed_wr": NaN
+    },
+    "threshold": 0.275,
+    "n_trades": 294
+  },
+  "RegimeAdaptive": {
+    "in_sample": {
+      "n_total": 612,
+      "n_vetoed": 59,
+      "n_kept": 553,
+      "veto_rate": 0.09640522875816994,
+      "baseline_pnl": -1328.8900000000006,
+      "gated_pnl": 5675.7300000000005,
+      "delta": 7004.620000000001,
+      "baseline_wr": 0.3660130718954248,
+      "gated_wr": 0.40325497287522605,
+      "baseline_dd": 3734.2600000000048,
+      "gated_dd": 2066.559999999983,
+      "vetoed_pnl_avoided": -7004.620000000001,
+      "vetoed_wr": 0.01694915254237288
+    },
+    "temporal_oos": {
+      "n_total": 92,
+      "n_vetoed": 2,
+      "n_kept": 90,
+      "veto_rate": 0.021739130434782608,
+      "baseline_pnl": 818.1100000000002,
+      "gated_pnl": 783.0300000000002,
+      "delta": -35.08000000000004,
+      "baseline_wr": 0.42391304347826086,
+      "gated_wr": 0.4222222222222222,
+      "baseline_dd": 820.9,
+      "gated_dd": 767.03,
+      "vetoed_pnl_avoided": 35.08000000000001,
+      "vetoed_wr": 0.5
+    },
+    "walk_forward": {
+      "n_total": 490,
+      "n_vetoed": 47,
+      "n_kept": 443,
+      "veto_rate": 0.09591836734693877,
+      "baseline_pnl": -1009.1900000000004,
+      "gated_pnl": -456.5199999999998,
+      "delta": 552.6700000000005,
+      "baseline_wr": NaN,
+      "gated_wr": 0.35214446952595935,
+      "baseline_dd": NaN,
+      "gated_dd": 3439.930000000004,
+      "vetoed_pnl_avoided": -552.6700000000005,
+      "vetoed_wr": NaN
+    },
+    "threshold": 0.475,
+    "n_trades": 612
+  }
+}
