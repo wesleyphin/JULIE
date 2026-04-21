@@ -56,6 +56,16 @@ STOP_TAKE_RATIO_LIMIT = _env_float("JULIE_LFG_STOP_TAKE_RATIO", 5.0)
 VETO_MINUTES = _env_int("JULIE_LFG_VETO_MINUTES", 30)
 ROLLING_WINDOW = 5
 
+# Reversal-on-strong-trend veto (filter C): when the session is in a
+# confirmed trend day AND the signal is a REVERSAL (sub_strategy contains
+# "_Rev_") that tries to fade the trend direction, block it. Backtest on 15
+# outrageous-breakout 2025 days showed Julie kept firing LONG Rev into
+# tariff selling (Apr 4/7/8/10/16 all trend-down days with net -$2,100).
+# Minimum trend-day tier that activates the filter (1 = weak, 2 = confirmed,
+# 3 = strong). Default tier>=1 so the filter is aggressive; raise to 2 if
+# it bleeds too many valid reversals.
+TREND_BIAS_MIN_TIER = _env_int("JULIE_LFG_TREND_BIAS_MIN_TIER", 1)
+
 
 @dataclass
 class DailyState:
@@ -75,6 +85,9 @@ class DailyState:
     short_veto_until: Optional[datetime] = None
     # Stop:take pause
     pause_all_until: Optional[datetime] = None
+    # Latest trend-day signal from the bot's main loop (fed via notify_trend_day)
+    trend_day_tier: int = 0
+    trend_day_dir: Optional[str] = None
 
 
 class LossFactorGuard:
@@ -87,7 +100,13 @@ class LossFactorGuard:
             day = day.date()
         if self.state.day == day:
             return
+        # Preserve externally-managed trend_day state across the reset —
+        # the main loop feeds it in independently of new-day events.
+        preserved_tier = self.state.trend_day_tier
+        preserved_dir = self.state.trend_day_dir
         self.state = DailyState(day=day)
+        self.state.trend_day_tier = preserved_tier
+        self.state.trend_day_dir = preserved_dir
         logging.info("LossFactorGuard: new day %s — state reset", day)
 
     def notify_trade_closed(self, trade: dict) -> None:
@@ -207,6 +226,21 @@ class LossFactorGuard:
         if side == "SHORT" and self.state.short_veto_until is not None and current_time_et < self.state.short_veto_until:
             return True, f"short_bias_veto (until {self.state.short_veto_until.strftime('%H:%M')})"
 
+        # Filter C: counter-trend reversal veto. If we're in a confirmed trend
+        # day AND the signal is a _Rev_ sub-strategy trying to fade the trend,
+        # block it. Momentum signals (_Mom_) aligned with the trend pass.
+        if self.state.trend_day_tier >= TREND_BIAS_MIN_TIER and self.state.trend_day_dir:
+            sub = str(signal.get("sub_strategy", "") or signal.get("combo_key", "") or "")
+            is_reversal = "_Rev_" in sub
+            trend = self.state.trend_day_dir.lower()
+            if is_reversal:
+                fades_trend = (side == "LONG" and trend == "down") or (side == "SHORT" and trend == "up")
+                if fades_trend:
+                    return True, (
+                        f"trend_bias_reversal_veto ({side} Rev vs trend_day={trend} "
+                        f"tier={self.state.trend_day_tier})"
+                    )
+
         return False, ""
 
 
@@ -262,6 +296,19 @@ def init_guard() -> Optional[LossFactorGuard]:
 
 def get_guard() -> Optional[LossFactorGuard]:
     return _GUARD
+
+
+def notify_trend_day(tier: int, direction) -> None:
+    """Called from the bot's main loop once per bar. Feeds trend-day state
+    into the guard so the counter-trend reversal filter can act on it."""
+    g = get_guard()
+    if g is None:
+        return
+    try:
+        g.state.trend_day_tier = int(tier or 0)
+        g.state.trend_day_dir = str(direction).lower() if direction else None
+    except Exception:
+        pass
 
 
 def should_veto_entry(signal: dict, current_time_et) -> Tuple[bool, str]:

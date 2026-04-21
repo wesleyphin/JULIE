@@ -94,6 +94,7 @@ from regime_classifier import (
 )
 from loss_factor_guard import (
     init_guard as _init_loss_factor_guard,
+    notify_trend_day as _lfg_notify_trend_day,
     notify_trade_closed as _lfg_notify_trade_closed,
     should_veto_entry as _lfg_should_veto_entry,
 )
@@ -6990,11 +6991,17 @@ async def run_bot():
     news_filter = NewsFilter()
     _cb_max_daily = float(os.environ.get("JULIE_CB_MAX_DAILY_LOSS", "600"))
     _cb_max_consec = int(os.environ.get("JULIE_CB_MAX_CONSEC_LOSSES", "7"))
-    circuit_breaker = CircuitBreaker(max_daily_loss=_cb_max_daily, max_consecutive_losses=_cb_max_consec)
+    _cb_max_trailing = float(os.environ.get("JULIE_CB_MAX_TRAILING_DD", "0"))
+    circuit_breaker = CircuitBreaker(
+        max_daily_loss=_cb_max_daily,
+        max_consecutive_losses=_cb_max_consec,
+        max_trailing_dd=_cb_max_trailing,
+    )
     import circuit_breaker as _cb_module
     _cb_module._GLOBAL_CB = circuit_breaker  # expose for regime-adaptive retuning
     logging.info(
-        "CircuitBreaker init: max_daily_loss=$%.0f max_consec_losses=%d", _cb_max_daily, _cb_max_consec,
+        "CircuitBreaker init: max_daily_loss=$%.0f max_consec_losses=%d max_trailing_dd=$%.0f",
+        _cb_max_daily, _cb_max_consec, _cb_max_trailing,
     )
     directional_loss_blocker = DirectionalLossBlockerCls(
         consecutive_loss_limit=3,
@@ -10090,6 +10097,9 @@ async def run_bot():
                 currbar['low'], currbar['close'],
             )
             _update_regime_classifier(current_time, currbar['close'])
+            # Feed trend-day state into LossFactorGuard so the counter-trend
+            # reversal veto can act on it (filter C).
+            _lfg_notify_trend_day(trend_day_tier, trend_day_dir)
             chop_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             extension_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             structure_blocker.update(new_df)
