@@ -128,6 +128,91 @@ def _assemble_feature_row(
     return pd.DataFrame([row])[feature_names]
 
 
+def log_shadow_prediction(signal: dict, current_time_et=None) -> Optional[float]:
+    """Shadow-mode telemetry: score the signal with G and log the prediction
+    WITHOUT vetoing. Call this for every signal, including those upstream
+    filters (Kalshi, FILTER_CHECK) will block. Returns P(big_loss) or None.
+
+    Reads bars + regime from the runtime state (LFG + regime_classifier)
+    so callers don't need to pass them. Safe to call whether or not the
+    gate is enabled — returns None when the gate isn't loaded.
+    """
+    if _GATE is None:
+        return None
+    try:
+        import loss_factor_guard as _lfg_mod
+        import regime_classifier as _rc
+        guard = _lfg_mod.get_guard()
+        if guard is None or not getattr(guard, "_bar_cache", None):
+            return None
+        bars = list(guard._bar_cache)
+        if len(bars) < 45:
+            return None
+        regime = _rc.current_regime()
+        side = str(signal.get("side", "")).upper()
+        entry_price = signal.get("entry_price") or signal.get("price") or 0.0
+        # Derive et_hour from the most recent cached bar (ET-aware)
+        et_hour = 0
+        last_ts = bars[-1][0]
+        try:
+            from zoneinfo import ZoneInfo
+            et_hour = int(last_ts.astimezone(ZoneInfo("America/New_York")).hour)
+        except Exception:
+            try:
+                et_hour = int(last_ts.hour)
+            except Exception:
+                et_hour = 0
+
+        feats = compute_bar_features_from_ohlcv(bars)
+        if not feats:
+            return None
+        # Build feature vector matching training layout
+        gate = _GATE
+        feature_names = gate["feature_names"]
+        cat_maps = gate["categorical_maps"]
+        session = (
+            "ASIA" if (18 <= et_hour or et_hour < 3) else
+            "LONDON" if et_hour < 7 else
+            "NY_PRE" if et_hour < 9 else
+            "NY" if et_hour < 16 else "POST"
+        )
+        cat_values = {"side": side, "regime": regime, "session": session}
+        row = {c: 0.0 for c in feature_names}
+        for col in gate["numeric_features"]:
+            v = feats.get(col, 0.0)
+            try:
+                fv = float(v)
+                if fv != fv or abs(fv) == float("inf"):
+                    fv = 0.0
+            except Exception:
+                fv = 0.0
+            row[col] = fv
+        for cat_col, known in cat_maps.items():
+            val = cat_values.get(cat_col, "")
+            for kv in known:
+                name = f"{cat_col}__{kv}"
+                if name in row and val == kv:
+                    row[name] = 1
+        if "et_hour" in row:
+            row["et_hour"] = float(et_hour)
+        import numpy as np
+        X = np.array([[row[c] for c in feature_names]])
+        p_big_loss = float(gate["model"].predict_proba(X)[0, 1])
+        thr = float(gate.get("veto_threshold", 0.35))
+        would_veto = p_big_loss >= thr
+        sub = signal.get("sub_strategy") or ""
+        logging.info(
+            "[SHADOW_GATE_2025] side=%s entry=%.2f size=%s regime=%s "
+            "P(big_loss)=%.3f thresh=%.2f would_veto=%s sub=%s",
+            side, float(entry_price), signal.get("size", "?"),
+            regime, p_big_loss, thr, would_veto, sub[:40],
+        )
+        return p_big_loss
+    except Exception:
+        logging.debug("signal gate shadow log failed", exc_info=True)
+        return None
+
+
 def should_veto_signal(
     *,
     side: str,

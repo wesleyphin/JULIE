@@ -100,7 +100,28 @@ from loss_factor_guard import (
     notify_trade_closed as _lfg_notify_trade_closed,
     should_veto_entry as _lfg_should_veto_entry,
 )
-from signal_gate_2025 import init_gate as _init_signal_gate_2025
+from signal_gate_2025 import (
+    init_gate as _init_signal_gate_2025,
+    log_shadow_prediction as _signal_gate_shadow_log,
+)
+
+
+def _signal_birth_hook(signal):
+    """Called at every signal-birth site. Does two things:
+      1. Apply the regime size-cap (filter D), if enabled.
+      2. Score the signal with filter G in shadow mode and log the prediction
+         — runs on every signal regardless of what upstream filters (Kalshi,
+         FILTER_CHECK) will do, so we accumulate calibration data for G even
+         when Kalshi short-circuits first.
+    Never raises — all failures silently no-op."""
+    try:
+        _apply_regime_size_cap(signal)
+    except Exception:
+        pass
+    try:
+        _signal_gate_shadow_log(signal)
+    except Exception:
+        pass
 
 
 from pct_overlay_runtime import (
@@ -11509,7 +11530,7 @@ async def run_bot():
 
                 # Inject a staged bank fill candidate from a prior bar's trigger
                 if _staged_bank_fill_candidate is not None:
-                    _apply_regime_size_cap(_staged_bank_fill_candidate[2])
+                    _signal_birth_hook(_staged_bank_fill_candidate[2])
                     _attach_pct_overlay_snapshot(_staged_bank_fill_candidate[2])
                     candidate_signals.append(_staged_bank_fill_candidate)
                     logging.info(
@@ -11629,7 +11650,7 @@ async def run_bot():
                                     logging.debug("Bank fill park check (fast) error: %s", _bfe3)
 
                             # Add to candidate list (Priority 1 = FAST)
-                            _apply_regime_size_cap(signal)
+                            _signal_birth_hook(signal)
                             _attach_pct_overlay_snapshot(signal)
                             add_strategy_slot(
                                 "checked",
@@ -11857,7 +11878,7 @@ async def run_bot():
                             signal,
                             fallback=strat_name,
                         )
-                        _apply_regime_size_cap(signal)
+                        _signal_birth_hook(signal)
                         _attach_pct_overlay_snapshot(signal)
                         candidate_signals.append((priority, strat, signal, strat_name))
 
@@ -13206,7 +13227,7 @@ async def run_bot():
                                     "⏳ RESCUE DEFERRED: cleared pending opposite-direction rescue"
                                 )
                         if not pending_impulse_rescues or pending_impulse_rescues[0]["signal"].get("side") == new_side:
-                            _apply_regime_size_cap(pending_entry["signal"])
+                            _signal_birth_hook(pending_entry["signal"])
                             _attach_pct_overlay_snapshot(pending_entry["signal"])
                             pending_impulse_rescues.append(pending_entry)
                             logging.info("⏳ RESCUE DEFERRED: waiting for next bar confirmation")
@@ -13554,7 +13575,7 @@ async def run_bot():
                         import uuid as _uuid_mod
                         _lfo_uid = str(_uuid_mod.uuid4())[:8]
                         signal["entry_mode"] = "level_fill_pending"
-                        _apply_regime_size_cap(signal)
+                        _signal_birth_hook(signal)
                         _attach_pct_overlay_snapshot(signal)
                         level_fill_optimizer.add_pending(_lfo_uid, signal, _lfo_decision, float(current_price))
                         pending_level_fills[_lfo_uid] = level_fill_optimizer.get_pending_signal(_lfo_uid)
@@ -14953,7 +14974,7 @@ async def run_bot():
                                             fallback=s_name,
                                         )
                                         logging.info(f"🕐 Queuing {s_name} signal")
-                                        _apply_regime_size_cap(signal)
+                                        _signal_birth_hook(signal)
                                         _attach_pct_overlay_snapshot(signal)
                                         pending_loose_signals[s_name] = {'signal': signal, 'bar_count': 0}
                                 except Exception as e:
