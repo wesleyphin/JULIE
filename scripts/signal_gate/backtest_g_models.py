@@ -221,7 +221,7 @@ def main():
     print(f"  rows={len(master):,}")
 
     results = {}
-    for strat in ("AetherFlow", "RegimeAdaptive"):
+    for strat in ("DynamicEngine3", "AetherFlow", "RegimeAdaptive"):
         results[strat] = backtest_strategy(strat, master)
 
     # ---- Final summary ----

@@ -34,7 +34,9 @@ OUT_DIR = ROOT / "artifacts" / "signal_gate_2025"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 sys.path.insert(0, str(ROOT / "tools"))
+sys.path.insert(0, str(ROOT))
 from build_de3_chosen_shape_dataset import _compute_feature_frame, ENTRY_SHAPE_COLUMNS  # noqa: E402
+from regime_classifier import RegimeClassifier, WINDOW_BARS as _REG_WINDOW_BARS  # noqa: E402
 
 # Front-month roll map for picking active contract per timestamp
 ROLL_MAP = [
@@ -81,11 +83,44 @@ NUMERIC_FEATURES = [
     #   with trend = winner" from "high ATR + against trend = loser."
     "trend_align_ret1",
 ]
-CATEGORICAL_FEATURES = ["side", "session", "regime"]  # regime = AF manifold label
+CATEGORICAL_FEATURES = ["side", "session", "regime", "mkt_regime"]
+# regime     = AF manifold label (CHOP_SPIRAL | DISPERSED | TREND_GEODESIC | ROTATIONAL_TURBULENCE)
+#              — only populated on AF trades; empty for DE3/RA
+# mkt_regime = global bot regime classifier (neutral | whipsaw | calm_trend)
+#              — computed per-trade from 120 bars of recent closes; populated
+#              for ALL strategies. Matches what LFG/CB see in live.
 ORDINAL_FEATURES = ["et_hour"]
 
 # Regime values we expect in AF trades (from aetherflow_strategy):
 REGIME_VALUES = ["DISPERSED", "TREND_GEODESIC", "CHOP_SPIRAL", "ROTATIONAL_TURBULENCE", ""]
+MKT_REGIME_VALUES = ["neutral", "whipsaw", "calm_trend", ""]
+
+
+def _mkt_regime_for(master_df: pd.DataFrame, symbol: str,
+                    end_ts: pd.Timestamp) -> str:
+    """Replay the bot's RegimeClassifier on 120 bars up to end_ts and return
+    the current label. Stateless helper — builds a fresh classifier, feeds
+    bars in order. Empty string if not enough data."""
+    try:
+        start = pd.Timestamp(end_ts).tz_convert("UTC") - pd.Timedelta(minutes=_REG_WINDOW_BARS * 2)
+        end_utc = pd.Timestamp(end_ts).tz_convert("UTC")
+    except Exception:
+        return ""
+    sub = master_df.loc[(master_df.index >= start) & (master_df.index <= end_utc) &
+                        (master_df["symbol"] == symbol), "close"]
+    if len(sub) < _REG_WINDOW_BARS:
+        return ""
+    clf = RegimeClassifier()
+    # Feed closes in chronological order
+    last = "warmup"
+    for ts, c in sub.iloc[-_REG_WINDOW_BARS * 2:].items():
+        try:
+            r = clf.update(ts, float(c))
+            if r:
+                last = r
+        except Exception:
+            continue
+    return "" if last == "warmup" else str(last)
 
 
 def _session_of(h):
@@ -250,18 +285,26 @@ def compute_features_for_trades(trades, master_df):
             trend_align = 1.0 if side_str == "SHORT" else -1.0
         else:
             trend_align = 0.0
-        # Regime: prefer explicit 'regime' field (AF fast-replay format),
-        # fall back to 'aetherflow_regime' (live bot format), else empty.
+        # AF manifold regime: prefer explicit 'regime' field (AF fast-replay
+        # format), fall back to 'aetherflow_regime' (live bot format), else
+        # empty (DE3/RA trades don't carry it).
         regime_raw = t.get("regime") or t.get("aetherflow_regime") or ""
         regime = str(regime_raw or "").strip().upper()
         if regime and regime not in {"DISPERSED", "TREND_GEODESIC", "CHOP_SPIRAL", "ROTATIONAL_TURBULENCE"}:
             regime = ""  # unknown value → empty one-hot
+        # Global bot market regime (neutral / whipsaw / calm_trend) — compute
+        # by replaying the RegimeClassifier on 120 bars up to entry.
+        try:
+            mkt_regime = _mkt_regime_for(master_df, symbol, pd.Timestamp(et))
+        except Exception:
+            mkt_regime = ""
         row = {
             "entry_time": et.isoformat(),
             "et_hour": et.hour,
             "session": _session_of(et.hour),
             "side": side_str,
             "regime": regime,
+            "mkt_regime": mkt_regime,
             "size": size,
             "entry_price": float(t.get("entry_price", 0)),
             "pnl_dollars": pnl,
@@ -394,7 +437,16 @@ def train_one(strategy: str, target_col: str, master_df: pd.DataFrame,
     for n, imp in importances[:5]:
         print(f"    {n:<32} {imp:.4f}")
 
-    out_path = OUT_DIR / f"model_{strategy.lower()}.joblib"
+    # Filename family mapping: runtime (signal_gate_2025._STRATEGY_MODEL_MAP)
+    # expects de3→model_de3.joblib, so normalize the strategy name to match.
+    _family_map = {
+        "dynamicengine3": "de3",
+        "aetherflow": "aetherflow",
+        "regimeadaptive": "regimeadaptive",
+        "mlphysics": "mlphysics",
+    }
+    family = _family_map.get(strategy.lower(), strategy.lower())
+    out_path = OUT_DIR / f"model_{family}.joblib"
     joblib.dump({
         "model": final,
         "model_kind": "GBT_d3_per_strategy",
