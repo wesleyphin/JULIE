@@ -30,6 +30,13 @@ ENTRY_SHAPE_COLUMNS = [
     "de3_entry_dist_high5_atr",
     "de3_entry_vol1_rel20",
     "de3_entry_atr14",
+    # 30-bar chart-context features (added to let DE3 v4 learn the
+    # bounce/dip-fade pattern natively that filter F currently catches).
+    # Validated conditionally on 2025 136-day + April 2026 OOS.
+    "de3_entry_velocity_30",      # pts/min over last 30 bars (1-min bars)
+    "de3_entry_dist_low30_atr",   # (entry - 30-bar low) / ATR14
+    "de3_entry_dist_high30_atr",  # (30-bar high - entry) / ATR14
+    "de3_entry_ret30_atr",        # 30-bar return / ATR14 (scale-free velocity)
 ]
 
 
@@ -176,6 +183,11 @@ def _compute_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
     high5 = high_s.rolling(5, min_periods=5).max().shift(1)
     vol20 = volume_s.rolling(20, min_periods=20).mean().shift(1)
 
+    # 30-bar chart-context (for bounce/dip-fade pattern learning).
+    low30 = low_s.rolling(30, min_periods=30).min().shift(1)
+    high30 = high_s.rolling(30, min_periods=30).max().shift(1)
+    ret30_pts = prev_close - close_s.shift(30)
+
     feature_df = pd.DataFrame(
         {
             "de3_entry_ret1_atr": body / atr14,
@@ -192,11 +204,20 @@ def _compute_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
             "de3_entry_dist_high5_atr": (high5 - prev_close) / atr14,
             "de3_entry_vol1_rel20": prev_volume / vol20,
             "de3_entry_atr14": atr14,
+            # 30-bar chart context — lets the model see "bouncing dead-cat"
+            # and "failed dip" patterns the 5-bar features can't reach.
+            "de3_entry_velocity_30": ret30_pts / 30.0,  # raw pts per 1-min bar
+            "de3_entry_dist_low30_atr": (prev_close - low30) / atr14,
+            "de3_entry_dist_high30_atr": (high30 - prev_close) / atr14,
+            "de3_entry_ret30_atr": ret30_pts / atr14,
         },
         index=df.index,
     )
 
-    required_rows = 41
+    # Need 30 bars of history for the 30-bar features + 14 for ATR14 +
+    # the shift-1 = minimum 31 valid rows, but 41 was the previous margin
+    # to accommodate rolling warm-ups for flips5 etc. 30+14 = 44, so bump.
+    required_rows = 44
     if len(feature_df) > 0:
         valid_mask = pd.Series(np.arange(len(feature_df)) >= (required_rows - 1), index=feature_df.index)
         feature_df.loc[~valid_mask, ENTRY_SHAPE_COLUMNS] = np.nan

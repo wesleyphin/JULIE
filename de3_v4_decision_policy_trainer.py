@@ -549,6 +549,47 @@ def _bucket_range_ratio(value: Any) -> str:
     return "expanded"
 
 
+def _bucket_velocity_30(value: Any) -> str:
+    """30-bar velocity (pts/min). Calibrated on 2025+2026 MES tape:
+      < -0.50 = strong_down (breakout sell, avoid counter-trend Rev Long)
+      [-0.50, -0.15) = down (drift lower, Rev Long still risky)
+      [-0.15, +0.15) = flat (normal)
+      [+0.15, +0.50) = up
+      >= +0.50 = strong_up
+    """
+    raw = safe_float(value, float("nan"))
+    if not math.isfinite(raw):
+        return ""
+    if raw < -0.50:
+        return "strong_down"
+    if raw < -0.15:
+        return "down"
+    if raw < 0.15:
+        return "flat"
+    if raw < 0.50:
+        return "up"
+    return "strong_up"
+
+
+def _bucket_location30(value: Any) -> str:
+    """(dist_high30_atr - dist_low30_atr) — position within the 30-bar range.
+    Strong NEGATIVE means close to the 30-bar HIGH (price far from low, near high).
+    Strong POSITIVE means close to the 30-bar LOW  (price near low, far from high).
+    """
+    raw = safe_float(value, float("nan"))
+    if not math.isfinite(raw):
+        return ""
+    if raw < -2.0:
+        return "at_30_high"   # raw strongly negative = price is near the high
+    if raw < -0.5:
+        return "near_30_high"
+    if raw < 0.5:
+        return "mid_30"
+    if raw < 2.0:
+        return "near_30_low"
+    return "at_30_low"        # raw strongly positive = price is near the low
+
+
 def _bucket_down3(value: Any) -> str:
     raw = safe_int(value, -1)
     if raw < 0:
@@ -586,6 +627,11 @@ def _prepare_short_term_condition_frame(trade_df: pd.DataFrame) -> pd.DataFrame:
         "de3_entry_dist_low5_atr",
         "de3_entry_dist_high5_atr",
         "de3_entry_down3",
+        # 30-bar chart-context features (filter F moved into training).
+        "de3_entry_velocity_30",
+        "de3_entry_dist_low30_atr",
+        "de3_entry_dist_high30_atr",
+        "de3_entry_ret30_atr",
     ]
     for col in numeric_cols:
         if col not in local.columns:
@@ -593,6 +639,7 @@ def _prepare_short_term_condition_frame(trade_df: pd.DataFrame) -> pd.DataFrame:
         local[col] = pd.to_numeric(local[col], errors="coerce")
     wick_bias = local["de3_entry_lower_wick_ratio"].fillna(0.0) - local["de3_entry_upper_wick_ratio"].fillna(0.0)
     location_bias = local["de3_entry_dist_high5_atr"].fillna(0.0) - local["de3_entry_dist_low5_atr"].fillna(0.0)
+    location30_bias = local["de3_entry_dist_high30_atr"].fillna(0.0) - local["de3_entry_dist_low30_atr"].fillna(0.0)
     local["st_close_bucket"] = local["de3_entry_close_pos1"].apply(_bucket_close_pos)
     local["st_wick_bias_bucket"] = wick_bias.apply(
         lambda raw: _bucket_balance(raw, strong_neg=-0.28, neg=-0.10, pos=0.10, strong_pos=0.28)
@@ -607,10 +654,24 @@ def _prepare_short_term_condition_frame(trade_df: pd.DataFrame) -> pd.DataFrame:
         lambda raw: _bucket_balance(raw, strong_neg=-1.20, neg=-0.35, pos=0.35, strong_pos=1.20)
     )
     local["st_down3_bucket"] = local["de3_entry_down3"].apply(_bucket_down3)
+    # 30-bar context buckets
+    local["st_velocity30_bucket"] = local["de3_entry_velocity_30"].apply(_bucket_velocity_30)
+    local["st_location30_bucket"] = location30_bias.apply(_bucket_location30)
+    local["st_ret30_bucket"] = local["de3_entry_ret30_atr"].apply(
+        lambda raw: _bucket_balance(raw, strong_neg=-2.0, neg=-0.5, pos=0.5, strong_pos=2.0)
+    )
     local["st_pressure_bucket"] = (
         local["st_ret_bucket"].astype(str).str.strip()
         + "|"
         + local["st_wick_bias_bucket"].astype(str).str.strip()
+    )
+    # New composite: 30-bar macro context (trend × location) — this is the
+    # specific combination that catches "bouncing dead-cat" at the 30-bar
+    # horizon without needing a post-hoc filter F veto.
+    local["st_macro_30_bucket"] = (
+        local["st_velocity30_bucket"].astype(str).str.strip()
+        + "|"
+        + local["st_location30_bucket"].astype(str).str.strip()
     )
     return local
 
@@ -701,6 +762,11 @@ def _prepare_action_condition_frame(decision_df: pd.DataFrame) -> pd.DataFrame:
         "de3_entry_dist_low5_atr",
         "de3_entry_dist_high5_atr",
         "de3_entry_down3",
+        # 30-bar chart-context (filter F in the trainer).
+        "de3_entry_velocity_30",
+        "de3_entry_dist_low30_atr",
+        "de3_entry_dist_high30_atr",
+        "de3_entry_ret30_atr",
         "long_pnl_points",
         "short_pnl_points",
         "baseline_points",
@@ -713,6 +779,7 @@ def _prepare_action_condition_frame(decision_df: pd.DataFrame) -> pd.DataFrame:
         local[col] = pd.to_numeric(local[col], errors="coerce")
     wick_bias = local["de3_entry_lower_wick_ratio"].fillna(0.0) - local["de3_entry_upper_wick_ratio"].fillna(0.0)
     location_bias = local["de3_entry_dist_high5_atr"].fillna(0.0) - local["de3_entry_dist_low5_atr"].fillna(0.0)
+    location30_bias = local["de3_entry_dist_high30_atr"].fillna(0.0) - local["de3_entry_dist_low30_atr"].fillna(0.0)
     local["st_close_bucket"] = local["de3_entry_close_pos1"].apply(_bucket_close_pos)
     local["st_wick_bias_bucket"] = wick_bias.apply(
         lambda raw: _bucket_balance(raw, strong_neg=-0.28, neg=-0.10, pos=0.10, strong_pos=0.28)
@@ -727,10 +794,21 @@ def _prepare_action_condition_frame(decision_df: pd.DataFrame) -> pd.DataFrame:
         lambda raw: _bucket_balance(raw, strong_neg=-1.20, neg=-0.35, pos=0.35, strong_pos=1.20)
     )
     local["st_down3_bucket"] = local["de3_entry_down3"].apply(_bucket_down3)
+    # 30-bar context buckets
+    local["st_velocity30_bucket"] = local["de3_entry_velocity_30"].apply(_bucket_velocity_30)
+    local["st_location30_bucket"] = location30_bias.apply(_bucket_location30)
+    local["st_ret30_bucket"] = local["de3_entry_ret30_atr"].apply(
+        lambda raw: _bucket_balance(raw, strong_neg=-2.0, neg=-0.5, pos=0.5, strong_pos=2.0)
+    )
     local["st_pressure_bucket"] = (
         local["st_ret_bucket"].astype(str).str.strip()
         + "|"
         + local["st_wick_bias_bucket"].astype(str).str.strip()
+    )
+    local["st_macro_30_bucket"] = (
+        local["st_velocity30_bucket"].astype(str).str.strip()
+        + "|"
+        + local["st_location30_bucket"].astype(str).str.strip()
     )
 
     exploded_frames: List[pd.DataFrame] = []
@@ -811,6 +889,17 @@ def _default_action_condition_scopes() -> List[Dict[str, Any]]:
             "fields": ["sub_strategy", "side_considered", "st_pressure_bucket", "st_location_bucket", "st_close_bucket"],
             "min_decisions": 48,
             "weight": 0.72,
+        },
+        # 30-bar macro context — catches the bounce/dip-fade pattern where
+        # LONG_Rev fades a strong-down drift into the 30-bar low and gets
+        # steamrolled (today's Apr 21 losses were exactly this shape).
+        # The st_macro_30_bucket = "<velocity>|<location>" composite lets
+        # the model condition on the full 30-min tape signature at birth.
+        {
+            "name": "macro30_style_velocity",
+            "fields": ["session", "side_considered", "strategy_style", "st_macro_30_bucket"],
+            "min_decisions": 48,
+            "weight": 0.70,
         },
     ]
 
@@ -1171,6 +1260,15 @@ def _default_short_term_condition_scopes() -> List[Dict[str, Any]]:
             "min_trades": 48,
             "min_side_trades": 14,
             "weight": 0.74,
+        },
+        # 30-bar macro scope — added to let lane/variant selection condition
+        # on the longer-horizon tape drift pattern, not just 5-10 bar shape.
+        {
+            "name": "session_macro30",
+            "fields": ["session", "strategy_type", "st_macro_30_bucket"],
+            "min_trades": 40,
+            "min_side_trades": 12,
+            "weight": 0.70,
         },
     ]
 
