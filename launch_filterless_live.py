@@ -102,8 +102,13 @@ os.environ.setdefault("JULIE_REGIME_ADAPTIVE_CB", "1")
 os.environ.setdefault("JULIE_LOSS_FACTOR_GUARD", "1")
 os.environ.setdefault("JULIE_CB_MAX_DAILY_LOSS", "350")
 os.environ.setdefault("JULIE_CB_MAX_CONSEC_LOSSES", "5")
-os.environ.setdefault("JULIE_CB_MAX_TRAILING_DD", "350")  # filter A: peak-to-trough trip
-os.environ.setdefault("JULIE_LFG_TREND_BIAS_MIN_TIER", "1")  # filter C: counter-trend Rev veto
+# Filter A (trailing-DD CB) was validated DISABLED on 27 outrageous 2025 days:
+# it never reduced DD violations (peak-to-trough damage already realized by the
+# time CB trips) and cost ~$1,800 by killing late-day chop recoveries + the
+# Apr 9 tariff-pause rally. Keep the code but default off (0 = disabled).
+# Re-enable via shell export if you want to experiment with higher thresholds.
+os.environ.setdefault("JULIE_CB_MAX_TRAILING_DD", "0")
+os.environ.setdefault("JULIE_LFG_TREND_BIAS_MIN_TIER", "1")  # filter C: counter-trend Rev veto (+$817 on 27-day outrageous set)
 os.environ.setdefault("JULIE_REGIME_CB_WHIPSAW", "250")
 os.environ.setdefault("JULIE_REGIME_CB_NEUTRAL", "350")
 os.environ.setdefault("JULIE_REGIME_CB_CALM", "500")
