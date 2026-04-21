@@ -111,6 +111,11 @@ os.environ.setdefault("JULIE_CB_MAX_TRAILING_DD", "0")
 os.environ.setdefault("JULIE_LFG_TREND_BIAS_MIN_TIER", "1")  # filter C: counter-trend Rev veto (+$817 on 27-day outrageous set)
 os.environ.setdefault("JULIE_REGIME_SIZE_CAP", "1")  # filter D: cap size to 1 when whipsaw/calm_trend (16→7 DD violations)
 os.environ.setdefault("JULIE_REGIME_SIZE_CAP_VALUE", "1")
+# Filter E: green-day size unlock. Once daily PnL >= threshold on a trend regime,
+# raise the cap so proven-winning days aren't throttled. Simulation on the 27-day
+# outrageous set: C+D=+$2,503 → C+D+E=+$3,319 (+$816, +1 DD violation).
+os.environ.setdefault("JULIE_REGIME_GREEN_UNLOCK_PNL", "200")
+os.environ.setdefault("JULIE_REGIME_GREEN_UNLOCK_SIZE", "3")
 os.environ.setdefault("JULIE_REGIME_CB_WHIPSAW", "250")
 os.environ.setdefault("JULIE_REGIME_CB_NEUTRAL", "350")
 os.environ.setdefault("JULIE_REGIME_CB_CALM", "500")
