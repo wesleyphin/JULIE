@@ -40,3 +40,6 @@ node_modules/
 julie_filterless_public_*.zip
 julie_filterless_public_*/
 release_verify/
+
+# Graphify knowledge-graph output (generated)
+graphify-out/

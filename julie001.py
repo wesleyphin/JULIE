@@ -10104,9 +10104,15 @@ async def run_bot():
             # Feed trend-day state into LossFactorGuard so the counter-trend
             # reversal veto can act on it (filter C).
             _lfg_notify_trend_day(trend_day_tier, trend_day_dir)
-            # Feed bar close into LFG's rolling cache for filter F
-            # (chart-derived bounce/dip-fade veto, regime-gated).
-            _lfg_notify_bar(current_time, currbar['close'])
+            # Feed full OHLCV into LFG's rolling cache for filters F + G.
+            # F only uses close; G (v2 ML gate) uses wicks/body/volume too.
+            _lfg_notify_bar(
+                current_time, currbar['close'],
+                open_price=currbar.get('open'),
+                high_price=currbar.get('high'),
+                low_price=currbar.get('low'),
+                volume=currbar.get('volume'),
+            )
             chop_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             extension_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             structure_blocker.update(new_df)

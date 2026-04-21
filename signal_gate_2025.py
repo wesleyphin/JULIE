@@ -31,7 +31,12 @@ import pandas as pd
 
 
 _GATE: Optional[Dict[str, Any]] = None
-_GATE_PATH = Path(__file__).resolve().parent / "artifacts" / "signal_gate_2025" / "model.joblib"
+_GATE_PATH = Path(
+    os.environ.get(
+        "JULIE_SIGNAL_GATE_2025_PATH",
+        str(Path(__file__).resolve().parent / "artifacts" / "signal_gate_2025" / "model.joblib"),
+    )
+)
 
 
 def _session_bucket(et_hour: int) -> str:
@@ -146,21 +151,18 @@ def should_veto_signal(
         return False, ""
 
 
-def compute_bar_features_from_closes(
-    closes_and_ts: list,
+def compute_bar_features_from_ohlcv(
+    bars: list,
 ) -> Dict[str, float]:
-    """Compute features by calling the SAME extractor the training pipeline
-    uses — `_compute_feature_frame` from build_de3_chosen_shape_dataset.py.
+    """Compute features by calling _compute_feature_frame on a bar cache.
 
-    Input: list of (timestamp, close_price) tuples, oldest first.
-    Need at least 44 bars for the features to be valid.
-    Returns {} if not enough history.
+    Input: list of (ts, open, high, low, close, volume) tuples, oldest first.
+    Need at least 45 bars for the features to be valid.
 
-    OHLCV is synthesized as h=l=o=c (same as training-data build) so the
-    live feature distribution matches the training feature distribution
-    exactly for the close-based features used by the model.
+    Returns all 16 feature columns (ATR, wicks, body, volume, trend etc).
+    Returns {} if insufficient history.
     """
-    n = len(closes_and_ts)
+    n = len(bars)
     if n < 45:
         return {}
     import pandas as pd
@@ -170,34 +172,22 @@ def compute_bar_features_from_closes(
     tools_path = str(Path(__file__).resolve().parent / "tools")
     if tools_path not in sys.path:
         sys.path.insert(0, tools_path)
-    from build_de3_chosen_shape_dataset import _compute_feature_frame  # noqa: E402
+    from build_de3_chosen_shape_dataset import _compute_feature_frame, ENTRY_SHAPE_COLUMNS  # noqa: E402
 
-    rows_ts = [t for t, _ in closes_and_ts]
-    rows_px = [float(p) for _, p in closes_and_ts]
     df = pd.DataFrame({
-        "open":  rows_px,
-        "high":  rows_px,   # h=l=o=c to match training dataset synthesis
-        "low":   rows_px,
-        "close": rows_px,
-        "volume": [np.nan] * n,
-    }, index=pd.DatetimeIndex(rows_ts, name="timestamp_et"))
+        "open":   [b[1] for b in bars],
+        "high":   [b[2] for b in bars],
+        "low":    [b[3] for b in bars],
+        "close":  [b[4] for b in bars],
+        "volume": [b[5] for b in bars],
+    }, index=pd.DatetimeIndex([b[0] for b in bars], name="timestamp_et"))
     feats = _compute_feature_frame(df)
-    if feats.empty:
+    if feats.empty or len(feats) < 2:
         return {}
-    # Use iloc[-2] (bar-before-current) to match the training extractor,
-    # which does `feats.iloc[searchsorted(et) - 1]`. Live bar cache has
-    # the just-closed bar at iloc[-1], so we step back one to align.
-    if len(feats) < 2:
-        return {}
+    # iloc[-2] matches the training extractor's `feats.iloc[searchsorted(et)-1]`
     last = feats.iloc[-2]
     out = {}
-    for col in [
-        "de3_entry_ret1_atr", "de3_entry_down3", "de3_entry_flips5",
-        "de3_entry_range10_atr", "de3_entry_dist_low5_atr",
-        "de3_entry_dist_high5_atr", "de3_entry_velocity_30",
-        "de3_entry_dist_low30_atr", "de3_entry_dist_high30_atr",
-        "de3_entry_ret30_atr",
-    ]:
+    for col in ENTRY_SHAPE_COLUMNS:
         val = last.get(col, float("nan"))
         try:
             fv = float(val)
@@ -207,3 +197,10 @@ def compute_bar_features_from_closes(
             fv = 0.0
         out[col] = fv
     return out
+
+
+# Backwards-compat alias for the old close-only signature.
+def compute_bar_features_from_closes(closes_and_ts: list) -> Dict[str, float]:
+    """Deprecated close-only entry point. Converts to OHLCV with h=l=o=c."""
+    bars = [(t, p, p, p, p, float("nan")) for (t, p) in closes_and_ts]
+    return compute_bar_features_from_ohlcv(bars)

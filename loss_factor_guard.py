@@ -118,21 +118,35 @@ class LossFactorGuard:
         self.enabled = True
         self.state = DailyState()
         # Rolling bar cache for filters F + G. F needs CHART_VETO_WINDOW bars
-        # (~30). G needs >= 45 bars (30-bar roll + 14-bar ATR + shift=44 min).
-        # Cache 60 bars to comfortably cover both.
-        self._bar_cache: Deque[Tuple[datetime, float]] = deque(maxlen=max(60, CHART_VETO_WINDOW + 30))
+        # (~30) of close prices. G (v2) needs >= 45 bars with full OHLCV
+        # (wicks/body/volume). Cache stores 6-tuples:
+        #   (ts, open, high, low, close, volume)
+        # Filter F only reads close; G reads the full record.
+        self._bar_cache: Deque[Tuple[datetime, float, float, float, float, float]] = deque(
+            maxlen=max(60, CHART_VETO_WINDOW + 30)
+        )
 
-    def notify_bar(self, ts, close_price) -> None:
-        """Called per bar from the main loop. Feeds price history for the
-        chart-bounce-fade veto (filter F)."""
+    def notify_bar(self, ts, close_price, open_price=None, high_price=None,
+                   low_price=None, volume=None) -> None:
+        """Called per bar from the main loop. Feeds price + optional OHLCV
+        history for filters F (close only) and G (needs full OHLCV when
+        running the v2 model).
+
+        Backward-compatible: if called with just (ts, close), open/high/low
+        default to close and volume defaults to NaN.
+        """
         try:
             ts_val = ts if isinstance(ts, datetime) else None
-            price_val = float(close_price)
+            c = float(close_price)
         except Exception:
             return
         if ts_val is None:
             return
-        self._bar_cache.append((ts_val, price_val))
+        o = float(open_price) if open_price is not None else c
+        h = float(high_price) if high_price is not None else c
+        low = float(low_price) if low_price is not None else c
+        v = float(volume) if volume is not None else float("nan")
+        self._bar_cache.append((ts_val, o, h, low, c, v))
 
     def _chart_bounce_fade_veto(self, signal: dict) -> Tuple[bool, str]:
         """Filter F: block counter-trend bounce/dip entries in chop regimes.
@@ -158,10 +172,11 @@ class LossFactorGuard:
             return False, ""  # skip neutral / warmup / disabled
         if len(self._bar_cache) < 10:
             return False, ""
-        # Build the window (last CHART_VETO_WINDOW bars).
+        # Build the window (last CHART_VETO_WINDOW bars). Filter F only needs
+        # closes, which are index 4 in the (ts, o, h, l, c, v) tuples.
         window = list(self._bar_cache)[-CHART_VETO_WINDOW:]
-        prices = [p for _, p in window]
-        times = [t for t, _ in window]
+        prices = [row[4] for row in window]
+        times = [row[0] for row in window]
         try:
             minutes = max(1.0, (times[-1] - times[0]).total_seconds() / 60.0)
         except Exception:
@@ -367,10 +382,10 @@ class LossFactorGuard:
         gate = sg.get_gate()
         if gate is None:
             return False, ""
-        # Use the full (ts, close) bar cache — G's feature extractor needs
-        # timestamps to match training-time `_compute_feature_frame` output.
-        ts_closes = list(self._bar_cache)
-        if len(ts_closes) < 45:
+        # Full OHLCV cache — G (v2) needs wicks/body/volume features.
+        # Each row is (ts, open, high, low, close, volume).
+        bars = list(self._bar_cache)
+        if len(bars) < 45:
             return False, ""
         try:
             from regime_classifier import current_regime
@@ -379,8 +394,8 @@ class LossFactorGuard:
             regime = "neutral"
         side = str(signal.get("side", "")).upper()
         et_hour = 0
-        if ts_closes:
-            last_ts = ts_closes[-1][0]
+        if bars:
+            last_ts = bars[-1][0]
             try:
                 et_hour = int(last_ts.astimezone(__import__("zoneinfo").ZoneInfo("America/New_York")).hour)
             except Exception:
@@ -388,7 +403,7 @@ class LossFactorGuard:
                     et_hour = int(last_ts.hour)
                 except Exception:
                     et_hour = 0
-        feats = sg.compute_bar_features_from_closes(ts_closes)
+        feats = sg.compute_bar_features_from_ohlcv(bars)
         if not feats:
             return False, ""
         return sg.should_veto_signal(
@@ -450,14 +465,17 @@ def get_guard() -> Optional[LossFactorGuard]:
     return _GUARD
 
 
-def notify_bar(ts, close_price) -> None:
+def notify_bar(ts, close_price, open_price=None, high_price=None,
+               low_price=None, volume=None) -> None:
     """Called from the main loop once per bar close. Feeds bar history into
-    the guard for the chart-derived bounce/dip-fade veto (filter F)."""
+    the guard for filters F + G. Backwards-compatible with the old
+    (ts, close_price) signature."""
     g = get_guard()
     if g is None:
         return
     try:
-        g.notify_bar(ts, close_price)
+        g.notify_bar(ts, close_price, open_price=open_price,
+                     high_price=high_price, low_price=low_price, volume=volume)
     except Exception:
         logging.debug("LossFactorGuard notify_bar failed", exc_info=True)
 
