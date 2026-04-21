@@ -66,6 +66,29 @@ ROLLING_WINDOW = 5
 # it bleeds too many valid reversals.
 TREND_BIAS_MIN_TIER = _env_int("JULIE_LFG_TREND_BIAS_MIN_TIER", 1)
 
+# Filter F — chart-derived bounce/dip-fade veto.
+#
+# Quantified on 2025 136-day iter-11 subset, stratified by regime:
+#   whipsaw  (n=195):  baseline $+840,  rule $+970,  Δ=+$130  (vel=0.10 dist=5)
+#   calm_trend(n=906): baseline -$4,256, rule -$3,887, Δ=+$369 (vel=0.30 dist=5)
+#   neutral (n=550):   baseline $+5,538, rule $+5,516, Δ=-$22  ← noise; skip
+#   warmup  (n=11):    n/a
+#
+# Logic: at entry time we look back 30 bars. Compute drift velocity (pts/min)
+# and entry's distance from 30-min extreme. LONG into a declining tape where
+# entry is N points above the recent low = "bouncing dead-cat"; SHORT into a
+# rising tape where entry is N points below the recent high = "failed dip".
+# Only applies in whipsaw + calm_trend regimes where the pattern actually
+# generalises — neutral regime showed it's noise.
+CHART_VETO_ENABLED = os.environ.get("JULIE_LFG_CHART_VETO", "1").strip() == "1"
+CHART_VETO_WINDOW = _env_int("JULIE_LFG_CHART_VETO_WINDOW", 30)
+# Per-regime thresholds (tuned to 2025 in-sample). Each regime picked the
+# combo that maximised Δ vs baseline.
+CHART_VETO_VEL_WHIPSAW = _env_float("JULIE_LFG_CHART_VETO_VEL_WHIPSAW", 0.10)
+CHART_VETO_DIST_WHIPSAW = _env_float("JULIE_LFG_CHART_VETO_DIST_WHIPSAW", 5.0)
+CHART_VETO_VEL_CALM = _env_float("JULIE_LFG_CHART_VETO_VEL_CALM", 0.30)
+CHART_VETO_DIST_CALM = _env_float("JULIE_LFG_CHART_VETO_DIST_CALM", 5.0)
+
 
 @dataclass
 class DailyState:
@@ -94,6 +117,79 @@ class LossFactorGuard:
     def __init__(self) -> None:
         self.enabled = True
         self.state = DailyState()
+        # Rolling bar cache for filter F (chart-derived bounce/dip-fade veto).
+        # Populated via notify_bar() from the main loop once per bar close.
+        # Size = CHART_VETO_WINDOW + small buffer so we always have >= WINDOW bars.
+        self._bar_cache: Deque[Tuple[datetime, float]] = deque(maxlen=CHART_VETO_WINDOW + 10)
+
+    def notify_bar(self, ts, close_price) -> None:
+        """Called per bar from the main loop. Feeds price history for the
+        chart-bounce-fade veto (filter F)."""
+        try:
+            ts_val = ts if isinstance(ts, datetime) else None
+            price_val = float(close_price)
+        except Exception:
+            return
+        if ts_val is None:
+            return
+        self._bar_cache.append((ts_val, price_val))
+
+    def _chart_bounce_fade_veto(self, signal: dict) -> Tuple[bool, str]:
+        """Filter F: block counter-trend bounce/dip entries in chop regimes.
+
+        - Only fires during whipsaw or calm_trend regime (neutral is noise)
+        - Uses the last CHART_VETO_WINDOW bars fed via notify_bar()
+        - Thresholds are regime-specific (tuned to 2025 in-sample data)
+        """
+        if not CHART_VETO_ENABLED:
+            return False, ""
+        # Ask the regime classifier what regime we're in; fall back to "unknown"
+        # if it's not wired up (e.g. during unit tests).
+        try:
+            from regime_classifier import current_regime
+            regime = current_regime()
+        except Exception:
+            return False, ""
+        if regime == "whipsaw":
+            vel_thr, dist_thr = CHART_VETO_VEL_WHIPSAW, CHART_VETO_DIST_WHIPSAW
+        elif regime == "calm_trend":
+            vel_thr, dist_thr = CHART_VETO_VEL_CALM, CHART_VETO_DIST_CALM
+        else:
+            return False, ""  # skip neutral / warmup / disabled
+        if len(self._bar_cache) < 10:
+            return False, ""
+        # Build the window (last CHART_VETO_WINDOW bars).
+        window = list(self._bar_cache)[-CHART_VETO_WINDOW:]
+        prices = [p for _, p in window]
+        times = [t for t, _ in window]
+        try:
+            minutes = max(1.0, (times[-1] - times[0]).total_seconds() / 60.0)
+        except Exception:
+            return False, ""
+        velocity = (prices[-1] - prices[0]) / minutes  # pts/min
+        low, high = min(prices), max(prices)
+        side = str(signal.get("side", "")).upper()
+        try:
+            entry = float(
+                signal.get("entry_price")
+                or signal.get("price")
+                or prices[-1]
+            )
+        except Exception:
+            entry = prices[-1]
+        if side == "LONG" and velocity < -vel_thr and entry > (low + dist_thr):
+            return True, (
+                f"chart_bounce_fade_veto (regime={regime} "
+                f"velocity={velocity:+.2f}/min, entry +{entry - low:.1f}pts "
+                f"above {CHART_VETO_WINDOW}min low)"
+            )
+        if side == "SHORT" and velocity > +vel_thr and entry < (high - dist_thr):
+            return True, (
+                f"chart_dip_fade_veto (regime={regime} "
+                f"velocity={velocity:+.2f}/min, entry -{high - entry:.1f}pts "
+                f"below {CHART_VETO_WINDOW}min high)"
+            )
+        return False, ""
 
     def notify_new_day(self, day) -> None:
         if isinstance(day, datetime):
@@ -229,9 +325,16 @@ class LossFactorGuard:
         # Filter C: counter-trend reversal veto. If we're in a confirmed trend
         # day AND the signal is a _Rev_ sub-strategy trying to fade the trend,
         # block it. Momentum signals (_Mom_) aligned with the trend pass.
+        #
+        # NOTE: Two sub_strategy formats exist in production:
+        #   old (2025 DE3 v3):  "5min_09-12_Long_Rev_T5_SL10_TP25"   has "_Rev_"
+        #   new (DE3 v4):       "15min|21-24|long|Long_Rev|T2#m33"   has "|Long_Rev|"
+        # Both contain the substrings "Long_Rev" / "Short_Rev", so we match
+        # on those instead of the old "_Rev_" underscore pattern — otherwise
+        # filter C silently misses every live DE3 v4 signal.
         if self.state.trend_day_tier >= TREND_BIAS_MIN_TIER and self.state.trend_day_dir:
             sub = str(signal.get("sub_strategy", "") or signal.get("combo_key", "") or "")
-            is_reversal = "_Rev_" in sub
+            is_reversal = ("Long_Rev" in sub) or ("Short_Rev" in sub)
             trend = self.state.trend_day_dir.lower()
             if is_reversal:
                 fades_trend = (side == "LONG" and trend == "down") or (side == "SHORT" and trend == "up")
@@ -240,6 +343,11 @@ class LossFactorGuard:
                         f"trend_bias_reversal_veto ({side} Rev vs trend_day={trend} "
                         f"tier={self.state.trend_day_tier})"
                     )
+
+        # Filter F: chart-derived bounce/dip-fade veto (regime-gated).
+        chart_veto, chart_reason = self._chart_bounce_fade_veto(signal)
+        if chart_veto:
+            return True, chart_reason
 
         return False, ""
 
@@ -296,6 +404,18 @@ def init_guard() -> Optional[LossFactorGuard]:
 
 def get_guard() -> Optional[LossFactorGuard]:
     return _GUARD
+
+
+def notify_bar(ts, close_price) -> None:
+    """Called from the main loop once per bar close. Feeds bar history into
+    the guard for the chart-derived bounce/dip-fade veto (filter F)."""
+    g = get_guard()
+    if g is None:
+        return
+    try:
+        g.notify_bar(ts, close_price)
+    except Exception:
+        logging.debug("LossFactorGuard notify_bar failed", exc_info=True)
 
 
 def notify_trend_day(tier: int, direction) -> None:

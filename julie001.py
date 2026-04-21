@@ -96,6 +96,7 @@ from regime_classifier import (
 from loss_factor_guard import (
     init_guard as _init_loss_factor_guard,
     notify_trend_day as _lfg_notify_trend_day,
+    notify_bar as _lfg_notify_bar,
     notify_trade_closed as _lfg_notify_trade_closed,
     should_veto_entry as _lfg_should_veto_entry,
 )
@@ -10101,6 +10102,9 @@ async def run_bot():
             # Feed trend-day state into LossFactorGuard so the counter-trend
             # reversal veto can act on it (filter C).
             _lfg_notify_trend_day(trend_day_tier, trend_day_dir)
+            # Feed bar close into LFG's rolling cache for filter F
+            # (chart-derived bounce/dip-fade veto, regime-gated).
+            _lfg_notify_bar(current_time, currbar['close'])
             chop_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             extension_filter.update(currbar['high'], currbar['low'], currbar['close'], current_time)
             structure_blocker.update(new_df)
