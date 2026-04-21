@@ -75,9 +75,17 @@ NUMERIC_FEATURES = [
     "de3_entry_dist_high5_atr",
     "de3_entry_vol1_rel20",
     "de3_entry_atr14",
+    # Trend-alignment numeric (derived below in compute_features_for_trades):
+    #   +1 when signal_side agrees with the sign of ret1 (momentum-aligned),
+    #   -1 when opposed, 0 when ambiguous. Lets G distinguish "high ATR +
+    #   with trend = winner" from "high ATR + against trend = loser."
+    "trend_align_ret1",
 ]
-CATEGORICAL_FEATURES = ["side", "session"]
+CATEGORICAL_FEATURES = ["side", "session", "regime"]  # regime = AF manifold label
 ORDINAL_FEATURES = ["et_hour"]
+
+# Regime values we expect in AF trades (from aetherflow_strategy):
+REGIME_VALUES = ["DISPERSED", "TREND_GEODESIC", "CHOP_SPIRAL", "ROTATIONAL_TURBULENCE", ""]
 
 
 def _session_of(h):
@@ -227,11 +235,33 @@ def compute_features_for_trades(trades, master_df):
         pnl = float(t.get("pnl_dollars", 0))
         size = int(t.get("size", 1) or 1)
         per_contract = pnl / size if size > 0 else pnl
+        side_str = str(t.get("side", "")).upper()
+        # Trend alignment: +1 if signal side agrees with ret1 sign, else -1; 0 when ambiguous.
+        ret1_raw = feat_row.get("de3_entry_ret1_atr", 0.0)
+        try:
+            ret1 = float(ret1_raw)
+            if not np.isfinite(ret1):
+                ret1 = 0.0
+        except Exception:
+            ret1 = 0.0
+        if ret1 > 0:
+            trend_align = 1.0 if side_str == "LONG" else -1.0
+        elif ret1 < 0:
+            trend_align = 1.0 if side_str == "SHORT" else -1.0
+        else:
+            trend_align = 0.0
+        # Regime: prefer explicit 'regime' field (AF fast-replay format),
+        # fall back to 'aetherflow_regime' (live bot format), else empty.
+        regime_raw = t.get("regime") or t.get("aetherflow_regime") or ""
+        regime = str(regime_raw or "").strip().upper()
+        if regime and regime not in {"DISPERSED", "TREND_GEODESIC", "CHOP_SPIRAL", "ROTATIONAL_TURBULENCE"}:
+            regime = ""  # unknown value → empty one-hot
         row = {
             "entry_time": et.isoformat(),
             "et_hour": et.hour,
             "session": _session_of(et.hour),
-            "side": str(t.get("side", "")).upper(),
+            "side": side_str,
+            "regime": regime,
             "size": size,
             "entry_price": float(t.get("entry_price", 0)),
             "pnl_dollars": pnl,
@@ -240,6 +270,7 @@ def compute_features_for_trades(trades, master_df):
             "big_loss": 1 if pnl <= -100 else 0,
             "big_loss_per_contract": 1 if per_contract <= -45 else 0,  # ~10pt SL on 1 contract
             "sub_strategy": str(t.get("sub_strategy", "")),
+            "trend_align_ret1": trend_align,
         }
         for c in ENTRY_SHAPE_COLUMNS:
             row[c] = float(feat_row.get(c, float("nan")))
@@ -332,16 +363,24 @@ def train_one(strategy: str, target_col: str, master_df: pd.DataFrame,
         tail_auc = float('nan')
     print(f"  temporal-tail AUC (last 15%): {tail_auc:.3f}")
 
-    # EV-best threshold on holdout
-    best_thr, best_delta = 0.50, -1e9
+    # EV-best threshold on holdout — but clamped to a minimum floor.
+    # The raw auto-tuner can pick thr=0.20 on a small holdout, which then
+    # over-vetoes on trend days (we saw G veto winners during 2026-04-21's
+    # aggressive NY drop because it flagged high-ATR bars as danger even
+    # when they were trend-continuation wins). Walk-forward across the full
+    # 13.5-month set agrees that 0.275 is a better operating point.
+    # Search the top of [floor, 0.80) and pick the best delta there.
+    THR_FLOOR = 0.275
+    best_thr, best_delta = THR_FLOOR, -1e9
     base = df_te["pnl_dollars"].sum()
-    for thr in np.arange(0.20, 0.80, 0.025):
+    for thr in np.arange(THR_FLOOR, 0.80, 0.025):
         veto = p_te >= thr
         kept = df_te.loc[~veto, "pnl_dollars"].sum()
         if kept - base > best_delta:
             best_delta = kept - base
             best_thr = float(thr)
-    print(f"  EV-best veto threshold: {best_thr:.3f}  (held-out tail delta: ${best_delta:+.2f})")
+    print(f"  EV-best veto threshold (floor={THR_FLOOR}): {best_thr:.3f}  "
+          f"(held-out tail delta: ${best_delta:+.2f})")
 
     # Retrain on full data
     final = GradientBoostingClassifier(

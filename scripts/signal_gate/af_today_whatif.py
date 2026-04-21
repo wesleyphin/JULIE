@@ -236,20 +236,36 @@ def main():
         cat_maps = g_model.get("categorical_maps", {})
         row = {c: 0.0 for c in feat_names}
         for c in numeric:
+            if c == "trend_align_ret1":
+                # Derive from signal side vs. ret1_atr sign
+                ret1 = feat_row.get("de3_entry_ret1_atr", 0.0) if len(feats_today) > 0 else 0.0
+                try:
+                    ret1f = float(ret1)
+                    if not np.isfinite(ret1f): ret1f = 0.0
+                except Exception:
+                    ret1f = 0.0
+                if ret1f > 0:
+                    row[c] = 1.0 if side == "LONG" else -1.0
+                elif ret1f < 0:
+                    row[c] = 1.0 if side == "SHORT" else -1.0
+                else:
+                    row[c] = 0.0
+                continue
             v = feat_row.get(c, 0.0) if len(feats_today) > 0 else 0.0
             try:
                 fv = float(v)
                 if not np.isfinite(fv): fv = 0.0
             except: fv = 0.0
             if c in row: row[c] = fv
-        # categorical: side + session
+        # categorical: side + session + regime (new model uses regime one-hot)
         def sess_of(h):
             if 18 <= h or h < 3: return "ASIA"
             if 3 <= h < 7: return "LONDON"
             if 7 <= h < 9: return "NY_PRE"
             if 9 <= h < 16: return "NY"
             return "POST"
-        cat_vals = {"side": side.upper(), "session": sess_of(et_dt.hour)}
+        regime_str = str(sig.get("regime", "")).strip().upper()
+        cat_vals = {"side": side.upper(), "session": sess_of(et_dt.hour), "regime": regime_str}
         for cc, kvs in cat_maps.items():
             val = cat_vals.get(cc, "")
             for kv in kvs:
