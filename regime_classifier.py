@@ -73,6 +73,14 @@ WHIPSAW_VETO_ENABLED = os.environ.get("JULIE_REGIME_WHIPSAW_VETO", "0").strip() 
 REGIME_SIZE_CAP_ENABLED = os.environ.get("JULIE_REGIME_SIZE_CAP", "0").strip() == "1"
 REGIME_SIZE_CAP_VALUE = int(os.environ.get("JULIE_REGIME_SIZE_CAP_VALUE", "1"))
 
+# Filter E — green-day size unlock. On trend regimes where filter D would
+# normally cap to 1, recover upside by raising the cap once daily PnL proves
+# the direction. Validated: C + D + green_unlock@$200→3 gives +$3,319 PnL
+# on 27-day outrageous set (vs +$2,503 shipped C+D) with 8 violations (vs 7).
+# Apr 9 rally recovers from $1,039 to $2,347 while chop-day protection holds.
+REGIME_GREEN_UNLOCK_THRESHOLD = float(os.environ.get("JULIE_REGIME_GREEN_UNLOCK_PNL", "200"))
+REGIME_GREEN_UNLOCK_SIZE = int(os.environ.get("JULIE_REGIME_GREEN_UNLOCK_SIZE", "3"))
+
 
 @dataclass
 class RegimeState:
@@ -260,13 +268,29 @@ def apply_regime_size_cap(signal: dict) -> bool:
     except Exception:
         base = 1
     cap = max(1, REGIME_SIZE_CAP_VALUE)
+    # Filter E: green-day unlock. If today's cum PnL has crossed the threshold,
+    # raise the cap so we can press a winning day. Read cum PnL from the
+    # circuit_breaker's daily_pnl tracker (shared state, already updated per
+    # trade close). Falls through to D's tight cap if CB isn't available or
+    # daily PnL hasn't reached the unlock threshold.
+    try:
+        import circuit_breaker as _cb_mod
+        cb = getattr(_cb_mod, "_GLOBAL_CB", None)
+        if cb is not None and float(cb.daily_pnl) >= REGIME_GREEN_UNLOCK_THRESHOLD:
+            unlocked_cap = max(cap, REGIME_GREEN_UNLOCK_SIZE)
+            if unlocked_cap > cap:
+                cap = unlocked_cap
+                signal["regime_size_cap_unlocked"] = True
+    except Exception:
+        pass
     if base <= cap:
         return False
     signal["size"] = cap
     signal["regime_size_cap_before"] = base
     signal["regime_size_cap_regime"] = regime
     logging.info(
-        "Regime size cap (%s): %s %s | size %d -> %d",
-        regime, signal.get("strategy", "?"), signal.get("side", "?"), base, cap,
+        "Regime size cap (%s%s): %s %s | size %d -> %d",
+        regime, " unlocked" if signal.get("regime_size_cap_unlocked") else "",
+        signal.get("strategy", "?"), signal.get("side", "?"), base, cap,
     )
     return True
