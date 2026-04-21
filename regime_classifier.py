@@ -66,6 +66,13 @@ CB_CONSEC_CALM = int(os.environ.get("JULIE_REGIME_CONSEC_CALM", "7"))
 # regime=whipsaw. Default 0 (no veto; only config mutations are applied).
 WHIPSAW_VETO_ENABLED = os.environ.get("JULIE_REGIME_WHIPSAW_VETO", "0").strip() == "1"
 
+# Filter D — regime-gated size cap. When regime is whipsaw or calm_trend
+# (i.e. NOT neutral), cap incoming signal size to 1 contract. Validated on
+# 27-day outrageous set: cuts DD>$350 violations 16→7 while preserving most
+# of the +$817 PnL improvement from filter C.
+REGIME_SIZE_CAP_ENABLED = os.environ.get("JULIE_REGIME_SIZE_CAP", "0").strip() == "1"
+REGIME_SIZE_CAP_VALUE = int(os.environ.get("JULIE_REGIME_SIZE_CAP_VALUE", "1"))
+
 
 @dataclass
 class RegimeState:
@@ -230,3 +237,36 @@ def should_veto_entry() -> tuple[bool, str]:
     if _CLASSIFIER.regime == "whipsaw":
         return True, f"regime=whipsaw vol={_CLASSIFIER.state.vol_bp:.2f}bp eff={_CLASSIFIER.state.eff:.3f}"
     return False, ""
+
+
+def apply_regime_size_cap(signal: dict) -> bool:
+    """Filter D — when regime is whipsaw or calm_trend (non-neutral), cap the
+    signal's size field to REGIME_SIZE_CAP_VALUE. Returns True if size was
+    modified, False otherwise. Idempotent and mutation is visible to the
+    pct_overlay snapshot + downstream consumers.
+
+    Gated by JULIE_REGIME_SIZE_CAP=1. Validated on 27-day outrageous 2025 set:
+    chops unaffected, breakouts capped (Apr 9 reduced but net still positive).
+    """
+    if _CLASSIFIER is None or not REGIME_SIZE_CAP_ENABLED:
+        return False
+    if not isinstance(signal, dict):
+        return False
+    regime = _CLASSIFIER.regime
+    if regime not in ("whipsaw", "calm_trend"):
+        return False
+    try:
+        base = int(signal.get("size", 1) or 1)
+    except Exception:
+        base = 1
+    cap = max(1, REGIME_SIZE_CAP_VALUE)
+    if base <= cap:
+        return False
+    signal["size"] = cap
+    signal["regime_size_cap_before"] = base
+    signal["regime_size_cap_regime"] = regime
+    logging.info(
+        "Regime size cap (%s): %s %s | size %d -> %d",
+        regime, signal.get("strategy", "?"), signal.get("side", "?"), base, cap,
+    )
+    return True

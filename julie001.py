@@ -91,6 +91,7 @@ from pct_overlay_runtime import (
 from regime_classifier import (
     init_regime_classifier as _init_regime_classifier,
     update_regime_classifier as _update_regime_classifier,
+    apply_regime_size_cap as _apply_regime_size_cap,
 )
 from loss_factor_guard import (
     init_guard as _init_loss_factor_guard,
@@ -11496,6 +11497,7 @@ async def run_bot():
 
                 # Inject a staged bank fill candidate from a prior bar's trigger
                 if _staged_bank_fill_candidate is not None:
+                    _apply_regime_size_cap(_staged_bank_fill_candidate[2])
                     _attach_pct_overlay_snapshot(_staged_bank_fill_candidate[2])
                     candidate_signals.append(_staged_bank_fill_candidate)
                     logging.info(
@@ -11615,6 +11617,7 @@ async def run_bot():
                                     logging.debug("Bank fill park check (fast) error: %s", _bfe3)
 
                             # Add to candidate list (Priority 1 = FAST)
+                            _apply_regime_size_cap(signal)
                             _attach_pct_overlay_snapshot(signal)
                             add_strategy_slot(
                                 "checked",
@@ -11842,6 +11845,7 @@ async def run_bot():
                             signal,
                             fallback=strat_name,
                         )
+                        _apply_regime_size_cap(signal)
                         _attach_pct_overlay_snapshot(signal)
                         candidate_signals.append((priority, strat, signal, strat_name))
 
@@ -13190,6 +13194,7 @@ async def run_bot():
                                     "⏳ RESCUE DEFERRED: cleared pending opposite-direction rescue"
                                 )
                         if not pending_impulse_rescues or pending_impulse_rescues[0]["signal"].get("side") == new_side:
+                            _apply_regime_size_cap(pending_entry["signal"])
                             _attach_pct_overlay_snapshot(pending_entry["signal"])
                             pending_impulse_rescues.append(pending_entry)
                             logging.info("⏳ RESCUE DEFERRED: waiting for next bar confirmation")
@@ -13537,6 +13542,7 @@ async def run_bot():
                         import uuid as _uuid_mod
                         _lfo_uid = str(_uuid_mod.uuid4())[:8]
                         signal["entry_mode"] = "level_fill_pending"
+                        _apply_regime_size_cap(signal)
                         _attach_pct_overlay_snapshot(signal)
                         level_fill_optimizer.add_pending(_lfo_uid, signal, _lfo_decision, float(current_price))
                         pending_level_fills[_lfo_uid] = level_fill_optimizer.get_pending_signal(_lfo_uid)
@@ -14935,6 +14941,7 @@ async def run_bot():
                                             fallback=s_name,
                                         )
                                         logging.info(f"🕐 Queuing {s_name} signal")
+                                        _apply_regime_size_cap(signal)
                                         _attach_pct_overlay_snapshot(signal)
                                         pending_loose_signals[s_name] = {'signal': signal, 'bar_count': 0}
                                 except Exception as e:

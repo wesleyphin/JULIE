@@ -109,6 +109,8 @@ os.environ.setdefault("JULIE_CB_MAX_CONSEC_LOSSES", "5")
 # Re-enable via shell export if you want to experiment with higher thresholds.
 os.environ.setdefault("JULIE_CB_MAX_TRAILING_DD", "0")
 os.environ.setdefault("JULIE_LFG_TREND_BIAS_MIN_TIER", "1")  # filter C: counter-trend Rev veto (+$817 on 27-day outrageous set)
+os.environ.setdefault("JULIE_REGIME_SIZE_CAP", "1")  # filter D: cap size to 1 when whipsaw/calm_trend (16→7 DD violations)
+os.environ.setdefault("JULIE_REGIME_SIZE_CAP_VALUE", "1")
 os.environ.setdefault("JULIE_REGIME_CB_WHIPSAW", "250")
 os.environ.setdefault("JULIE_REGIME_CB_NEUTRAL", "350")
 os.environ.setdefault("JULIE_REGIME_CB_CALM", "500")
