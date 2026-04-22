@@ -87,6 +87,8 @@ def init_ml_overlays() -> Tuple[bool, bool, bool, bool, bool]:
             _KALSHI_TP_PAYLOAD.get("rolling_origin_mean_auc", 0.0) or 0.0,
             _KALSHI_TP_PAYLOAD.get("pass_threshold", 0.50),
         )
+    # Load the RL trade-management policy too (Path 3). Silent if absent.
+    init_rl_management()
     return (
         _LFO_PAYLOAD is not None,
         _PCT_PAYLOAD is not None,
@@ -488,3 +490,33 @@ def is_kalshi_live_active() -> bool:
 
 def is_kalshi_tp_live_active() -> bool:
     return os.environ.get("JULIE_ML_KALSHI_TP_ACTIVE", "0").strip() == "1"
+
+
+# --- Trade-management RL policy (Path 3 of the smartness roadmap) ---
+# The PPO policy lives under rl/ and is managed there. Thin re-exports so
+# the caller in julie001.py only needs to import ml_overlay_shadow.
+
+
+def init_rl_management() -> bool:
+    """Load the PPO trade-management policy. Returns True on success."""
+    try:
+        from rl.inference import init_rl_policy
+        return init_rl_policy()
+    except Exception as exc:
+        logging.debug("init_rl_management failed: %s", exc)
+        return False
+
+
+def score_rl_management(**obs_kwargs):
+    """Query the PPO policy for a management action. See rl/inference.py
+    for the full keyword-argument list."""
+    try:
+        from rl.inference import score_rl_management as _impl
+        return _impl(**obs_kwargs)
+    except Exception as exc:
+        logging.debug("score_rl_management import failed: %s", exc)
+        return None
+
+
+def is_rl_management_live_active() -> bool:
+    return os.environ.get("JULIE_ML_RL_MGMT_ACTIVE", "0").strip() == "1"

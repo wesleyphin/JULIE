@@ -42,6 +42,46 @@ decision point.
 | **Kalshi entry gate** | Past the rule's support-score filter, is this trade still worth taking? | `model_kalshi_gate.joblib` |
 | **Kalshi TP gate** | Does the Kalshi crowd believe this trade can reach its take-profit price? | `model_kalshi_tp_gate.joblib` |
 
+### RL trade-management policy (Path 3, shadow-only)
+
+A PPO-trained reinforcement-learning agent that replaces the rule-based
+stack of trade-management heuristics (break-even, profit milestone,
+tiered take, pivot trail) with one joint policy making a per-bar decision
+from the full trade context.
+
+| Layer | Decision point | Artifact |
+|---|---|---|
+| **RL management** (Path 3) | Per-bar: HOLD / move SL to BE / tighten SL 25-50% / take partial 50% / take partial full / reverse | `model_rl_management.zip` (SB3 PPO) |
+
+Action space is discrete (7 actions). State is 172-dim (30 bars × 5 OHLCV
+features + 7 trade-state scalars + regime/session one-hots + Kalshi
+aligned probabilities + running peak/trough PnL). Trained on ~4,000
+historical trade episodes with rolling-origin temporal split.
+
+Currently ships **shadow-only** (`JULIE_ML_RL_MGMT_ACTIVE=0` default).
+Logs `[SHADOW_RL]` every bar alongside the rule-based management stack.
+Promoting to active requires wiring the 7 discrete actions to broker
+execution paths — intentionally deferred until shadow-log agreement
+with rule behavior is validated.
+
+**Known env-fidelity caveats (important).** The first PPO training run
+exposed two simulator-vs-reality gaps that inflate in-sample rewards:
+
+  1. **No slippage.** Partial closes and reverses fill at the bar's
+     close price; live trading has broker slippage + order queue
+     dynamics that reduce realized PnL on instant closes.
+  2. **No per-bar drift fees.** The env pays fees once per partial
+     close, but the close fraction + partial timing is gamed by the
+     agent in ways that'd cost more in commission in production.
+
+Result: the initial trained policy's validation numbers (95%+ win rate,
+$260+/trade) heavily overstate the real edge. The engineering stack is
+sound; the policy needs a slippage-aware retrain before active mode is
+considered. This is why the launcher's activation default is **0**, not
+**1** like the other overlays.
+
+**Trainer:** `rl/train_ppo.py`. **Env:** `rl/trade_env.py`. **Inference:** `rl/inference.py`.
+
 All nine are live by default when launched via `launch_filterless_live.py`.
 Full details in **section 11 (Machine Learning Overlay Stack)** below.
 

@@ -156,6 +156,14 @@ os.environ.setdefault("JULIE_ML_KALSHI_TP_ACTIVE", "1")
 # pnl <= $0. Tune tighter (e.g. "10") to require predicted profit margin, or
 # looser (e.g. "-10") to pass borderline trades. No retraining required.
 os.environ.setdefault("JULIE_ML_KALSHI_TP_PNL_THR", "0")
+
+# --- ML overlay: RL trade-management policy (Path 3) ---
+# PPO policy over post-entry trade management (7-action discrete: HOLD,
+# MOVE_SL_TO_BE, TIGHTEN_SL_25/50, TAKE_PARTIAL_50/FULL, REVERSE). The
+# policy loads at bot startup and scores every bar during an active trade.
+# Shadow-only by default ([SHADOW_RL] log lines) until the 7 action-
+# execution paths are wired to the broker; active mode toggle reserved.
+os.environ.setdefault("JULIE_ML_RL_MGMT_ACTIVE", "0")
 os.environ.setdefault("JULIE_REGIME_CB_WHIPSAW", "250")
 os.environ.setdefault("JULIE_REGIME_CB_NEUTRAL", "350")
 os.environ.setdefault("JULIE_REGIME_CB_CALM", "500")

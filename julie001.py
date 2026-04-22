@@ -11194,6 +11194,134 @@ async def run_bot():
                                     remove_tracked_live_trade(trade)
                                     trade_state_changed = True
                                     continue
+                        # --- SHADOW: PPO trade-management policy (Path 3) ---
+                        # Per-bar: build the 172-dim observation the PPO agent
+                        # was trained on, query the policy, log the action.
+                        # ACTIVE mode would need per-action execution paths
+                        # (MOVE_SL_TO_BE, TIGHTEN_SL_*, TAKE_PARTIAL_*, REVERSE)
+                        # wired to the broker — for now shadow-only so we
+                        # observe agreement/disagreement with rule behavior
+                        # before committing to live steering.
+                        try:
+                            import ml_overlay_shadow as _mls_rl
+                            _rl_ready = _mls_rl.init_rl_management()
+                            if _rl_ready and len(new_df) >= 30 and str(
+                                trade.get("strategy", "")
+                            ) in _PIVOT_TRAIL_ELIGIBLE_STRATEGIES:
+                                # Per-trade running state (init once on first bar)
+                                trade.setdefault("_rl_bars_held", 0)
+                                trade.setdefault("_rl_mfe_pts", 0.0)
+                                trade.setdefault("_rl_mae_pts", 0.0)
+                                trade.setdefault("_rl_peak_pnl_pts", 0.0)
+                                trade.setdefault("_rl_trough_pnl_pts", 0.0)
+                                trade["_rl_bars_held"] += 1
+                                _rl_entry = float(_coerce_float(trade.get("entry_price"), 0.0))
+                                _rl_side = str(trade.get("side", "")).upper()
+                                if _rl_side in ("LONG", "SHORT") and _rl_entry > 0:
+                                    _rl_cur = float(current_price)
+                                    _rl_pts = _rl_cur - _rl_entry if _rl_side == "LONG" else _rl_entry - _rl_cur
+                                    # MFE/MAE tracking off bar extremes
+                                    _rl_high = float(bar_high)
+                                    _rl_low = float(bar_low)
+                                    if _rl_side == "LONG":
+                                        _rl_fav = _rl_high - _rl_entry
+                                        _rl_adv = _rl_entry - _rl_low
+                                    else:
+                                        _rl_fav = _rl_entry - _rl_low
+                                        _rl_adv = _rl_high - _rl_entry
+                                    if _rl_fav > trade["_rl_mfe_pts"]:
+                                        trade["_rl_mfe_pts"] = _rl_fav
+                                    if _rl_adv > trade["_rl_mae_pts"]:
+                                        trade["_rl_mae_pts"] = _rl_adv
+                                    if _rl_pts > trade["_rl_peak_pnl_pts"]:
+                                        trade["_rl_peak_pnl_pts"] = _rl_pts
+                                    if _rl_pts < trade["_rl_trough_pnl_pts"]:
+                                        trade["_rl_trough_pnl_pts"] = _rl_pts
+                                    # Regime + session labels (reuse earlier
+                                    # SHADOW_KALSHI computation if in scope;
+                                    # else quick local compute)
+                                    _rl_et_hour = int(current_time.astimezone(NY_TZ).hour)
+                                    if 18 <= _rl_et_hour or _rl_et_hour < 3:
+                                        _rl_sess = "ASIA"
+                                    elif 3 <= _rl_et_hour < 7:
+                                        _rl_sess = "LONDON"
+                                    elif 7 <= _rl_et_hour < 9:
+                                        _rl_sess = "NY_PRE"
+                                    elif 9 <= _rl_et_hour < 12:
+                                        _rl_sess = "NY_AM"
+                                    elif 12 <= _rl_et_hour < 16:
+                                        _rl_sess = "NY_PM"
+                                    else:
+                                        _rl_sess = "POST"
+                                    try:
+                                        from regime_classifier import current_regime as _rl_regime
+                                        _rl_reg = _rl_regime()
+                                    except Exception:
+                                        _rl_reg = "neutral"
+                                    # SL/TP current + original
+                                    _rl_cur_sl = float(_coerce_float(trade.get("sl_price"), _rl_entry))
+                                    _rl_cur_tp = float(_coerce_float(trade.get("tp_price"), _rl_entry))
+                                    _rl_orig_sl = float(_coerce_float(
+                                        trade.get("original_sl_price", trade.get("sl_price")), _rl_cur_sl
+                                    ))
+                                    _rl_orig_tp = float(_coerce_float(
+                                        trade.get("original_tp_price", trade.get("tp_price")), _rl_cur_tp
+                                    ))
+                                    # ATR14 from new_df
+                                    try:
+                                        _rl_c = new_df["close"].astype(float).values
+                                        _rl_h = new_df["high"].astype(float).values
+                                        _rl_l = new_df["low"].astype(float).values
+                                        _rl_idx = len(new_df) - 1
+                                        _rl_trs = [
+                                            max(_rl_h[k] - _rl_l[k],
+                                                abs(_rl_h[k] - _rl_c[k - 1]),
+                                                abs(_rl_l[k] - _rl_c[k - 1]))
+                                            for k in range(max(1, _rl_idx - 13), _rl_idx + 1)
+                                        ]
+                                        _rl_atr = float(sum(_rl_trs) / max(1, len(_rl_trs))) if _rl_trs else 1.0
+                                    except Exception:
+                                        _rl_atr = 1.0
+                                    _rl_result = _mls_rl.score_rl_management(
+                                        bars_df=new_df,
+                                        entry_price=_rl_entry,
+                                        side=_rl_side,
+                                        atr14=max(0.25, _rl_atr),
+                                        bars_held=int(trade["_rl_bars_held"]),
+                                        mfe_pts=float(trade["_rl_mfe_pts"]),
+                                        mae_pts=float(trade["_rl_mae_pts"]),
+                                        current_sl_price=_rl_cur_sl,
+                                        current_tp_price=_rl_cur_tp,
+                                        original_sl_price=_rl_orig_sl,
+                                        original_tp_price=_rl_orig_tp,
+                                        running_peak_pnl_pts=float(trade["_rl_peak_pnl_pts"]),
+                                        running_trough_pnl_pts=float(trade["_rl_trough_pnl_pts"]),
+                                        regime_label=_rl_reg,
+                                        session_label=_rl_sess,
+                                        kalshi_probs=None,
+                                    )
+                                    if _rl_result is not None:
+                                        _rl_action, _rl_name = _rl_result
+                                        logging.info(
+                                            "[SHADOW_RL] strat=%s side=%s bar=%d pnl_pts=%+.2f "
+                                            "mfe=%.2f mae=%.2f regime=%s action=%s",
+                                            trade.get("strategy", "?"), _rl_side,
+                                            int(trade["_rl_bars_held"]), _rl_pts,
+                                            float(trade["_rl_mfe_pts"]), float(trade["_rl_mae_pts"]),
+                                            _rl_reg, _rl_name,
+                                        )
+                                        # Active mode is intentionally NOT
+                                        # wired yet — the 7 discrete actions
+                                        # need individual broker-execution
+                                        # paths (SL move / partial close /
+                                        # reverse) that are non-trivial. Keep
+                                        # shadow-only until the policy's
+                                        # behavior is validated in logs.
+                                        # is_rl_management_live_active() is
+                                        # checked here for future use.
+                                        _ = _mls_rl.is_rl_management_live_active()
+                        except Exception as _rl_exc:
+                            logging.debug("rl management shadow err: %s", _rl_exc)
                         _kalshi_tp_result = _apply_kalshi_tp_trail(
                             client,
                             trade,

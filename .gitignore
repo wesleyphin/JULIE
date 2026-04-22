@@ -45,6 +45,11 @@ models/
 !artifacts/signal_gate_2025/model_pivot_trail.joblib
 !artifacts/signal_gate_2025/model_kalshi_gate.joblib
 !artifacts/signal_gate_2025/model_kalshi_tp_gate.joblib
+# RL trade-management policy (sb3 .zip; whitelist below)
+artifacts/signal_gate_2025/model_rl_management.zip
+!artifacts/signal_gate_2025/model_rl_management.zip
+# RL episode cache is large and regenerable from replays + parquet
+rl/episodes.pkl
 !model_aetherflow_deploy_2026oos.pkl
 
 # Node
