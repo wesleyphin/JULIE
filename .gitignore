@@ -4,9 +4,12 @@ __pycache__/
 *$py.class
 *.so
 
-# Logs
+# Logs + runtime state
 *.log
 bot_state.json
+logs/
+kalshi_live_snapshot.json
+live_trade_factors.csv
 
 # Generated UI state (runtime artifact)
 montecarlo/Backtest-Simulator-main/public/filterless_live_state.json
@@ -24,6 +27,9 @@ montecarlo/Backtest-Simulator-main/.env.local
 .vscode/
 *.swp
 *.swo
+
+# Claude Code worktree metadata (local only)
+.claude/
 
 # Model files (large)
 *.joblib
@@ -50,3 +56,15 @@ release_verify/
 
 # Graphify knowledge-graph output (generated)
 graphify-out/
+
+# Backtest + replay outputs — regenerable, often gigabytes per run
+backtest_reports/
+reports/
+
+# Live data caches — regenerable from broker + Kalshi APIs
+data/kalshi/
+es_master_outrights.parquet
+
+# Intermediate training artifacts (joblib whitelist above keeps the shipped models)
+artifacts/signal_gate_2025/bracket_training.parquet
+artifacts/signal_gate_2025/g_vs_kalshi_today.json
