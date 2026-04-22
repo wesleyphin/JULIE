@@ -1443,15 +1443,23 @@ def _apply_kalshi_trade_overlay_to_signal(
         signal["kalshi_trade_overlay_reason"] = "disabled"
         return True
 
-    # v5.3: Kalshi is net-negative for DE3 across 5 validated months
-    # (-$238 cross-month on DE3, helpful on AF/RA/neutral otherwise).
-    # DE3's 10pt/25pt bracket horizon doesn't match Kalshi's settlement-hour
-    # logic, so skip it for DE3 signals. Toggle via env if you want to test.
+    # v5.4 decision: keep Kalshi enabled for all strategies including DE3.
+    # A/B tested three options on 5 2025 months + April 2026 two-week window:
+    #   v5  (Kalshi on DE3 always):          +$6,469 combined
+    #   v5.3 (Kalshi off DE3 always):         +$6,968 combined  (best 5-month but
+    #                                                           -$502 on Apr 2026)
+    #   v5.4a (Kalshi off DE3 in neutral):    +$6,064 combined  (dominated)
+    # The regime-gated compromise underperforms because Apr 2026's Kalshi
+    # wins on DE3 came from neutral-regime trades (would have been killed
+    # by the regime gate). v5's "keep Kalshi on always" is preferred here —
+    # the 2026 wins outweigh the Aug/Nov regressions, and v5 is what was
+    # walk-forward-validated. Kill-switch available via JULIE_KALSHI_DE3_MODE=off
+    # for experimentation.
     _strat = str(signal.get("strategy", "") or "").strip()
-    if (_strat.startswith("DynamicEngine3") and
-        os.environ.get("JULIE_KALSHI_ON_DE3", "0").strip() != "1"):
+    _de3_mode = os.environ.get("JULIE_KALSHI_DE3_MODE", "on").strip().lower()
+    if _strat.startswith("DynamicEngine3") and _de3_mode == "off":
         signal["kalshi_trade_overlay_applied"] = False
-        signal["kalshi_trade_overlay_reason"] = "disabled_for_de3"
+        signal["kalshi_trade_overlay_reason"] = "de3_skipped[env_override]"
         signal["kalshi_entry_blocked"] = False
         signal["kalshi_tp_trail_enabled"] = False
         return True

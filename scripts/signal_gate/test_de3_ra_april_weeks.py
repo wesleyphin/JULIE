@@ -253,6 +253,7 @@ def main():
                 feat_row, mkt_regime, _sym = compute_trade_features(t, master, None, mkt_regime_for)
                 if feat_row is None:
                     continue
+                # v5.4: keep Kalshi on all strategies (see julie001.py note)
                 k_dec, k_prob = kalshi_decision(et, float(t["entry_price"]), side, kalshi_cache)
                 g_p = score_g(t, feat_row, mkt_regime, g, side)
                 et2 = dict(t)

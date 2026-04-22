@@ -240,13 +240,10 @@ def run_month(month: str):
             if feat_row is None: continue
             try: et = datetime.fromisoformat(t["entry_time"]).astimezone(NY)
             except: continue
-            # v5.3: Kalshi disabled for DE3 — post-hoc analysis shows Kalshi
-            # was net -$238 across 5 months on DE3, its settlement-hour logic
-            # doesn't match DE3's 10/25pt bracket horizon.
-            if strat == "DynamicEngine3":
-                k_dec, k_prob = ("auto_pass", None)
-            else:
-                k_dec, k_prob = kalshi_decision(et, float(t["entry_price"]), side, kalshi_cache)
+            # v5.4: keep Kalshi on for all strategies (including DE3) —
+            # regime-gating and full-kill variants both underperform vs. full-on
+            # on Apr 2025 + Apr 2026 which dominate the combined totals.
+            k_dec, k_prob = kalshi_decision(et, float(t["entry_price"]), side, kalshi_cache)
             g_p = score_g(t, feat_row, mkt_regime, g, side, session_state[strat])
             # v5.2: regime mult × session mult
             regime_mult = _REGIME_THR_MULT.get((mkt_regime or "").lower(), 1.0)
