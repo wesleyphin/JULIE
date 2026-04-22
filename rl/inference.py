@@ -27,6 +27,7 @@ import numpy as np
 from rl.trade_env import (
     LOOKBACK_BARS, BAR_FEATURES_PER_BAR, BAR_TAPE_DIM, TRADE_STATE_DIM,
     REGIME_DIM, SESSION_DIM, KALSHI_DIM, PEAK_TROUGH_DIM, OBS_DIM,
+    OBS_DIM_EXTENDED, ENCODER_DIM, CROSS_MARKET_DIM,
     REGIME_LABELS, SESSION_LABELS, ACTION_NAMES, _norm_bar_tape, _onehot,
 )
 
@@ -35,11 +36,34 @@ MODEL_PATH = ROOT / "artifacts" / "signal_gate_2025" / "model_rl_management.zip"
 
 _POLICY = None
 _POLICY_LOAD_FAILED = False
+_POLICY_OBS_DIM = OBS_DIM  # Updated at load time based on the actual model
+
+# Per-trade cache for the v2 augmentation. Encoder embedding + cross-market
+# features are snapshotted at trade entry and reused for every subsequent
+# step — they don't change as the trade progresses. Keyed by trade_id so
+# concurrent trades each get their own snapshot. Small dict, freed on exit.
+_V2_TRADE_CACHE: Dict[Any, Dict[str, np.ndarray]] = {}
+
+
+def clear_v2_trade_cache(trade_id: Any = None):
+    """Drop cached v2 features for a trade. Call this when the trade closes.
+    Pass trade_id=None to wipe the whole cache."""
+    global _V2_TRADE_CACHE
+    if trade_id is None:
+        _V2_TRADE_CACHE = {}
+    else:
+        _V2_TRADE_CACHE.pop(trade_id, None)
 
 
 def init_rl_policy() -> bool:
-    """Eager-load the PPO policy from disk. Returns True on success."""
-    global _POLICY, _POLICY_LOAD_FAILED
+    """Eager-load the PPO policy from disk. Returns True on success.
+
+    Supports both v1 (obs_dim=172) and v2 (obs_dim=212 with encoder + cross-
+    market features). Dim is sniffed from the loaded model's observation
+    space and stashed in _POLICY_OBS_DIM so the build-obs path can append
+    augmentation when the loaded policy expects it.
+    """
+    global _POLICY, _POLICY_LOAD_FAILED, _POLICY_OBS_DIM
     if _POLICY is not None:
         return True
     if _POLICY_LOAD_FAILED:
@@ -51,12 +75,64 @@ def init_rl_policy() -> bool:
     try:
         from stable_baselines3 import PPO
         _POLICY = PPO.load(str(MODEL_PATH), device="cpu")  # cpu inference is fast for MLP
-        logging.info("rl.inference: PPO policy loaded from %s", MODEL_PATH)
+        _POLICY_OBS_DIM = int(_POLICY.observation_space.shape[0])
+        kind = "v2 (extended obs)" if _POLICY_OBS_DIM == OBS_DIM_EXTENDED else "v1"
+        logging.info("rl.inference: PPO policy loaded from %s — %s obs_dim=%d",
+                     MODEL_PATH, kind, _POLICY_OBS_DIM)
         return True
     except Exception as exc:
         logging.warning("rl.inference: failed to load policy: %s", exc)
         _POLICY_LOAD_FAILED = True
         return False
+
+
+def _compute_v2_augmentation(bars_df, entry_time, entry_bar_idx: int) -> np.ndarray:
+    """Return a 40-dim vector: 32-dim encoder embedding + 8-dim cross-market
+    features, in the same layout and rescaling the training env applies.
+    Returns zeros on any failure so the policy degrades gracefully rather
+    than refusing to score."""
+    enc = np.zeros(ENCODER_DIM, dtype=np.float32)
+    cm_scaled = np.zeros(CROSS_MARKET_DIM, dtype=np.float32)
+    # --- Encoder embedding at the entry bar ---
+    try:
+        import torch
+        from rl.bar_encoder import BarEncoder, encode as _enc_fn
+        cache = _compute_v2_augmentation.__dict__
+        if "encoder" not in cache:
+            ckpt_path = ROOT / "artifacts" / "signal_gate_2025" / "bar_encoder.pt"
+            if ckpt_path.exists():
+                ckpt = torch.load(str(ckpt_path), map_location="cpu", weights_only=False)
+                e = BarEncoder(seq_len=int(ckpt.get("seq_len", 60)),
+                               embed_dim=int(ckpt.get("embed_dim", 32)))
+                e.load_state_dict(ckpt["state_dict"])
+                e.eval()
+                cache["encoder"] = e
+            else:
+                cache["encoder"] = None
+        e = cache["encoder"]
+        if e is not None and 0 < entry_bar_idx < len(bars_df):
+            enc = _enc_fn(e, bars_df, int(entry_bar_idx)).astype(np.float32)
+    except Exception as exc:
+        logging.debug("rl.inference: encoder failed: %s", exc)
+    # --- Cross-market features at entry_time ---
+    try:
+        from rl.cross_market import get_cross_market_features, CROSS_MARKET_FEATURE_KEYS
+        feats = get_cross_market_features(entry_time, mes_bars=bars_df)
+        cm = np.array([float(feats.get(k, 0.0)) for k in CROSS_MARKET_FEATURE_KEYS], dtype=np.float32)
+        # Match TradeManagementEnv._build_obs rescaling exactly
+        cm_scaled = np.array([
+            cm[0] / 2.0,
+            cm[1] / 5.0,
+            (cm[2] - 0.5) * 2.0,
+            cm[3] / 5.0,
+            (cm[4] - 16.0) / 16.0,
+            cm[5] / 3.0,
+            cm[6] / 50.0,
+            (cm[7] - 100.0) / 10.0,
+        ], dtype=np.float32)
+    except Exception as exc:
+        logging.debug("rl.inference: cross-market failed: %s", exc)
+    return np.concatenate([enc, cm_scaled]).astype(np.float32)
 
 
 def _build_observation(
@@ -78,6 +154,11 @@ def _build_observation(
     session_label: str,
     kalshi_probs: Optional[Dict[str, float]] = None,
     max_bars: int = 50,
+    # v2 obs inputs — only consumed when the loaded policy is extended-obs.
+    # Ignored for v1 policies (so callers can pass them unconditionally).
+    trade_id: Any = None,
+    entry_time: Any = None,
+    entry_bar_idx: Optional[int] = None,
 ) -> np.ndarray:
     """Assemble a 172-dim observation exactly matching the training env's
     layout. The bar tape is computed from the TAIL of bars_df (the most
@@ -121,9 +202,26 @@ def _build_observation(
         running_peak_pnl_pts / orig_sl_dist,
         running_trough_pnl_pts / orig_sl_dist,
     ], dtype=np.float32)
-    obs = np.concatenate([tape, ts, reg, sess, kals, pt]).astype(np.float32)
+    parts = [tape, ts, reg, sess, kals, pt]
+    if _POLICY_OBS_DIM == OBS_DIM_EXTENDED:
+        # v2: append cached (or freshly computed) encoder + cross-market
+        # augmentation. These are episode-level features fixed at entry,
+        # so we cache per-trade and reuse across every step.
+        aug = None
+        if trade_id is not None and trade_id in _V2_TRADE_CACHE:
+            aug = _V2_TRADE_CACHE[trade_id].get("aug")
+        if aug is None and entry_time is not None and entry_bar_idx is not None:
+            aug = _compute_v2_augmentation(bars_df, entry_time, int(entry_bar_idx))
+            if trade_id is not None:
+                _V2_TRADE_CACHE[trade_id] = {"aug": aug}
+        if aug is None:
+            # Degrade gracefully if caller didn't pass v2 inputs — zeros
+            # match the "no signal" regime rather than an assert crash.
+            aug = np.zeros(ENCODER_DIM + CROSS_MARKET_DIM, dtype=np.float32)
+        parts.append(aug)
+    obs = np.concatenate(parts).astype(np.float32)
     np.clip(obs, -10.0, 10.0, out=obs)
-    assert obs.shape == (OBS_DIM,), f"obs dim {obs.shape} != {OBS_DIM}"
+    assert obs.shape == (_POLICY_OBS_DIM,), f"obs dim {obs.shape} != {_POLICY_OBS_DIM}"
     return obs
 
 

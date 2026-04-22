@@ -54,6 +54,10 @@ artifacts/signal_gate_2025/model_rl_management.zip
 !artifacts/signal_gate_2025/model_lfo_v2.joblib
 !artifacts/signal_gate_2025/model_kalshi_tp_gate_v2.joblib
 !artifacts/signal_gate_2025/model_pivot_trail_v2.joblib
+!artifacts/signal_gate_2025/model_pct_overlay_v2.joblib
+# v2 RL policy (extended obs: encoder + cross-market — PROMOTED to canonical,
+# but we also commit the _v2 sibling for repro)
+!artifacts/signal_gate_2025/model_rl_management_v2.zip
 # Cross-market data (continuous non-adjusted)
 !data/mnq_master_continuous.parquet
 !data/vix_daily.parquet

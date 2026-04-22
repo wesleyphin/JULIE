@@ -25,8 +25,14 @@ from rl.baseline_policy import (
 )
 
 
-def evaluate_sb3(model, episodes):
-    env = TradeManagementEnv(episodes, seed=123)
+def evaluate_sb3(model, episodes, *, extended_obs=None):
+    # Auto-detect from the loaded model's obs_space unless caller is explicit.
+    if extended_obs is None:
+        try:
+            extended_obs = (int(model.observation_space.shape[0]) == 212)
+        except Exception:
+            extended_obs = False
+    env = TradeManagementEnv(episodes, seed=123, extended_obs=extended_obs)
     pnls, bars_held = [], []
     action_counts = {i: 0 for i in range(7)}
     for i in range(len(episodes)):
@@ -53,7 +59,12 @@ def evaluate_sb3(model, episodes):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default=str(ROOT / "artifacts" / "signal_gate_2025" / "model_rl_management.zip"))
+    ap.add_argument("--model", default=str(ROOT / "artifacts" / "signal_gate_2025" / "model_rl_management.zip"),
+                    help="Primary PPO model to score (v1 by default).")
+    ap.add_argument("--model-v2", default=None,
+                    help="Optional second PPO model to score head-to-head "
+                         "(e.g. artifacts/signal_gate_2025/model_rl_management_v2.zip). "
+                         "Auto-detects extended_obs=True from its observation space.")
     ap.add_argument("--subset", type=int, default=0, help="Evaluate first N episodes only (0=all)")
     args = ap.parse_args()
 
@@ -73,7 +84,15 @@ def main():
 
     from stable_baselines3 import PPO
     model = PPO.load(args.model, device="cpu")
-    results["PPO"] = evaluate_sb3(model, episodes)
+    v1_name = "PPO_v2" if int(model.observation_space.shape[0]) == 212 else "PPO"
+    results[v1_name] = evaluate_sb3(model, episodes)
+    if args.model_v2:
+        model_v2 = PPO.load(args.model_v2, device="cpu")
+        v2_name = "PPO_v2" if int(model_v2.observation_space.shape[0]) == 212 else "PPO"
+        # Avoid name collision if both somehow end up the same
+        if v2_name in results:
+            v2_name = v2_name + "_b"
+        results[v2_name] = evaluate_sb3(model_v2, episodes)
 
     print()
     print(f"{'policy':<14}{'n':>5}{'total_PnL':>12}{'mean_$':>10}"

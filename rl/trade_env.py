@@ -91,8 +91,19 @@ REGIME_DIM = 4
 SESSION_DIM = 6
 KALSHI_DIM = 3
 PEAK_TROUGH_DIM = 2
+# v1 obs (172-dim) — default for back-compat with model_rl_management.zip
 OBS_DIM = BAR_TAPE_DIM + TRADE_STATE_DIM + REGIME_DIM + SESSION_DIM + KALSHI_DIM + PEAK_TROUGH_DIM
 assert OBS_DIM == 172, f"OBS_DIM mismatch: got {OBS_DIM}, expected 172"
+
+# v2 obs extensions (opt-in via extended_obs=True at env construction):
+#   + 32-dim bar-sequence encoder embedding (rl.bar_encoder on ep.bars
+#     ending at the entry bar)
+#   + 8-dim cross-market features (rl.cross_market at ep.entry_time,
+#     using ep.bars as the MES reference for correlation)
+ENCODER_DIM = 32
+CROSS_MARKET_DIM = 8
+OBS_DIM_EXTENDED = OBS_DIM + ENCODER_DIM + CROSS_MARKET_DIM  # 212
+assert OBS_DIM_EXTENDED == 212, f"OBS_DIM_EXTENDED mismatch: got {OBS_DIM_EXTENDED}"
 
 MAX_BARS_HELD = 50
 
@@ -238,6 +249,7 @@ class TradeManagementEnv(gym.Env):
         holding_time_penalty: float = 0.01,
         reward_scale: float = 50.0,   # divide terminal $ by this
         seed: Optional[int] = None,
+        extended_obs: bool = False,
     ):
         super().__init__()
         assert episodes, "at least one episode required"
@@ -245,13 +257,19 @@ class TradeManagementEnv(gym.Env):
         self.max_bars = max_bars
         self.holding_time_penalty = holding_time_penalty
         self.reward_scale = reward_scale
+        self.extended_obs = bool(extended_obs)
 
         self.action_space = spaces.Discrete(7)
         # Observations are clamped to a sane range; actual values rarely
         # exceed ±20 on normalized features.
+        _dim = OBS_DIM_EXTENDED if self.extended_obs else OBS_DIM
         self.observation_space = spaces.Box(
-            low=-10.0, high=10.0, shape=(OBS_DIM,), dtype=np.float32
+            low=-10.0, high=10.0, shape=(_dim,), dtype=np.float32
         )
+        # Cached per-episode augmentation (recomputed on reset if
+        # extended_obs=True). Zero when v1 obs requested.
+        self._cached_encoder: np.ndarray = np.zeros(ENCODER_DIM, dtype=np.float32)
+        self._cached_cross_market: np.ndarray = np.zeros(CROSS_MARKET_DIM, dtype=np.float32)
         self._rng = np.random.default_rng(seed)
         self._current_idx: Optional[int] = None
         self._ep: Optional[Episode] = None
@@ -310,6 +328,11 @@ class TradeManagementEnv(gym.Env):
         self._mae_pts = 0.0
         self._realized_pnl_dollars = 0.0
         self._done = False
+        # v2 extended obs: cache per-episode encoder embedding + cross-market
+        # features at reset time (episode-level, doesn't change per step)
+        if self.extended_obs:
+            self._cached_encoder = self._compute_encoder_embedding(ep)
+            self._cached_cross_market = self._compute_cross_market_features(ep)
         obs = self._build_obs()
         info = {"episode_idx": self._current_idx, "trade_id": ep.trade_id}
         return obs, info
@@ -564,10 +587,73 @@ class TradeManagementEnv(gym.Env):
             self._running_peak_pnl_pts / sl_dist_norm,
             self._running_trough_pnl_pts / sl_dist_norm,
         ], dtype=np.float32)
-        obs = np.concatenate([tape, ts, reg, sess, kals, pt]).astype(np.float32)
+        parts = [tape, ts, reg, sess, kals, pt]
+        if self.extended_obs:
+            # Encoder embedding normalized to ~[-3, 3]; raw values tend to be small.
+            parts.append(self._cached_encoder)
+            # Cross-market: rescale to ~[-1, 1] so the policy sees comparable magnitudes.
+            # vix_level / dxy_level are O(10-100); pct returns are O(1).
+            cm = self._cached_cross_market
+            cm_scaled = np.array([
+                cm[0] / 2.0,          # mnq_ret_5min_pct  (clip-range ±2 → ±1)
+                cm[1] / 5.0,          # mnq_ret_30min_pct (±5 → ±1)
+                (cm[2] - 0.5) * 2.0,  # mes_mnq_corr_30bar (0.5→0, ±0.5→±1)
+                cm[3] / 5.0,          # mes_mnq_divergence_pct (±5 → ±1)
+                (cm[4] - 16.0) / 16.0,  # vix_level (16=0, 32=+1)
+                cm[5] / 3.0,          # vix_regime_code 0..3 → 0..1
+                cm[6] / 50.0,         # vix_rate_of_change_5d (±50 → ±1)
+                (cm[7] - 100.0) / 10.0,  # dxy_level (100=0, 110=+1)
+            ], dtype=np.float32)
+            parts.append(cm_scaled)
+        obs = np.concatenate(parts).astype(np.float32)
         # Clip for numerical stability
         np.clip(obs, -10.0, 10.0, out=obs)
         return obs
+
+    # -------- v2 obs helpers --------
+    def _compute_encoder_embedding(self, ep) -> np.ndarray:
+        """Return 32-dim bar-sequence embedding ending at the entry bar.
+        Returns zeros on any failure (missing encoder, degenerate bars, etc).
+        """
+        try:
+            from rl.bar_encoder import BarEncoder, encode as _enc_fn
+            from pathlib import Path
+            import torch
+            # Lazy-load the shared encoder module-global so we don't
+            # reload the .pt on every reset. Cached on the class.
+            enc = getattr(TradeManagementEnv, "_bar_encoder_model", None)
+            if enc is None:
+                ckpt_path = Path(__file__).resolve().parents[1] / "artifacts" / "signal_gate_2025" / "bar_encoder.pt"
+                if not ckpt_path.exists():
+                    return np.zeros(ENCODER_DIM, dtype=np.float32)
+                ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+                enc = BarEncoder(
+                    seq_len=int(ckpt.get("seq_len", 60)),
+                    embed_dim=int(ckpt.get("embed_dim", 32)),
+                )
+                enc.load_state_dict(ckpt["state_dict"])
+                enc.eval()
+                TradeManagementEnv._bar_encoder_model = enc
+            # End index = the entry bar — the agent only "sees" bars up to
+            # and including entry, not the post-entry future we're trying
+            # to decide about.
+            end_idx = self._entry_bar_idx
+            if end_idx <= 0 or end_idx >= len(ep.bars):
+                return np.zeros(ENCODER_DIM, dtype=np.float32)
+            return _enc_fn(enc, ep.bars, end_idx).astype(np.float32)
+        except Exception:
+            return np.zeros(ENCODER_DIM, dtype=np.float32)
+
+    def _compute_cross_market_features(self, ep) -> np.ndarray:
+        """Return 8-dim cross-market feature vector at ep.entry_time.
+        Order matches rl.cross_market.CROSS_MARKET_FEATURE_KEYS.
+        """
+        try:
+            from rl.cross_market import get_cross_market_features, CROSS_MARKET_FEATURE_KEYS
+            feats = get_cross_market_features(ep.entry_time, mes_bars=ep.bars)
+            return np.array([float(feats.get(k, 0.0)) for k in CROSS_MARKET_FEATURE_KEYS], dtype=np.float32)
+        except Exception:
+            return np.zeros(CROSS_MARKET_DIM, dtype=np.float32)
 
 
 def _clone_episode_with(ep: Episode, **overrides) -> Episode:

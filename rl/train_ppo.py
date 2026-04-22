@@ -47,9 +47,9 @@ OUT_MODEL = ROOT / "artifacts" / "signal_gate_2025" / "model_rl_management.zip"
 OUT_META = ROOT / "rl" / "rl_management_metadata.json"
 
 
-def make_env(episodes, seed=None):
+def make_env(episodes, seed=None, extended_obs=False):
     def _thunk():
-        env = TradeManagementEnv(episodes, seed=seed)
+        env = TradeManagementEnv(episodes, seed=seed, extended_obs=extended_obs)
         return env
     return _thunk
 
@@ -60,9 +60,9 @@ def temporal_split(episodes, train_frac=0.85):
     return episodes_sorted[:split], episodes_sorted[split:]
 
 
-def evaluate_sb3_policy(model, episodes, n=None):
+def evaluate_sb3_policy(model, episodes, n=None, extended_obs=False):
     """Evaluate a trained sb3 PPO model on episodes. Return per-episode PnL."""
-    env = TradeManagementEnv(episodes, seed=123)
+    env = TradeManagementEnv(episodes, seed=123, extended_obs=extended_obs)
     n = n or len(episodes)
     pnls, rewards, bars_held = [], [], []
     action_counts = {i: 0 for i in range(7)}
@@ -105,6 +105,10 @@ def main():
     ap.add_argument("--ent-coef", type=float, default=0.01, help="Entropy coeff (higher = more exploration)")
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--device", default="auto")
+    ap.add_argument("--extended-obs", action="store_true",
+                    help="v2 obs: add 32-dim encoder embedding + 8-dim "
+                         "cross-market features to observation (obs_dim 172→212). "
+                         "Saves to model_rl_management_v2.zip")
     args = ap.parse_args()
 
     print(f"[load] episodes from {EP_PKL}")
@@ -125,8 +129,10 @@ def main():
 
     # Build vectorized training env (DummyVecEnv for simplicity; SubprocVecEnv
     # has pickling issues with large episodes list)
-    print(f"\n[ppo] building vec env with n_envs={args.n_envs}")
-    vec_env = DummyVecEnv([make_env(train_eps, seed=args.seed + i) for i in range(args.n_envs)])
+    print(f"\n[ppo] building vec env with n_envs={args.n_envs}  extended_obs={args.extended_obs}")
+    vec_env = DummyVecEnv([make_env(train_eps, seed=args.seed + i,
+                                     extended_obs=args.extended_obs)
+                           for i in range(args.n_envs)])
 
     model = PPO(
         "MlpPolicy", vec_env,
@@ -153,7 +159,7 @@ def main():
 
     # Evaluate on validation split
     print("\n[eval] deterministic PPO on validation:")
-    ppo_stats = evaluate_sb3_policy(model, val_eps)
+    ppo_stats = evaluate_sb3_policy(model, val_eps, extended_obs=args.extended_obs)
     print(f"  PPO:        n={ppo_stats['n']}  total=${ppo_stats['total_pnl']:+,.0f}  mean=${ppo_stats['mean_pnl']:+.2f}  WR={ppo_stats['win_rate']*100:.1f}%  bars={ppo_stats['mean_bars_held']:.1f}")
 
     # Action distribution
@@ -169,12 +175,20 @@ def main():
     print(f"\n[delta]   vs AlwaysHold: ${delta_vs_hold:+,.0f}")
     print(f"          vs DE3-like:   ${delta_vs_de3:+,.0f}")
 
-    # Save model + metadata
-    OUT_MODEL.parent.mkdir(parents=True, exist_ok=True)
-    model.save(str(OUT_MODEL))
+    # Save model + metadata — write to _v2.zip when extended_obs is on so
+    # we don't clobber the canonical v1 policy. Promote by renaming if v2 wins.
+    out_model = OUT_MODEL
+    out_meta = OUT_META
+    if args.extended_obs:
+        out_model = out_model.with_name(out_model.stem + "_v2" + out_model.suffix)
+        out_meta = out_meta.with_name(out_meta.stem + "_v2" + out_meta.suffix)
+    out_model.parent.mkdir(parents=True, exist_ok=True)
+    model.save(str(out_model))
+    from rl.trade_env import OBS_DIM_EXTENDED as _OBS_DIM_EXTENDED
     meta = {
-        "model_kind": "PPO_MlpPolicy_trade_mgmt",
-        "obs_dim": OBS_DIM,
+        "model_kind": "PPO_MlpPolicy_trade_mgmt" + ("_v2_extended_obs" if args.extended_obs else ""),
+        "obs_dim": _OBS_DIM_EXTENDED if args.extended_obs else OBS_DIM,
+        "extended_obs": args.extended_obs,
         "n_actions": 7,
         "action_names": ACTION_NAMES,
         "training": {
@@ -195,10 +209,10 @@ def main():
         "delta_vs_hold": delta_vs_hold,
         "delta_vs_de3": delta_vs_de3,
     }
-    with OUT_META.open("w") as fh:
+    with out_meta.open("w") as fh:
         json.dump(meta, fh, indent=2, default=str)
-    print(f"\n[write] {OUT_MODEL}")
-    print(f"[write] {OUT_META}")
+    print(f"\n[write] {out_model}")
+    print(f"[write] {out_meta}")
 
 
 if __name__ == "__main__":

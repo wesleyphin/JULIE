@@ -11391,6 +11391,21 @@ async def run_bot():
                                         _rl_atr = float(sum(_rl_trs) / max(1, len(_rl_trs))) if _rl_trs else 1.0
                                     except Exception:
                                         _rl_atr = 1.0
+                                    # v2 inputs — harmless when canonical is v1,
+                                    # consumed when v2 policy is loaded (obs_dim=212).
+                                    _rl_entry_time = trade.get("entry_time")
+                                    _rl_entry_bar_idx = None
+                                    if _rl_entry_time is not None:
+                                        try:
+                                            _rl_entry_bar_idx = int(new_df.index.get_loc(_rl_entry_time))
+                                        except Exception:
+                                            try:
+                                                import numpy as _np_local
+                                                _arr = new_df.index.to_numpy()
+                                                _mask = _arr >= _np_local.datetime64(_rl_entry_time)
+                                                _rl_entry_bar_idx = int(_np_local.argmax(_mask)) if _mask.any() else None
+                                            except Exception:
+                                                _rl_entry_bar_idx = None
                                     _rl_result = _mls_rl.score_rl_management(
                                         bars_df=new_df,
                                         entry_price=_rl_entry,
@@ -11408,6 +11423,9 @@ async def run_bot():
                                         regime_label=_rl_reg,
                                         session_label=_rl_sess,
                                         kalshi_probs=None,
+                                        trade_id=id(trade),
+                                        entry_time=_rl_entry_time,
+                                        entry_bar_idx=_rl_entry_bar_idx,
                                     )
                                     if _rl_result is not None:
                                         _rl_action, _rl_name = _rl_result
