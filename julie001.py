@@ -1443,6 +1443,19 @@ def _apply_kalshi_trade_overlay_to_signal(
         signal["kalshi_trade_overlay_reason"] = "disabled"
         return True
 
+    # v5.3: Kalshi is net-negative for DE3 across 5 validated months
+    # (-$238 cross-month on DE3, helpful on AF/RA/neutral otherwise).
+    # DE3's 10pt/25pt bracket horizon doesn't match Kalshi's settlement-hour
+    # logic, so skip it for DE3 signals. Toggle via env if you want to test.
+    _strat = str(signal.get("strategy", "") or "").strip()
+    if (_strat.startswith("DynamicEngine3") and
+        os.environ.get("JULIE_KALSHI_ON_DE3", "0").strip() != "1"):
+        signal["kalshi_trade_overlay_applied"] = False
+        signal["kalshi_trade_overlay_reason"] = "disabled_for_de3"
+        signal["kalshi_entry_blocked"] = False
+        signal["kalshi_tp_trail_enabled"] = False
+        return True
+
     signal.setdefault("entry_price", _coerce_float(signal.get("entry_price"), current_price))
     kalshi = _get_kalshi_provider()
 

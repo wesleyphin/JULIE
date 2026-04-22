@@ -241,10 +241,41 @@ _REGIME_THR_MULT = {
     "warmup":     1.0,
 }
 
+# v5.2: session-adaptive threshold. Extends the regime multiplier with a
+# drawdown-state multiplier. When the strategy has already made money today,
+# be more lenient with the G gate (let winners run). When it's already in
+# drawdown, be more aggressive (stop the bleeding).
+# Based on backtest analysis of regression cases (Aug/Nov 2025):
+#   cum_day_pnl > +$100 → mult 1.25 (more lenient — don't clip a winning day)
+#   cum_day_pnl <= -$200 → mult 0.80 (more aggressive — catch the losers)
+#   otherwise           → mult 1.00
+_SESSION_LENIENT_PNL     = float(os.environ.get("JULIE_GATE_LENIENT_PNL", "100"))
+_SESSION_AGGRESSIVE_PNL  = float(os.environ.get("JULIE_GATE_AGGRESSIVE_PNL", "-200"))
+_SESSION_LENIENT_MULT    = float(os.environ.get("JULIE_GATE_LENIENT_MULT", "1.25"))
+_SESSION_AGGRESSIVE_MULT = float(os.environ.get("JULIE_GATE_AGGRESSIVE_MULT", "0.80"))
 
-def _effective_threshold(base_thr: float, regime: str = "") -> Tuple[float, float]:
-    """Apply regime multiplier to a gate's base threshold. Returns (effective, multiplier)."""
-    mult = _REGIME_THR_MULT.get(str(regime or "").lower(), 1.0)
+
+def _session_multiplier(cum_day_pnl: float) -> float:
+    if cum_day_pnl is None:
+        return 1.0
+    try:
+        cp = float(cum_day_pnl)
+    except Exception:
+        return 1.0
+    if cp >= _SESSION_LENIENT_PNL:
+        return _SESSION_LENIENT_MULT
+    if cp <= _SESSION_AGGRESSIVE_PNL:
+        return _SESSION_AGGRESSIVE_MULT
+    return 1.0
+
+
+def _effective_threshold(base_thr: float, regime: str = "",
+                         cum_day_pnl: float = 0.0) -> Tuple[float, float]:
+    """Apply regime × session multipliers to a gate's base threshold.
+    Returns (effective, combined_multiplier)."""
+    regime_mult = _REGIME_THR_MULT.get(str(regime or "").lower(), 1.0)
+    session_mult = _session_multiplier(cum_day_pnl)
+    mult = regime_mult * session_mult
     return float(base_thr) * mult, mult
 
 
@@ -256,13 +287,19 @@ def should_veto_signal(
     bar_features: Dict[str, float],
     strategy: str = "DynamicEngine3",
     mkt_regime: str = "",
+    cum_day_pnl: float = 0.0,
 ) -> Tuple[bool, str]:
     """Active-veto path. Picks the per-strategy model and applies its threshold.
     No-op (returns False) if there's no model for this strategy family.
 
     mkt_regime: the GLOBAL regime classifier label ("neutral" / "whipsaw" /
-    "calm_trend") — used to adapt the veto threshold. Callers that don't pass
-    it will fall through to the base threshold (same as pre-v5 behavior).
+    "calm_trend") — used to adapt the veto threshold.
+    cum_day_pnl: cumulative realized PnL for this strategy today before this
+    trade. Used for session-adaptive thresholding (v5.2) — if the strategy is
+    already up $100+ today, G stands down a bit; if it's down $200+, G becomes
+    more aggressive.
+
+    Callers that don't pass the new kwargs fall through at 1.0× (v4 behavior).
     """
     family = _strategy_family(strategy)
     payload = _GATES.get(family)
@@ -273,9 +310,9 @@ def should_veto_signal(
     if p is None:
         return False, ""
     base_thr = float(payload.get("veto_threshold", 0.35))
-    eff_thr, mult = _effective_threshold(base_thr, mkt_regime)
+    eff_thr, mult = _effective_threshold(base_thr, mkt_regime, cum_day_pnl)
     if p >= eff_thr:
-        mult_tag = f" x{mult:.2f}[{mkt_regime}]" if mult != 1.0 else ""
+        mult_tag = f" x{mult:.2f}[{mkt_regime} dd=${cum_day_pnl:+.0f}]" if mult != 1.0 else ""
         return True, (
             f"signal_gate_2025[{family}] P(big_loss)={p:.3f} "
             f">= {eff_thr:.3f}{mult_tag}"
