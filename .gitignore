@@ -101,3 +101,4 @@ es_master_outrights.parquet
 # Intermediate training artifacts — keep the ML G bracket training parquet
 # and diagnostic JSON so the training pipeline is reproducible end-to-end
 # from committed artifacts. Stray debug artifacts stay ignored by default.
+ai_loop_data/
