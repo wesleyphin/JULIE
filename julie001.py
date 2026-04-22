@@ -1556,6 +1556,86 @@ def _apply_kalshi_trade_overlay_to_signal(
         support_score=_coerce_float(signal.get("kalshi_entry_support_score"), math.nan),
         threshold=_coerce_float(signal.get("kalshi_entry_threshold"), math.nan),
     )
+    # --- SHADOW: Kalshi ML gate ---
+    # Shadow mode (default): log rule PASS + ML p_win side-by-side.
+    # Live mode (JULIE_ML_KALSHI_ACTIVE=1): flip signal["kalshi_entry_blocked"]=True
+    # when ML says p_win < threshold.
+    try:
+        import ml_overlay_shadow as _mls_k
+        if _mls_k._KALSHI_PAYLOAD is not None and market_df is not None and len(market_df) >= 120:
+            _k_closes = market_df["close"].astype(float).values
+            _k_highs = market_df["high"].astype(float).values
+            _k_lows = market_df["low"].astype(float).values
+            _k_i = len(market_df) - 1
+            _k_atr = float(sum(max(_k_highs[j] - _k_lows[j],
+                                   abs(_k_highs[j] - _k_closes[j - 1]),
+                                   abs(_k_lows[j] - _k_closes[j - 1]))
+                               for j in range(_k_i - 13, _k_i + 1)) / 14.0)
+            _k_r30 = float(_k_highs[_k_i - 29:_k_i + 1].max() - _k_lows[_k_i - 29:_k_i + 1].min())
+            _k_t20 = (_k_closes[_k_i] - _k_closes[_k_i - 20]) / max(1.0, _k_closes[_k_i - 20]) * 100.0
+            _k_hi20 = float(_k_highs[_k_i - 19:_k_i + 1].max())
+            _k_lo20 = float(_k_lows[_k_i - 19:_k_i + 1].min())
+            _k_dh = (_k_closes[_k_i] - _k_hi20) / max(1.0, _k_closes[_k_i]) * 100.0
+            _k_dl = (_k_closes[_k_i] - _k_lo20) / max(1.0, _k_closes[_k_i]) * 100.0
+            _k_v5 = (_k_closes[_k_i] - _k_closes[_k_i - 5]) / 5.0
+            _k_px = _k_closes[_k_i]
+            _k_dbank = min(_k_px - math.floor(_k_px / 12.5) * 12.5,
+                           math.ceil(_k_px / 12.5) * 12.5 - _k_px)
+            # Regime from 120-bar window (mirror regime_classifier.py)
+            _k_win = _k_closes[_k_i - 119:_k_i + 1]
+            _k_rets = (_k_win[1:] - _k_win[:-1]) / _k_win[:-1]
+            _k_mean = float(_k_rets.mean())
+            _k_var = float(((_k_rets - _k_mean) ** 2).sum() / max(1, len(_k_rets) - 1))
+            _k_vol = (_k_var ** 0.5) * 10_000.0
+            _k_abs = float(abs(_k_rets).sum())
+            _k_eff = float(abs(_k_rets.sum()) / _k_abs) if _k_abs > 0 else 0.0
+            if _k_vol > 3.5 and _k_eff < 0.05: _k_regime = "whipsaw"
+            elif _k_eff > 0.12: _k_regime = "calm_trend"
+            else: _k_regime = "neutral"
+            _k_bar_feats = dict(
+                atr14_pts=_k_atr, range_30bar_pts=_k_r30, trend_20bar_pct=_k_t20,
+                dist_to_20bar_hi_pct=_k_dh, dist_to_20bar_lo_pct=_k_dl,
+                vel_5bar_pts_per_min=_k_v5, dist_to_bank_pts=float(_k_dbank),
+                regime_vol_bp=float(_k_vol), regime_eff=float(_k_eff),
+            )
+            # Get ET-hour fraction from the last bar timestamp (simulated time
+            # in replays; wall-clock in live). Falls back to wall-clock if index
+            # is missing tz info.
+            try:
+                _k_last_ts = market_df.index[-1]
+                _k_now = _k_last_ts.to_pydatetime() if hasattr(_k_last_ts, "to_pydatetime") else _k_last_ts
+                if _k_now.tzinfo is None:
+                    _k_now = _k_now.replace(tzinfo=NY_TZ)
+                else:
+                    _k_now = _k_now.astimezone(NY_TZ)
+            except Exception:
+                _k_now = datetime.datetime.now(NY_TZ)
+            _k_et_frac = _k_now.hour + _k_now.minute / 60.0
+            _k_score = _mls_k.score_kalshi(
+                signal, _k_bar_feats,
+                regime=_k_regime,
+                et_hour_frac=_k_et_frac,
+                role=str(signal.get("kalshi_trade_overlay_role", "") or "unknown"),
+            )
+            if _k_score is not None:
+                _k_p_win, _k_pred_pnl, _k_should_pass = _k_score
+                logging.info(
+                    "[SHADOW_KALSHI] rule=PASS ml_p_win=%.3f ml_pred_pnl=%.2f ml=%s "
+                    "strat=%s side=%s regime=%s support=%.3f thr=%.3f",
+                    _k_p_win, _k_pred_pnl,
+                    "PASS" if _k_should_pass else "BLOCK",
+                    signal.get("strategy", "?"),
+                    signal.get("side", "?"),
+                    _k_regime,
+                    float(_coerce_float(signal.get("kalshi_entry_support_score"), 0.0)),
+                    float(_coerce_float(signal.get("kalshi_entry_threshold"), 0.0)),
+                )
+                if _mls_k.is_kalshi_live_active() and not _k_should_pass:
+                    signal["kalshi_entry_blocked"] = True
+                    signal["kalshi_entry_block_reason"] = f"ml_kalshi p_win={_k_p_win:.3f} < thr"
+                    return False
+    except Exception as _k_exc:
+        logging.debug("ml kalshi shadow err: %s", _k_exc)
     size_multiplier = _coerce_float(plan.get("size_multiplier"), 1.0)
     base_size = max(1, _coerce_int(signal.get("size"), 1) or 1)
     if size_multiplier < 0.999:
@@ -10894,6 +10974,102 @@ async def run_bot():
                                 pivot_bar_index=_pt_pivot_bar_index,
                             )
                             if _pt_new_sl is not None:
+                                # --- SHADOW/LIVE: ML pivot-trail gate ---
+                                # Shadow mode (default): score and log both decisions;
+                                #   always trail (rule behavior).
+                                # Live mode (JULIE_ML_PIVOT_TRAIL_ACTIVE=1): only trail
+                                #   when ML says the pivot will hold.
+                                _pt_ml_skip = False
+                                try:
+                                    import ml_overlay_shadow as _mls_pv
+                                    if _mls_pv._PIVOT_PAYLOAD is not None and len(new_df) >= 21:
+                                        _pt_type = "HIGH" if _pt_pivot_high is not None else "LOW"
+                                        _pt_ppx = float(_pt_pivot_high if _pt_pivot_high is not None else _pt_pivot_low)
+                                        _pt_anchor_c = (
+                                            math.floor(_pt_ppx / _BANK_FILL_STEP) * _BANK_FILL_STEP
+                                            if _pt_type == "HIGH"
+                                            else math.ceil(_pt_ppx / _BANK_FILL_STEP) * _BANK_FILL_STEP
+                                        )
+                                        _pt_anchor_b = (
+                                            _pt_anchor_c - _BANK_FILL_STEP
+                                            if _pt_type == "HIGH"
+                                            else _pt_anchor_c + _BANK_FILL_STEP
+                                        )
+                                        # Pivot bar = center of 5-bar lookback window
+                                        _pt_center_i = max(0, len(new_df) - 1 - (_PIVOT_TRAIL_LOOKBACK // 2))
+                                        _pt_bar = new_df.iloc[_pt_center_i]
+                                        _pt_closes = new_df["close"].astype(float).values
+                                        _pt_highs = new_df["high"].astype(float).values
+                                        _pt_lows = new_df["low"].astype(float).values
+                                        _pt_i = len(new_df) - 1
+                                        _pt_atr14 = (
+                                            float(sum(max(_pt_highs[k] - _pt_lows[k],
+                                                          abs(_pt_highs[k] - _pt_closes[k - 1]),
+                                                          abs(_pt_lows[k] - _pt_closes[k - 1]))
+                                                      for k in range(_pt_i - 13, _pt_i + 1)) / 14)
+                                            if _pt_i >= 14 else 0.0
+                                        )
+                                        _pt_r30 = float(_pt_highs[max(0, _pt_i - 29):_pt_i + 1].max()
+                                                        - _pt_lows[max(0, _pt_i - 29):_pt_i + 1].min()) if _pt_i >= 5 else 0.0
+                                        _pt_t20 = (
+                                            (_pt_closes[_pt_i] - _pt_closes[_pt_i - 20]) / max(1.0, _pt_closes[_pt_i - 20]) * 100.0
+                                            if _pt_i >= 20 else 0.0
+                                        )
+                                        _pt_hi20 = float(_pt_highs[_pt_i - 19:_pt_i + 1].max()) if _pt_i >= 20 else float(_pt_highs[_pt_i])
+                                        _pt_lo20 = float(_pt_lows[_pt_i - 19:_pt_i + 1].min()) if _pt_i >= 20 else float(_pt_lows[_pt_i])
+                                        _pt_dh = (_pt_closes[_pt_i] - _pt_hi20) / max(1.0, _pt_closes[_pt_i]) * 100.0
+                                        _pt_dl = (_pt_closes[_pt_i] - _pt_lo20) / max(1.0, _pt_closes[_pt_i]) * 100.0
+                                        _pt_v5 = (_pt_closes[_pt_i] - _pt_closes[_pt_i - 5]) / 5.0 if _pt_i >= 5 else 0.0
+                                        _pt_v20 = (_pt_closes[_pt_i] - _pt_closes[_pt_i - 20]) / 20.0 if _pt_i >= 20 else 0.0
+                                        # Tape classifier (same as trainer)
+                                        _pt_span = (_pt_r30 / max(1.0, _pt_closes[_pt_i])) * 100.0
+                                        if _pt_span < 0.15:
+                                            _pt_tape = "chop"
+                                        elif _pt_t20 >= 0.15:
+                                            _pt_tape = "uptrend"
+                                        elif _pt_t20 <= -0.15:
+                                            _pt_tape = "downtrend"
+                                        else:
+                                            _pt_tape = "chop"
+                                        _pt_et_hour = current_time.astimezone(NY_TZ).hour
+                                        if 18 <= _pt_et_hour or _pt_et_hour < 3: _pt_sess = "ASIA"
+                                        elif 3 <= _pt_et_hour < 7: _pt_sess = "LONDON"
+                                        elif 7 <= _pt_et_hour < 9: _pt_sess = "NY_PRE"
+                                        elif 9 <= _pt_et_hour < 12: _pt_sess = "NY_AM"
+                                        elif 12 <= _pt_et_hour < 16: _pt_sess = "NY_PM"
+                                        else: _pt_sess = "POST"
+                                        _pt_score = _mls_pv.score_pivot_trail(
+                                            _pt_type, _pt_ppx,
+                                            float(_pt_bar["open"]), float(_pt_bar["high"]),
+                                            float(_pt_bar["low"]), float(_pt_bar["close"]),
+                                            atr14_pts=_pt_atr14,
+                                            range_30bar_pts=_pt_r30,
+                                            trend_20bar_pct=_pt_t20,
+                                            dist_to_20bar_hi_pct=_pt_dh,
+                                            dist_to_20bar_lo_pct=_pt_dl,
+                                            vel_5bar_pts_per_min=_pt_v5,
+                                            vel_20bar_pts_per_min=_pt_v20,
+                                            anchor_c=_pt_anchor_c,
+                                            anchor_b=_pt_anchor_b,
+                                            session=_pt_sess,
+                                            tape=_pt_tape,
+                                            et_hour=_pt_et_hour,
+                                        )
+                                        if _pt_score is not None:
+                                            _pt_p_hold, _pt_ml_ratchet = _pt_score
+                                            logging.info(
+                                                "[SHADOW_PIVOT] type=%s px=%.2f sl=%.2f rule=RATCHET "
+                                                "ml_p_hold=%.3f ml=%s",
+                                                _pt_type, _pt_ppx, _pt_new_sl,
+                                                _pt_p_hold,
+                                                "RATCHET" if _pt_ml_ratchet else "SKIP",
+                                            )
+                                            if _mls_pv.is_pivot_trail_live_active() and not _pt_ml_ratchet:
+                                                _pt_ml_skip = True
+                                except Exception as _pt_shadow_exc:
+                                    logging.debug("ml pivot shadow err: %s", _pt_shadow_exc)
+                                if _pt_ml_skip:
+                                    continue  # ML says pivot won't hold — skip ratchet this bar
                                 _pt_result = _apply_pivot_trail_sl(
                                     client,
                                     trade,

@@ -23,6 +23,8 @@ _ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts" / "signal_gate_202
 # Loaded on demand
 _LFO_PAYLOAD: Optional[Dict[str, Any]] = None
 _PCT_PAYLOAD: Optional[Dict[str, Any]] = None
+_PIVOT_PAYLOAD: Optional[Dict[str, Any]] = None
+_KALSHI_PAYLOAD: Optional[Dict[str, Any]] = None  # dual clf+reg v3 payload
 
 
 def _try_load(fname: str) -> Optional[Dict[str, Any]]:
@@ -37,11 +39,16 @@ def _try_load(fname: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def init_ml_overlays() -> Tuple[bool, bool]:
-    """Eager-load both models. Returns (lfo_loaded, pct_loaded)."""
-    global _LFO_PAYLOAD, _PCT_PAYLOAD
+def init_ml_overlays() -> Tuple[bool, bool, bool, bool]:
+    """Eager-load all four ML overlay models.
+
+    Returns (lfo_loaded, pct_loaded, pivot_loaded, kalshi_loaded).
+    """
+    global _LFO_PAYLOAD, _PCT_PAYLOAD, _PIVOT_PAYLOAD, _KALSHI_PAYLOAD
     _LFO_PAYLOAD = _try_load("model_lfo.joblib")
     _PCT_PAYLOAD = _try_load("model_pct_overlay.joblib")
+    _PIVOT_PAYLOAD = _try_load("model_pivot_trail.joblib")
+    _KALSHI_PAYLOAD = _try_load("model_kalshi_gate.joblib")
     if _LFO_PAYLOAD:
         logging.info(
             "ml_overlay_shadow: LFO model loaded — %d features, thr=%.3f, cv_auc=%.3f",
@@ -54,7 +61,27 @@ def init_ml_overlays() -> Tuple[bool, bool]:
             len(_PCT_PAYLOAD["feature_names"]),
             _PCT_PAYLOAD.get("cv_auc_mean", 0.0),
         )
-    return _LFO_PAYLOAD is not None, _PCT_PAYLOAD is not None
+    if _PIVOT_PAYLOAD:
+        logging.info(
+            "ml_overlay_shadow: Pivot-trail model loaded — %d features, thr=%.3f, cv_auc=%.3f",
+            len(_PIVOT_PAYLOAD["feature_names"]),
+            _PIVOT_PAYLOAD.get("hold_threshold", 0.55),
+            _PIVOT_PAYLOAD.get("cv_auc_mean", 0.0),
+        )
+    if _KALSHI_PAYLOAD:
+        logging.info(
+            "ml_overlay_shadow: Kalshi-gate model loaded — %d features, rolling_auc=%.3f, "
+            "thr=%.2f (clf+reg dual)",
+            len(_KALSHI_PAYLOAD["feature_names"]),
+            _KALSHI_PAYLOAD.get("rolling_origin_mean_auc", 0.0) or 0.0,
+            _KALSHI_PAYLOAD.get("pass_threshold", 0.50),
+        )
+    return (
+        _LFO_PAYLOAD is not None,
+        _PCT_PAYLOAD is not None,
+        _PIVOT_PAYLOAD is not None,
+        _KALSHI_PAYLOAD is not None,
+    )
 
 
 def _build_row(payload: Dict[str, Any], numeric: Dict[str, float],
@@ -171,9 +198,179 @@ def score_pct_overlay(state: Any) -> Optional[Tuple[float, str]]:
     return p_bo, ml_bias
 
 
+def score_pivot_trail(
+    pivot_type: str,
+    pivot_price: float,
+    bar_open: float,
+    bar_high: float,
+    bar_low: float,
+    bar_close: float,
+    *,
+    atr14_pts: float,
+    range_30bar_pts: float,
+    trend_20bar_pct: float,
+    dist_to_20bar_hi_pct: float,
+    dist_to_20bar_lo_pct: float,
+    vel_5bar_pts_per_min: float,
+    vel_20bar_pts_per_min: float,
+    anchor_c: float,
+    anchor_b: float,
+    session: str,
+    tape: str,
+    et_hour: int,
+    anchor_distance_from_entry_pts: float = 0.0,
+) -> Optional[Tuple[float, bool]]:
+    """Return (p_hold, should_ratchet) for a confirmed swing pivot, or None if
+    model not loaded. ``should_ratchet`` = p_hold >= the payload's default
+    threshold (0.55 by default, tunable via the joblib)."""
+    if _PIVOT_PAYLOAD is None:
+        return None
+    ptype = str(pivot_type).upper()
+    if ptype not in ("HIGH", "LOW"):
+        return None
+    pivot_range = max(1e-9, bar_high - bar_low)
+    upper_wick = (bar_high - max(bar_open, bar_close)) / pivot_range
+    lower_wick = (min(bar_open, bar_close) - bar_low) / pivot_range
+    pivot_body = abs(bar_close - bar_open)
+    pivot_height = abs(pivot_price - (bar_open + bar_close) / 2.0)
+    dist_pivot_to_bank = abs(pivot_price - anchor_c)
+    reading_b_buffer = abs(anchor_c - anchor_b)
+
+    numeric = {
+        "pivot_range_pts": float(pivot_range),
+        "pivot_body_pts": float(pivot_body),
+        "upper_wick_pct": float(upper_wick),
+        "lower_wick_pct": float(lower_wick),
+        "pivot_height_pts": float(pivot_height),
+        "atr14_pts": float(atr14_pts),
+        "range_30bar_pts": float(range_30bar_pts),
+        "trend_20bar_pct": float(trend_20bar_pct),
+        "dist_to_20bar_hi_pct": float(dist_to_20bar_hi_pct),
+        "dist_to_20bar_lo_pct": float(dist_to_20bar_lo_pct),
+        "dist_pivot_to_bank_pts": float(dist_pivot_to_bank),
+        "anchor_distance_from_entry_pts": float(anchor_distance_from_entry_pts),
+        "vel_5bar_pts_per_min": float(vel_5bar_pts_per_min),
+        "vel_20bar_pts_per_min": float(vel_20bar_pts_per_min),
+        "reading_b_buffer_pts": float(reading_b_buffer),
+    }
+    categorical = {
+        "pivot_type": ptype,
+        "session": str(session),
+        "tape": str(tape),
+    }
+    ordinal = {"et_hour": float(et_hour)}
+    X = _build_row(_PIVOT_PAYLOAD, numeric, categorical, ordinal)
+    try:
+        probs = _PIVOT_PAYLOAD["model"].predict_proba(X)[0]
+        classes = list(_PIVOT_PAYLOAD["model"].classes_)
+        if 1 in classes:
+            p_hold = float(probs[classes.index(1)])
+        else:
+            p_hold = 0.5
+    except Exception:
+        return None
+    thr = float(_PIVOT_PAYLOAD.get("hold_threshold", 0.55))
+    return p_hold, (p_hold >= thr)
+
+
+def score_kalshi(
+    signal: Dict[str, Any],
+    bar_features: Dict[str, float],
+    *,
+    regime: str,
+    et_hour_frac: float,
+    role: str,
+) -> Optional[Tuple[float, float, bool]]:
+    """Return (p_win, predicted_pnl, should_pass) for a Kalshi entry decision,
+    or None if model not loaded.
+
+    Expected in signal dict (set by build_kalshi_trade_plan in julie001.py):
+      kalshi_entry_probability, kalshi_probe_probability,
+      kalshi_momentum_delta, kalshi_momentum_retention,
+      kalshi_entry_support_score, kalshi_entry_threshold,
+      kalshi_probe_price, entry_price, side, sub_strategy.
+
+    Expected in bar_features (computed at signal time):
+      atr14_pts, range_30bar_pts, trend_20bar_pct, dist_to_20bar_hi_pct,
+      dist_to_20bar_lo_pct, vel_5bar_pts_per_min, dist_to_bank_pts,
+      regime_vol_bp, regime_eff.
+    """
+    if _KALSHI_PAYLOAD is None:
+        return None
+    try:
+        ep = float(signal.get("entry_price") or 0.0)
+        pp = float(signal.get("kalshi_probe_price") or 0.0)
+    except Exception:
+        return None
+    # Parse DE3 sub_strategy tier/rev/timeframe (mirror train_kalshi_ml parser)
+    sub = str(signal.get("sub_strategy", "") or "")
+    import re
+    m = re.search(r"(?P<tf>5min|15min)_.*?_(?P<direction>Long|Short)_(?P<type>Rev|Mom)_T(?P<tier>\d)", sub)
+    if m:
+        try:
+            tier = int(m.group("tier"))
+        except Exception:
+            tier = 0
+        is_rev = m.group("type") == "Rev"
+        is_5m = m.group("tf") == "5min"
+    else:
+        tier, is_rev, is_5m = 0, False, False
+
+    numeric = {
+        # Kalshi features from signal
+        "entry_probability": float(signal.get("kalshi_entry_probability") or 0.5),
+        "probe_probability": float(signal.get("kalshi_probe_probability") or 0.5),
+        "momentum_delta": float(signal.get("kalshi_momentum_delta") or 0.0),
+        "momentum_retention": float(signal.get("kalshi_momentum_retention") or 1.0),
+        "support_score": float(signal.get("kalshi_entry_support_score") or 0.5),
+        "threshold": float(signal.get("kalshi_entry_threshold") or 0.45),
+        "probe_distance_pts": pp - ep,
+        "et_hour_frac": float(et_hour_frac),
+        # Substrategy-derived
+        "sub_tier": float(tier),
+        "sub_is_rev": 1.0 if is_rev else 0.0,
+        "sub_is_5min": 1.0 if is_5m else 0.0,
+        # Market state from bar_features dict
+        "atr14_pts": float(bar_features.get("atr14_pts", 0.0) or 0.0),
+        "range_30bar_pts": float(bar_features.get("range_30bar_pts", 0.0) or 0.0),
+        "trend_20bar_pct": float(bar_features.get("trend_20bar_pct", 0.0) or 0.0),
+        "dist_to_20bar_hi_pct": float(bar_features.get("dist_to_20bar_hi_pct", 0.0) or 0.0),
+        "dist_to_20bar_lo_pct": float(bar_features.get("dist_to_20bar_lo_pct", 0.0) or 0.0),
+        "vel_5bar_pts_per_min": float(bar_features.get("vel_5bar_pts_per_min", 0.0) or 0.0),
+        "dist_to_bank_pts": float(bar_features.get("dist_to_bank_pts", 0.0) or 0.0),
+        "regime_vol_bp": float(bar_features.get("regime_vol_bp", 0.0) or 0.0),
+        "regime_eff": float(bar_features.get("regime_eff", 0.0) or 0.0),
+    }
+    categorical = {
+        "side": str(signal.get("side", "")).upper(),
+        "role": str(role or "unknown"),
+        "regime": str(regime or "neutral"),
+    }
+    X = _build_row(_KALSHI_PAYLOAD, numeric, categorical, {})
+    try:
+        clf = _KALSHI_PAYLOAD["classifier"]
+        reg = _KALSHI_PAYLOAD["regressor"]
+        probs = clf.predict_proba(X)[0]
+        classes = list(clf.classes_)
+        p_win = float(probs[classes.index(1)]) if 1 in classes else 0.5
+        pred_pnl = float(reg.predict(X)[0])
+    except Exception:
+        return None
+    thr = float(_KALSHI_PAYLOAD.get("pass_threshold", 0.50))
+    return p_win, pred_pnl, (p_win >= thr)
+
+
 def is_lfo_live_active() -> bool:
     return os.environ.get("JULIE_ML_LFO_ACTIVE", "0").strip() == "1"
 
 
 def is_pct_live_active() -> bool:
     return os.environ.get("JULIE_ML_PCT_ACTIVE", "0").strip() == "1"
+
+
+def is_pivot_trail_live_active() -> bool:
+    return os.environ.get("JULIE_ML_PIVOT_TRAIL_ACTIVE", "0").strip() == "1"
+
+
+def is_kalshi_live_active() -> bool:
+    return os.environ.get("JULIE_ML_KALSHI_ACTIVE", "0").strip() == "1"
