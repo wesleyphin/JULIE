@@ -175,6 +175,19 @@ os.environ.setdefault("JULIE_ML_KALSHI_TP_PNL_THR", "0")
 # Set this to "0" to fall back to shadow-only ([SHADOW_RL] log lines);
 # set to "1" (default) for live steering.
 os.environ.setdefault("JULIE_ML_RL_MGMT_ACTIVE", "1")
+
+# --- Kalshi CM-breakout gate v2 (direction-specific ML, AUC 0.77) ---
+# Two GBT classifiers (LONG / SHORT) trained on 125,678 aligned
+# MES+MNQ+VIX 1-min bars with a direct price-direction target
+# ("does MES move ≥5 pts in 30 min in side direction?"). Rolling-origin
+# AUC 0.776 LONG / 0.764 SHORT; p≥0.60 bucket hits 71–74% vs 31% base.
+# When active, v2 replaces both the hand-tuned VIX/MNQ rule and the
+# v1 CM gate for Kalshi override decisions. Guarded by
+# entry_support_score ≥ 0.15 (never overrides catastrophic blocks) and
+# only fires in non-background roles. Set to "0" to demote to
+# shadow-only ([CM_GATE_V2] log lines still emit for observation).
+os.environ.setdefault("JULIE_KALSHI_CM_GATE_V2_ACTIVE", "1")
+
 os.environ.setdefault("JULIE_REGIME_CB_WHIPSAW", "250")
 os.environ.setdefault("JULIE_REGIME_CB_NEUTRAL", "350")
 os.environ.setdefault("JULIE_REGIME_CB_CALM", "500")
