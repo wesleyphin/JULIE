@@ -7009,7 +7009,34 @@ async def run_bot():
     mnq_client = None
     vix_client = None
     if filterless_only_mode:
-        logging.info("Skipping MNQ companion feed and Virtual VIX Client in filterless-only mode.")
+        # Filterless mode previously skipped BOTH clients — but the
+        # 2026-04-22 v2 LFO + v3 RL overlays need live MNQ and VIX
+        # for the cross-market feature block. Initialize both even
+        # in filterless mode; only skip when explicitly opted out.
+        if os.environ.get("JULIE_SKIP_CROSS_MARKET_LIVE", "0").strip() != "1":
+            try:
+                from yahoo_vix_client import YahooVIXClient  # top-level importable
+                mnq_target_symbol = determine_current_contract_symbol(
+                    "MNQ", tz_name=CONFIG.get("TIMEZONE", "US/Eastern")
+                )
+                mnq_client = ProjectXClient(
+                    contract_root="MNQ", target_symbol=mnq_target_symbol
+                )
+                logging.info(
+                    "[cross-market] filterless mode: live MNQ (ProjectX) + "
+                    "VIX (Yahoo) clients enabled for overlay cross-market features."
+                )
+                vix_client = YahooVIXClient(target_symbol="^VIX")
+            except Exception as _cm_exc:
+                logging.warning(
+                    "[cross-market] failed to init live MNQ/VIX clients: %s; "
+                    "v2 overlays will fall back to cached parquets", _cm_exc
+                )
+                mnq_client = None
+                vix_client = None
+        else:
+            logging.info("[cross-market] JULIE_SKIP_CROSS_MARKET_LIVE=1 — "
+                         "using cached MNQ/VIX parquets only")
     else:
         (
             OrbStrategy,
@@ -11445,6 +11472,8 @@ async def run_bot():
                                         trade_id=id(trade),
                                         entry_time=_rl_entry_time,
                                         entry_bar_idx=_rl_entry_bar_idx,
+                                        vix_override_df=master_vix_df,
+                                        mnq_override_df=master_mnq_df,
                                     )
                                     if _rl_result is not None:
                                         _rl_action, _rl_name = _rl_result
@@ -14243,6 +14272,10 @@ async def run_bot():
                                         )
                                     except Exception:
                                         _bars_df = None
+                                # Live cross-market overrides — master_vix_df and
+                                # master_mnq_df are accumulated elsewhere in the
+                                # scan loop; passing them unconditionally is safe
+                                # (v1 payloads + empty frames both ignore).
                                 _ml_score = _mls.score_lfo(
                                     signal=signal,
                                     bar_features=_feats,
@@ -14257,6 +14290,8 @@ async def run_bot():
                                     et_hour=int(currbar.name.hour),
                                     bars_df=_bars_df,
                                     current_time=currbar.name,
+                                    vix_override_df=master_vix_df,
+                                    mnq_override_df=master_mnq_df,
                                 )
                                 if _ml_score is not None:
                                     _p_wait, _thr = _ml_score

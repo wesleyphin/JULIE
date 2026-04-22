@@ -86,11 +86,18 @@ def init_rl_policy() -> bool:
         return False
 
 
-def _compute_v2_augmentation(bars_df, entry_time, entry_bar_idx: int) -> np.ndarray:
+def _compute_v2_augmentation(
+    bars_df, entry_time, entry_bar_idx: int,
+    *, vix_override_df=None, mnq_override_df=None,
+) -> np.ndarray:
     """Return a 40-dim vector: 32-dim encoder embedding + 8-dim cross-market
     features, in the same layout and rescaling the training env applies.
     Returns zeros on any failure so the policy degrades gracefully rather
-    than refusing to score."""
+    than refusing to score.
+
+    vix_override_df / mnq_override_df: live-accumulator DataFrames from
+    the bot (master_vix_df / master_mnq_df) that supplant the cached
+    parquet when they contain fresher data."""
     enc = np.zeros(ENCODER_DIM, dtype=np.float32)
     cm_scaled = np.zeros(CROSS_MARKET_DIM, dtype=np.float32)
     # --- Encoder embedding at the entry bar ---
@@ -117,7 +124,11 @@ def _compute_v2_augmentation(bars_df, entry_time, entry_bar_idx: int) -> np.ndar
     # --- Cross-market features at entry_time ---
     try:
         from rl.cross_market import get_cross_market_features, CROSS_MARKET_FEATURE_KEYS
-        feats = get_cross_market_features(entry_time, mes_bars=bars_df)
+        feats = get_cross_market_features(
+            entry_time, mes_bars=bars_df,
+            vix_override_df=vix_override_df,
+            mnq_override_df=mnq_override_df,
+        )
         cm = np.array([float(feats.get(k, 0.0)) for k in CROSS_MARKET_FEATURE_KEYS], dtype=np.float32)
         # Match TradeManagementEnv._build_obs rescaling exactly
         cm_scaled = np.array([
@@ -159,6 +170,8 @@ def _build_observation(
     trade_id: Any = None,
     entry_time: Any = None,
     entry_bar_idx: Optional[int] = None,
+    vix_override_df: Any = None,
+    mnq_override_df: Any = None,
 ) -> np.ndarray:
     """Assemble a 172-dim observation exactly matching the training env's
     layout. The bar tape is computed from the TAIL of bars_df (the most
@@ -211,7 +224,11 @@ def _build_observation(
         if trade_id is not None and trade_id in _V2_TRADE_CACHE:
             aug = _V2_TRADE_CACHE[trade_id].get("aug")
         if aug is None and entry_time is not None and entry_bar_idx is not None:
-            aug = _compute_v2_augmentation(bars_df, entry_time, int(entry_bar_idx))
+            aug = _compute_v2_augmentation(
+                bars_df, entry_time, int(entry_bar_idx),
+                vix_override_df=vix_override_df,
+                mnq_override_df=mnq_override_df,
+            )
             if trade_id is not None:
                 _V2_TRADE_CACHE[trade_id] = {"aug": aug}
         if aug is None:

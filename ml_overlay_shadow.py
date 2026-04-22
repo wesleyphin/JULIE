@@ -103,13 +103,16 @@ def init_ml_overlays() -> Tuple[bool, bool, bool, bool, bool]:
 # --- Cross-market feature access (Path 4 of smartness roadmap) ---
 # Thin re-export so callers have one import path for all overlay helpers.
 
-def get_cross_market_features(ts_et, *, mes_bars=None):
+def get_cross_market_features(ts_et, *, mes_bars=None,
+                                vix_override_df=None, mnq_override_df=None):
     """Return a stable-schema dict of cross-market features (MNQ / VIX /
     DXY) at timestamp ts_et. Values default to neutral when supporting
     data isn't cached locally. See rl/cross_market.py for the schema."""
     try:
         from rl.cross_market import get_cross_market_features as _impl
-        return _impl(ts_et, mes_bars=mes_bars)
+        return _impl(ts_et, mes_bars=mes_bars,
+                     vix_override_df=vix_override_df,
+                     mnq_override_df=mnq_override_df)
     except Exception as exc:
         logging.debug("get_cross_market_features failed: %s", exc)
         from rl.cross_market import CROSS_MARKET_FEATURE_DEFAULTS
@@ -153,7 +156,9 @@ def score_lfo(signal: Dict[str, Any], bar_features: Dict[str, float],
                session: str, mkt_regime: str, et_hour: int,
                *,
                bars_df: Any = None,
-               current_time: Any = None) -> Optional[Tuple[float, float]]:
+               current_time: Any = None,
+               vix_override_df: Any = None,
+               mnq_override_df: Any = None) -> Optional[Tuple[float, float]]:
     """Return (p_wait_better, veto_threshold) or None if model not loaded.
 
     If the loaded payload was trained with encoder + cross-market features
@@ -188,7 +193,11 @@ def score_lfo(signal: Dict[str, Any], bar_features: Dict[str, float],
                 numeric[f"enc_{i:02d}"] = float(v)
     if _LFO_PAYLOAD.get("uses_cross_market") and current_time is not None:
         try:
-            cm_feats = get_cross_market_features(current_time, mes_bars=bars_df)
+            cm_feats = get_cross_market_features(
+                current_time, mes_bars=bars_df,
+                vix_override_df=vix_override_df,
+                mnq_override_df=mnq_override_df,
+            )
             for k, v in cm_feats.items():
                 numeric[k] = float(v)
         except Exception:
