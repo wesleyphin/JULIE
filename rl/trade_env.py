@@ -123,6 +123,14 @@ TICK_SIZE = 0.25
 FEE_PER_CONTRACT_ROUNDTRIP = 0.74  # approximation
 REVERSE_SIZE_FACTOR = 1.0   # reversal trades same size as original
 
+# Slippage applied on INSTANT market-order fills (TAKE_PARTIAL_*, REVERSE).
+# Stop/TP fills assume the bot's resting limit/stop order executed at the
+# documented price, so no slippage there. Value is in points (adverse).
+INSTANT_SLIPPAGE_PTS = TICK_SIZE  # 1 tick of adverse fill = 0.25 pts
+# Per-bar commission/funding drag (approximation of overnight holding,
+# slippage on SL edits, etc.)
+PER_BAR_HOLDING_DRAG_USD = 0.05
+
 
 @dataclass
 class Episode:
@@ -265,7 +273,15 @@ class TradeManagementEnv(gym.Env):
                 self._entry_bar_idx = len(ep.bars) - 1
             else:
                 self._entry_bar_idx = int(np.argmax(mask))
-        self._cur_bar_idx = self._entry_bar_idx  # start AT the entry bar
+        # Start at the bar AFTER entry. An entry executes during the signal
+        # bar (typically filled at next_bar_open by the backtest). Starting
+        # the agent at entry_bar would let it "close" at entry_bar_close which
+        # captures close-vs-open drift the agent didn't earn.
+        self._cur_bar_idx = self._entry_bar_idx + 1
+        if self._cur_bar_idx >= len(ep.bars):
+            # Entry at the last available bar — episode is degenerate, end it
+            self._cur_bar_idx = self._entry_bar_idx
+            self._done = True
         self._bars_held = 0
         self._remaining_size = int(ep.size)
         self._current_sl = float(ep.original_sl_price)
@@ -343,30 +359,32 @@ class TradeManagementEnv(gym.Env):
                 bar = ep.bars.iloc[self._cur_bar_idx]
                 high = float(bar["high"])
                 low = float(bar["low"])
-                # Check SL / TP fills in this bar (conservative: SL fills first)
+                # Check SL / TP fills in this bar (conservative: SL fills first).
+                # These are resting orders → instant_fill=False (no slippage on
+                # top of the documented price).
                 if ep.side == "LONG":
                     if low <= self._current_sl:
-                        fill = self._current_sl  # assume fill at SL price
-                        pnl = self._realize_pnl(fill, self._remaining_size)
+                        fill = self._current_sl
+                        pnl = self._realize_pnl(fill, self._remaining_size, instant_fill=False)
                         self._realized_pnl_dollars += pnl
                         self._remaining_size = 0
                         self._done = True
                     elif high >= self._current_tp:
                         fill = self._current_tp
-                        pnl = self._realize_pnl(fill, self._remaining_size)
+                        pnl = self._realize_pnl(fill, self._remaining_size, instant_fill=False)
                         self._realized_pnl_dollars += pnl
                         self._remaining_size = 0
                         self._done = True
                 else:  # SHORT
                     if high >= self._current_sl:
                         fill = self._current_sl
-                        pnl = self._realize_pnl(fill, self._remaining_size)
+                        pnl = self._realize_pnl(fill, self._remaining_size, instant_fill=False)
                         self._realized_pnl_dollars += pnl
                         self._remaining_size = 0
                         self._done = True
                     elif low <= self._current_tp:
                         fill = self._current_tp
-                        pnl = self._realize_pnl(fill, self._remaining_size)
+                        pnl = self._realize_pnl(fill, self._remaining_size, instant_fill=False)
                         self._realized_pnl_dollars += pnl
                         self._remaining_size = 0
                         self._done = True
@@ -431,14 +449,25 @@ class TradeManagementEnv(gym.Env):
             if new_sl < self._current_sl:
                 self._current_sl = round(new_sl / TICK_SIZE) * TICK_SIZE
 
-    def _realize_pnl(self, fill_price: float, size: int) -> float:
+    def _realize_pnl(self, fill_price: float, size: int, *, instant_fill: bool = True) -> float:
+        """Realize PnL for a partial or full close.
+
+        instant_fill=True applies INSTANT_SLIPPAGE_PTS of adverse slippage
+        (market-order fill, crosses the spread). instant_fill=False is used
+        when the fill came from a resting SL/TP hitting its documented
+        price (the stop/take orders rest in the book at known levels).
+        """
         if size <= 0:
             return 0.0
         ep = self._ep
         if ep.side == "LONG":
             pts = fill_price - ep.entry_price
+            if instant_fill:
+                pts -= INSTANT_SLIPPAGE_PTS   # sold into the bid
         else:
             pts = ep.entry_price - fill_price
+            if instant_fill:
+                pts -= INSTANT_SLIPPAGE_PTS   # bought on the ask
         dollars = pts * POINT_VALUE * size
         dollars -= FEE_PER_CONTRACT_ROUNDTRIP * size
         return float(dollars)
