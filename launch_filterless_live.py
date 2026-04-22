@@ -158,12 +158,23 @@ os.environ.setdefault("JULIE_ML_KALSHI_TP_ACTIVE", "1")
 os.environ.setdefault("JULIE_ML_KALSHI_TP_PNL_THR", "0")
 
 # --- ML overlay: RL trade-management policy (Path 3) ---
-# PPO policy over post-entry trade management (7-action discrete: HOLD,
-# MOVE_SL_TO_BE, TIGHTEN_SL_25/50, TAKE_PARTIAL_50/FULL, REVERSE). The
-# policy loads at bot startup and scores every bar during an active trade.
-# Shadow-only by default ([SHADOW_RL] log lines) until the 7 action-
-# execution paths are wired to the broker; active mode toggle reserved.
-os.environ.setdefault("JULIE_ML_RL_MGMT_ACTIVE", "0")
+# PPO policy over post-entry trade management. Canonical is now the
+# v3 SL-only variant (4 actions: HOLD, MOVE_SL_TO_BE, TIGHTEN_SL_25,
+# TIGHTEN_SL_50), trained with extended obs (encoder + cross-market).
+# Every action the v3 policy can emit is wired in _apply_rl_management_action,
+# so live mode is safe. Validation stats: mean=$30.15/trade, WR=98%,
+# total +$128k over 4261 episodes (vs $10/trade, WR 50% under prior
+# "v2 firing 7 actions but executor defers partial/reverse" setup).
+#
+# The full 7-action v2 policy is preserved at
+#   artifacts/signal_gate_2025/model_rl_management_v2_for_future_partial_close.zip
+# for later promotion once client.close_trade_leg_partial() and the
+# bracket-resize logic are wired (the "Option B" path — partial-close
+# captures a theoretical ~$296/trade ceiling but needs broker work).
+#
+# Set this to "0" to fall back to shadow-only ([SHADOW_RL] log lines);
+# set to "1" (default) for live steering.
+os.environ.setdefault("JULIE_ML_RL_MGMT_ACTIVE", "1")
 os.environ.setdefault("JULIE_REGIME_CB_WHIPSAW", "250")
 os.environ.setdefault("JULIE_REGIME_CB_NEUTRAL", "350")
 os.environ.setdefault("JULIE_REGIME_CB_CALM", "500")

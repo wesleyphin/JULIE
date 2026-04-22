@@ -250,16 +250,24 @@ class TradeManagementEnv(gym.Env):
         reward_scale: float = 50.0,   # divide terminal $ by this
         seed: Optional[int] = None,
         extended_obs: bool = False,
+        n_actions: int = 7,
     ):
+        """n_actions: 7 (default) exposes the full action space. 4 restricts
+        to HOLD / MOVE_SL_TO_BE / TIGHTEN_SL_25 / TIGHTEN_SL_50 — the subset
+        the live executor currently wires (see julie001._apply_rl_management_action).
+        Use 4 to train a live-safe policy that doesn't depend on partial-close
+        or reverse actions executing."""
         super().__init__()
         assert episodes, "at least one episode required"
+        assert n_actions in (4, 7), f"n_actions must be 4 or 7, got {n_actions}"
         self.episodes = list(episodes)
         self.max_bars = max_bars
         self.holding_time_penalty = holding_time_penalty
         self.reward_scale = reward_scale
         self.extended_obs = bool(extended_obs)
+        self.n_actions = int(n_actions)
 
-        self.action_space = spaces.Discrete(7)
+        self.action_space = spaces.Discrete(self.n_actions)
         # Observations are clamped to a sane range; actual values rarely
         # exceed ±20 on normalized features.
         _dim = OBS_DIM_EXTENDED if self.extended_obs else OBS_DIM

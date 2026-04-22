@@ -1,14 +1,16 @@
 {
-  "model_kind": "PPO_MlpPolicy_trade_mgmt_v3_sl_only",
+  "model_kind": "PPO_MlpPolicy_trade_mgmt_v2_extended_obs",
   "obs_dim": 212,
   "extended_obs": true,
-  "sl_only": true,
-  "n_actions": 4,
+  "n_actions": 7,
   "action_names": {
     "0": "HOLD",
     "1": "MOVE_SL_TO_BE",
     "2": "TIGHTEN_SL_25PCT",
-    "3": "TIGHTEN_SL_50PCT"
+    "3": "TIGHTEN_SL_50PCT",
+    "4": "TAKE_PARTIAL_50PCT",
+    "5": "TAKE_PARTIAL_FULL",
+    "6": "REVERSE"
   },
   "training": {
     "total_timesteps": 300000,
@@ -18,26 +20,26 @@
     "batch_size": 128,
     "ent_coef": 0.01,
     "seed": 42,
-    "elapsed_seconds": 286.8,
+    "elapsed_seconds": 280.4,
     "n_train_episodes": 3621,
     "n_val_episodes": 640
   },
   "val_stats_ppo": {
     "n": 640,
-    "total_pnl": 12621.829999999998,
-    "mean_pnl": 19.721609374999996,
-    "median_pnl": 1.5300000000000002,
-    "win_rate": 0.9640625,
-    "mean_reward": 0.3601509375,
-    "mean_bars_held": 3.428125,
+    "total_pnl": 196380.73000000004,
+    "mean_pnl": 306.84489062500006,
+    "median_pnl": 89.935,
+    "win_rate": 0.921875,
+    "mean_reward": 6.0150696875000005,
+    "mean_bars_held": 12.1828125,
     "action_counts": {
-      "0": 669,
-      "1": 684,
-      "2": 458,
-      "3": 383,
-      "4": 0,
+      "0": 1682,
+      "1": 44,
+      "2": 196,
+      "3": 11,
+      "4": 5426,
       "5": 0,
-      "6": 0
+      "6": 438
     }
   },
   "val_stats_de3_baseline": {
@@ -76,6 +78,6 @@
       "6": 0
     }
   },
-  "delta_vs_hold": 12533.75,
-  "delta_vs_de3": 11972.5
+  "delta_vs_hold": 196292.65000000005,
+  "delta_vs_de3": 195731.40000000005
 }

@@ -47,9 +47,11 @@ OUT_MODEL = ROOT / "artifacts" / "signal_gate_2025" / "model_rl_management.zip"
 OUT_META = ROOT / "rl" / "rl_management_metadata.json"
 
 
-def make_env(episodes, seed=None, extended_obs=False):
+def make_env(episodes, seed=None, extended_obs=False, n_actions=7):
     def _thunk():
-        env = TradeManagementEnv(episodes, seed=seed, extended_obs=extended_obs)
+        env = TradeManagementEnv(episodes, seed=seed,
+                                  extended_obs=extended_obs,
+                                  n_actions=n_actions)
         return env
     return _thunk
 
@@ -60,9 +62,10 @@ def temporal_split(episodes, train_frac=0.85):
     return episodes_sorted[:split], episodes_sorted[split:]
 
 
-def evaluate_sb3_policy(model, episodes, n=None, extended_obs=False):
+def evaluate_sb3_policy(model, episodes, n=None, extended_obs=False, n_actions=7):
     """Evaluate a trained sb3 PPO model on episodes. Return per-episode PnL."""
-    env = TradeManagementEnv(episodes, seed=123, extended_obs=extended_obs)
+    env = TradeManagementEnv(episodes, seed=123,
+                              extended_obs=extended_obs, n_actions=n_actions)
     n = n or len(episodes)
     pnls, rewards, bars_held = [], [], []
     action_counts = {i: 0 for i in range(7)}
@@ -109,6 +112,12 @@ def main():
                     help="v2 obs: add 32-dim encoder embedding + 8-dim "
                          "cross-market features to observation (obs_dim 172→212). "
                          "Saves to model_rl_management_v2.zip")
+    ap.add_argument("--sl-only", action="store_true",
+                    help="Restrict action space to 4 actions (HOLD + 3 SL-moves). "
+                         "Trains a live-safe policy that doesn't depend on "
+                         "partial-close or reverse paths. Saves to "
+                         "model_rl_management_v3_sl_only.zip (can combine "
+                         "with --extended-obs).")
     args = ap.parse_args()
 
     print(f"[load] episodes from {EP_PKL}")
@@ -129,9 +138,12 @@ def main():
 
     # Build vectorized training env (DummyVecEnv for simplicity; SubprocVecEnv
     # has pickling issues with large episodes list)
-    print(f"\n[ppo] building vec env with n_envs={args.n_envs}  extended_obs={args.extended_obs}")
+    n_actions = 4 if args.sl_only else 7
+    print(f"\n[ppo] building vec env with n_envs={args.n_envs}  "
+          f"extended_obs={args.extended_obs}  n_actions={n_actions}")
     vec_env = DummyVecEnv([make_env(train_eps, seed=args.seed + i,
-                                     extended_obs=args.extended_obs)
+                                     extended_obs=args.extended_obs,
+                                     n_actions=n_actions)
                            for i in range(args.n_envs)])
 
     model = PPO(
@@ -159,7 +171,9 @@ def main():
 
     # Evaluate on validation split
     print("\n[eval] deterministic PPO on validation:")
-    ppo_stats = evaluate_sb3_policy(model, val_eps, extended_obs=args.extended_obs)
+    ppo_stats = evaluate_sb3_policy(model, val_eps,
+                                     extended_obs=args.extended_obs,
+                                     n_actions=n_actions)
     print(f"  PPO:        n={ppo_stats['n']}  total=${ppo_stats['total_pnl']:+,.0f}  mean=${ppo_stats['mean_pnl']:+.2f}  WR={ppo_stats['win_rate']*100:.1f}%  bars={ppo_stats['mean_bars_held']:.1f}")
 
     # Action distribution
@@ -175,22 +189,32 @@ def main():
     print(f"\n[delta]   vs AlwaysHold: ${delta_vs_hold:+,.0f}")
     print(f"          vs DE3-like:   ${delta_vs_de3:+,.0f}")
 
-    # Save model + metadata — write to _v2.zip when extended_obs is on so
-    # we don't clobber the canonical v1 policy. Promote by renaming if v2 wins.
+    # Save model + metadata — write to _v2.zip / _v3_sl_only.zip when the
+    # corresponding flags are on so we don't clobber the canonical policy.
+    # Promote by renaming later if the variant wins.
     out_model = OUT_MODEL
     out_meta = OUT_META
-    if args.extended_obs:
-        out_model = out_model.with_name(out_model.stem + "_v2" + out_model.suffix)
-        out_meta = out_meta.with_name(out_meta.stem + "_v2" + out_meta.suffix)
+    suffix = ""
+    if args.sl_only:
+        suffix = "_v3_sl_only"
+    elif args.extended_obs:
+        suffix = "_v2"
+    if suffix:
+        out_model = out_model.with_name(out_model.stem + suffix + out_model.suffix)
+        out_meta = out_meta.with_name(out_meta.stem + suffix + out_meta.suffix)
     out_model.parent.mkdir(parents=True, exist_ok=True)
     model.save(str(out_model))
     from rl.trade_env import OBS_DIM_EXTENDED as _OBS_DIM_EXTENDED
+    kind = "PPO_MlpPolicy_trade_mgmt"
+    if args.sl_only: kind += "_v3_sl_only"
+    elif args.extended_obs: kind += "_v2_extended_obs"
     meta = {
-        "model_kind": "PPO_MlpPolicy_trade_mgmt" + ("_v2_extended_obs" if args.extended_obs else ""),
+        "model_kind": kind,
         "obs_dim": _OBS_DIM_EXTENDED if args.extended_obs else OBS_DIM,
         "extended_obs": args.extended_obs,
-        "n_actions": 7,
-        "action_names": ACTION_NAMES,
+        "sl_only": args.sl_only,
+        "n_actions": n_actions,
+        "action_names": {str(i): ACTION_NAMES[i] for i in range(n_actions)},
         "training": {
             "total_timesteps": args.total_timesteps,
             "n_envs": args.n_envs,

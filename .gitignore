@@ -55,9 +55,13 @@ artifacts/signal_gate_2025/model_rl_management.zip
 !artifacts/signal_gate_2025/model_kalshi_tp_gate_v2.joblib
 !artifacts/signal_gate_2025/model_pivot_trail_v2.joblib
 !artifacts/signal_gate_2025/model_pct_overlay_v2.joblib
-# v2 RL policy (extended obs: encoder + cross-market — PROMOTED to canonical,
-# but we also commit the _v2 sibling for repro)
+# v2 RL policy (extended obs: encoder + cross-market — DEMOTED in favor of
+# v3; retained for future promotion once partial-close is wired)
 !artifacts/signal_gate_2025/model_rl_management_v2.zip
+!artifacts/signal_gate_2025/model_rl_management_v2_for_future_partial_close.zip
+# v3 RL policy: 4-action SL-only — the current CANONICAL (copied to
+# model_rl_management.zip, also kept at _v3 for repro)
+!artifacts/signal_gate_2025/model_rl_management_v3_sl_only.zip
 # Cross-market data (continuous non-adjusted)
 !data/mnq_master_continuous.parquet
 !data/vix_daily.parquet

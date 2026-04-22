@@ -25,14 +25,21 @@ from rl.baseline_policy import (
 )
 
 
-def evaluate_sb3(model, episodes, *, extended_obs=None):
-    # Auto-detect from the loaded model's obs_space unless caller is explicit.
+def evaluate_sb3(model, episodes, *, extended_obs=None, n_actions=None):
+    # Auto-detect from the loaded model's obs_space / action_space unless
+    # caller is explicit.
     if extended_obs is None:
         try:
             extended_obs = (int(model.observation_space.shape[0]) == 212)
         except Exception:
             extended_obs = False
-    env = TradeManagementEnv(episodes, seed=123, extended_obs=extended_obs)
+    if n_actions is None:
+        try:
+            n_actions = int(model.action_space.n)
+        except Exception:
+            n_actions = 7
+    env = TradeManagementEnv(episodes, seed=123,
+                              extended_obs=extended_obs, n_actions=n_actions)
     pnls, bars_held = [], []
     action_counts = {i: 0 for i in range(7)}
     for i in range(len(episodes)):
@@ -83,13 +90,23 @@ def main():
         results[name] = evaluate_policy(env, pol, n_episodes=len(episodes))
 
     from stable_baselines3 import PPO
+
+    def _label(m):
+        ext = int(m.observation_space.shape[0]) == 212
+        na = int(m.action_space.n)
+        if ext and na == 4:
+            return "PPO_v3_sl_only"
+        if ext:
+            return "PPO_v2"
+        if na == 4:
+            return "PPO_sl_only"
+        return "PPO"
+
     model = PPO.load(args.model, device="cpu")
-    v1_name = "PPO_v2" if int(model.observation_space.shape[0]) == 212 else "PPO"
-    results[v1_name] = evaluate_sb3(model, episodes)
+    results[_label(model)] = evaluate_sb3(model, episodes)
     if args.model_v2:
         model_v2 = PPO.load(args.model_v2, device="cpu")
-        v2_name = "PPO_v2" if int(model_v2.observation_space.shape[0]) == 212 else "PPO"
-        # Avoid name collision if both somehow end up the same
+        v2_name = _label(model_v2)
         if v2_name in results:
             v2_name = v2_name + "_b"
         results[v2_name] = evaluate_sb3(model_v2, episodes)
