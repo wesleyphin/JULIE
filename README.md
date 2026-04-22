@@ -34,14 +34,28 @@ kill-switch.
 
 Full details in **section 11 (Machine Learning Overlay Stack)** below.
 
-Env toggles (all default OFF = shadow mode):
+Env toggles — **all five default ON when launched via `launch_filterless_live.py`**
+(the launcher sets each with `os.environ.setdefault` so they flip to active
+automatically at startup). Any layer can be opted back OUT of active steering
+by exporting the var as `0` in the shell before running the launcher:
+
 ```
+# default behavior when you run LaunchFilterlessWorkspace.bat or
+# launch_filterless_live.py — all five ML overlays are ACTIVE (drive decisions):
 JULIE_ML_LFO_ACTIVE=1           # flip LFO decisions to ML
 JULIE_ML_PCT_ACTIVE=1           # flip PCT overlay bias to ML
 JULIE_ML_PIVOT_TRAIL_ACTIVE=1   # skip pivot ratchets when ML says "pivot won't hold"
 JULIE_ML_KALSHI_ACTIVE=1        # block signals when entry-gate ML predicts loss
-JULIE_ML_KALSHI_TP_ACTIVE=1     # block signals when TP-gate ML says TP unreachable
+JULIE_ML_KALSHI_TP_ACTIVE=1     # block signals when TP-gate ML predicts loss
+JULIE_ML_KALSHI_TP_PNL_THR=0    # TP-gate threshold (block when pred_pnl <= $X)
+
+# to demote a layer back to shadow-only (logs but doesn't steer):
+export JULIE_ML_KALSHI_TP_ACTIVE=0
 ```
+
+If you import `julie001` directly without the launcher (rare — only happens in
+test scripts), all five layers default to **shadow mode** (log only, rule
+steers) — the fail-safe default.
 
 ## 1. System Overview
 

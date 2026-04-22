@@ -127,6 +127,35 @@ os.environ.setdefault("JULIE_LFG_CHART_VETO", "0")             # filter F OFF
 #
 # Filter G ON (primary veto layer for 2025+ regime):
 os.environ.setdefault("JULIE_SIGNAL_GATE_2025", "1")
+
+# --- ML overlay stack ACTIVATION DEFAULTS ---
+#
+# All five ML overlay models load automatically at bot startup regardless of
+# these env vars. The env vars only control whether the ML's verdict
+# OVERRIDES the rule's verdict when they disagree. Default in the shadow
+# module is OFF (shadow / log-only). Here we flip all five to ON so the
+# launcher activates ML steering out-of-the-box.
+#
+# Each is an `os.environ.setdefault`, so you can opt any individual layer
+# back OUT via a shell export before running the launcher:
+#     export JULIE_ML_KALSHI_TP_ACTIVE=0   # this layer stays shadow-only
+#
+# Layers (see README section 11):
+#   model_lfo.joblib          — WAIT vs IMMEDIATE fill decision
+#   model_pct_overlay.joblib  — breakout vs pivot bias on %-level touches
+#   model_pivot_trail.joblib  — hold/skip SL ratchet on confirmed pivots
+#   model_kalshi_gate.joblib  — entry-side Kalshi pass/block (clf + reg)
+#   model_kalshi_tp_gate.joblib — TP-aligned Kalshi pass/block (reg on pnl$)
+#
+os.environ.setdefault("JULIE_ML_LFO_ACTIVE", "1")
+os.environ.setdefault("JULIE_ML_PCT_ACTIVE", "1")
+os.environ.setdefault("JULIE_ML_PIVOT_TRAIL_ACTIVE", "1")
+os.environ.setdefault("JULIE_ML_KALSHI_ACTIVE", "1")
+os.environ.setdefault("JULIE_ML_KALSHI_TP_ACTIVE", "1")
+# Threshold for the Kalshi TP-gate regressor. Default: block when predicted
+# pnl <= $0. Tune tighter (e.g. "10") to require predicted profit margin, or
+# looser (e.g. "-10") to pass borderline trades. No retraining required.
+os.environ.setdefault("JULIE_ML_KALSHI_TP_PNL_THR", "0")
 os.environ.setdefault("JULIE_REGIME_CB_WHIPSAW", "250")
 os.environ.setdefault("JULIE_REGIME_CB_NEUTRAL", "350")
 os.environ.setdefault("JULIE_REGIME_CB_CALM", "500")
