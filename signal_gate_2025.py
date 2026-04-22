@@ -269,14 +269,27 @@ def _session_multiplier(cum_day_pnl: float) -> float:
     return 1.0
 
 
+_EFFECTIVE_THR_FLOOR = float(os.environ.get("JULIE_GATE_EFF_THR_FLOOR", "0.25"))
+
+
 def _effective_threshold(base_thr: float, regime: str = "",
                          cum_day_pnl: float = 0.0) -> Tuple[float, float]:
     """Apply regime × session multipliers to a gate's base threshold.
-    Returns (effective, combined_multiplier)."""
+    Returns (effective, combined_multiplier).
+
+    v5.5: apply a floor on the EFFECTIVE threshold. Whipsaw regime mult
+    (0.60) on a DE3 base of 0.35 gives 0.21, which backtests showed
+    over-vetoed borderline winners on high-ATR trend days. Floor at 0.25
+    ensures G only fires when it's at least moderately confident
+    (>= 25% P(big_loss)) regardless of regime.
+    """
     regime_mult = _REGIME_THR_MULT.get(str(regime or "").lower(), 1.0)
     session_mult = _session_multiplier(cum_day_pnl)
     mult = regime_mult * session_mult
-    return float(base_thr) * mult, mult
+    eff = float(base_thr) * mult
+    if eff < _EFFECTIVE_THR_FLOOR:
+        eff = _EFFECTIVE_THR_FLOOR
+    return eff, mult
 
 
 def should_veto_signal(

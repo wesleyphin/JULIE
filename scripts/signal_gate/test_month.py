@@ -41,6 +41,10 @@ _SESS_AGGRESSIVE_MULT = 0.80
 
 
 def _session_mult(cum_pnl):
+    # Set env JULIE_TEST_SESSION_MULT=off to simulate v5 (no session-adaptive)
+    import os as _os
+    if _os.environ.get("JULIE_TEST_SESSION_MULT", "on").strip().lower() == "off":
+        return 1.0
     if cum_pnl >= _SESS_LENIENT_PNL:    return _SESS_LENIENT_MULT
     if cum_pnl <= _SESS_AGGRESSIVE_PNL: return _SESS_AGGRESSIVE_MULT
     return 1.0
@@ -56,6 +60,13 @@ def load_trades(path, strategy=None, month_prefix=""):
             continue
         out.append(t)
     return out
+
+
+# v5.5 Kalshi block floor: don't block when aligned_prob is extremely low
+# (< FLOOR). Crowd being this directionally opposed tends to be wrong on
+# strong-trend days (Apr 2026 K-blocks cost $1,000+ when aligned=0.00).
+# Block only when crowd is "moderately unconvinced" (FLOOR..THRESHOLD).
+KALSHI_BLOCK_FLOOR = 0.10
 
 
 def kalshi_decision(et_dt, entry_price, side, cache):
@@ -79,7 +90,12 @@ def kalshi_decision(et_dt, entry_price, side, cache):
     row = sub.nsmallest(1, "dist").iloc[0]
     yes_prob = (float(row["high"]) + float(row["low"])) / 200.0
     aligned = yes_prob if side == "LONG" else 1.0 - yes_prob
-    if aligned < KALSHI_ENTRY_THRESHOLD:
+    # v5.5: only block when aligned_prob is in the "moderately-unconvinced"
+    # zone [FLOOR, THRESHOLD). Below FLOOR the crowd is extreme-opposed,
+    # which tends to be wrong on trending days, so we don't block there.
+    import os as _os_k
+    _floor = 0.0 if _os_k.environ.get("KALSHI_BLOCK_FLOOR_OFF", "0") == "1" else KALSHI_BLOCK_FLOOR
+    if _floor <= aligned < KALSHI_ENTRY_THRESHOLD:
         return ("block", aligned)
     return ("pass", aligned)
 
@@ -259,6 +275,14 @@ def run_month(month: str):
             cum_pnl_pre, _, _ = session_state[strat].get(k_key, (0.0, 0, 0))
             sess_mult = _session_mult(cum_pnl_pre)
             eff_thr = base_thr * regime_mult * sess_mult
+            # v5.5 fix 3: effective threshold floor — regime mult can push
+            # DE3/RA effective down to 0.21 on whipsaw days, which over-vetoes
+            # borderline winners. Floor at 0.25 so G only fires when it's at
+            # least "moderately confident" (>= 0.25 P(big_loss)).
+            import os as _os_f
+            if _os_f.environ.get("JULIE_TEST_DE3_FLOOR_OFF", "0") != "1":
+                if eff_thr < 0.25:
+                    eff_thr = 0.25
             et2 = dict(t)
             et2["kalshi_decision"] = k_dec
             et2["g_p_big_loss"] = g_p
