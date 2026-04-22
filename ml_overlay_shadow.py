@@ -89,6 +89,8 @@ def init_ml_overlays() -> Tuple[bool, bool, bool, bool, bool]:
         )
     # Load the RL trade-management policy too (Path 3). Silent if absent.
     init_rl_management()
+    # Load the bar encoder (Path 1 — feature source, not a gate). Silent if absent.
+    init_bar_encoder()
     return (
         _LFO_PAYLOAD is not None,
         _PCT_PAYLOAD is not None,
@@ -96,6 +98,22 @@ def init_ml_overlays() -> Tuple[bool, bool, bool, bool, bool]:
         _KALSHI_PAYLOAD is not None,
         _KALSHI_TP_PAYLOAD is not None,
     )
+
+
+# --- Cross-market feature access (Path 4 of smartness roadmap) ---
+# Thin re-export so callers have one import path for all overlay helpers.
+
+def get_cross_market_features(ts_et, *, mes_bars=None):
+    """Return a stable-schema dict of cross-market features (MNQ / VIX /
+    DXY) at timestamp ts_et. Values default to neutral when supporting
+    data isn't cached locally. See rl/cross_market.py for the schema."""
+    try:
+        from rl.cross_market import get_cross_market_features as _impl
+        return _impl(ts_et, mes_bars=mes_bars)
+    except Exception as exc:
+        logging.debug("get_cross_market_features failed: %s", exc)
+        from rl.cross_market import CROSS_MARKET_FEATURE_DEFAULTS
+        return dict(CROSS_MARKET_FEATURE_DEFAULTS)
 
 
 def _build_row(payload: Dict[str, Any], numeric: Dict[str, float],
@@ -520,3 +538,69 @@ def score_rl_management(**obs_kwargs):
 
 def is_rl_management_live_active() -> bool:
     return os.environ.get("JULIE_ML_RL_MGMT_ACTIVE", "0").strip() == "1"
+
+
+# --- Bar-sequence encoder (Path 1 of smartness roadmap) ---
+# Self-supervised conv encoder that ingests the last 60 bars of OHLCV
+# and produces a 32-dim embedding. Intended as an auxiliary feature
+# source for downstream ML layers.
+
+_BAR_ENCODER = None
+_BAR_ENCODER_LOAD_FAILED = False
+
+
+def init_bar_encoder() -> bool:
+    """Lazy-load the bar encoder from disk. Returns True on success."""
+    global _BAR_ENCODER, _BAR_ENCODER_LOAD_FAILED
+    if _BAR_ENCODER is not None:
+        return True
+    if _BAR_ENCODER_LOAD_FAILED:
+        return False
+    enc_path = _ARTIFACT_DIR / "bar_encoder.pt"
+    if not enc_path.exists():
+        _BAR_ENCODER_LOAD_FAILED = True
+        return False
+    try:
+        import torch
+        from rl.bar_encoder import BarEncoder
+        ckpt = torch.load(str(enc_path), map_location="cpu", weights_only=False)
+        model = BarEncoder(
+            seq_len=int(ckpt.get("seq_len", 60)),
+            embed_dim=int(ckpt.get("embed_dim", 32)),
+        )
+        model.load_state_dict(ckpt["state_dict"])
+        model.eval()
+        _BAR_ENCODER = model
+        logging.info(
+            "ml_overlay_shadow: bar encoder loaded — seq_len=%d embed_dim=%d arch=%s",
+            int(ckpt.get("seq_len", 60)), int(ckpt.get("embed_dim", 32)),
+            ckpt.get("architecture", "?"),
+        )
+        return True
+    except Exception as exc:
+        logging.warning("ml_overlay_shadow: bar encoder load failed: %s", exc)
+        _BAR_ENCODER_LOAD_FAILED = True
+        return False
+
+
+def get_bar_embedding(bars_df, *, end_idx: Optional[int] = None) -> Optional[np.ndarray]:
+    """Return a 32-dim embedding for the bar sequence ending at `end_idx`
+    (defaults to last bar in `bars_df`). Returns None if encoder is
+    unavailable. Intended as an auxiliary-feature source for downstream ML
+    layers that were trained or retrained with encoder support."""
+    if _BAR_ENCODER is None and not init_bar_encoder():
+        return None
+    try:
+        from rl.bar_encoder import encode as _enc_fn
+        if end_idx is None:
+            end_idx = len(bars_df) - 1
+        return _enc_fn(_BAR_ENCODER, bars_df, end_idx)
+    except Exception as exc:
+        logging.debug("get_bar_embedding failed: %s", exc)
+        return None
+
+
+def is_bar_encoder_active() -> bool:
+    """Encoder is considered 'active' whenever it's loaded — it's just a
+    feature source, not a decision gate. No env toggle."""
+    return _BAR_ENCODER is not None

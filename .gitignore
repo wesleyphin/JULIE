@@ -48,6 +48,8 @@ models/
 # RL trade-management policy (sb3 .zip; whitelist below)
 artifacts/signal_gate_2025/model_rl_management.zip
 !artifacts/signal_gate_2025/model_rl_management.zip
+# Bar-sequence encoder (Path 1; PyTorch checkpoint)
+!artifacts/signal_gate_2025/bar_encoder.pt
 # RL episode cache is large and regenerable from replays + parquet
 rl/episodes.pkl
 !model_aetherflow_deploy_2026oos.pkl

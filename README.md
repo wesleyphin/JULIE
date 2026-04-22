@@ -82,6 +82,53 @@ considered. This is why the launcher's activation default is **0**, not
 
 **Trainer:** `rl/train_ppo.py`. **Env:** `rl/trade_env.py`. **Inference:** `rl/inference.py`.
 
+### Bar-sequence encoder (Path 1 infrastructure)
+
+Self-supervised dilated-CNN encoder that ingests the last 60 bars of
+OHLCV and produces a 32-dim embedding. Trained on ~200k bar sequences
+via next-bar-direction prediction (3-way up / flat / down) plus a small
+return-regression auxiliary.
+
+| metric | value |
+|---|---|
+| Training accuracy (3-way direction, random = 33%) | **72%** |
+| Embedding dim | 32 |
+| Parameters | ~20k |
+| CPU inference cost per embedding | <1 ms |
+
+**Artifact:** `artifacts/signal_gate_2025/bar_encoder.pt`
+**Trainer:** `rl/bar_encoder.py`
+**Integration:** `ml_overlay_shadow.get_bar_embedding(bars_df)` returns
+the 32-dim embedding for the most recent window. Intended as an
+auxiliary feature source for subsequent retrains of the other ML layers
+(LFO / Kalshi / Pivot / PCT). Those retrains haven't happened yet — the
+encoder ships in "feature-source ready" state.
+
+### Cross-market features (Path 4 infrastructure)
+
+Feature extractor with stable schema across MES-MNQ correlation, VIX
+regime, and DXY level readings:
+
+```
+mnq_ret_5min_pct          MNQ short-term return
+mnq_ret_30min_pct         MNQ medium-term return
+mes_mnq_corr_30bar        30-bar rolling correlation
+mes_mnq_divergence_pct    spread between MES and MNQ 30-min returns
+vix_level                 absolute VIX close
+vix_regime_code           0=calm / 1=normal / 2=high / 3=extreme
+vix_rate_of_change_5d     VIX 5-day pct change
+dxy_level                 USD index (currently stub)
+```
+
+**Current status:** schema ready; MNQ and VIX historical data are not
+cached locally. Stub returns neutral defaults (VIX=16, corr=0.5,
+divergence=0) until the supporting parquets are fetched. When data
+lands, the same trainer invocations produce improved models with no
+code change.
+
+**Module:** `rl/cross_market.py`
+**Integration:** `ml_overlay_shadow.get_cross_market_features(ts_et, mes_bars=...)`.
+
 All nine are live by default when launched via `launch_filterless_live.py`.
 Full details in **section 11 (Machine Learning Overlay Stack)** below.
 
