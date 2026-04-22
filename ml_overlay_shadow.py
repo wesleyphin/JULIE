@@ -396,16 +396,21 @@ def score_kalshi_tp(
     vel_5bar_pts_per_min: float,
     regime: str,
     tp_dist_pts: float,
-) -> Optional[Tuple[float, bool]]:
-    """Score the TP-aligned Kalshi gate.
+) -> Optional[Tuple[float, float, bool]]:
+    """Score the TP-aligned Kalshi gate (classifier + regressor heads).
 
-    Return (p_hit_tp, should_pass) where p_hit_tp is the model's estimate
-    that the trade will reach its take-profit, and should_pass is
-    p_hit_tp >= the payload's pass_threshold (default 0.50).
+    Return (p_hit_tp, pred_pnl, should_pass) where:
+      - p_hit_tp is the classifier's estimate that the trade will reach
+        its programmed take-profit (diagnostic / inspection only)
+      - pred_pnl is the regressor's predicted pnl_dollars for the trade
+        (THIS is the production gate signal)
+      - should_pass = pred_pnl > regressor_gate_threshold (default $0,
+        overridable via JULIE_ML_KALSHI_TP_PNL_THR env var)
 
-    Expected caller: julie001.py after build_trade_plan has computed the
-    tp_aligned probability; the caller joins those Kalshi readings with
-    bar-derived market state and a regime label.
+    The gate runs on the REGRESSOR, not the classifier. Binary HIT_TP as
+    a gate label rejects trades that close profitably via non-TP exits
+    (manual, reversal, TP trail); regressing on pnl_dollars directly
+    avoids that label mismatch.
     """
     if _KALSHI_TP_PAYLOAD is None:
         return None
@@ -454,10 +459,23 @@ def score_kalshi_tp(
         probs = clf.predict_proba(X)[0]
         classes = list(clf.classes_)
         p_hit = float(probs[classes.index(1)]) if 1 in classes else 0.5
+        reg = _KALSHI_TP_PAYLOAD.get("regressor")
+        if reg is not None:
+            pred_pnl = float(reg.predict(X)[0])
+        else:
+            pred_pnl = 0.0
     except Exception:
         return None
-    thr = float(_KALSHI_TP_PAYLOAD.get("pass_threshold", 0.50))
-    return p_hit, (p_hit >= thr)
+    # Production gate is the regressor. Threshold is "predicted pnl > $X"
+    # — default $0, overridable by env for operator tuning.
+    gate_thr = _KALSHI_TP_PAYLOAD.get("regressor_gate_threshold", 0.0)
+    try:
+        env_thr = os.environ.get("JULIE_ML_KALSHI_TP_PNL_THR")
+        if env_thr is not None:
+            gate_thr = float(env_thr)
+    except Exception:
+        pass
+    return p_hit, pred_pnl, (pred_pnl > float(gate_thr))
 
 
 def is_pivot_trail_live_active() -> bool:

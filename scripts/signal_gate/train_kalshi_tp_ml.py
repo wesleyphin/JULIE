@@ -1,13 +1,26 @@
 """Train an ML model that blocks/passes trades based on whether Kalshi's
-crowd probability at the TAKE-PROFIT price suggests the TP is reachable.
+crowd probability at the TAKE-PROFIT price suggests the trade will be
+profitable.
 
-This is a different question from the existing model_kalshi_gate.joblib:
-  - model_kalshi_gate  asks "should this trade pass the rule's ENTRY gate?"
-                       using features around entry_price + a 5pt probe.
-  - model_kalshi_tp_gate (this one)
-                       asks "what does Kalshi say about the TAKE-PROFIT
-                       price? is the TP actually reachable, or is the
-                       crowd pricing it as unlikely?"
+Dual-head model:
+  - Classifier (diagnostic):   P(HIT_TP) — was the trade's programmed
+    take-profit actually reached?
+  - Regressor (production):   E[pnl_dollars] — what was the trade's
+    realized P&L, regardless of exit source?
+
+We gate on the REGRESSOR, not the classifier. The classifier is retained
+for inspection / comparison with the earlier binary-label approach.
+
+Why regression instead of binary HIT_TP:
+  A classifier trained on HIT_TP correctly identifies trades that will
+  reach their programmed target, but HIT_TP is a STRICTER condition than
+  "trade is profitable." Many profitable trades close early via other
+  exits — manual close, reversal-signal close, Kalshi TP trail, break-
+  even-armed stops. Binary HIT_TP rejects those trades during gating
+  even though they make money. Rolling-origin evaluation showed a
+  HIT_TP-gated overlay loses money in normal weeks (it throws out real
+  profits) while helping only in bad weeks. Regressing on pnl_dollars
+  directly eliminates that label mismatch.
 
 For each historical trade with Kalshi coverage, we:
   1. Parse tp_dist from sub_strategy (e.g. '..._SL10_TP25' → tp_dist=25)
@@ -19,9 +32,10 @@ For each historical trade with Kalshi coverage, we:
   5. Build additional features: ladder slope near TP, strike distance,
      open interest at nearest strike, daily volume, minutes-to-settlement,
      plus the usual market-state + DE3 substrategy context
-  6. Label = HIT_TP (1 if exit source in {take, take_gap}, else 0)
+  6. Labels: HIT_TP binary + pnl_dollars continuous
 
 Output: artifacts/signal_gate_2025/model_kalshi_tp_gate.joblib
+  → payload holds BOTH classifier + regressor
 """
 from __future__ import annotations
 
@@ -36,8 +50,8 @@ from zoneinfo import ZoneInfo
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.metrics import roc_auc_score
+from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
+from sklearn.metrics import roc_auc_score, mean_absolute_error
 
 ROOT = Path("/Users/wes/Downloads/JULIE001")
 NY = ZoneInfo("America/New_York")
@@ -380,7 +394,14 @@ def assemble_X(df, cat_maps=None):
     return X, updated
 
 
-def rolling_origin_auc(ds, cat_maps, min_train=0.40, step=0.10):
+def rolling_origin_eval(ds, cat_maps, min_train=0.40, step=0.10):
+    """Per-chunk evaluation on classifier AUC + regressor gate PnL.
+
+    For each chunk:
+      - Train classifier (hit_tp) + regressor (pnl_dollars) on pre-chunk data
+      - Score the chunk
+      - Report AUC and per-threshold regressor-gated PnL delta vs rule
+    """
     ds_sorted = ds.sort_values("ts").reset_index(drop=True)
     n = len(ds_sorted)
     results = []
@@ -394,28 +415,53 @@ def rolling_origin_auc(ds, cat_maps, min_train=0.40, step=0.10):
         for c in X_tr.columns:
             if c not in X_te.columns: X_te[c] = 0.0
         X_te = X_te[X_tr.columns]
-        y_tr = tr["hit_tp"].astype(int).values
-        y_te = te["hit_tp"].astype(int).values
-        if len(set(y_tr)) < 2 or len(set(y_te)) < 2:
+        y_tr_bin = tr["hit_tp"].astype(int).values
+        y_te_bin = te["hit_tp"].astype(int).values
+        y_tr_pnl = tr["pnl_dollars"].values
+        y_te_pnl = te["pnl_dollars"].values
+        if len(set(y_tr_bin)) < 2 or len(set(y_te_bin)) < 2:
             t += step; continue
+        # Classifier
         clf = GradientBoostingClassifier(
             n_estimators=200, max_depth=3, learning_rate=0.05,
             min_samples_leaf=25, random_state=42,
         )
-        clf.fit(X_tr, y_tr)
-        p = clf.predict_proba(X_te)[:, list(clf.classes_).index(1)]
-        auc = float(roc_auc_score(y_te, p))
+        clf.fit(X_tr, y_tr_bin)
+        p_clf = clf.predict_proba(X_te)[:, list(clf.classes_).index(1)]
+        auc = float(roc_auc_score(y_te_bin, p_clf))
+        # Regressor (the gating head)
+        reg = GradientBoostingRegressor(
+            n_estimators=200, max_depth=3, learning_rate=0.05,
+            min_samples_leaf=25, random_state=42,
+        )
+        reg.fit(X_tr, y_tr_pnl)
+        p_reg = reg.predict(X_te)
+        rule_pnl = float(y_te_pnl.sum())
+        # Regressor-gate PnL at several thresholds
+        gate_deltas = {}
+        for thr in (-50.0, -25.0, -10.0, 0.0, 10.0, 25.0):
+            kept = p_reg > thr
+            gate_pnl = float(y_te_pnl[kept].sum())
+            gate_deltas[thr] = {
+                "pnl": gate_pnl,
+                "delta": gate_pnl - rule_pnl,
+                "n_kept": int(kept.sum()),
+            }
         results.append({
             "train_frac": t, "test_frac": t + step,
             "test_start": te["ts"].min(), "test_end": te["ts"].max(),
-            "n_test": len(te), "hit_rate": float(y_te.mean()), "auc": auc,
+            "n_test": len(te), "hit_rate": float(y_te_bin.mean()),
+            "auc_clf": auc,
+            "rule_pnl": rule_pnl,
+            "reg_mae": float(mean_absolute_error(y_te_pnl, p_reg)),
+            "gate_deltas": gate_deltas,
         })
         t += step
     return results
 
 
 def main():
-    print("[kalshi_tp_ml] TP-aligned Kalshi probability ML")
+    print("[kalshi_tp_ml] TP-aligned Kalshi probability ML — regressor-gated")
     rows, stats = collect_rows()
     for name in sorted(stats.keys()):
         print(f"  {name:<20}  {stats[name]}")
@@ -424,48 +470,86 @@ def main():
         print("ERROR: no rows collected")
         return
     ds = pd.DataFrame(rows).dropna(subset=NUMERIC_FEATURES + CATEGORICAL_FEATURES).reset_index(drop=True)
-    print(f"\n[rows] {len(ds)}  hit_tp_rate={ds['hit_tp'].mean():.1%}")
+    print(f"\n[rows] {len(ds)}  hit_tp_rate={ds['hit_tp'].mean():.1%}  "
+          f"total_pnl=${ds['pnl_dollars'].sum():+,.0f}")
     print(f"[regime]: {dict(ds['regime'].value_counts())}")
     print(f"[tp dist buckets]: {dict(ds['tp_dist_pts'].value_counts().head())}")
 
     X, cat_maps = assemble_X(ds)
-    y = ds["hit_tp"].astype(int).values
+    y_bin = ds["hit_tp"].astype(int).values
+    y_pnl = ds["pnl_dollars"].values
     print(f"[features] {X.shape[1]}")
 
-    # Rolling-origin CV
-    print(f"\n[rolling-origin CV]")
-    cv = rolling_origin_auc(ds, cat_maps)
-    print(f"  {'train%':>7}{'test%':>7}  {'test_start':<20}{'n':>5}{'hit_rt':>8}{'AUC':>7}")
+    # Rolling-origin CV — classifier AUC + regressor-gated PnL
+    print(f"\n[rolling-origin CV — classifier AUC + regressor-gated PnL deltas]")
+    cv = rolling_origin_eval(ds, cat_maps)
+    print(f"  {'train%':>7}{'test%':>7}  {'test_start':<20}{'n':>5}{'hit_rt':>8}{'AUC':>7}"
+          f"{'rule_PnL':>10}  " +
+          "  ".join(f"thr>${t:<+3.0f}_Δ" for t in (-50, -25, -10, 0, 10, 25)))
     for r in cv:
-        print(f"  {r['train_frac']*100:>6.0f}%{r['test_frac']*100:>6.0f}%  "
-              f"{r['test_start'][:19]:<20}{r['n_test']:>5}{r['hit_rate']:>8.1%}{r['auc']:>7.3f}")
-    if cv:
-        print(f"\n  mean AUC: {np.mean([r['auc'] for r in cv]):.3f}")
+        line = (f"  {r['train_frac']*100:>6.0f}%{r['test_frac']*100:>6.0f}%  "
+                f"{r['test_start'][:19]:<20}{r['n_test']:>5}{r['hit_rate']:>8.1%}"
+                f"{r['auc_clf']:>7.3f}{r['rule_pnl']:>+10.0f}  ")
+        for t in (-50.0, -25.0, -10.0, 0.0, 10.0, 25.0):
+            line += f"{r['gate_deltas'][t]['delta']:>+12.0f}  "
+        print(line)
 
-    # Fit final + save
-    final = GradientBoostingClassifier(
+    if cv:
+        mean_auc = np.mean([r['auc_clf'] for r in cv])
+        total_rule = sum(r['rule_pnl'] for r in cv)
+        print(f"\n  rolling-origin summary:")
+        print(f"    mean classifier AUC:  {mean_auc:.3f}")
+        print(f"    cumulative rule PnL across chunks: ${total_rule:+,.0f}")
+        print(f"    cumulative regressor-gate Δ by threshold:")
+        for t in (-50.0, -25.0, -10.0, 0.0, 10.0, 25.0):
+            total_d = sum(r['gate_deltas'][t]['delta'] for r in cv)
+            pos_chunks = sum(1 for r in cv if r['gate_deltas'][t]['delta'] > 0)
+            total_kept = sum(r['gate_deltas'][t]['n_kept'] for r in cv)
+            total_n = sum(r['n_test'] for r in cv)
+            print(f"      thr > ${t:+6.0f}: Δ=${total_d:+,.0f}  "
+                  f"({pos_chunks}/{len(cv)} chunks positive, "
+                  f"kept {total_kept}/{total_n} = {total_kept/total_n*100:.0f}%)")
+
+    # Fit final classifier + regressor on full data, save both
+    clf_final = GradientBoostingClassifier(
         n_estimators=200, max_depth=3, learning_rate=0.05,
         min_samples_leaf=25, random_state=42,
     )
-    final.fit(X, y)
-    imps = sorted(zip(X.columns, final.feature_importances_), key=lambda t: -t[1])
-    print(f"\n  top 10 features:")
-    for n_, imp in imps[:10]:
+    clf_final.fit(X, y_bin)
+    reg_final = GradientBoostingRegressor(
+        n_estimators=200, max_depth=3, learning_rate=0.05,
+        min_samples_leaf=25, random_state=42,
+    )
+    reg_final.fit(X, y_pnl)
+
+    imps_clf = sorted(zip(X.columns, clf_final.feature_importances_), key=lambda t: -t[1])
+    imps_reg = sorted(zip(X.columns, reg_final.feature_importances_), key=lambda t: -t[1])
+    print(f"\nTop 10 classifier features (diagnostic):")
+    for n_, imp in imps_clf[:10]:
+        print(f"    {n_:<30} {imp:.4f}")
+    print(f"\nTop 10 regressor features (production gate):")
+    for n_, imp in imps_reg[:10]:
         print(f"    {n_:<30} {imp:.4f}")
 
     joblib.dump({
-        "classifier": final,
-        "model_kind": "GBT_kalshi_tp_gate_binary",
+        "classifier": clf_final,
+        "regressor": reg_final,
+        "model_kind": "GBT_kalshi_tp_gate_clf+reg",
         "feature_names": list(X.columns),
         "numeric_features": NUMERIC_FEATURES,
         "categorical_features": CATEGORICAL_FEATURES,
         "categorical_maps": cat_maps,
         "training_rows": len(ds),
         "rolling_origin_cv": cv,
-        "rolling_origin_mean_auc": float(np.mean([r['auc'] for r in cv])) if cv else None,
+        "rolling_origin_mean_auc": float(np.mean([r['auc_clf'] for r in cv])) if cv else None,
         "base_hit_rate": float(ds['hit_tp'].mean()),
         "allowlist": sorted(REPLAY_ALLOWLIST),
-        "pass_threshold": 0.50,
+        # Gate on the regressor; default threshold is "predicted pnl > $0" but
+        # tunable via JULIE_ML_KALSHI_TP_PNL_THR env var at inference time.
+        "gate_mode": "regressor_pnl",
+        "regressor_gate_threshold": 0.0,
+        # Legacy classifier threshold retained for diagnostic scoring only
+        "classifier_threshold": 0.50,
     }, OUT_MODEL)
     ds.to_parquet(OUT_DATA)
     print(f"\n[write] {OUT_MODEL}")

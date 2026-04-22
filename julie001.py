@@ -1714,12 +1714,13 @@ def _apply_kalshi_trade_overlay_to_signal(
                                     tp_dist_pts=float(_tp_dist),
                                 )
                                 if _tp_score is not None:
-                                    _tp_p_hit, _tp_should_pass = _tp_score
+                                    _tp_p_hit, _tp_pred_pnl, _tp_should_pass = _tp_score
                                     logging.info(
-                                        "[SHADOW_KALSHI_TP] rule=PASS ml_p_hit_tp=%.3f ml=%s "
+                                        "[SHADOW_KALSHI_TP] rule=PASS ml_p_hit_tp=%.3f "
+                                        "ml_pred_pnl=%+.2f ml=%s "
                                         "tp_px=%.2f tp_dist=%.1f tp_prob=%.3f "
                                         "entry_prob=%.3f strat=%s side=%s regime=%s",
-                                        _tp_p_hit,
+                                        _tp_p_hit, _tp_pred_pnl,
                                         "PASS" if _tp_should_pass else "BLOCK",
                                         _tp_px, _tp_dist, float(_tp_aligned),
                                         _entry_aligned_raw,
@@ -1729,7 +1730,7 @@ def _apply_kalshi_trade_overlay_to_signal(
                                     if _mls_k.is_kalshi_tp_live_active() and not _tp_should_pass:
                                         signal["kalshi_entry_blocked"] = True
                                         signal["kalshi_entry_block_reason"] = (
-                                            f"ml_kalshi_tp p_hit={_tp_p_hit:.3f} < thr"
+                                            f"ml_kalshi_tp pred_pnl=${_tp_pred_pnl:+.2f} < thr"
                                         )
                                         return False
                 except Exception as _tp_exc:
