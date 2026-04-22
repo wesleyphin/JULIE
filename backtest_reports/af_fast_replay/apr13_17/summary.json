@@ -1,0 +1,20 @@
+{
+  "range_start": "2026-04-13 00:00:00-04:00",
+  "range_end": "2026-04-17 23:59:00-04:00",
+  "signals_pre_threshold": 1,
+  "trades_after_threshold": 1,
+  "wins": 1,
+  "losses": 0,
+  "winrate": 1.0,
+  "net_pnl": 18.75,
+  "mean_pnl": 18.75,
+  "median_pnl": 18.75,
+  "max_win": 18.75,
+  "max_loss": 18.75,
+  "exit_source_counts": {
+    "horizon": 1
+  },
+  "regime_counts": {
+    "TREND_GEODESIC": 1
+  }
+}

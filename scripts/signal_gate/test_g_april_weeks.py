@@ -39,6 +39,10 @@ KALSHI_ENTRY_THRESHOLD = 0.45
 POINT_VALUE = 5.0
 SIZE = 5  # AF default
 
+# v5 regime-adaptive threshold multipliers
+_REGIME_THR_MULT = {"whipsaw": 0.60, "calm_trend": 1.05, "neutral": 1.0,
+                    "warmup": 1.0, "": 1.0}
+
 WEEKS = [
     ("apr6_10",  "2026-04-06", "2026-04-10"),
     ("apr13_17", "2026-04-13", "2026-04-17"),
@@ -214,7 +218,14 @@ def run_window(run_name: str, start: str, end: str, g_model: dict,
         t["kalshi_aligned_prob"] = kal_prob
         p_bl, _ = score_g_for_trade(t, g_model, master_df)
         t["g_p_big_loss"] = p_bl
-        t["g_veto"] = (p_bl is not None and p_bl >= g_model["veto_threshold"])
+        # v5: regime-adaptive threshold
+        mkt_regime = (t.get("regime") or "").lower()  # AF signals carry manifold regime not global
+        # AF manifold regime names don't match global regime names — treat as neutral
+        # unless mapped. For now: neutral (1.0×). Future: map manifold regimes.
+        mult = _REGIME_THR_MULT.get("neutral", 1.0)
+        eff_thr = g_model["veto_threshold"] * mult
+        t["g_effective_thr"] = eff_thr
+        t["g_veto"] = (p_bl is not None and p_bl >= eff_thr)
         t["af_confidence"] = float(t.get("confidence", 0.0))
 
     # Scenario aggregates

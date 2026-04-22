@@ -1,0 +1,24 @@
+{
+  "range_start": "2025-03-01 00:00:00-05:00",
+  "range_end": "2025-03-31 23:59:00-04:00",
+  "signals_pre_threshold": 28,
+  "trades_after_threshold": 28,
+  "wins": 15,
+  "losses": 13,
+  "winrate": 0.5357142857142857,
+  "net_pnl": 1376.3385033762393,
+  "mean_pnl": 49.154946549151404,
+  "median_pnl": 21.875,
+  "max_win": 400.0,
+  "max_loss": -200.0,
+  "exit_source_counts": {
+    "horizon": 8,
+    "stop": 9,
+    "take": 11
+  },
+  "regime_counts": {
+    "TREND_GEODESIC": 2,
+    "CHOP_SPIRAL": 16,
+    "DISPERSED": 10
+  }
+}

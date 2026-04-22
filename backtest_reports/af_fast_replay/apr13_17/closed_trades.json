@@ -1,0 +1,21 @@
+[
+  {
+    "strategy": "AetherFlow",
+    "sub_strategy": "compression_release",
+    "side": "LONG",
+    "size": 5,
+    "entry_price": 7004.25,
+    "exit_price": 7005.0,
+    "entry_time": "2026-04-14T16:18:00-04:00",
+    "exit_time": "2026-04-14T16:37:00-04:00",
+    "source": "horizon",
+    "pnl_points": 0.75,
+    "pnl_dollars": 18.75,
+    "tp_dist": 3.8650068621936953,
+    "sl_dist": 2.0558547973632812,
+    "horizon_bars": 20,
+    "confidence": 0.593161894577378,
+    "threshold": 0.55,
+    "regime": "TREND_GEODESIC"
+  }
+]
