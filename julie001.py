@@ -14191,6 +14191,21 @@ async def run_bot():
                                     _mkt_regime = _cr() or ""
                                 except Exception:
                                     _mkt_regime = ""
+                                # Build bars_df from _bar_cache tuples for v2 LFO
+                                # (encoder + cross-market features). Harmless when v1
+                                # model is loaded — score_lfo skips augmentation.
+                                _bars_df = None
+                                if _bar_cache and len(_bar_cache) >= 10:
+                                    try:
+                                        import pandas as _pd_local
+                                        _rows = list(_bar_cache)
+                                        _bars_df = _pd_local.DataFrame(
+                                            [(r[1], r[2], r[3], r[4], r[5]) for r in _rows],
+                                            columns=["open", "high", "low", "close", "volume"],
+                                            index=_pd_local.DatetimeIndex([r[0] for r in _rows]),
+                                        )
+                                    except Exception:
+                                        _bars_df = None
                                 _ml_score = _mls.score_lfo(
                                     signal=signal,
                                     bar_features=_feats,
@@ -14203,6 +14218,8 @@ async def run_bot():
                                     session=_sess,
                                     mkt_regime=_mkt_regime,
                                     et_hour=int(currbar.name.hour),
+                                    bars_df=_bars_df,
+                                    current_time=currbar.name,
                                 )
                                 if _ml_score is not None:
                                     _p_wait, _thr = _ml_score

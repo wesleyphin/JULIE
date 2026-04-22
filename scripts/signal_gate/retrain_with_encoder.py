@@ -225,13 +225,22 @@ def retrain_lfo():
     print(f"\n[lfo] holdout AUC: v1={auc_v1:.4f}  v2={auc_v2:.4f}  Δ={auc_v2-auc_v1:+.4f}")
 
     # Save v2 alongside v1
+    # NOTE: numeric_features MUST include the encoder + cross-market columns
+    # or ml_overlay_shadow._build_row will leave them at 0.0 at inference time
+    # (silent edge-loss). categorical_maps MUST be a dict of col -> values so
+    # _build_row can resolve the one-hots; dropping it has the same effect.
+    cat_maps = {col: sorted(ds[col].astype(str).unique().tolist()) for col in CATEGORICAL}
+    enc_cols = [f"enc_{i:02d}" for i in range(emb.shape[1])]
+    full_numeric = list(NUMERIC) + list(cm_df.columns) + enc_cols
     out_path = ARTIFACTS / "model_lfo_v2.joblib"
     joblib.dump({
         "model": clf,
         "model_kind": "GBT_d4_lfo_v2_with_encoder_crossmarket",
         "feature_names": list(X.columns),
-        "numeric_features": NUMERIC,
+        "numeric_features": full_numeric,
         "categorical_features": CATEGORICAL,
+        "categorical_maps": cat_maps,
+        "ordinal_features": [],
         "uses_bar_encoder": True,
         "uses_cross_market": True,
         "encoder_embed_dim": emb.shape[1],
@@ -327,14 +336,21 @@ def retrain_kalshi_tp():
     print(f"\n[kalshi_tp] holdout AUC: v1={auc_v1:.4f}  v2={auc_v2:.4f}  Δ={auc_v2-auc_v1:+.4f}")
     print(f"[kalshi_tp] regressor gate PnL delta vs rule: v1=${v1_delta:+.0f}  v2=${v2_delta:+.0f}")
 
+    # See LFO note — numeric_features MUST include enc_* + cm_* or _build_row
+    # will silently zero them at inference time.
+    cat_maps = {col: sorted(ds[col].astype(str).unique().tolist()) for col in CATEGORICAL}
+    enc_cols = [f"enc_{i:02d}" for i in range(emb.shape[1])]
+    full_numeric = list(NUMERIC) + list(cm_df.columns) + enc_cols
     out_path = ARTIFACTS / "model_kalshi_tp_gate_v2.joblib"
     joblib.dump({
         "classifier": clf,
         "regressor": reg,
         "model_kind": "GBT_kalshi_tp_v2_with_encoder_crossmarket",
         "feature_names": list(X.columns),
-        "numeric_features": NUMERIC,
+        "numeric_features": full_numeric,
         "categorical_features": CATEGORICAL,
+        "categorical_maps": cat_maps,
+        "ordinal_features": [],
         "uses_bar_encoder": True,
         "uses_cross_market": True,
         "encoder_embed_dim": emb.shape[1],
@@ -420,13 +436,19 @@ def retrain_pivot():
 
     print(f"\n[pivot] holdout AUC: v1={auc_v1:.4f}  v2={auc_v2:.4f}  Δ={auc_v2-auc_v1:+.4f}")
 
+    # See LFO note — enc_* and cross-market columns must be in numeric_features
+    # and categorical_maps must be present for inference to see them.
+    cat_maps = {col: sorted(ds[col].astype(str).unique().tolist()) for col in CATEGORICAL}
+    enc_cols = [f"enc_{i:02d}" for i in range(emb.shape[1])]
+    full_numeric = list(NUMERIC) + list(cm_df.columns) + enc_cols
     out_path = ARTIFACTS / "model_pivot_trail_v2.joblib"
     joblib.dump({
         "model": clf,
         "model_kind": "GBT_pivot_trail_v2_with_encoder_crossmarket",
         "feature_names": list(X.columns),
-        "numeric_features": NUMERIC,
+        "numeric_features": full_numeric,
         "categorical_features": CATEGORICAL,
+        "categorical_maps": cat_maps,
         "ordinal_features": ORDINAL,
         "uses_bar_encoder": True,
         "uses_cross_market": True,

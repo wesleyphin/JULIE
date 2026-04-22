@@ -150,8 +150,17 @@ def score_lfo(signal: Dict[str, Any], bar_features: Dict[str, float],
                dist_to_bank_below: float, dist_to_bank_above: float,
                bar_range_pts: float, bar_close_pct_body: float,
                sl_dist: float, tp_dist: float,
-               session: str, mkt_regime: str, et_hour: int) -> Optional[Tuple[float, float]]:
-    """Return (p_wait_better, veto_threshold) or None if model not loaded."""
+               session: str, mkt_regime: str, et_hour: int,
+               *,
+               bars_df: Any = None,
+               current_time: Any = None) -> Optional[Tuple[float, float]]:
+    """Return (p_wait_better, veto_threshold) or None if model not loaded.
+
+    If the loaded payload was trained with encoder + cross-market features
+    (uses_bar_encoder / uses_cross_market = True), this function will
+    transparently compute those at inference time from bars_df + current_time.
+    v1 payloads (feature dim = 24) simply skip the augmentation.
+    """
     if _LFO_PAYLOAD is None:
         return None
     side = str(signal.get("side", "")).upper()
@@ -169,6 +178,21 @@ def score_lfo(signal: Dict[str, Any], bar_features: Dict[str, float],
         "tp_dist_pts": tp_dist,
         "atr_ratio_to_sl": atr14 / max(0.5, sl_dist),
     })
+    # v2 augmentation: compute encoder embedding + cross-market features
+    # if this payload was trained with them. Silent fallback to v1 behavior
+    # if bars_df / current_time aren't supplied.
+    if _LFO_PAYLOAD.get("uses_bar_encoder") and bars_df is not None:
+        emb = get_bar_embedding(bars_df)
+        if emb is not None:
+            for i, v in enumerate(emb):
+                numeric[f"enc_{i:02d}"] = float(v)
+    if _LFO_PAYLOAD.get("uses_cross_market") and current_time is not None:
+        try:
+            cm_feats = get_cross_market_features(current_time, mes_bars=bars_df)
+            for k, v in cm_feats.items():
+                numeric[k] = float(v)
+        except Exception:
+            pass
     categorical = {"side": side, "session": session, "mkt_regime": mkt_regime}
     ordinal = {"et_hour": float(et_hour)}
     X = _build_row(_LFO_PAYLOAD, numeric, categorical, ordinal)
