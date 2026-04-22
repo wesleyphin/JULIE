@@ -4381,6 +4381,25 @@ def _apply_rl_management_action(
             return {"status": "skipped", "reason": f"ratchet_would_not_improve {target}<={current_sl}"}
         if side == "SHORT" and target >= current_sl - 1e-9:
             return {"status": "skipped", "reason": f"ratchet_would_not_improve {target}>={current_sl}"}
+        # Refuse to move SL to a price already breached by current market —
+        # otherwise the broker force-closes at market immediately (seen live
+        # on 2026-04-22: RL fired MOVE_SL_TO_BE on trades that were 0.25–1.25
+        # pts underwater, the executor dutifully shipped the new SL, and the
+        # broker instant-filled the exit as if the stop had hit. Trades that
+        # would have recovered within a few bars got chopped at a small loss).
+        # Required buffer: ≥1 tick between new SL and current market, on the
+        # protective side.
+        try:
+            mp = float(market_price)
+        except Exception:
+            mp = 0.0
+        if mp > 0:
+            if side == "LONG" and target >= mp - TICK_SIZE:
+                return {"status": "skipped",
+                        "reason": f"would_breach_market SL={target} >= mkt-tick={mp - TICK_SIZE}"}
+            if side == "SHORT" and target <= mp + TICK_SIZE:
+                return {"status": "skipped",
+                        "reason": f"would_breach_market SL={target} <= mkt+tick={mp + TICK_SIZE}"}
         result = _apply_pivot_trail_sl(
             client, trade, float(target),
             current_time=current_time, market_price=market_price,
