@@ -17,12 +17,22 @@ is the path the bot is actually meant to run on.
 
 ## What's New (2026-04 ML Overlay Stack)
 
-Five learned overlays now sit on top of the rule-based engines. Each observes
-the same state the rule-based logic observes and emits a learned second
-opinion for a specific decision point. All five ship in **shadow mode** by
-default — they log their verdict alongside the rule's decision without
-changing trade behavior. Each can be promoted to **active** via an env
-kill-switch.
+Nine ML models now run live in the bot. The oldest — **Machine Learning G**
+— is a set of four per-strategy big-loss classifiers that veto signals
+before they're placed (shipped months ago, already live). The five new
+overlays sit on top of the rule-based engines and each observes a specific
+decision point.
+
+### Machine Learning G — per-strategy big-loss veto (live since prior releases)
+
+| Classifier | Role | Artifact |
+|---|---|---|
+| **Machine Learning G: DE3** | Veto DE3 signals with high predicted big-loss probability | `model_de3.joblib` |
+| **Machine Learning G: AetherFlow** | Veto AF signals with high predicted big-loss probability | `model_aetherflow.joblib` |
+| **Machine Learning G: RegimeAdaptive** | Veto RA signals with high predicted big-loss probability | `model_regimeadaptive.joblib` |
+| **Machine Learning G: MLPhysics** | Veto MLPhysics signals with high predicted big-loss probability | `model_mlphysics.joblib` |
+
+### Overlay stack — five learned layers on top of the rule-based engines
 
 | Layer | Decision point it models | Artifact |
 |---|---|---|
@@ -32,6 +42,7 @@ kill-switch.
 | **Kalshi entry gate** | Past the rule's support-score filter, is this trade still worth taking? | `model_kalshi_gate.joblib` |
 | **Kalshi TP gate** | Does the Kalshi crowd believe this trade can reach its take-profit price? | `model_kalshi_tp_gate.joblib` |
 
+All nine are live by default when launched via `launch_filterless_live.py`.
 Full details in **section 11 (Machine Learning Overlay Stack)** below.
 
 Env toggles — **all five default ON when launched via `launch_filterless_live.py`**
@@ -1744,36 +1755,46 @@ would PASS but ML `p_hit_tp < 0.50`, the signal is blocked
 
 **Trainer.** `scripts/signal_gate/train_kalshi_tp_ml.py`
 
-### 11.7 G-gates (prior art, shipped earlier)
+### 11.7 Machine Learning G (per-strategy big-loss veto, shipped earlier)
 
-Before the 2026-04 overlay stack, a family of per-strategy "G-gate" binary
-classifiers was already live in `signal_gate_2025.py`. Those models evaluate
-whether a generated signal (DE3 / AetherFlow / RegimeAdaptive / MLPhysics)
-looks like a high-probability-big-loss before the bot places the trade. The
-joblib files live alongside the overlay stack:
+Before the 2026-04 overlay stack, a family of per-strategy ML classifiers
+was already live in `signal_gate_2025.py`. Those models — collectively
+called **Machine Learning G** — evaluate whether a generated signal
+(DE3 / AetherFlow / RegimeAdaptive / MLPhysics) looks like a
+high-probability-big-loss before the bot places the trade.
+
+Each strategy has its own dedicated ML classifier (not a single shared
+model):
 
 ```
 artifacts/signal_gate_2025/
-  model_de3.joblib
-  model_aetherflow.joblib
-  model_regimeadaptive.joblib
-  model_mlphysics.joblib
+  model_de3.joblib              — Machine Learning G for DE3
+  model_aetherflow.joblib       — Machine Learning G for AetherFlow
+  model_regimeadaptive.joblib   — Machine Learning G for RegimeAdaptive
+  model_mlphysics.joblib        — Machine Learning G for MLPhysics
 ```
 
-Those gates are **live (not shadow)**: they directly veto signals whose
-predicted loss probability exceeds their per-strategy threshold. They run
-independently from the 4-layer overlay stack described above.
+Unlike the overlay stack (which defaults to shadow mode until the launcher
+activates each layer), Machine Learning G has been **live** since it
+shipped — it directly vetoes signals whose predicted loss probability
+exceeds the per-strategy threshold. It runs independently from the
+overlay stack described above; the two systems don't share code paths or
+features.
+
+Activation: the launcher sets `JULIE_SIGNAL_GATE_2025=1` by default; all
+four Machine Learning G classifiers load at bot startup and evaluate
+every candidate signal. Revert path: `export JULIE_SIGNAL_GATE_2025=0`.
 
 ### 11.8 The five-layer stack, end to end
 
-A single live signal passes through all five overlays plus the G-gate in this
-order:
+A single live signal passes through all five overlays plus Machine Learning G
+in this order:
 
 ```
   Strategy candidate (DE3 / AF / RA / MLPhysics)
             │
             ▼
-    G-gate (signal_gate_2025.py)  ─── live; blocks P(big loss) > thr
+    Machine Learning G (signal_gate_2025.py)  ─── live; blocks P(big loss) > thr
             │
             ▼
     Kalshi entry overlay (rule)   ─── computes support_score vs threshold
@@ -1808,8 +1829,9 @@ order:
 Running all five overlays simultaneously is intentional — each targets a
 different decision point and they compose rather than compete:
 
-- **G-gate** (live, prior art) filters out signals the strategy shouldn't
-  have emitted in the first place.
+- **Machine Learning G** (live, prior art) — per-strategy big-loss ML
+  classifier that filters out signals the strategy shouldn't have emitted
+  in the first place.
 - **Kalshi entry-gate ML** re-evaluates the rule's PASS decisions using
   entry-side features (entry_probability + 5pt probe) and market-state
   context the rule doesn't see.
@@ -1829,8 +1851,8 @@ The bot's rule-based path always remains intact as a fallback.
 
 ### 11.10 Training artifacts
 
-All five overlay models plus the prior-art G-gates and their training
-parquets live in a single directory:
+All five overlay models plus the four Machine Learning G classifiers and
+their training parquets live in a single directory:
 
 ```
 artifacts/signal_gate_2025/
@@ -1838,11 +1860,11 @@ artifacts/signal_gate_2025/
   model_pct_overlay.joblib                — PCT level bias
   model_pivot_trail.joblib                — pivot trail hold gate
   model_kalshi_gate.joblib                — Kalshi entry gate (clf + reg)
-  model_kalshi_tp_gate.joblib             — Kalshi TP gate (clf)
-  model_de3.joblib                        — G-gate for DE3
-  model_aetherflow.joblib                 — G-gate for AetherFlow
-  model_regimeadaptive.joblib             — G-gate for RegimeAdaptive
-  model_mlphysics.joblib                  — G-gate for MLPhysics
+  model_kalshi_tp_gate.joblib             — Kalshi TP gate (clf + reg)
+  model_de3.joblib                        — Machine Learning G for DE3
+  model_aetherflow.joblib                 — Machine Learning G for AetherFlow
+  model_regimeadaptive.joblib             — Machine Learning G for RegimeAdaptive
+  model_mlphysics.joblib                  — Machine Learning G for MLPhysics
   lfo_training_data.parquet               — LFO training set
   pct_overlay_training_data.parquet       — PCT overlay training set
   pivot_trail_training_data.parquet       — pivot hold labels
@@ -2030,7 +2052,7 @@ The most important technical files are:
 ### ML overlay stack (see Section 11)
 
 - `ml_overlay_shadow.py` — runtime model loader + scorer for all four overlays
-- `signal_gate_2025.py` — prior-art G-gates (live, not shadow)
+- `signal_gate_2025.py` — Machine Learning G (per-strategy big-loss veto; live, not shadow)
 - `artifacts/signal_gate_2025/` — model artifacts (joblib) + training data (parquet)
 - `scripts/signal_gate/train_lfo_ml.py`
 - `scripts/signal_gate/train_pct_overlay_ml.py`
