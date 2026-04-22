@@ -15,13 +15,54 @@ This document explains the current Julie bot from a technical perspective:
 It is intentionally focused on the current filterless live stack, because that
 is the path the bot is actually meant to run on.
 
-## What's New (2026-04 ML Overlay Stack)
+## What's New (2026-04-22 update)
 
-Nine ML models now run live in the bot. The oldest — **Machine Learning G**
-— is a set of four per-strategy big-loss classifiers that veto signals
-before they're placed (shipped months ago, already live). The five new
-overlays sit on top of the rule-based engines and each observes a specific
-decision point.
+The late-April 2026 wave promoted three pieces of infrastructure that
+previously shipped in scaffold or shadow state:
+
+- **LFO overlay promoted to v2** (25 → 64 features). The new model
+  consumes the 32-dim bar-sequence encoder embedding and an 8-dim
+  cross-market feature vector (MNQ + VIX) in addition to the original
+  bar-shape / distance / regime features. Rolling-origin A/B over six
+  windows showed v2 beats v1 in **6/6 chunks** with mean AUC jumping from
+  0.554 → 0.653. Payload schema fix (`categorical_maps`, `numeric_features`
+  extended with `enc_*` + cross-market keys) was required or the v2 model
+  would have scored against zeros at inference. Canonical is now the v2
+  joblib; v1 is preserved at `model_lfo_v1_pre_encoder.joblib`.
+
+- **RL trade-management promoted to v3 (SL-only, 4-action) and ACTIVATED.**
+  Previously shadow-only with a 7-action policy. An audit revealed that
+  95%+ of the 7-action policy's expected edge depended on
+  `TAKE_PARTIAL_50PCT` actions executing, which the live executor defers
+  (only SL moves are wired). A restricted 4-action variant (HOLD,
+  MOVE_SL_TO_BE, TIGHTEN_SL_25PCT, TIGHTEN_SL_50PCT) was retrained with
+  the same extended obs and now actively steers stops.
+  `JULIE_ML_RL_MGMT_ACTIVE=1` is the launcher default. The 7-action v2 is
+  retained at `model_rl_management_v2_for_future_partial_close.zip` for
+  future promotion once the partial-close broker path is wired.
+
+- **Bar-sequence encoder + cross-market features actively wired.**
+  Previously the encoder was trained but unused; cross-market features
+  were scaffolded with stub zero defaults. Both are now real inputs into
+  the LFO and RL inference paths. MNQ (810k 1-min bars from Databento)
+  and VIX (577 daily bars from Yahoo) are cached as parquets and loaded
+  once on first use.
+
+- **Live executor guard (`would_breach_market`)** added to the RL
+  SL-mover. The first live session exposed a backtest/live discrepancy:
+  when RL fires `MOVE_SL_TO_BE` on a trade that is slightly underwater,
+  the new SL lands on the wrong side of current market and the broker
+  immediately force-fills the exit at a small loss. The backtest env
+  treats SL as a next-bar price-path constraint, not a mid-bar
+  immediate fill. The executor now skips any SL move that would
+  already be breached by current market; the trade retains its
+  original SL and gets a chance to recover.
+
+Earlier in April 2026, nine ML models were running live. The oldest —
+**Machine Learning G** — is a set of four per-strategy big-loss
+classifiers that veto signals before they're placed (shipped months
+ago, already live). The five overlay layers sit on top of the
+rule-based engines and each observes a specific decision point.
 
 ### Machine Learning G — per-strategy big-loss veto (live since prior releases)
 
@@ -42,47 +83,83 @@ decision point.
 | **Kalshi entry gate** | Past the rule's support-score filter, is this trade still worth taking? | `model_kalshi_gate.joblib` |
 | **Kalshi TP gate** | Does the Kalshi crowd believe this trade can reach its take-profit price? | `model_kalshi_tp_gate.joblib` |
 
-### RL trade-management policy (Path 3, shadow-only)
+### RL trade-management policy (Path 3, ACTIVE as of 2026-04-22)
 
 A PPO-trained reinforcement-learning agent that replaces the rule-based
 stack of trade-management heuristics (break-even, profit milestone,
 tiered take, pivot trail) with one joint policy making a per-bar decision
-from the full trade context.
+from the full trade context. **As of 2026-04-22 this policy actively
+steers stops in production** — `JULIE_ML_RL_MGMT_ACTIVE=1` is the
+launcher default.
+
+**Canonical: v3 SL-only, 4 actions, 212-dim obs.**
 
 | Layer | Decision point | Artifact |
 |---|---|---|
-| **RL management** (Path 3) | Per-bar: HOLD / move SL to BE / tighten SL 25-50% / take partial 50% / take partial full / reverse | `model_rl_management.zip` (SB3 PPO) |
+| **RL management v3** (Path 3) | Per-bar: HOLD / move SL to BE / tighten SL 25-50% | `model_rl_management.zip` (SB3 PPO, Discrete(4)) |
 
-Action space is discrete (7 actions). State is 172-dim (30 bars × 5 OHLCV
-features + 7 trade-state scalars + regime/session one-hots + Kalshi
-aligned probabilities + running peak/trough PnL). Trained on ~4,000
-historical trade episodes with rolling-origin temporal split.
+**v1 / v2 / v3 history.**
 
-Currently ships **shadow-only** (`JULIE_ML_RL_MGMT_ACTIVE=0` default).
-Logs `[SHADOW_RL]` every bar alongside the rule-based management stack.
-Promoting to active requires wiring the 7 discrete actions to broker
-execution paths — intentionally deferred until shadow-log agreement
-with rule behavior is validated.
+| Version | Obs dim | Actions | Status | Notes |
+|---|---|---|---|---|
+| v1 | 172 | 7 | archived (`model_rl_management_v1_pre_extended.zip`, local only) | Pre-extended-obs baseline |
+| v2 | 212 | 7 | retained for future promotion (`model_rl_management_v2_for_future_partial_close.zip`) | Extended obs (encoder + cross-market). Wins backtest at $295.91/trade mean but 95%+ of edge depends on `TAKE_PARTIAL_50PCT` executing; live executor defers that action |
+| **v3** | **212** | **4** | **live canonical** | Same extended obs as v2 but restricted action space to the subset the live executor wires. Backtest mean $30.15/trade, WR 98%, aggressive BE + tighten strategy |
 
-**Known env-fidelity caveats (important).** The first PPO training run
-exposed two simulator-vs-reality gaps that inflate in-sample rewards:
+**Observation layout (212 dims, v2 and v3):**
 
-  1. **No slippage.** Partial closes and reverses fill at the bar's
-     close price; live trading has broker slippage + order queue
-     dynamics that reduce realized PnL on instant closes.
-  2. **No per-bar drift fees.** The env pays fees once per partial
-     close, but the close fraction + partial timing is gamed by the
-     agent in ways that'd cost more in commission in production.
+- 150 dims — 30 bars × 5 OHLCV features (bar tape)
+- 7 dims — trade-state scalars (pnl, bars held, mfe, mae, side sign, cur SL distance, cur TP distance)
+- 4 dims — regime one-hot
+- 6 dims — session one-hot
+- 3 dims — Kalshi aligned probabilities (entry, SL, TP)
+- 2 dims — running peak/trough PnL
+- **32 dims — bar-sequence encoder embedding (Path 1, added in v2)**
+- **8 dims — cross-market feature vector (Path 4, added in v2)**
 
-Result: the initial trained policy's validation numbers (95%+ win rate,
-$260+/trade) heavily overstate the real edge. The engineering stack is
-sound; the policy needs a slippage-aware retrain before active mode is
-considered. This is why the launcher's activation default is **0**, not
-**1** like the other overlays.
+The last two blocks are snapshotted once at trade entry and reused every
+bar; cache-hit inference latency is ~0.29 ms per call.
 
-**Trainer:** `rl/train_ppo.py`. **Env:** `rl/trade_env.py`. **Inference:** `rl/inference.py`.
+Trained on ~4,000 historical trade episodes with 85/15 temporal split.
+300k PPO timesteps, 4 DummyVecEnvs, ~5 minutes on CPU.
 
-### Bar-sequence encoder (Path 1 infrastructure)
+**Executor safety.** The `_apply_rl_management_action` function in
+`julie001.py` translates RL actions into broker calls. v3's 4-action
+space (`HOLD`, `MOVE_SL_TO_BE`, `TIGHTEN_SL_25PCT`, `TIGHTEN_SL_50PCT`) is
+fully wired — every action the policy can emit has a live broker path.
+Two guards protect against pathological moves:
+
+  1. **Ratchet check** — new SL must be tighter than current SL.
+     Prevents the RL from loosening the stop.
+  2. **Market-breach check (added 2026-04-22)** — new SL must be on
+     the protective side of current market by at least one tick. For
+     a LONG, `target < market − tick`; for a SHORT, `target > market +
+     tick`. Without this, a `MOVE_SL_TO_BE` on an underwater trade
+     places the SL on the wrong side of current market and the broker
+     immediately force-fills the exit. Guard-skipped actions log a
+     `status=skipped reason=would_breach_market …` line and the trade
+     retains its existing SL.
+
+**Why v2 isn't canonical even though its backtest looks better.** Auditing
+the live executor revealed that only 3 of the 7-action v2 policy's actions
+are wired (HOLD + 2 SL-tighten variants). `TAKE_PARTIAL_50PCT` /
+`TAKE_PARTIAL_FULL` / `REVERSE` all return `status=deferred` and log only
+— wiring them requires new broker-side code (`close_trade_leg_partial`,
+bracket-resize, running `remaining_size` state). With v2 as canonical
+and the live flag on, every partial-close action the policy chose would
+be silently discarded, and the policy's overall behavior would degrade
+*below* a rule-only baseline (backtest: $9.98/trade under that regime).
+v3 is the live-safe replacement; v2 is preserved for the day the
+partial-close path is wired (the "Option B" TODO).
+
+**Trainer:** `rl/train_ppo.py` (`--extended-obs --sl-only` for v3).
+**Env:** `rl/trade_env.py` (`extended_obs`, `n_actions=4` kwargs).
+**Inference:** `rl/inference.py` (auto-detects obs_dim + action space at
+load, caches augmentation per trade via `trade_id`).
+**Comparison:** `rl/compare_policies.py --model-v2 …` for head-to-head
+scoring of any two policies.
+
+### Bar-sequence encoder (Path 1, LIVE since 2026-04-22)
 
 Self-supervised dilated-CNN encoder that ingests the last 60 bars of
 OHLCV and produces a 32-dim embedding. Trained on ~200k bar sequences
@@ -94,17 +171,31 @@ return-regression auxiliary.
 | Training accuracy (3-way direction, random = 33%) | **72%** |
 | Embedding dim | 32 |
 | Parameters | ~20k |
-| CPU inference cost per embedding | <1 ms |
+| CPU inference cost per embedding | <1 ms (cache-hit: 0.3 ms) |
 
 **Artifact:** `artifacts/signal_gate_2025/bar_encoder.pt`
 **Trainer:** `rl/bar_encoder.py`
 **Integration:** `ml_overlay_shadow.get_bar_embedding(bars_df)` returns
-the 32-dim embedding for the most recent window. Intended as an
-auxiliary feature source for subsequent retrains of the other ML layers
-(LFO / Kalshi / Pivot / PCT). Those retrains haven't happened yet — the
-encoder ships in "feature-source ready" state.
+the 32-dim embedding for the most recent window. **As of 2026-04-22 the
+encoder is an active input into two live layers:**
 
-### Cross-market features (Path 4 infrastructure)
+  1. **LFO v2** consumes the 32 `enc_*` features alongside its original
+     bar-shape / distance / regime features. Retrain A/B showed +0.100
+     AUC vs v1. The LFO scoring path (`ml_overlay_shadow.score_lfo`)
+     auto-computes the embedding when the loaded payload has
+     `uses_bar_encoder=True`.
+  2. **RL v2/v3** includes the 32-dim embedding as part of its 212-dim
+     observation, snapshotted at trade entry and reused every bar.
+
+A/B tests on three other classifier overlays (Kalshi TP, Pivot Trail,
+PCT overlay) showed the encoder + cross-market feature set adds no
+measurable lift on those layers — they are local pattern classifiers
+where regime / sequence context is noise. The encoder is therefore a
+targeted win for **decision-type layers** (LFO, RL) rather than a
+universal lift. See `scripts/signal_gate/rolling_origin_ab.py` +
+`scripts/signal_gate/retrain_and_ab_pct.py` for the harness.
+
+### Cross-market features (Path 4, LIVE with real data since 2026-04-22)
 
 Feature extractor with stable schema across MES-MNQ correlation, VIX
 regime, and DXY level readings:
@@ -117,42 +208,54 @@ mes_mnq_divergence_pct    spread between MES and MNQ 30-min returns
 vix_level                 absolute VIX close
 vix_regime_code           0=calm / 1=normal / 2=high / 3=extreme
 vix_rate_of_change_5d     VIX 5-day pct change
-dxy_level                 USD index (currently stub)
+dxy_level                 USD index (stub, default 100)
 ```
 
-**Current status:** schema ready; MNQ and VIX historical data are not
-cached locally. Stub returns neutral defaults (VIX=16, corr=0.5,
-divergence=0) until the supporting parquets are fetched. When data
-lands, the same trainer invocations produce improved models with no
-code change.
+**Cached historical data (as of 2026-04-22):**
+
+| parquet | rows | source | note |
+|---|---|---|---|
+| `data/mnq_master_continuous.parquet` | **810,482** MNQ 1-min bars | Databento `GLBX.MDP3 / MNQ.c.0` | Continuous non-adjusted front-month |
+| `data/vix_daily.parquet` | **577** VIX daily bars | Yahoo Finance `^VIX` chart API | Spot index close |
+
+Roll-day protection: divergence is clipped to ±5%, 30-min MNQ return
+to ±5%, 5-min MNQ return to ±2%. Both MES and MNQ are continuous
+non-adjusted, so front-month switches produce artifact jumps that
+would otherwise destabilize the divergence feature.
 
 **Module:** `rl/cross_market.py`
 **Integration:** `ml_overlay_shadow.get_cross_market_features(ts_et, mes_bars=...)`.
+**Live consumers:** LFO v2 (as 8 additional numeric features) and RL
+v2/v3 (as 8 scaled dims appended to the 212-dim observation).
+Singleton-loaded on first call; parquet reads are ~50-100 ms one-time,
+per-lookup cost ~0.15 ms afterward.
 
 All nine are live by default when launched via `launch_filterless_live.py`.
 Full details in **section 11 (Machine Learning Overlay Stack)** below.
 
-Env toggles — **all five default ON when launched via `launch_filterless_live.py`**
+Env toggles — **all six ML decision layers default ON when launched via `launch_filterless_live.py`**
 (the launcher sets each with `os.environ.setdefault` so they flip to active
 automatically at startup). Any layer can be opted back OUT of active steering
 by exporting the var as `0` in the shell before running the launcher:
 
 ```
 # default behavior when you run LaunchFilterlessWorkspace.bat or
-# launch_filterless_live.py — all five ML overlays are ACTIVE (drive decisions):
-JULIE_ML_LFO_ACTIVE=1           # flip LFO decisions to ML
-JULIE_ML_PCT_ACTIVE=1           # flip PCT overlay bias to ML
+# launch_filterless_live.py — all six ML layers are ACTIVE (drive decisions):
+JULIE_ML_LFO_ACTIVE=1           # LFO fill decisions by v2 ML (64 features)
+JULIE_ML_PCT_ACTIVE=1           # PCT overlay bias by ML
 JULIE_ML_PIVOT_TRAIL_ACTIVE=1   # skip pivot ratchets when ML says "pivot won't hold"
 JULIE_ML_KALSHI_ACTIVE=1        # block signals when entry-gate ML predicts loss
 JULIE_ML_KALSHI_TP_ACTIVE=1     # block signals when TP-gate ML predicts loss
 JULIE_ML_KALSHI_TP_PNL_THR=0    # TP-gate threshold (block when pred_pnl <= $X)
+JULIE_ML_RL_MGMT_ACTIVE=1       # RL v3 actively steers stops (as of 2026-04-22)
 
 # to demote a layer back to shadow-only (logs but doesn't steer):
-export JULIE_ML_KALSHI_TP_ACTIVE=0
+export JULIE_ML_RL_MGMT_ACTIVE=0   # e.g. to revert RL to shadow after the
+                                    # 2026-04-22 flip
 ```
 
 If you import `julie001` directly without the launcher (rare — only happens in
-test scripts), all five layers default to **shadow mode** (log only, rule
+test scripts), all six layers default to **shadow mode** (log only, rule
 steers) — the fail-safe default.
 
 ## 1. System Overview
@@ -1572,16 +1675,26 @@ Each trade gets a label: 1 if WAIT's realized P&L > IMMEDIATE's, else 0.
 Training labels are therefore grounded in the actual bar tape the trade
 ran through, not in synthetic price paths.
 
-**Features.** Bar-shape features at signal time (range, body, upper/lower
-wicks), distances to the nearest bank levels above and below, ATR14,
-original stop/take distances, regime one-hot, session bucket, ET hour.
+**Features.** *v1 (25 features):* Bar-shape features at signal time
+(range, body, upper/lower wicks), distances to the nearest bank levels
+above and below, ATR14, original stop/take distances, regime one-hot,
+session bucket, ET hour.
+
+*v2 — canonical since 2026-04-22 (64 features):* all of the v1 features,
+plus the 32-dim bar-sequence encoder embedding (`enc_00 … enc_31`) and
+the 8-dim cross-market feature vector (MNQ returns / correlation / VIX
+level / VIX regime code / etc). Retrained via
+`scripts/signal_gate/retrain_with_encoder.py`. Rolling-origin A/B
+(`scripts/signal_gate/rolling_origin_ab.py`) showed v2 beats v1 in 6/6
+chunks with mean AUC 0.554 → 0.653.
 
 **What the layer contributes.** The live rule decides WAIT vs IMMEDIATE on
 a small set of geometric rules that doesn't learn from outcomes. The ML
 replacement folds in bar-shape, regime, and session context — so in chop
 regimes it's more likely to pick IMMEDIATE (don't give a reversion tape a
 chance to drift past the bank), and in clean trends it's more likely to
-pick WAIT (let the pullback come). In shadow mode it just logs both
+pick WAIT (let the pullback come). v2 additionally adjusts based on
+MNQ–MES divergence and VIX regime. In shadow mode it just logs both
 decisions; in active mode it directly steers the fill choice.
 
 **Live hook.** `julie001.py` LFO decision site. Shadow log example:
