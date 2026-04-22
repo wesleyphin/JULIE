@@ -59,6 +59,9 @@ artifacts/signal_gate_2025/model_rl_management.zip
 !artifacts/signal_gate_2025/model_cm_breakout_gate.joblib
 # DE3 G-gate v2 (encoder + cross-market) — NOT promoted; kept for reference
 !artifacts/signal_gate_2025/model_de3_v2.joblib
+# CM-breakout v2 — direction-specific price-move predictors (AUC ~0.80)
+!artifacts/signal_gate_2025/model_cm_breakout_long.joblib
+!artifacts/signal_gate_2025/model_cm_breakout_short.joblib
 # v2 RL policy (extended obs: encoder + cross-market — DEMOTED in favor of
 # v3; retained for future promotion once partial-close is wired)
 !artifacts/signal_gate_2025/model_rl_management_v2.zip

@@ -761,6 +761,49 @@ def build_trade_plan(
                 )
     except Exception:
         pass
+
+    # v2 direction-specific CM gate — trained on 125k aligned MES+MNQ+VIX
+    # bars with direct price-direction target (AUC ~0.80 vs v1's 0.54).
+    # Computed unconditionally and surfaced in plan; authoritative when
+    # JULIE_KALSHI_CM_GATE_V2_ACTIVE=1.
+    ml_v2_p_direction = None
+    ml_v2_would_override = None
+    try:
+        import ml_overlay_shadow as _mls
+        if _mls._CM_BREAKOUT_LONG is not None or _mls.init_cm_breakout_v2():
+            # Assemble v2 feature dict — cross-market keys need remapping
+            # because v2's training used slightly different names
+            # (mnq_ret_5m vs mnq_ret_5min_pct, etc.).
+            cm_local = cross_market_features or {}
+            v2_feats = {
+                "vix_level": _coerce_float(cm_local.get("vix_level"), 16.0),
+                "vix_regime_code": _coerce_float(cm_local.get("vix_regime_code"), 1.0),
+                "vix_roc_5d": _coerce_float(cm_local.get("vix_rate_of_change_5d"), 0.0),
+                "mnq_ret_5m": _coerce_float(cm_local.get("mnq_ret_5min_pct"), 0.0),
+                "mnq_ret_30m": _coerce_float(cm_local.get("mnq_ret_30min_pct"), 0.0),
+                "mes_mnq_corr_30": _coerce_float(cm_local.get("mes_mnq_corr_30bar"), 0.5),
+                "mes_mnq_div_pct": _coerce_float(cm_local.get("mes_mnq_divergence_pct"), 0.0),
+                "dxy_level": _coerce_float(cm_local.get("dxy_level"), 100.0),
+                # MES momentum — pull from price_action_profile if available
+                "mes_ret_5m":  _coerce_float((price_action_profile or {}).get("mes_ret_5m"),  0.0),
+                "mes_ret_15m": _coerce_float((price_action_profile or {}).get("mes_ret_15m"), 0.0),
+                "mes_ret_30m": _coerce_float((price_action_profile or {}).get("trend_20bar_pct"), 0.0),
+                "mes_atr_14":  _coerce_float((price_action_profile or {}).get("atr14_pts"),  0.0),
+                "mes_dist_hi20_pct": _coerce_float((price_action_profile or {}).get("dist_to_20bar_hi_pct"), 0.0),
+                "mes_dist_lo20_pct": _coerce_float((price_action_profile or {}).get("dist_to_20bar_lo_pct"), 0.0),
+                "et_hour": _coerce_float((price_action_profile or {}).get("et_hour"), 12.0),
+                "minute_of_hour": _coerce_float((price_action_profile or {}).get("minute_of_hour"), 0.0),
+                "day_of_week": _coerce_float((price_action_profile or {}).get("day_of_week"), 2.0),
+            }
+            side_side = str((signal or {}).get("side") or "").upper()
+            if side_side in ("LONG", "SHORT"):
+                ml_v2_p_direction = _mls.score_cm_breakout_v2(side_side, v2_feats)
+                if ml_v2_p_direction is not None:
+                    ml_v2_would_override = bool(
+                        ml_v2_p_direction >= _mls.cm_breakout_v2_override_threshold()
+                    )
+    except Exception:
+        pass
     if (
         entry_blocked
         and isinstance(cross_market_features, dict)
@@ -804,9 +847,33 @@ def build_trade_plan(
     # hand-tuned rule decided with the ML decision. Safe-guarded the same
     # way (support floor, role exempt). When shadow (default), the
     # ml_override_would_fire flag is only informational.
+    #
+    # Priority: v2 direction-specific models (strong AUC) take precedence
+    # over v1 (weak AUC) when both are active.
     try:
         import ml_overlay_shadow as _mls
-        if _mls.is_cm_breakout_gate_active() and ml_override_would_fire is not None:
+        if _mls.is_cm_breakout_v2_active() and ml_v2_would_override is not None:
+            entry_blocked_base = bool(
+                role != "background"
+                and (
+                    entry_support_score < (entry_threshold - block_buffer)
+                    or momentum_retention + 1e-9 < retention_floor
+                )
+            )
+            if entry_blocked_base and ml_v2_would_override and \
+                    entry_support_score >= _coerce_float(
+                        config.get("cm_override_min_support_score"), 0.15):
+                entry_blocked = False
+                override_reason = (
+                    f"ml_v2_override_{side_upper.lower() if (side_upper := str((signal or {}).get('side') or '').upper()) else '?'} "
+                    f"p_dir={ml_v2_p_direction:.3f}>="
+                    f"{_mls.cm_breakout_v2_override_threshold():.2f}"
+                )
+            elif not ml_v2_would_override:
+                entry_blocked = entry_blocked_base
+                if override_reason:
+                    override_reason = None
+        elif _mls.is_cm_breakout_gate_active() and ml_override_would_fire is not None:
             # ML gate authoritative — recompute entry_blocked from the
             # ORIGINAL hand-tuned block result, then apply ML override
             # (rather than the hand-tuned override if it fired).
@@ -866,6 +933,8 @@ def build_trade_plan(
             "cross_market_override_reason": override_reason,
             "cm_gate_ml_p_win": (float(ml_p_win) if ml_p_win is not None else None),
             "cm_gate_ml_would_override": ml_override_would_fire,
+            "cm_gate_v2_p_direction": (float(ml_v2_p_direction) if ml_v2_p_direction is not None else None),
+            "cm_gate_v2_would_override": ml_v2_would_override,
             "entry_blocked": bool(entry_blocked),
             "size_multiplier": float(size_multiplier),
             "tp_dist": float(adjusted_tp_dist),

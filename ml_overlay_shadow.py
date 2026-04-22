@@ -94,6 +94,9 @@ def init_ml_overlays() -> Tuple[bool, bool, bool, bool, bool]:
     # Load the cross-market breakout gate (2026-04-22 — ML replacement
     # for the hand-tuned VIX/MNQ rule; shadow-loaded by default).
     init_cm_breakout_gate()
+    # v2 direction-specific breakout models (trained on 125k aligned
+    # MES+MNQ+VIX bars; much stronger signal than v1).
+    init_cm_breakout_v2()
     return (
         _LFO_PAYLOAD is not None,
         _PCT_PAYLOAD is not None,
@@ -732,3 +735,132 @@ def is_cm_breakout_gate_active() -> bool:
     (default), the hand-tuned rule is authoritative and the ML score is
     only logged for comparison. Flip via JULIE_KALSHI_CM_GATE_ACTIVE=1."""
     return os.environ.get("JULIE_KALSHI_CM_GATE_ACTIVE", "0").strip() == "1"
+
+
+# --- CM-breakout v2: direction-specific models ----------------------
+# v2 replaces the v1 win/loss classifier (AUC 0.54) with two
+# direction-specific "will MES move ±5 pts in next 30 min" predictors
+# trained on 125,678 aligned MES+MNQ+VIX bars (Jan-2024 → Apr-2026).
+# Target signal is a direct price move, not overlay-era win/loss, so
+# the feature-to-label relationship is much cleaner.
+_CM_BREAKOUT_LONG: Optional[Dict[str, Any]] = None
+_CM_BREAKOUT_SHORT: Optional[Dict[str, Any]] = None
+_CM_BREAKOUT_V2_FAILED = False
+
+
+def init_cm_breakout_v2() -> bool:
+    global _CM_BREAKOUT_LONG, _CM_BREAKOUT_SHORT, _CM_BREAKOUT_V2_FAILED
+    if _CM_BREAKOUT_LONG is not None and _CM_BREAKOUT_SHORT is not None:
+        return True
+    if _CM_BREAKOUT_V2_FAILED:
+        return False
+    import joblib
+    lp = _ARTIFACT_DIR / "model_cm_breakout_long.joblib"
+    sp = _ARTIFACT_DIR / "model_cm_breakout_short.joblib"
+    if not (lp.exists() and sp.exists()):
+        _CM_BREAKOUT_V2_FAILED = True
+        return False
+    try:
+        _CM_BREAKOUT_LONG = joblib.load(lp)
+        _CM_BREAKOUT_SHORT = joblib.load(sp)
+        logging.info(
+            "ml_overlay_shadow: CM-breakout v2 loaded — LONG cv_auc=%.3f "
+            "SHORT cv_auc=%.3f  override_thr=%.2f  horizon=%d min  move=%g pts",
+            float(_CM_BREAKOUT_LONG.get("cv_auc_mean", 0.0)),
+            float(_CM_BREAKOUT_SHORT.get("cv_auc_mean", 0.0)),
+            float(_CM_BREAKOUT_LONG.get("override_threshold", 0.60)),
+            int(_CM_BREAKOUT_LONG.get("forward_minutes", 30)),
+            float(_CM_BREAKOUT_LONG.get("breakout_pts", 5.0)),
+        )
+        return True
+    except Exception as exc:
+        logging.warning("CM-breakout v2 load failed: %s", exc)
+        _CM_BREAKOUT_V2_FAILED = True
+        return False
+
+
+def score_cm_breakout_v2(
+    side: str,
+    features: Dict[str, float],
+    *,
+    bars_df: Any = None,
+    current_time: Any = None,
+) -> Optional[float]:
+    """Return P(MES moves ≥breakout_pts in side direction within
+    forward_minutes) given current cross-market + MES momentum state.
+    Pass features with the same names the trainer used (see
+    scripts/signal_gate/train_cm_breakout_v2.py feat_cols list).
+
+    Optional bars_df (MES OHLCV with DatetimeIndex ending at current
+    bar) lets this function auto-fill the MES momentum features when
+    the caller didn't pre-compute them:
+        mes_ret_5m / mes_ret_15m / mes_ret_30m / mes_atr_14 /
+        mes_dist_hi20_pct / mes_dist_lo20_pct
+    """
+    if not (_CM_BREAKOUT_LONG and _CM_BREAKOUT_SHORT):
+        if not init_cm_breakout_v2():
+            return None
+    payload = _CM_BREAKOUT_LONG if str(side).upper() == "LONG" else _CM_BREAKOUT_SHORT
+    try:
+        # Fill MES momentum features from bars_df if caller didn't supply
+        feats = dict(features)
+        if bars_df is not None and len(bars_df) >= 30:
+            try:
+                close = bars_df["close"]
+                c_now = float(close.iloc[-1])
+                if "mes_ret_5m" not in feats or feats["mes_ret_5m"] == 0.0:
+                    if len(close) >= 6 and close.iloc[-6] > 0:
+                        feats["mes_ret_5m"] = (c_now - close.iloc[-6]) / close.iloc[-6] * 100.0
+                if "mes_ret_15m" not in feats or feats["mes_ret_15m"] == 0.0:
+                    if len(close) >= 16 and close.iloc[-16] > 0:
+                        feats["mes_ret_15m"] = (c_now - close.iloc[-16]) / close.iloc[-16] * 100.0
+                if "mes_ret_30m" not in feats or feats["mes_ret_30m"] == 0.0:
+                    if len(close) >= 31 and close.iloc[-31] > 0:
+                        feats["mes_ret_30m"] = (c_now - close.iloc[-31]) / close.iloc[-31] * 100.0
+                if "mes_atr_14" not in feats or feats["mes_atr_14"] == 0.0:
+                    if len(bars_df) >= 15:
+                        tr = (bars_df["high"] - bars_df["low"]).rolling(14, min_periods=14).mean()
+                        feats["mes_atr_14"] = float(tr.iloc[-1]) if np.isfinite(tr.iloc[-1]) else 0.0
+                if len(close) >= 21:
+                    hi20 = float(bars_df["high"].iloc[-20:].max())
+                    lo20 = float(bars_df["low"].iloc[-20:].min())
+                    if "mes_dist_hi20_pct" not in feats or feats["mes_dist_hi20_pct"] == 0.0:
+                        feats["mes_dist_hi20_pct"] = (c_now - hi20) / c_now * 100.0
+                    if "mes_dist_lo20_pct" not in feats or feats["mes_dist_lo20_pct"] == 0.0:
+                        feats["mes_dist_lo20_pct"] = (c_now - lo20) / c_now * 100.0
+            except Exception:
+                pass
+        # Calendar features
+        if current_time is not None:
+            try:
+                ts = current_time if hasattr(current_time, "hour") else None
+                if ts is not None:
+                    if feats.get("et_hour", 0.0) == 0.0:
+                        feats["et_hour"] = float(ts.hour)
+                    if feats.get("minute_of_hour", 0.0) == 0.0:
+                        feats["minute_of_hour"] = float(ts.minute)
+                    if feats.get("day_of_week", 0.0) == 0.0:
+                        feats["day_of_week"] = float(ts.dayofweek if hasattr(ts, "dayofweek") else ts.weekday())
+            except Exception:
+                pass
+        feat_names = payload["feature_names"]
+        row = np.array([[float(feats.get(c, 0.0)) for c in feat_names]])
+        p = float(payload["model"].predict_proba(row)[0, 1])
+        return p
+    except Exception as exc:
+        logging.debug("score_cm_breakout_v2 failed: %s", exc)
+        return None
+
+
+def cm_breakout_v2_override_threshold() -> float:
+    if _CM_BREAKOUT_LONG is None:
+        return 0.60
+    return float(_CM_BREAKOUT_LONG.get("override_threshold", 0.60))
+
+
+def is_cm_breakout_v2_active() -> bool:
+    """When True, the v2 direction-specific models replace the hand-
+    tuned VIX/MNQ rule for override decisions. Default off; flip via
+    JULIE_KALSHI_CM_GATE_V2_ACTIVE=1 once live-log observation of the
+    v2 predictions alongside the hand-tuned rule confirms it's safe."""
+    return os.environ.get("JULIE_KALSHI_CM_GATE_V2_ACTIVE", "0").strip() == "1"

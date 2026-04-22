@@ -1551,6 +1551,21 @@ def _apply_kalshi_trade_overlay_to_signal(
             float(_ml_p), bool(_ml_would), _ml_active,
             bool(_cm_override),
         )
+    # v2 direction-specific models — much stronger AUC than v1.
+    _v2_p = plan.get("cm_gate_v2_p_direction")
+    if _v2_p is not None:
+        _v2_would = plan.get("cm_gate_v2_would_override")
+        try:
+            import ml_overlay_shadow as _mls_cmdbg2
+            _v2_active = _mls_cmdbg2.is_cm_breakout_v2_active()
+        except Exception:
+            _v2_active = False
+        logging.info(
+            "[CM_GATE_V2] strat=%s side=%s p_direction=%.3f would_override=%s "
+            "active=%s",
+            signal.get("strategy", "?"), signal.get("side", "?"),
+            float(_v2_p), bool(_v2_would), _v2_active,
+        )
 
     signal["kalshi_trade_overlay_applied"] = bool(plan.get("applied", False))
     signal["kalshi_trade_overlay_reason"] = str(plan.get("reason", "") or "")
