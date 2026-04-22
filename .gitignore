@@ -34,6 +34,8 @@ models/
 !artifacts/signal_gate_2025/model_aetherflow.joblib
 !artifacts/signal_gate_2025/model_regimeadaptive.joblib
 !artifacts/signal_gate_2025/model_mlphysics.joblib
+!artifacts/signal_gate_2025/model_lfo.joblib
+!artifacts/signal_gate_2025/model_pct_overlay.joblib
 !model_aetherflow_deploy_2026oos.pkl
 
 # Node

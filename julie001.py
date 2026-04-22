@@ -6989,6 +6989,14 @@ async def run_bot():
     _init_regime_classifier()
     _init_loss_factor_guard()
     _init_signal_gate_2025()  # filter G (ML classifier) — toggle via JULIE_SIGNAL_GATE_2025
+    # ML overlays: LFO (replacement for rule-based LevelFillOptimizer) and
+    # PCT overlay classifier. Both run in SHADOW mode by default (log-only);
+    # flip JULIE_ML_LFO_ACTIVE=1 / JULIE_ML_PCT_ACTIVE=1 to let them steer.
+    try:
+        from ml_overlay_shadow import init_ml_overlays as _init_ml_overlays
+        _init_ml_overlays()
+    except Exception as _exc:
+        logging.warning("ml_overlay_shadow init failed: %s", _exc)
     _lfo_enabled = bool(CONFIG.get("LEVEL_FILL_OPTIMIZER_ENABLED", True))
     level_fill_optimizer = LevelFillOptimizer() if _lfo_enabled else None
     pending_level_fills: dict = {}   # uid → {signal, target_price, …}
@@ -10162,6 +10170,25 @@ async def run_bot():
                 currbar['open'], currbar['high'],
                 currbar['low'], currbar['close'],
             )
+            # SHADOW ML PCT-overlay — score on every fresh level touch and log
+            # the ML bias next to the rule-based bias.
+            try:
+                import ml_overlay_shadow as _mls_p
+                if _mls_p._PCT_PAYLOAD is not None:
+                    _pct = _get_pct_level_overlay()
+                    if _pct is not None and getattr(_pct.state, "at_level", False):
+                        if str(getattr(_pct.state, "last_event", "")).startswith("fresh_touch_"):
+                            _res = _mls_p.score_pct_overlay(_pct.state)
+                            if _res is not None:
+                                _p_bo, _ml_bias = _res
+                                logging.info(
+                                    "[SHADOW_PCT] rule=%s ml=%s p_breakout=%.3f lvl=%.2f%% dist=%.3f%%",
+                                    _pct.state.bias, _ml_bias, _p_bo,
+                                    _pct.state.nearest_level or 0.0,
+                                    _pct.state.level_distance_pct or 0.0,
+                                )
+            except Exception as _mls_exc:
+                logging.debug("shadow ML PCT scoring failed: %s", _mls_exc, exc_info=True)
             _update_regime_classifier(current_time, currbar['close'])
             # Feed trend-day state into LossFactorGuard so the counter-trend
             # reversal veto can act on it (filter C).
@@ -13611,6 +13638,58 @@ async def run_bot():
                         except Exception as _lfo_exc:
                             logging.warning("LevelFillOptimizer error: %s", _lfo_exc)
                             _lfo_decision = None
+
+                        # SHADOW ML LFO scoring — logs a parallel ML prediction
+                        # alongside the rule-based decision for A/B comparison.
+                        try:
+                            import ml_overlay_shadow as _mls
+                            if _mls._LFO_PAYLOAD is not None:
+                                import signal_gate_2025 as _sg
+                                bank_base = (float(current_price) // 12.5) * 12.5
+                                _dist_below = float(current_price) - bank_base
+                                _dist_above = (bank_base + 12.5) - float(current_price)
+                                _bar_range = float(_lfo_bar["high"]) - float(_lfo_bar["low"])
+                                _body_pct = (float(_lfo_bar["close"]) - float(_lfo_bar["low"])) / max(0.01, _bar_range)
+                                _bar_cache = getattr(loss_factor_guard, "_bar_cache", None) if loss_factor_guard else None
+                                _feats = _sg.compute_bar_features_from_ohlcv(list(_bar_cache)) if _bar_cache and len(_bar_cache) >= 45 else {}
+                                _sess = ("ASIA" if currbar.name.hour < 3 or currbar.name.hour >= 18 else
+                                         "LONDON" if currbar.name.hour < 7 else
+                                         "NY_PRE" if currbar.name.hour < 9 else
+                                         "NY" if currbar.name.hour < 16 else "POST")
+                                try:
+                                    from regime_classifier import current_regime as _cr
+                                    _mkt_regime = _cr() or ""
+                                except Exception:
+                                    _mkt_regime = ""
+                                _ml_score = _mls.score_lfo(
+                                    signal=signal,
+                                    bar_features=_feats,
+                                    dist_to_bank_below=_dist_below,
+                                    dist_to_bank_above=_dist_above,
+                                    bar_range_pts=_bar_range,
+                                    bar_close_pct_body=_body_pct,
+                                    sl_dist=float(signal.get("sl_dist") or 0),
+                                    tp_dist=float(signal.get("tp_dist") or 0),
+                                    session=_sess,
+                                    mkt_regime=_mkt_regime,
+                                    et_hour=int(currbar.name.hour),
+                                )
+                                if _ml_score is not None:
+                                    _p_wait, _thr = _ml_score
+                                    _ml_choice = "WAIT" if _p_wait >= _thr else "IMMEDIATE"
+                                    _rule_choice = _lfo_decision.get("mode", "IMMEDIATE") if _lfo_decision else "IMMEDIATE"
+                                    logging.info(
+                                        "[SHADOW_LFO] rule=%s ml=%s p_wait=%.3f thr=%.3f strat=%s side=%s",
+                                        _rule_choice, _ml_choice, _p_wait, _thr,
+                                        signal.get("strategy","?"), signal.get("side","?"),
+                                    )
+                                    if _mls.is_lfo_live_active():
+                                        # Live mode: override _lfo_decision based on ML
+                                        if _ml_choice == "IMMEDIATE" and _lfo_decision is not None:
+                                            _lfo_decision["mode"] = "IMMEDIATE"
+                                            _lfo_decision["reason"] = f"ml_lfo p_wait={_p_wait:.3f}<{_thr}"
+                        except Exception as _ml_exc:
+                            logging.debug("shadow ML LFO scoring failed: %s", _ml_exc, exc_info=True)
 
                     if _lfo_decision is not None and _lfo_decision.get("mode") == FILL_WAIT:
                         import uuid as _uuid_mod
