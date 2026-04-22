@@ -38,7 +38,11 @@ import pandas as pd
 
 NY = ZoneInfo("America/New_York")
 ROOT = Path(__file__).resolve().parents[1]
-MNQ_PARQUET = ROOT / "data" / "mnq_master_outrights.parquet"
+# Look for MNQ in either legacy name or the Databento-continuous name
+MNQ_PARQUET_CANDIDATES = [
+    ROOT / "data" / "mnq_master_continuous.parquet",
+    ROOT / "data" / "mnq_master_outrights.parquet",
+]
 VIX_PARQUET = ROOT / "data" / "vix_daily.parquet"
 
 # Stable feature schema — keys are guaranteed to be present even when
@@ -78,9 +82,10 @@ class CrossMarketFeatures:
         if self._tried_load:
             return
         self._tried_load = True
-        if MNQ_PARQUET.exists():
+        mnq_path = next((p for p in MNQ_PARQUET_CANDIDATES if p.exists()), None)
+        if mnq_path is not None:
             try:
-                df = pd.read_parquet(MNQ_PARQUET)
+                df = pd.read_parquet(mnq_path)
                 if df.index.tz is None:
                     df.index = df.index.tz_localize("UTC").tz_convert(NY)
                 else:
@@ -144,7 +149,17 @@ class CrossMarketFeatures:
                         mes_30min_pct = float(
                             (mes_closes[-1] - mes_closes[0]) / mes_closes[0] * 100.0
                         )
-                        out["mes_mnq_divergence_pct"] = mes_30min_pct - out["mnq_ret_30min_pct"]
+                        # Roll-day protection: both MES and MNQ use non-adjusted
+                        # continuous series, so front-month switches produce
+                        # artifact jumps in the 30-min return. Clip divergence
+                        # to ±5% — realistic intraday ES-NQ spread rarely
+                        # exceeds that; values beyond are almost always roll
+                        # artifacts in one or both legs.
+                        raw_div = mes_30min_pct - out["mnq_ret_30min_pct"]
+                        out["mes_mnq_divergence_pct"] = float(np.clip(raw_div, -5.0, 5.0))
+                        # Same protection on the MNQ returns themselves
+                        out["mnq_ret_30min_pct"] = float(np.clip(out["mnq_ret_30min_pct"], -5.0, 5.0))
+                        out["mnq_ret_5min_pct"] = float(np.clip(out["mnq_ret_5min_pct"], -2.0, 2.0))
             except Exception:
                 pass
 
