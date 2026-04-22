@@ -4,6 +4,14 @@ import datetime
 import base64
 import csv
 import json
+
+# Module-level defaults for cross-market master frames; the main `run_bot()`
+# coroutine promotes these to live-populated globals (see 2026-04-22 change
+# note in run_bot). Default of empty DataFrame means any consumer that
+# looks these up before run_bot() executes (tests, scripts, helper fns)
+# gets a graceful fallback rather than AttributeError.
+master_mnq_df: pd.DataFrame = pd.DataFrame()
+master_vix_df: pd.DataFrame = pd.DataFrame()
 import os
 import sys
 from datetime import date
@@ -1475,6 +1483,37 @@ def _apply_kalshi_trade_overlay_to_signal(
         signal["kalshi_tp_trail_enabled"] = False
         return True
 
+    # Gather live regime label + cross-market features so the Kalshi
+    # overlay can (1) relax its threshold on trending regimes and
+    # (2) override blocks when cross-market confirms a same-direction
+    # breakout. Both kwargs are optional; if either fails, the overlay
+    # falls back to its prior (static-threshold, no-override) behavior.
+    _cm_features = None
+    _regime_label = None
+    try:
+        from regime_classifier import current_regime as _cr_fn
+        _regime_label = _cr_fn() or None
+    except Exception:
+        pass
+    try:
+        import ml_overlay_shadow as _mls_cm
+        # master_vix_df / master_mnq_df are function-scoped locals inside
+        # the main scan loop; they aren't module-level here. Look them up
+        # via the main-scope globals dict so we can still feed them to the
+        # overlay from this helper. Falls back to None (cached parquet) if
+        # absent — the overlay degrades gracefully.
+        _g = globals()
+        _vix_live = _g.get("master_vix_df")
+        _mnq_live = _g.get("master_mnq_df")
+        _cm_features = _mls_cm.get_cross_market_features(
+            signal.get("ts") or signal.get("entry_time"),
+            mes_bars=market_df,
+            vix_override_df=_vix_live,
+            mnq_override_df=_mnq_live,
+        )
+    except Exception:
+        pass
+
     plan = build_kalshi_trade_plan(
         signal,
         current_price,
@@ -1482,7 +1521,17 @@ def _apply_kalshi_trade_overlay_to_signal(
         price_action_profile=price_action_profile,
         overlay_cfg=overlay_cfg,
         tick_size=TICK_SIZE,
+        regime_label=_regime_label,
+        cross_market_features=_cm_features,
     )
+    # Log when the cross-market override fires — important telemetry to
+    # audit whether the override is catching real breakouts vs leaking.
+    _cm_override = plan.get("cross_market_override_reason")
+    if _cm_override:
+        logging.info(
+            "[KALSHI_CM_OVERRIDE] strat=%s side=%s  %s",
+            signal.get("strategy", "?"), signal.get("side", "?"), _cm_override,
+        )
 
     signal["kalshi_trade_overlay_applied"] = bool(plan.get("applied", False))
     signal["kalshi_trade_overlay_reason"] = str(plan.get("reason", "") or "")
@@ -9857,6 +9906,13 @@ async def run_bot():
     master_df = await client.async_get_market_data(lookback_minutes=20000, force_fetch=True)
     event_logger.log_system_event("STARTUP", f"✅ History Received: {len(master_df)} bars loaded (MES).", {"status": "COMPLETE"})
 
+    # Promote master_mnq_df / master_vix_df to module-level so the
+    # Kalshi overlay helper (_apply_kalshi_trade_overlay_to_signal, called
+    # from 7+ sites) can read them via globals() without threading them
+    # through every call site. Live-cross-market consumers stay in sync
+    # because the main scan loop mutates these globals via
+    # `globals()["master_xxx_df"] = …` later on.
+    global master_mnq_df  # noqa: PLW0603 — intentional module attr publish
     master_mnq_df = pd.DataFrame()
     if mnq_client is not None:
         event_logger.log_system_event("STARTUP", "⏳ Startup: Fetching 20,000 bar history (MNQ)...", {"status": "IN_PROGRESS"})
@@ -9908,6 +9964,7 @@ async def run_bot():
         master_mnq_df = pd.DataFrame()
 
     # --- NEW: Initialize VIX master dataframe ---
+    global master_vix_df  # noqa: PLW0603 — same rationale as master_mnq_df
     master_vix_df = pd.DataFrame()
     vix_fetch_toggle = True
 

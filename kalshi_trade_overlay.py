@@ -492,7 +492,16 @@ def build_trade_plan(
     price_action_profile: Optional[Dict[str, Any]] = None,
     overlay_cfg: Optional[Dict[str, Any]] = None,
     tick_size: float = 0.25,
+    regime_label: Optional[str] = None,
+    cross_market_features: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
+    """regime_label / cross_market_features:
+        Optional live-bot context added 2026-04-22. When supplied, this
+        function can (a) relax the entry-threshold on trending regimes and
+        (b) override the block when cross-market signals confirm a
+        same-direction breakout. Both levers default to no-op when the
+        inputs are absent, so older callers continue to work unchanged.
+    """
     config = _merge_overlay_config(overlay_cfg)
     role = str((price_action_profile or {}).get("role") or "background")
     mode = str((price_action_profile or {}).get("mode") or "level")
@@ -675,6 +684,25 @@ def build_trade_plan(
     entry_threshold = _resolve_role_cfg(config, "entry_threshold", role, 0.45)
     block_buffer = _resolve_role_cfg(config, "entry_block_buffer", role, 1.0)
     size_floor = _resolve_role_cfg(config, "entry_size_floor", role, 0.85)
+
+    # -------- Regime-aware threshold relaxation (2026-04-22) --------
+    # Kalshi's hourly-settlement markets have a mean-reversion prior. On a
+    # trending/calm-trend day the crowd consistently under-prices the "close
+    # above current" event and the overlay blocks every continuation signal.
+    # When regime_classifier says we're in a trending regime, relax the
+    # entry_threshold by a fixed discount so the overlay still gates chop
+    # but lets more trend-continuation signals through.
+    regime_threshold_discount = 0.0
+    regime_norm = str(regime_label or "").strip().lower()
+    _TRENDING_REGIMES = {
+        "calm_trend", "trending_up", "trending_down", "trend", "trending",
+    }
+    if regime_norm in _TRENDING_REGIMES:
+        regime_threshold_discount = _coerce_float(
+            config.get("regime_trending_threshold_discount"), 0.10
+        )
+        entry_threshold = max(0.0, entry_threshold - regime_threshold_discount)
+
     entry_blocked = bool(
         role != "background"
         and (
@@ -682,6 +710,58 @@ def build_trade_plan(
             or momentum_retention + 1e-9 < retention_floor
         )
     )
+
+    # -------- Cross-market breakout override (2026-04-22) --------
+    # When the bot's own cross-market features confirm a same-direction
+    # breakout (calm VIX + MNQ leading our side), override the Kalshi block
+    # entirely. This stops the mean-reversion prior from killing continuation
+    # trades during actual breakouts. Requires both (a) calm-to-moderate VIX
+    # and (b) MNQ short-term return agreeing with the signal's side.
+    #
+    # Safeguards:
+    #   * Never overrides when support_score is catastrophically low (<0.15)
+    #     — if Kalshi is THAT confident, take its word for it.
+    #   * Reports the override in the result dict so live logs + telemetry
+    #     can see which blocks were lifted.
+    override_reason = None
+    if (
+        entry_blocked
+        and isinstance(cross_market_features, dict)
+        and entry_support_score >= _coerce_float(
+            config.get("cm_override_min_support_score"), 0.15
+        )
+    ):
+        cm = cross_market_features
+        vix = _coerce_float(cm.get("vix_level"), math.nan)
+        mnq_5m = _coerce_float(cm.get("mnq_ret_5min_pct"), 0.0)
+        mnq_corr = _coerce_float(cm.get("mes_mnq_corr_30bar"), 0.0)
+        vix_calm = _coerce_float(config.get("cm_override_vix_calm_threshold"), 20.0)
+        vix_fear = _coerce_float(config.get("cm_override_vix_fear_threshold"), 22.0)
+        mnq_momo = _coerce_float(config.get("cm_override_mnq_momo_pct"), 0.10)
+        min_corr = _coerce_float(config.get("cm_override_min_corr"), 0.30)
+        side_upper = str((signal or {}).get("side") or "").strip().upper()
+        if (
+            side_upper == "LONG"
+            and math.isfinite(vix) and vix < vix_calm
+            and mnq_5m > mnq_momo
+            and mnq_corr >= min_corr
+        ):
+            entry_blocked = False
+            override_reason = (
+                f"cm_breakout_override_long vix={vix:.2f}<{vix_calm:.1f} "
+                f"mnq5m={mnq_5m:+.3f}%>{mnq_momo:.2f}% corr={mnq_corr:.2f}"
+            )
+        elif (
+            side_upper == "SHORT"
+            and math.isfinite(vix) and vix > vix_fear
+            and mnq_5m < -mnq_momo
+            and mnq_corr >= min_corr
+        ):
+            entry_blocked = False
+            override_reason = (
+                f"cm_breakout_override_short vix={vix:.2f}>{vix_fear:.1f} "
+                f"mnq5m={mnq_5m:+.3f}%<-{mnq_momo:.2f}% corr={mnq_corr:.2f}"
+            )
     size_multiplier = 1.0
     if entry_support_score < entry_threshold:
         ratio = _clamp(entry_support_score / max(entry_threshold, 1e-9), 0.0, 1.0)
@@ -710,6 +790,9 @@ def build_trade_plan(
             "momentum_retention": round(float(momentum_retention), 4),
             "entry_support_score": entry_support_score,
             "entry_threshold": float(entry_threshold),
+            "regime_threshold_discount": float(regime_threshold_discount),
+            "regime_label": regime_norm or None,
+            "cross_market_override_reason": override_reason,
             "entry_blocked": bool(entry_blocked),
             "size_multiplier": float(size_multiplier),
             "tp_dist": float(adjusted_tp_dist),
