@@ -24,7 +24,8 @@ _ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts" / "signal_gate_202
 _LFO_PAYLOAD: Optional[Dict[str, Any]] = None
 _PCT_PAYLOAD: Optional[Dict[str, Any]] = None
 _PIVOT_PAYLOAD: Optional[Dict[str, Any]] = None
-_KALSHI_PAYLOAD: Optional[Dict[str, Any]] = None  # dual clf+reg v3 payload
+_KALSHI_PAYLOAD: Optional[Dict[str, Any]] = None     # entry-gate ML (dual clf+reg)
+_KALSHI_TP_PAYLOAD: Optional[Dict[str, Any]] = None  # TP-aligned Kalshi ML
 
 
 def _try_load(fname: str) -> Optional[Dict[str, Any]]:
@@ -39,16 +40,18 @@ def _try_load(fname: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def init_ml_overlays() -> Tuple[bool, bool, bool, bool]:
-    """Eager-load all four ML overlay models.
+def init_ml_overlays() -> Tuple[bool, bool, bool, bool, bool]:
+    """Eager-load all five ML overlay models.
 
-    Returns (lfo_loaded, pct_loaded, pivot_loaded, kalshi_loaded).
+    Returns (lfo_loaded, pct_loaded, pivot_loaded, kalshi_loaded,
+             kalshi_tp_loaded).
     """
-    global _LFO_PAYLOAD, _PCT_PAYLOAD, _PIVOT_PAYLOAD, _KALSHI_PAYLOAD
+    global _LFO_PAYLOAD, _PCT_PAYLOAD, _PIVOT_PAYLOAD, _KALSHI_PAYLOAD, _KALSHI_TP_PAYLOAD
     _LFO_PAYLOAD = _try_load("model_lfo.joblib")
     _PCT_PAYLOAD = _try_load("model_pct_overlay.joblib")
     _PIVOT_PAYLOAD = _try_load("model_pivot_trail.joblib")
     _KALSHI_PAYLOAD = _try_load("model_kalshi_gate.joblib")
+    _KALSHI_TP_PAYLOAD = _try_load("model_kalshi_tp_gate.joblib")
     if _LFO_PAYLOAD:
         logging.info(
             "ml_overlay_shadow: LFO model loaded — %d features, thr=%.3f, cv_auc=%.3f",
@@ -76,11 +79,20 @@ def init_ml_overlays() -> Tuple[bool, bool, bool, bool]:
             _KALSHI_PAYLOAD.get("rolling_origin_mean_auc", 0.0) or 0.0,
             _KALSHI_PAYLOAD.get("pass_threshold", 0.50),
         )
+    if _KALSHI_TP_PAYLOAD:
+        logging.info(
+            "ml_overlay_shadow: Kalshi-TP model loaded — %d features, rolling_auc=%.3f, "
+            "thr=%.2f (TP-price aligned probability)",
+            len(_KALSHI_TP_PAYLOAD["feature_names"]),
+            _KALSHI_TP_PAYLOAD.get("rolling_origin_mean_auc", 0.0) or 0.0,
+            _KALSHI_TP_PAYLOAD.get("pass_threshold", 0.50),
+        )
     return (
         _LFO_PAYLOAD is not None,
         _PCT_PAYLOAD is not None,
         _PIVOT_PAYLOAD is not None,
         _KALSHI_PAYLOAD is not None,
+        _KALSHI_TP_PAYLOAD is not None,
     )
 
 
@@ -368,9 +380,93 @@ def is_pct_live_active() -> bool:
     return os.environ.get("JULIE_ML_PCT_ACTIVE", "0").strip() == "1"
 
 
+def score_kalshi_tp(
+    signal: Dict[str, Any],
+    *,
+    tp_aligned_prob: float,
+    entry_aligned_prob: float,
+    nearest_strike_dist: float,
+    nearest_strike_oi: float,
+    nearest_strike_volume: float,
+    ladder_slope_near_tp: float,
+    minutes_to_settlement: float,
+    atr14_pts: float,
+    range_30bar_pts: float,
+    trend_20bar_pct: float,
+    vel_5bar_pts_per_min: float,
+    regime: str,
+    tp_dist_pts: float,
+) -> Optional[Tuple[float, bool]]:
+    """Score the TP-aligned Kalshi gate.
+
+    Return (p_hit_tp, should_pass) where p_hit_tp is the model's estimate
+    that the trade will reach its take-profit, and should_pass is
+    p_hit_tp >= the payload's pass_threshold (default 0.50).
+
+    Expected caller: julie001.py after build_trade_plan has computed the
+    tp_aligned probability; the caller joins those Kalshi readings with
+    bar-derived market state and a regime label.
+    """
+    if _KALSHI_TP_PAYLOAD is None:
+        return None
+    # Parse DE3 sub_strategy for tier / is_rev / is_5min (mirrors trainer)
+    sub = str(signal.get("sub_strategy", "") or "")
+    import re
+    m = re.search(
+        r"(?P<tf>5min|15min)_.*?_(?P<direction>Long|Short)_(?P<type>Rev|Mom)_T(?P<tier>\d)", sub
+    )
+    if m:
+        try:
+            tier = int(m.group("tier"))
+        except Exception:
+            tier = 0
+        is_rev = m.group("type") == "Rev"
+        is_5m = m.group("tf") == "5min"
+    else:
+        tier, is_rev, is_5m = 0, False, False
+
+    numeric = {
+        "tp_aligned_prob": float(tp_aligned_prob),
+        "tp_dist_pts": float(tp_dist_pts),
+        "tp_prob_edge": float(tp_aligned_prob - 0.50),
+        "tp_vs_entry_prob_delta": float(tp_aligned_prob - entry_aligned_prob),
+        "nearest_strike_dist": float(nearest_strike_dist),
+        "nearest_strike_oi": float(nearest_strike_oi),
+        "nearest_strike_volume": float(nearest_strike_volume),
+        "ladder_slope_near_tp": float(ladder_slope_near_tp),
+        "minutes_to_settlement": float(minutes_to_settlement),
+        "entry_aligned_prob": float(entry_aligned_prob),
+        "atr14_pts": float(atr14_pts),
+        "range_30bar_pts": float(range_30bar_pts),
+        "trend_20bar_pct": float(trend_20bar_pct),
+        "vel_5bar_pts_per_min": float(vel_5bar_pts_per_min),
+        "sub_tier": float(tier),
+        "sub_is_rev": 1.0 if is_rev else 0.0,
+        "sub_is_5min": 1.0 if is_5m else 0.0,
+    }
+    categorical = {
+        "side": str(signal.get("side", "")).upper(),
+        "regime": str(regime or "neutral"),
+    }
+    X = _build_row(_KALSHI_TP_PAYLOAD, numeric, categorical, {})
+    try:
+        clf = _KALSHI_TP_PAYLOAD["classifier"]
+        probs = clf.predict_proba(X)[0]
+        classes = list(clf.classes_)
+        p_hit = float(probs[classes.index(1)]) if 1 in classes else 0.5
+    except Exception:
+        return None
+    thr = float(_KALSHI_TP_PAYLOAD.get("pass_threshold", 0.50))
+    return p_hit, (p_hit >= thr)
+
+
 def is_pivot_trail_live_active() -> bool:
     return os.environ.get("JULIE_ML_PIVOT_TRAIL_ACTIVE", "0").strip() == "1"
 
 
 def is_kalshi_live_active() -> bool:
     return os.environ.get("JULIE_ML_KALSHI_ACTIVE", "0").strip() == "1"
+
+
+def is_kalshi_tp_live_active() -> bool:
+    return os.environ.get("JULIE_ML_KALSHI_TP_ACTIVE", "0").strip() == "1"

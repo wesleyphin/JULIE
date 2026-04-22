@@ -17,9 +17,9 @@ is the path the bot is actually meant to run on.
 
 ## What's New (2026-04 ML Overlay Stack)
 
-Four learned overlays now sit on top of the rule-based engines. Each observes
+Five learned overlays now sit on top of the rule-based engines. Each observes
 the same state the rule-based logic observes and emits a learned second
-opinion for a specific decision point. All four ship in **shadow mode** by
+opinion for a specific decision point. All five ship in **shadow mode** by
 default — they log their verdict alongside the rule's decision without
 changing trade behavior. Each can be promoted to **active** via an env
 kill-switch.
@@ -30,6 +30,7 @@ kill-switch.
 | **PCT overlay** (% level bias) | On a fresh touch of a %-from-open level, is the forward move breakout or pivot? | `model_pct_overlay.joblib` |
 | **Pivot trail** (SL ratchet) | Will this confirmed swing pivot actually hold its trail level? | `model_pivot_trail.joblib` |
 | **Kalshi entry gate** | Past the rule's support-score filter, is this trade still worth taking? | `model_kalshi_gate.joblib` |
+| **Kalshi TP gate** | Does the Kalshi crowd believe this trade can reach its take-profit price? | `model_kalshi_tp_gate.joblib` |
 
 Full details in **section 11 (Machine Learning Overlay Stack)** below.
 
@@ -38,7 +39,8 @@ Env toggles (all default OFF = shadow mode):
 JULIE_ML_LFO_ACTIVE=1           # flip LFO decisions to ML
 JULIE_ML_PCT_ACTIVE=1           # flip PCT overlay bias to ML
 JULIE_ML_PIVOT_TRAIL_ACTIVE=1   # skip pivot ratchets when ML says "pivot won't hold"
-JULIE_ML_KALSHI_ACTIVE=1        # block Kalshi-PASS signals when ML predicts loss
+JULIE_ML_KALSHI_ACTIVE=1        # block signals when entry-gate ML predicts loss
+JULIE_ML_KALSHI_TP_ACTIVE=1     # block signals when TP-gate ML says TP unreachable
 ```
 
 ## 1. System Overview
@@ -1652,6 +1654,82 @@ PASS but ML `p_win < 0.50`, the signal is blocked
 
 **Trainer.** `scripts/signal_gate/train_kalshi_ml.py`
 
+### 11.6a Layer 4b — Kalshi Take-Profit Gate ML
+
+**What it models.** The Kalshi entry gate (11.6) reads aligned probability
+at the ES entry price plus a short 5-point forward probe. The take-profit
+gate asks a complementary question that the rule overlay does not ask
+directly: *what does the Kalshi crowd say about the take-profit price
+itself?* If the ladder assigns a low aligned probability at the TP strike,
+the market is essentially pricing the trade's goal as unlikely — a useful
+second-pass filter on top of the entry gate.
+
+**What the ML learns.** Binary classifier: "given the Kalshi ladder's
+reading at TP-price plus market-state context, will this trade reach its
+take-profit?"
+
+**Training set.** The same canonical replay allowlist as the entry-gate
+trainer, but with a different feature-extraction pipeline:
+
+1. Parse `tp_dist` from the DE3 sub_strategy tag (e.g. `..._SL10_TP25`
+   → tp_dist=25)
+2. Compute `tp_price = entry_price ± tp_dist` (by side)
+3. For the trade's entry timestamp, pick the next Kalshi settlement event
+   (12-16 ET gating hours) and pull the full strike ladder for that event
+   from the daily `kxinxu_hourly_2025.parquet` snapshot
+4. Interpolate aligned probability at `tp_price` across the two nearest
+   strikes — mirrors `_interpolated_aligned_probability` in
+   `kalshi_trade_overlay.py` so the training reading matches the live
+   reading exactly
+5. Label = HIT_TP (1 if trade's `exit_source` is `take` or `take_gap`;
+   else 0)
+
+This is a different labeling philosophy from the entry-gate ML. That one
+uses `pnl_dollars > 0` (any profitable outcome). This one explicitly
+asks whether the trade reached its programmed target — a cleaner match
+for "was Kalshi right about the TP being reachable?"
+
+**Features.**
+
+- **TP-strike relationship** (the core of this model): `tp_aligned_prob`,
+  `tp_dist_pts`, `tp_prob_edge` (= tp_aligned_prob − 0.50),
+  `tp_vs_entry_prob_delta`
+- **Ladder shape around TP**: `nearest_strike_dist` (interpolation error),
+  `nearest_strike_oi` (liquidity proxy), `nearest_strike_volume`,
+  `ladder_slope_near_tp` (local probability derivative in ±10pt window)
+- **Time-to-event**: `minutes_to_settlement` (trades closer to the
+  settlement hour exhibit stronger pinning behavior)
+- **Entry anchor**: `entry_aligned_prob` for scale
+- **Market state**: ATR14, 30-bar range, 20-bar trend %, 5-bar velocity
+- **Substrategy**: tier, is_rev, is_5min
+- **Regime** one-hot (whipsaw / calm_trend / neutral) computed from the
+  same 120-bar close window as the regime classifier
+
+**What the layer contributes.** The rule overlay's `support_score` is
+built from entry_probability and a short 5pt probe — it never queries
+the ladder at the actual take-profit price. This model fills that gap:
+past the entry filter, it looks at whether the crowd is actually pricing
+settlement at the TP strike as likely. In active mode it can block signals
+whose TP looks structurally unreachable according to Kalshi, even when
+the entry-side reading was acceptable.
+
+It runs in parallel with the entry-gate ML, not in series — both shadow
+logs fire on the same PASS events, and in active mode either can veto
+independently.
+
+**Live hook.** `julie001.py` Kalshi entry-view site (immediately after
+the entry-gate ML). Shadow log example:
+
+```
+[SHADOW_KALSHI_TP] rule=PASS ml_p_hit_tp=0.412 ml=BLOCK tp_px=5274.00 tp_dist=25.0 tp_prob=0.326 entry_prob=0.512 strat=DynamicEngine3 side=LONG regime=neutral
+```
+
+**Live mode behavior** (`JULIE_ML_KALSHI_TP_ACTIVE=1`): when the rule
+would PASS but ML `p_hit_tp < 0.50`, the signal is blocked
+(`kalshi_entry_blocked=True`, reason tagged as `ml_kalshi_tp`).
+
+**Trainer.** `scripts/signal_gate/train_kalshi_tp_ml.py`
+
 ### 11.7 G-gates (prior art, shipped earlier)
 
 Before the 2026-04 overlay stack, a family of per-strategy "G-gate" binary
@@ -1672,9 +1750,9 @@ Those gates are **live (not shadow)**: they directly veto signals whose
 predicted loss probability exceeds their per-strategy threshold. They run
 independently from the 4-layer overlay stack described above.
 
-### 11.8 The four-layer stack, end to end
+### 11.8 The five-layer stack, end to end
 
-A single live signal passes through all four layers plus the G-gate in this
+A single live signal passes through all five overlays plus the G-gate in this
 order:
 
 ```
@@ -1686,8 +1764,9 @@ order:
             ▼
     Kalshi entry overlay (rule)   ─── computes support_score vs threshold
             │
-            ▼   (if rule PASS and ML shadow on signal)
-    SHADOW_KALSHI ML scorer       ─── logs p_win, pred_pnl; blocks if LIVE
+            ▼   (if rule PASS, both Kalshi ML layers score in parallel)
+    SHADOW_KALSHI (entry-gate ML)     ─── logs p_win; blocks if LIVE
+    SHADOW_KALSHI_TP (TP-gate ML)     ─── logs p_hit_tp; blocks if LIVE
             │
             ▼
     LFO decision                  ─── rule or ML chooses WAIT/IMMEDIATE
@@ -1710,16 +1789,21 @@ order:
       └─ Kalshi TP-trail, regime transitions, emergency exits, etc.
 ```
 
-### 11.9 How the four layers compose
+### 11.9 How the layers compose
 
-Running all four overlays simultaneously is intentional — each targets a
+Running all five overlays simultaneously is intentional — each targets a
 different decision point and they compose rather than compete:
 
 - **G-gate** (live, prior art) filters out signals the strategy shouldn't
   have emitted in the first place.
-- **Kalshi ML** re-evaluates the rule's PASS decisions using market-state
+- **Kalshi entry-gate ML** re-evaluates the rule's PASS decisions using
+  entry-side features (entry_probability + 5pt probe) and market-state
   context the rule doesn't see.
-- **LFO ML** chooses WAIT vs IMMEDIATE on signals that survive both gates.
+- **Kalshi TP-gate ML** independently asks whether the crowd is actually
+  pricing the take-profit as reachable. Runs in parallel with the entry
+  gate, not in series — either can veto.
+- **LFO ML** chooses WAIT vs IMMEDIATE on signals that survive both
+  Kalshi gates.
 - **PCT overlay ML** biases the bot's sizing/direction logic when the
   signal happens at a %-level touch.
 - **Pivot ML** selectively suppresses unnecessary SL ratchets during
@@ -1731,7 +1815,7 @@ The bot's rule-based path always remains intact as a fallback.
 
 ### 11.10 Training artifacts
 
-All four overlay models plus the prior-art G-gates and their training
+All five overlay models plus the prior-art G-gates and their training
 parquets live in a single directory:
 
 ```
@@ -1740,6 +1824,7 @@ artifacts/signal_gate_2025/
   model_pct_overlay.joblib                — PCT level bias
   model_pivot_trail.joblib                — pivot trail hold gate
   model_kalshi_gate.joblib                — Kalshi entry gate (clf + reg)
+  model_kalshi_tp_gate.joblib             — Kalshi TP gate (clf)
   model_de3.joblib                        — G-gate for DE3
   model_aetherflow.joblib                 — G-gate for AetherFlow
   model_regimeadaptive.joblib             — G-gate for RegimeAdaptive
@@ -1747,18 +1832,20 @@ artifacts/signal_gate_2025/
   lfo_training_data.parquet               — LFO training set
   pct_overlay_training_data.parquet       — PCT overlay training set
   pivot_trail_training_data.parquet       — pivot hold labels
-  kalshi_training_data.parquet            — Kalshi entries
+  kalshi_training_data.parquet            — Kalshi entry-gate training set
+  kalshi_tp_training_data.parquet         — Kalshi TP-gate training set
 ```
 
-All four overlay trainers live in `scripts/signal_gate/` and are fully
-deterministic given the bars + replay logs. To regenerate any model from
-scratch:
+All five overlay trainers live in `scripts/signal_gate/` and are fully
+deterministic given the bars + replay logs + Kalshi parquet. To regenerate
+any model from scratch:
 
 ```bash
 python3 scripts/signal_gate/train_lfo_ml.py
 python3 scripts/signal_gate/train_pct_overlay_ml.py
 python3 scripts/signal_gate/train_pivot_trail_ml.py
 python3 scripts/signal_gate/train_kalshi_ml.py
+python3 scripts/signal_gate/train_kalshi_tp_ml.py
 ```
 
 ### 11.11 Observation and rollout plan
@@ -1767,10 +1854,11 @@ Shadow-mode logs are tailed in production via `topstep_live_bot.log`. Key
 lines to grep:
 
 ```
-grep '[SHADOW_LFO]'     topstep_live_bot.log   # LFO rule-vs-ML disagreement
-grep '[SHADOW_PCT]'     topstep_live_bot.log   # PCT bias disagreement
-grep '[SHADOW_PIVOT]'   topstep_live_bot.log   # Pivot ratchet disagreement
-grep '[SHADOW_KALSHI]'  topstep_live_bot.log   # Kalshi gate disagreement
+grep '[SHADOW_LFO]'         topstep_live_bot.log   # LFO rule-vs-ML disagreement
+grep '[SHADOW_PCT]'         topstep_live_bot.log   # PCT bias disagreement
+grep '[SHADOW_PIVOT]'       topstep_live_bot.log   # Pivot ratchet disagreement
+grep '[SHADOW_KALSHI]'      topstep_live_bot.log   # Kalshi entry-gate disagreement
+grep '[SHADOW_KALSHI_TP]'   topstep_live_bot.log   # Kalshi TP-gate disagreement
 ```
 
 Recommended rollout order (one layer at a time, one week shadow minimum
@@ -1787,9 +1875,13 @@ before activation):
 3. **PCT overlay** third. The overlay biases size/direction on an existing
    signal rather than creating trades, but disagreements are more
    frequent than pivot, so more shadow observation time is warranted.
-4. **Kalshi entry gate** last. This one actually blocks trades, so it's
-   the highest-impact per disagreement. Monitor closely after activation
-   and be prepared to revert.
+4. **Kalshi TP gate** fourth. A veto-only layer; the worst that happens
+   is a trade gets blocked that the rule would have passed. No new trades
+   created. The TP-gate has the cleaner label (HIT_TP vs not) of the two
+   Kalshi ML layers, so it's the natural first Kalshi activation.
+5. **Kalshi entry gate** last. Also a veto-only layer, but its
+   disagreement with the rule's support_score threshold is subtle and
+   benefits from the most shadow observation before activation.
 
 Revert is always `export JULIE_ML_<LAYER>_ACTIVE=0` + bot restart; nothing
 else needs to change.

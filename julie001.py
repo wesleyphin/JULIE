@@ -1634,6 +1634,106 @@ def _apply_kalshi_trade_overlay_to_signal(
                     signal["kalshi_entry_blocked"] = True
                     signal["kalshi_entry_block_reason"] = f"ml_kalshi p_win={_k_p_win:.3f} < thr"
                     return False
+            # --- SHADOW: TP-aligned Kalshi gate ---
+            # Uses the build_trade_plan output directly to find the strike
+            # closest to tp_price and query aligned probability there.
+            if _mls_k._KALSHI_TP_PAYLOAD is not None:
+                try:
+                    _tp_dist = float(_coerce_float(signal.get("tp_dist"), math.nan))
+                    _entry_px = float(_coerce_float(signal.get("entry_price"), current_price))
+                    _side = str(signal.get("side", "") or "").upper()
+                    if math.isfinite(_tp_dist) and _tp_dist > 0 and _side in {"LONG", "SHORT"}:
+                        _tp_px = _entry_px + _tp_dist if _side == "LONG" else _entry_px - _tp_dist
+                        # Query Kalshi ladder at tp_price via the same interpolation
+                        # the overlay uses. build_kalshi_trade_plan already walked
+                        # the markets; re-query here via the provider.
+                        from kalshi_trade_overlay import (
+                            _extract_curve_markets as _mk_extract,
+                            _interpolated_aligned_probability as _mk_interp,
+                        )
+                        _mk_cfg = CONFIG.get("KALSHI_TRADE_OVERLAY", {}) or {}
+                        _markets = _mk_extract(kalshi, _entry_px, _mk_cfg)
+                        if _markets:
+                            _tp_aligned = _mk_interp(_markets, _tp_px, _side)
+                            _entry_aligned_raw = float(
+                                _coerce_float(signal.get("kalshi_entry_probability"), 0.5)
+                            )
+                            if _tp_aligned is not None and _entry_aligned_raw > 0:
+                                # Nearest strike to TP
+                                _nearest = min(
+                                    _markets,
+                                    key=lambda r: abs(float(r["strike_es"]) - _tp_px),
+                                )
+                                _nearest_dist = abs(float(_nearest["strike_es"]) - _tp_px)
+                                _nearest_oi = float(_nearest.get("open_interest", 0) or 0)
+                                _nearest_vol = float(_nearest.get("daily_volume", 0) or 0)
+                                # Ladder slope near TP (prob delta / strike span in ±10pt window)
+                                _up = [r for r in _markets
+                                       if _tp_px < float(r["strike_es"]) <= _tp_px + 10]
+                                _dn = [r for r in _markets
+                                       if _tp_px - 10 <= float(r["strike_es"]) <= _tp_px]
+                                if _up and _dn:
+                                    _p_u = _mk_interp(
+                                        _markets, float(_up[-1]["strike_es"]), _side
+                                    )
+                                    _p_d = _mk_interp(
+                                        _markets, float(_dn[0]["strike_es"]), _side
+                                    )
+                                    _span = max(0.5,
+                                                float(_up[-1]["strike_es"]) - float(_dn[0]["strike_es"]))
+                                    _slope = ((_p_u or 0) - (_p_d or 0)) / _span
+                                else:
+                                    _slope = 0.0
+                                # Minutes to settlement
+                                _settle_h = _active_kalshi_settlement_hour_et(kalshi)
+                                if _settle_h is not None:
+                                    _now_et = current_time.astimezone(NY_TZ)
+                                    _settle_dt = _now_et.replace(
+                                        hour=int(_settle_h), minute=0, second=0, microsecond=0
+                                    )
+                                    _mins = max(
+                                        0.0,
+                                        (_settle_dt - _now_et).total_seconds() / 60.0,
+                                    )
+                                else:
+                                    _mins = 0.0
+                                _tp_score = _mls_k.score_kalshi_tp(
+                                    signal,
+                                    tp_aligned_prob=float(_tp_aligned),
+                                    entry_aligned_prob=float(_entry_aligned_raw),
+                                    nearest_strike_dist=float(_nearest_dist),
+                                    nearest_strike_oi=_nearest_oi,
+                                    nearest_strike_volume=_nearest_vol,
+                                    ladder_slope_near_tp=float(_slope),
+                                    minutes_to_settlement=float(_mins),
+                                    atr14_pts=float(_k_atr),
+                                    range_30bar_pts=float(_k_r30),
+                                    trend_20bar_pct=float(_k_t20),
+                                    vel_5bar_pts_per_min=float(_k_v5),
+                                    regime=_k_regime,
+                                    tp_dist_pts=float(_tp_dist),
+                                )
+                                if _tp_score is not None:
+                                    _tp_p_hit, _tp_should_pass = _tp_score
+                                    logging.info(
+                                        "[SHADOW_KALSHI_TP] rule=PASS ml_p_hit_tp=%.3f ml=%s "
+                                        "tp_px=%.2f tp_dist=%.1f tp_prob=%.3f "
+                                        "entry_prob=%.3f strat=%s side=%s regime=%s",
+                                        _tp_p_hit,
+                                        "PASS" if _tp_should_pass else "BLOCK",
+                                        _tp_px, _tp_dist, float(_tp_aligned),
+                                        _entry_aligned_raw,
+                                        signal.get("strategy", "?"),
+                                        _side, _k_regime,
+                                    )
+                                    if _mls_k.is_kalshi_tp_live_active() and not _tp_should_pass:
+                                        signal["kalshi_entry_blocked"] = True
+                                        signal["kalshi_entry_block_reason"] = (
+                                            f"ml_kalshi_tp p_hit={_tp_p_hit:.3f} < thr"
+                                        )
+                                        return False
+                except Exception as _tp_exc:
+                    logging.debug("ml kalshi_tp shadow err: %s", _tp_exc)
     except Exception as _k_exc:
         logging.debug("ml kalshi shadow err: %s", _k_exc)
     size_multiplier = _coerce_float(plan.get("size_multiplier"), 1.0)
