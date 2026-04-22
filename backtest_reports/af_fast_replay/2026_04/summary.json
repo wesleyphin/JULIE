@@ -1,0 +1,23 @@
+{
+  "range_start": "2026-04-01 00:00:00-04:00",
+  "range_end": "2026-04-20 23:59:00-04:00",
+  "signals_pre_threshold": 9,
+  "trades_after_threshold": 9,
+  "wins": 3,
+  "losses": 6,
+  "winrate": 0.3333333333333333,
+  "net_pnl": 554.8085648955158,
+  "mean_pnl": 61.64539609950176,
+  "median_pnl": -52.84000606695827,
+  "max_win": 393.3847868608382,
+  "max_loss": -123.52721705147474,
+  "exit_source_counts": {
+    "horizon": 1,
+    "take": 3,
+    "stop": 5
+  },
+  "regime_counts": {
+    "DISPERSED": 7,
+    "CHOP_SPIRAL": 2
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "range_start": "2025-08-01 00:00:00-04:00",
+  "range_end": "2025-08-31 23:59:00-04:00",
+  "signals_pre_threshold": 13,
+  "trades_after_threshold": 13,
+  "wins": 6,
+  "losses": 7,
+  "winrate": 0.46153846153846156,
+  "net_pnl": 501.4935148290583,
+  "mean_pnl": 38.57642421761987,
+  "median_pnl": -12.5,
+  "max_win": 226.68852253466412,
+  "max_loss": -141.92592707975393,
+  "exit_source_counts": {
+    "take": 4,
+    "horizon": 6,
+    "stop": 3
+  },
+  "regime_counts": {
+    "TREND_GEODESIC": 4,
+    "DISPERSED": 3,
+    "CHOP_SPIRAL": 6
+  }
+}

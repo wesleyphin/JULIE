@@ -176,7 +176,15 @@ def evaluate(picked):
 def run_month(month: str):
     """month = 'YYYY-MM'"""
     label = month.replace("-", "_")  # 2025_04
-    DE3_RA_SRC = ROOT / "backtest_reports" / "full_live_replay" / label / "closed_trades.json"
+    # DE3/RA trade source — try the standard live-replay folder; fall back
+    # to known 2026 replay folders for Jan-Mar and April 2026.
+    candidates_de3_ra = [
+        ROOT / "backtest_reports" / "full_live_replay" / label / "closed_trades.json",
+        ROOT / "backtest_reports" / "full_live_replay" / "2026_jan_apr" / "closed_trades.json",
+        ROOT / "backtest_reports" / "replay_jan_mar_2026" / "closed_trades.json",
+        ROOT / "backtest_reports" / "replay_apr2026_p1" / "live_loop_MES_20260421_061829" / "closed_trades.json",
+    ]
+    DE3_RA_SRC = next((c for c in candidates_de3_ra if c.exists()), candidates_de3_ra[0])
     # AF paths historically use month-name labels (mar2025, oct2025) as well
     # as the numeric YYYY_MM format. Try numeric first, fall back to legacy.
     yyyy, mm = month.split("-")
