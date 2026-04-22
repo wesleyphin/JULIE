@@ -17,17 +17,19 @@ is the path the bot is actually meant to run on.
 
 ## What's New (2026-04 ML Overlay Stack)
 
-Four learned overlays now sit on top of the rule-based engines. All ship in
-**shadow mode** by default (log side-by-side with the rule's decision, no trade
-behavior change). Each can be promoted to **active** via an env kill-switch.
+Four learned overlays now sit on top of the rule-based engines. Each observes
+the same state the rule-based logic observes and emits a learned second
+opinion for a specific decision point. All four ship in **shadow mode** by
+default — they log their verdict alongside the rule's decision without
+changing trade behavior. Each can be promoted to **active** via an env
+kill-switch.
 
-| Layer | Rule it shadows | Model | CV AUC | 16-mo expected Δ |
-|---|---|---|---|---|
-| **LFO** (Level Fill Optimizer) | `level_fill_optimizer.py` WAIT/IMMEDIATE | `model_lfo.joblib` | 0.611 | **+$24,419** vs rule |
-| **PCT overlay** (% level bias) | `pct_level_overlay.py` breakout/pivot bias | `model_pct_overlay.joblib` | 0.780 | +$4,460 (15% scale) |
-| **Pivot trail** (SL ratchet) | `_compute_pivot_trail_sl` ratchet-on-every-pivot | `model_pivot_trail.joblib` | 0.912 | +$800 (conservative) |
-| **Kalshi entry gate** | `_apply_kalshi_trade_overlay_to_signal` support_score > threshold | `model_kalshi_gate.joblib` | 0.545 rolling-origin | +$2,372 (rolling-origin calibrated) |
-| **Total realistic uplift** | | | | **+$25,222 / 16 months** |
+| Layer | Decision point it models | Artifact |
+|---|---|---|
+| **LFO** (Level Fill Optimizer) | Should this signal fill IMMEDIATE or WAIT for a bank level? | `model_lfo.joblib` |
+| **PCT overlay** (% level bias) | On a fresh touch of a %-from-open level, is the forward move breakout or pivot? | `model_pct_overlay.joblib` |
+| **Pivot trail** (SL ratchet) | Will this confirmed swing pivot actually hold its trail level? | `model_pivot_trail.joblib` |
+| **Kalshi entry gate** | Past the rule's support-score filter, is this trade still worth taking? | `model_kalshi_gate.joblib` |
 
 Full details in **section 11 (Machine Learning Overlay Stack)** below.
 
@@ -1444,36 +1446,31 @@ bank-level pullback. The rule uses hand-tuned distance thresholds
 **What the ML learns.** Binary classifier: "on this signal, does WAIT beat
 IMMEDIATE on realized P&L?"
 
-**Training set.** 6,407 real DE3+RA+AF trades from replays across
-2025-03 → 2026-04. For each trade, the trainer simulates BOTH fill modes on
-the actual parquet bars around `signal_bar = entry_time - 1 min`:
+**Training set.** Real DE3+RA+AF trades pulled from the canonical monthly
+replays. For each trade, the trainer simulates BOTH fill modes on the
+actual parquet bars around `signal_bar = entry_time - 1 min`:
 
 - IMMEDIATE → fill at next bar open
 - WAIT → walk forward 3 bars; fill at the nearest $12.50 bank level if
   touched in favorable direction; else time out at the 3rd bar's close
 
 Each trade gets a label: 1 if WAIT's realized P&L > IMMEDIATE's, else 0.
+Training labels are therefore grounded in the actual bar tape the trade
+ran through, not in synthetic price paths.
 
-**Features.** ~20 bar-shape features (range, body, wicks), bank-level
-distances in both directions, ATR14, stop / take distances, regime one-hot,
-session bucket, et_hour ordinal.
+**Features.** Bar-shape features at signal time (range, body, upper/lower
+wicks), distances to the nearest bank levels above and below, ATR14,
+original stop/take distances, regime one-hot, session bucket, ET hour.
 
-**Metrics.** 5-fold CV AUC 0.611. Best threshold 0.40. On the 962-trade
-temporal holdout:
+**What the layer contributes.** The live rule decides WAIT vs IMMEDIATE on
+a small set of geometric rules that doesn't learn from outcomes. The ML
+replacement folds in bar-shape, regime, and session context — so in chop
+regimes it's more likely to pick IMMEDIATE (don't give a reversion tape a
+chance to drift past the bank), and in clean trends it's more likely to
+pick WAIT (let the pullback come). In shadow mode it just logs both
+decisions; in active mode it directly steers the fill choice.
 
-```
-Config                 # WAIT picks    PnL      vs always-IMM   vs rule
-Always IMMEDIATE             0      +$1,206         —           +$1,481
-Always WAIT                 962     −$4,567      −$5,772        −$4,291
-Rule-based LFO              128       −$275      −$1,481            —
-ML LFO (thr=0.40)           112     +$3,232      +$2,027        +$3,508
-```
-
-The rule-based LFO is **worse than doing nothing** by $1,481 on the holdout.
-The ML recovers $3,508 over the rule. 16-month counterfactual total: rule
-−$16,369, ML +$8,050 → **+$24,419 delta**.
-
-**Live hook.** `julie001.py` line ~13858. Shadow log:
+**Live hook.** `julie001.py` LFO decision site. Shadow log example:
 
 ```
 [SHADOW_LFO] rule=WAIT ml=IMMEDIATE p_wait=0.320 thr=0.400 strat=DE3 side=LONG
@@ -1492,32 +1489,35 @@ from ATR bucket, range bucket, hour edge table, and per-level base edge.
 is the forward 60-min outcome BREAKOUT (extends 0.10% past level) vs PIVOT
 (retraces 0.15% back)?"
 
-**Training set.** 50,761 fresh-touch events from walking
+**Training set.** Fresh-touch events generated by walking
 `es_master_outrights.parquet` chronologically from 2020 forward. Each event
-gets a label by looking forward 60 min; the first condition met wins.
+gets a label by looking forward 60 min and recording which condition fired
+first (breakout extension past the level vs retrace back through it).
+Labels come from actual forward-looking bars, so the model is training on
+what actually happened after every level touch in the historical tape —
+no synthetic paths.
 
-**Features.** `pct_from_open`, `signed_level`, `abs_level`,
-`level_distance_pct`, `atr_pct_30bar`, `range_pct_at_touch`, `hour_edge`,
-`minutes_since_open`, `dist_to_running_hi_pct`, `dist_to_running_lo_pct`,
-`rule_confidence` (leaks the teacher), plus tier / atr_bucket / range_bucket
-/ hour_bucket / direction categoricals.
+**Features.** `pct_from_open`, signed and absolute level, `level_distance_pct`,
+`atr_pct_30bar`, `range_pct_at_touch`, per-hour edge, minutes-since-open,
+distance to running session hi/lo, the rule's own confluence score (teacher
+leak so ML can re-weight it), plus tier / ATR bucket / range bucket / hour
+bucket / direction categoricals.
 
-**Metrics.** 5-fold CV AUC 0.780 (strongest of all four layers). Temporal
-holdout accuracy 67.9% vs rule 50.4% — **+17.5 pp over the rule**. Top
-feature: `dist_to_running_hi_pct` at 50% importance — the rule doesn't use
-this at all.
+**What the layer contributes.** The rule's confluence score is built from a
+small hand-tuned basket of features. The ML adds features the rule doesn't
+use — running-hi and running-lo distance in particular turned out to matter
+a lot more than the rule assumed — and re-weights the existing ones against
+outcomes. Overlay output is a bias (breakout/pivot/neutral) used by the
+bot's existing sizing/direction logic; the overlay does not place its own
+trades. In active mode the ML-derived bias replaces the rule's bias at
+each fresh touch; in shadow mode both are logged and the rule's value is
+still what the rest of the bot uses.
 
-**Live hook.** `julie001.py` line ~10265. Shadow log:
+**Live hook.** `julie001.py` fresh-touch evaluation site. Shadow log example:
 
 ```
 [SHADOW_PCT] rule=breakout_lean ml=pivot_lean p_breakout=0.432 lvl=+2.00% dist=0.015%
 ```
-
-**Caveat.** The model is a genuine classifier, but the $ contribution to P&L
-is harder to measure because the overlay in production BIASES size/direction
-rather than placing its own trades. We report the raw simulated P&L
-(+$27,838) alongside a 15%-scale realistic estimate (+$4,218 / 16 mo) —
-the scale factor is a judgment call, not a measurement.
 
 **Trainer.** `scripts/signal_gate/train_pct_overlay_ml.py`
 
@@ -1526,49 +1526,58 @@ the scale factor is a judgment call, not a measurement.
 **Rule it shadows.** `_compute_pivot_trail_sl` ratchets the SL to one
 bank-level behind a confirmed swing pivot (Reading B, fallback Reading C)
 every time `_detect_pivot_high` / `_detect_pivot_low` fires, gated only on
-`min_profit_pts ≥ 12.5`. No predictive signal today — the rule trails on
-**every** detected pivot.
+`min_profit_pts ≥ 12.5`. There's no predictive signal in the rule — it
+trails on **every** confirmed pivot, regardless of whether that pivot is
+structurally meaningful or just noise.
 
 **What the ML learns.** Binary classifier: "given this confirmed pivot,
-will price respect the Reading-B trail level for the next 20 bars?"
+will price respect the Reading-B trail level for the next 20 bars, or
+will it get violated quickly?"
 
-**Training set.** 822,520 confirmed pivots from walking the 2.06M-bar
+**Training set.** Every confirmed pivot found by walking the full 2020+
 parquet. Label = "held" only if the forward 20 bars never had **two
-consecutive closes** through the trail threshold. Critical: the violation
-check uses CLOSES, not bar lows/highs — wicks poke through nearby levels
-constantly and would make the label degenerate. Structural breaks require
-close-based confirmation.
+consecutive closes** through the trail threshold. The close-based
+confirmation is important: single wicks poke through nearby levels all
+the time on minute data, so a label that treats any single wick as a
+violation becomes degenerate. Requiring two consecutive closes through
+the level filters intrabar noise and keeps the label focused on real
+structural breaks — which is what actually causes a trailed stop to
+close a trade.
 
-Stratified downsample to 200k rows for tractable training.
+Stratified downsample keeps the dataset balanced and training tractable.
 
-**Features.** Pivot bar shape (range, body, upper/lower wick %),
-pivot_height_pts (prominence), ATR14, 30-bar range, 20-bar trend %,
-distance to 20-bar hi/lo, 5-bar and 20-bar velocities, distance to nearest
-12.5-pt bank, pivot_type (HIGH/LOW), session, tape (uptrend/downtrend/chop),
-ET hour.
+**Features.** Pivot bar shape (range, body, upper/lower wick %), pivot
+prominence (height vs the surrounding window mean), ATR14, 30-bar range,
+20-bar trend %, distance from the 20-bar high and low, 5-bar and 20-bar
+velocities, distance to the nearest 12.5-pt bank, pivot type (HIGH/LOW),
+session bucket, tape classification (uptrend/downtrend/chop), ET hour.
 
-**Metrics.** 5-fold CV AUC **0.912 ± 0.008**. Holdout AUC **0.850**. At
-`thr=0.55`: 33% precision vs the 1.4% rule base rate (**24× improvement**).
-The model is designed to be selective — only 0.2% of confirmed pivots cross
-the 0.55 threshold, but when they do, they're 24× likelier to actually hold.
+**What the layer contributes.** The rule ratchets on every confirmed
+pivot, which means every single time the 5-bar detector fires the stop
+moves — regardless of whether the pivot is a real structural level or
+just a local wiggle. The ML turns this into a **selective** ratchet: on
+high-confidence pivots the ratchet fires as before; on low-confidence
+pivots (the majority) the ratchet is skipped so the original, wider SL
+stays in place and the trade keeps running. In shadow mode both
+decisions are logged; in active mode the ML's skip overrides the rule's
+ratchet.
 
-**Live hook.** `julie001.py` line ~11061. Shadow log:
+**Live hook.** `julie001.py` pivot-trail evaluation site. Shadow log
+example:
 
 ```
 [SHADOW_PIVOT] type=HIGH px=5249.00 sl=5224.75 rule=RATCHET ml_p_hold=0.412 ml=SKIP
 ```
 
 **Live mode behavior** (`JULIE_ML_PIVOT_TRAIL_ACTIVE=1`): the rule's
-candidate SL is computed, but the ratchet is only applied when
-`p_hold >= 0.55`. Low-confidence pivots get skipped → the original SL
-stays in place → trade continues.
+candidate SL is computed, but the ratchet is only applied when ML
+confidence clears threshold. Low-confidence pivots get skipped → the
+original SL stays in place → trade continues.
 
 **Label-design history.** First two attempts produced degenerate datasets
-(0.0% and 0.02% held). Root cause was using bar lows/highs for the
-violation test — single wicks would break any narrow threshold. Path A
-(close-based with 2-bar confirmation) raised hold rate to 0.5% raw, which
-after stratified rebalancing is a learnable 50/50 split. See commit
-`e00da42` for the design notes.
+because the violation test was done against bar lows/highs, so single
+wicks would trip the label. Switching to close-based confirmation
+(current design) was the fix. Details in commit `e00da42`.
 
 **Trainer.** `scripts/signal_gate/train_pivot_trail_ml.py`
 
@@ -1583,60 +1592,55 @@ momentum_retention) and blocks signals where `support_score < threshold`
 Kalshi features + market-state context, (a) is this trade profitable? and
 (b) what's the expected pnl_dollars?"
 
-**Training set.** 1,977 PASS events matched to real closed trades across
-17 canonical replays (2025-01 through 2025-12 monthly + 5 outrageous_*
-event-day replays). The allowlist deliberately **excludes** 33 experimental
-variants (2025_04_ny_exp1_tp80, 2025_10_ny_iter9, etc.) whose altered filter
-configs pollute labels — the same Kalshi features map to different outcomes
-depending on which experimental filter stack ran.
+**Training set.** PASS events matched to real closed trades across a
+curated list of canonical monthly + outrageous-event-day replays. The
+allowlist deliberately **excludes** experimental-variant replays (altered
+filter configs, iteration sweeps, baseline comparisons) whose different
+filter stacks would cause the same Kalshi features to map to different
+outcomes. That label pollution was the biggest single threat to Kalshi
+ML quality and is addressed by allowlisting.
 
-All 1,977 matched rows are `DynamicEngine3` because the live Kalshi gate
-only applies to DE3. Match key: exact `(strategy, side, round(entry_price, 2))`.
+All matched rows are `DynamicEngine3` because the live Kalshi gate only
+applies to DE3 (AetherFlow and RegimeAdaptive don't go through the Kalshi
+entry overlay). Match key: exact `(strategy, side, round(entry_price, 2))`.
 
 **Features.** Kalshi-native features read from the KALSHI_ENTRY_VIEW log
 (entry_probability, probe_probability, momentum_delta, momentum_retention,
-support_score, threshold, probe_distance_pts) + et_hour_frac + DE3
-substrategy features (tier, is_rev, is_5min) + market-state computed from
-the parquet at signal time (atr14_pts, range_30bar_pts, trend_20bar_pct,
-dist_to_20bar_hi/lo_pct, vel_5bar_pts_per_min, dist_to_bank_pts,
-regime_vol_bp, regime_eff) + regime one-hot (whipsaw / calm_trend /
-neutral, computed from a 120-bar close window matching
-`regime_classifier.py`).
+support_score, threshold, probe_distance_pts) plus ET hour fraction plus
+DE3 substrategy features (tier, is_rev, is_5min) plus market-state
+computed from the parquet at signal time (ATR14, 30-bar range,
+20-bar trend %, distance from 20-bar hi/lo, 5-bar velocity, distance to
+nearest bank) plus regime one-hot (whipsaw / calm_trend / neutral,
+computed from a 120-bar close window matching `regime_classifier.py`).
 
-**Metrics.** Iteration history:
+**Iteration history.** Three training rounds:
 
-| Version | CV method | CV AUC | Holdout Δ | Verdict |
-|---|---|---:|---:|---|
-| v1 | Random 5-fold | 0.698 | +$5,001 | ❌ LEAKY — random shuffle across time + polluted training set inflated both numbers |
-| v2 | Rolling-origin | 0.529 | −$1,393 | ❌ HONEST but NO EDGE — allowlist + rolling-origin revealed v1 was illusion |
-| **v3 (shipped)** | Rolling-origin | **0.545** | **+$237/chunk mean** | ✅ HONEST + SMALL BUT REAL EDGE |
+- **v1** used a flat 50+ replay directory set and random 5-fold CV. Both
+  choices were wrong: the extra replays were experimental variants with
+  different filter configs (label pollution), and random-shuffle CV leaks
+  future information into training folds on time-series data. The
+  validation numbers looked great but the model had no real edge.
+- **v2** added the replay allowlist and replaced random CV with
+  rolling-origin (train on oldest N%, test on next chunk, step forward).
+  This is an honest time-series evaluation. It revealed that after
+  removing label pollution, the feature set from v1 had essentially no
+  generalizable signal.
+- **v3** (shipped) added regime computed directly from parquet bars (v2
+  parsed `Regime transition:` log lines but the canonical replays don't
+  write them, so v2's regime was always "warmup" — effectively a dead
+  feature), added DE3 substrategy features, and added a parallel
+  regressor that predicts `pnl_dollars` directly. The binary label
+  collapses a $5 scratch and a $200 winner into the same class; the
+  regressor is what lets the model exploit that asymmetry.
 
-v3 improvements over v2:
-- Regime computed from parquet bars (v2 parsed `Regime transition:` log
-  lines but canonical replays don't log them — regime was always "warmup")
-- DE3 substrategy features (tier / Rev-vs-Mom / 5min-vs-15min)
-- Parallel regressor on `pnl_dollars` (binary label collapses a $5 scratch
-  and a $200 winner into the same class — regression exploits the
-  asymmetry)
+**What the layer contributes.** Past the rule's flat threshold, the ML
+uses market-state context (regime, volatility, recent velocity) and
+substrategy identity to re-evaluate whether a PASS-ed trade is actually
+worth taking. It's a second-stage filter on top of the rule. In shadow
+mode both decisions are logged; in active mode, a low ML score on a
+rule-PASS flips the decision to block.
 
-Rolling-origin CV trajectory (4 of 6 chunks positive delta vs rule):
-
-```
-train%  test%   n    AUC   rule_PnL  clf@0.50_Δ
-   40%    50%  198  0.554    +$958     -$1,125
-   50%    60%  198  0.473   -$1,410      -$66
-   60%    70%  197  0.621     +$39     +$1,099
-   70%    80%  198  0.539   +$1,399     +$969
-   80%    90%  198  0.511    +$878       +$24
-   90%   100%  197  0.569   +$1,761     +$522
-mean: AUC 0.545, PnL Δ +$237/chunk
-```
-
-Realistic per-trade uplift: **+$1.20/trade**. On ~3,000 DE3 trades/year,
-that's ~$3,600/year honest lift — modest, but real and positive-mean across
-temporal chunks.
-
-**Live hook.** `julie001.py` line ~1623. Shadow log:
+**Live hook.** `julie001.py` Kalshi entry-view site. Shadow log example:
 
 ```
 [SHADOW_KALSHI] rule=PASS ml_p_win=0.624 ml_pred_pnl=+31.2 ml=PASS strat=DynamicEngine3 side=LONG regime=neutral support=0.578 thr=0.450
@@ -1658,10 +1662,10 @@ joblib files live alongside the overlay stack:
 
 ```
 artifacts/signal_gate_2025/
-  model_de3.joblib            # thr=0.35, 30 features, CV AUC 0.678
-  model_aetherflow.joblib     # thr=0.55 (v5.5 bump), 31 features, CV AUC 0.695
-  model_regimeadaptive.joblib # thr=0.475, 28 features, CV AUC 0.720
-  model_mlphysics.joblib      # shipped earlier
+  model_de3.joblib
+  model_aetherflow.joblib
+  model_regimeadaptive.joblib
+  model_mlphysics.joblib
 ```
 
 Those gates are **live (not shadow)**: they directly veto signals whose
@@ -1706,55 +1710,44 @@ order:
       └─ Kalshi TP-trail, regime transitions, emergency exits, etc.
 ```
 
-### 11.9 16-month realistic PnL table (full ML stack vs live rule)
+### 11.9 How the four layers compose
 
-All figures on the same 6,407-trade universe (already post-G-gate and
-post-rule-Kalshi):
+Running all four overlays simultaneously is intentional — each targets a
+different decision point and they compose rather than compete:
 
-```
-month      LFO Δ     PCT Δ@15%   Kalshi Δ   Pivot Δ   FULL_ML    FULL_rule    DELTA
-2025-01     +$975       +$294       +$233     +$50      −$243    −$1,795    +$1,552
-2025-02     +$858       +$385       +$149     +$50      +$650      −$791    +$1,441
-2025-03   +$2,189       +$154       +$281     +$50    +$2,182      −$491    +$2,673
-2025-04   +$7,841       +$186       +$985     +$50    +$6,512    −$2,551    +$9,062  ★
-2025-05   +$1,155       +$326       +$232     +$50       −$60    −$1,823    +$1,763
-2025-06     +$497       +$117        +$74     +$50      +$861      +$123      +$738
-2025-07      +$65       +$641       +$100     +$50      +$902       +$47      +$856
-2025-08     +$190       +$251       +$155     +$50    +$1,127      +$482      +$645
-2025-09     +$512       +$406        +$65     +$50      +$713      −$321    +$1,033
-2025-10     +$581       +$340        +$92     +$50    −$2,634    −$3,697    +$1,063
-2025-11       +$5       +$287         +$0     +$50    +$1,112      +$769      +$342
-2025-12     +$986       −$106         +$7     +$50       −$97    −$1,034      +$937
-2026-01      +$50       +$182         +$0     +$50      +$652      +$370      +$282
-2026-02      −$93       +$128         +$0     +$50      +$586      +$501       +$85
-2026-03     +$685       +$597         +$0     +$50    +$1,437      +$105    +$1,332
-2026-04   +$1,095       +$271         +$0     +$50    +$1,697      +$281    +$1,416
-────────────────────────────────────────────────────────────────────────────────
-TOTAL   +$17,590     +$4,460     +$2,372    +$800   +$15,398    −$9,824   +$25,222
-```
+- **G-gate** (live, prior art) filters out signals the strategy shouldn't
+  have emitted in the first place.
+- **Kalshi ML** re-evaluates the rule's PASS decisions using market-state
+  context the rule doesn't see.
+- **LFO ML** chooses WAIT vs IMMEDIATE on signals that survive both gates.
+- **PCT overlay ML** biases the bot's sizing/direction logic when the
+  signal happens at a %-level touch.
+- **Pivot ML** selectively suppresses unnecessary SL ratchets during
+  position management.
 
-Bottom line: **the rule-only stack loses $9,824 over 16 months; the full ML
-stack makes $15,398. Shipping the overlays flips the bot from −$10k to +$15k
-with every single month positive-delta.**
+Because each layer is independent and shadow-gated, rolling out (or
+rolling back) one layer doesn't affect the behavior of any of the others.
+The bot's rule-based path always remains intact as a fallback.
 
 ### 11.10 Training artifacts
 
-All four models and their training parquets live in a single directory:
+All four overlay models plus the prior-art G-gates and their training
+parquets live in a single directory:
 
 ```
 artifacts/signal_gate_2025/
-  model_lfo.joblib                        # 245 KB  — Level Fill Optimizer
-  model_pct_overlay.joblib                # 505 KB  — PCT level bias
-  model_pivot_trail.joblib                # 461 KB  — pivot trail hold gate
-  model_kalshi_gate.joblib                # 554 KB  — Kalshi entry gate (clf + reg)
-  model_de3.joblib                        # G-gate for DE3
-  model_aetherflow.joblib                 # G-gate for AetherFlow
-  model_regimeadaptive.joblib             # G-gate for RegimeAdaptive
-  model_mlphysics.joblib                  # G-gate for MLPhysics
-  lfo_training_data.parquet               # 6,407 rows — LFO training set
-  pct_overlay_training_data.parquet       # 50,761 rows — PCT overlay
-  pivot_trail_training_data.parquet       # 822,520 rows — pivot hold labels
-  kalshi_training_data.parquet            # 1,977 rows — Kalshi entries
+  model_lfo.joblib                        — Level Fill Optimizer
+  model_pct_overlay.joblib                — PCT level bias
+  model_pivot_trail.joblib                — pivot trail hold gate
+  model_kalshi_gate.joblib                — Kalshi entry gate (clf + reg)
+  model_de3.joblib                        — G-gate for DE3
+  model_aetherflow.joblib                 — G-gate for AetherFlow
+  model_regimeadaptive.joblib             — G-gate for RegimeAdaptive
+  model_mlphysics.joblib                  — G-gate for MLPhysics
+  lfo_training_data.parquet               — LFO training set
+  pct_overlay_training_data.parquet       — PCT overlay training set
+  pivot_trail_training_data.parquet       — pivot hold labels
+  kalshi_training_data.parquet            — Kalshi entries
 ```
 
 All four overlay trainers live in `scripts/signal_gate/` and are fully
@@ -1783,15 +1776,20 @@ grep '[SHADOW_KALSHI]'  topstep_live_bot.log   # Kalshi gate disagreement
 Recommended rollout order (one layer at a time, one week shadow minimum
 before activation):
 
-1. **LFO** first — strongest evidence (+$24k / 16 mo counterfactual on real
-   trades), lowest downside risk (choosing a fill mode can't create trades
-   the bot wouldn't otherwise take).
-2. **Pivot trail** second — highest AUC (0.912), very rare events (≤1 per
-   trading day on average), bounded downside.
-3. **PCT overlay** third — strongest classifier (0.780 AUC) but $ impact is
-   the least well-measured; start with shadow-only observation period.
-4. **Kalshi entry gate** last — modest edge (0.545 rolling AUC), variance
-   is real; monitor closely after activation, prepared to revert.
+1. **LFO** first. Choosing a fill mode can't create trades the bot wouldn't
+   otherwise take, so the downside is bounded to "might have gotten a
+   marginally worse fill on some signals." Safe first-mover.
+2. **Pivot trail** second. Pivot events are rare (roughly ≤1 per trading
+   day on average), so disagreement frequency is low and each disagreement
+   can be inspected directly. Bounded downside: at worst, a skipped
+   ratchet leaves the trade on its original SL, which is what would have
+   happened if the pivot simply hadn't been detected.
+3. **PCT overlay** third. The overlay biases size/direction on an existing
+   signal rather than creating trades, but disagreements are more
+   frequent than pivot, so more shadow observation time is warranted.
+4. **Kalshi entry gate** last. This one actually blocks trades, so it's
+   the highest-impact per disagreement. Monitor closely after activation
+   and be prepared to revert.
 
 Revert is always `export JULIE_ML_<LAYER>_ACTIVE=0` + bot restart; nothing
 else needs to change.
