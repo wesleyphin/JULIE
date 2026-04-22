@@ -91,6 +91,9 @@ def init_ml_overlays() -> Tuple[bool, bool, bool, bool, bool]:
     init_rl_management()
     # Load the bar encoder (Path 1 — feature source, not a gate). Silent if absent.
     init_bar_encoder()
+    # Load the cross-market breakout gate (2026-04-22 — ML replacement
+    # for the hand-tuned VIX/MNQ rule; shadow-loaded by default).
+    init_cm_breakout_gate()
     return (
         _LFO_PAYLOAD is not None,
         _PCT_PAYLOAD is not None,
@@ -637,3 +640,95 @@ def is_bar_encoder_active() -> bool:
     """Encoder is considered 'active' whenever it's loaded — it's just a
     feature source, not a decision gate. No env toggle."""
     return _BAR_ENCODER is not None
+
+
+# --- Cross-market breakout gate (ML replacement for the hand-tuned
+#     VIX/MNQ override rule in kalshi_trade_overlay.py). Trained via
+#     scripts/signal_gate/train_cm_breakout_gate.py on 2025 Kalshi-era
+#     signals. Default state: loaded-but-shadow — the live overlay uses
+#     the hand-tuned rule unless JULIE_KALSHI_CM_GATE_ACTIVE=1, but this
+#     helper always computes + logs the ML prediction so the two can
+#     be compared over live sessions before promotion.
+_CM_GATE_PAYLOAD: Optional[Dict[str, Any]] = None
+_CM_GATE_LOAD_FAILED = False
+
+
+def init_cm_breakout_gate() -> bool:
+    global _CM_GATE_PAYLOAD, _CM_GATE_LOAD_FAILED
+    if _CM_GATE_PAYLOAD is not None:
+        return True
+    if _CM_GATE_LOAD_FAILED:
+        return False
+    path = _ARTIFACT_DIR / "model_cm_breakout_gate.joblib"
+    if not path.exists():
+        _CM_GATE_LOAD_FAILED = True
+        return False
+    try:
+        import joblib
+        _CM_GATE_PAYLOAD = joblib.load(path)
+        logging.info(
+            "ml_overlay_shadow: CM-breakout gate loaded — %d features, "
+            "cv_auc=%.3f, override_threshold=%.2f",
+            len(_CM_GATE_PAYLOAD.get("feature_names", [])),
+            float(_CM_GATE_PAYLOAD.get("cv_auc_mean", 0.0) or 0.0),
+            float(_CM_GATE_PAYLOAD.get("override_threshold", 0.60) or 0.60),
+        )
+        return True
+    except Exception as exc:
+        logging.warning("ml_overlay_shadow: CM-breakout gate load failed: %s", exc)
+        _CM_GATE_LOAD_FAILED = True
+        return False
+
+
+def score_cm_breakout_gate(
+    *,
+    kalshi_state: Dict[str, float],
+    bar_state: Dict[str, float],
+    sub_flags: Dict[str, float],
+    regime: str,
+    regime_vol_bp: float,
+    regime_eff: float,
+    role: str,
+    side: str,
+    cross_market_features: Dict[str, float],
+) -> Optional[float]:
+    """Return P(trade wins) given the full context at signal time, or
+    None if the model isn't loaded. Intended as a second-opinion gate
+    for Kalshi blocks — when Kalshi says BLOCK and this returns a value
+    above the model's `override_threshold`, the caller may choose to
+    lift the block."""
+    if _CM_GATE_PAYLOAD is None and not init_cm_breakout_gate():
+        return None
+    try:
+        numeric = {}
+        numeric.update({k: float(v) for k, v in kalshi_state.items()})
+        numeric.update({k: float(v) for k, v in bar_state.items()})
+        numeric.update({k: float(v) for k, v in sub_flags.items()})
+        numeric["regime_vol_bp"] = float(regime_vol_bp)
+        numeric["regime_eff"] = float(regime_eff)
+        # cross-market features injected by same names
+        for k, v in (cross_market_features or {}).items():
+            numeric[k] = float(v)
+        categorical = {"side": side, "role": role, "regime": regime}
+        X = _build_row(_CM_GATE_PAYLOAD, numeric, categorical, {})
+        p = float(_CM_GATE_PAYLOAD["model"].predict_proba(X)[0, 1])
+        return p
+    except Exception as exc:
+        logging.debug("score_cm_breakout_gate failed: %s", exc)
+        return None
+
+
+def cm_breakout_gate_override_threshold() -> float:
+    """The p_win threshold above which the ML gate would recommend
+    overriding a Kalshi block. Configured in the joblib payload."""
+    if _CM_GATE_PAYLOAD is None:
+        return 0.60
+    return float(_CM_GATE_PAYLOAD.get("override_threshold", 0.60) or 0.60)
+
+
+def is_cm_breakout_gate_active() -> bool:
+    """When True, the live Kalshi overlay consults the ML gate INSTEAD of
+    the hand-tuned VIX/MNQ rule for override decisions. When False
+    (default), the hand-tuned rule is authoritative and the ML score is
+    only logged for comparison. Flip via JULIE_KALSHI_CM_GATE_ACTIVE=1."""
+    return os.environ.get("JULIE_KALSHI_CM_GATE_ACTIVE", "0").strip() == "1"

@@ -1532,6 +1532,25 @@ def _apply_kalshi_trade_overlay_to_signal(
             "[KALSHI_CM_OVERRIDE] strat=%s side=%s  %s",
             signal.get("strategy", "?"), signal.get("side", "?"), _cm_override,
         )
+    # ML-gate shadow telemetry — always log the model's prediction when it
+    # fired, regardless of whether the ML gate is authoritative. Lets us
+    # compare the ML gate's decisions to the hand-tuned rule over real
+    # sessions before promoting. Grep [CM_GATE_ML] to audit.
+    _ml_p = plan.get("cm_gate_ml_p_win")
+    if _ml_p is not None:
+        _ml_would = plan.get("cm_gate_ml_would_override")
+        try:
+            import ml_overlay_shadow as _mls_cmdbg
+            _ml_active = _mls_cmdbg.is_cm_breakout_gate_active()
+        except Exception:
+            _ml_active = False
+        logging.info(
+            "[CM_GATE_ML] strat=%s side=%s p_win=%.3f would_override=%s "
+            "active=%s hand_tuned_override=%s",
+            signal.get("strategy", "?"), signal.get("side", "?"),
+            float(_ml_p), bool(_ml_would), _ml_active,
+            bool(_cm_override),
+        )
 
     signal["kalshi_trade_overlay_applied"] = bool(plan.get("applied", False))
     signal["kalshi_trade_overlay_reason"] = str(plan.get("reason", "") or "")
