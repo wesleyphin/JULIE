@@ -123,13 +123,31 @@ TICK_SIZE = 0.25
 FEE_PER_CONTRACT_ROUNDTRIP = 0.74  # approximation
 REVERSE_SIZE_FACTOR = 1.0   # reversal trades same size as original
 
-# Slippage applied on INSTANT market-order fills (TAKE_PARTIAL_*, REVERSE).
-# Stop/TP fills assume the bot's resting limit/stop order executed at the
-# documented price, so no slippage there. Value is in points (adverse).
-INSTANT_SLIPPAGE_PTS = TICK_SIZE  # 1 tick of adverse fill = 0.25 pts
-# Per-bar commission/funding drag (approximation of overnight holding,
-# slippage on SL edits, etc.)
-PER_BAR_HOLDING_DRAG_USD = 0.05
+# Execution-realism model (v2 follow-up after initial 802c7ef training).
+#
+# The v1 env let market-order closes fill at the CURRENT bar's close with
+# 1 tick of slippage. That's too optimistic for two reasons:
+#   (a) Live latency: a market order placed during bar T fills on bar T+1
+#       open at the earliest, not bar T close. The agent effectively got
+#       to see the future.
+#   (b) Bar-close fills capture close-vs-open drift that the agent didn't
+#       actually earn; in a bull year (2025 MES), any early-close action
+#       is positive-expectation for LONGs and the 77%-LONG training set
+#       makes Random baseline print absurd PnL.
+#
+# Fix:
+#   INSTANT_FILL_BAR_OFFSET = 1    # market orders fill on bar T+1 open
+#   INSTANT_SLIPPAGE_PTS = 0.5     # 2 ticks adverse (more realistic for
+#                                    MES during slow hours; still optimistic
+#                                    during news-driven bars)
+#   PER_BAR_HOLDING_DRAG_USD = 0.0 # disable (already captured by the
+#                                    holding_time_penalty reward shaping)
+#
+# Stop/TP fills continue to assume resting orders hit their documented
+# price (instant_fill=False path, no slippage).
+INSTANT_FILL_BAR_OFFSET = 1
+INSTANT_SLIPPAGE_PTS = 0.5        # 2 ticks adverse
+PER_BAR_HOLDING_DRAG_USD = 0.0
 
 
 @dataclass
@@ -303,7 +321,11 @@ class TradeManagementEnv(gym.Env):
         reward = 0.0
 
         # === apply the action BEFORE advancing the bar ===
+        # cur_price is what the AGENT SEES (current bar close). fill_price
+        # is what the agent ACTUALLY GETS for market orders (next bar's
+        # open, per the execution-latency model).
         cur_price = self._current_price()
+        fill_price = self._instant_fill_price()
         if action == ACT_MOVE_SL_TO_BE:
             self._move_sl_to_breakeven()
         elif action == ACT_TIGHTEN_SL_25:
@@ -312,29 +334,24 @@ class TradeManagementEnv(gym.Env):
             self._tighten_sl(0.50, cur_price)
         elif action == ACT_TAKE_PARTIAL_50:
             close_sz = max(1, int(self._remaining_size * 0.5))
-            pnl = self._realize_pnl(cur_price, close_sz)
+            pnl = self._realize_pnl(fill_price, close_sz)
             self._realized_pnl_dollars += pnl
             self._remaining_size -= close_sz
         elif action == ACT_TAKE_PARTIAL_FULL:
-            pnl = self._realize_pnl(cur_price, self._remaining_size)
+            pnl = self._realize_pnl(fill_price, self._remaining_size)
             self._realized_pnl_dollars += pnl
             self._remaining_size = 0
             self._done = True
         elif action == ACT_REVERSE:
-            # Close existing, immediately open opposite at current price.
-            # For reward purposes we realize the current PnL and then the new
-            # leg's PnL unfolds over the remaining bars.
-            pnl = self._realize_pnl(cur_price, self._remaining_size)
+            pnl = self._realize_pnl(fill_price, self._remaining_size)
             self._realized_pnl_dollars += pnl
-            self._remaining_size = int(ep.size)  # re-open full size
-            # Flip side, reset entry + SL/TP to a mirrored geometry
+            self._remaining_size = int(ep.size)
             new_side = "SHORT" if ep.side == "LONG" else "LONG"
             orig_sl_dist = abs(ep.original_sl_price - ep.entry_price)
             orig_tp_dist = abs(ep.original_tp_price - ep.entry_price)
-            new_sl = cur_price + orig_sl_dist if new_side == "LONG" else cur_price - orig_sl_dist
-            new_tp = cur_price - orig_tp_dist if new_side == "SHORT" else cur_price + orig_tp_dist
-            # We mutate the episode's "effective" state. Use a shim.
-            ep = self._ep = _clone_episode_with(ep, side=new_side, entry_price=cur_price,
+            new_sl = fill_price + orig_sl_dist if new_side == "LONG" else fill_price - orig_sl_dist
+            new_tp = fill_price - orig_tp_dist if new_side == "SHORT" else fill_price + orig_tp_dist
+            ep = self._ep = _clone_episode_with(ep, side=new_side, entry_price=fill_price,
                                                  original_sl_price=new_sl, original_tp_price=new_tp)
             self._current_sl = new_sl
             self._current_tp = new_tp
@@ -419,6 +436,19 @@ class TradeManagementEnv(gym.Env):
         if self._cur_bar_idx >= len(ep.bars):
             return float(ep.bars.iloc[-1]["close"])
         return float(ep.bars.iloc[self._cur_bar_idx]["close"])
+
+    def _instant_fill_price(self) -> float:
+        """Price a market-order close actually fills at, given the env's
+        INSTANT_FILL_BAR_OFFSET latency. Default offset=1 means the order
+        is routed at the current bar's close but fills at the NEXT bar's
+        open — capturing the 1-bar execution latency present in the live
+        bot's ProjectX routing."""
+        ep = self._ep
+        target_idx = self._cur_bar_idx + INSTANT_FILL_BAR_OFFSET
+        if target_idx >= len(ep.bars):
+            # Not enough future data — fall back to close of last bar
+            return float(ep.bars.iloc[-1]["close"])
+        return float(ep.bars.iloc[target_idx]["open"])
 
     def _move_sl_to_breakeven(self):
         ep = self._ep

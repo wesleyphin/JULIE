@@ -71,6 +71,6 @@ reports/
 data/kalshi/
 es_master_outrights.parquet
 
-# Intermediate training artifacts (joblib whitelist above keeps the shipped models)
-artifacts/signal_gate_2025/bracket_training.parquet
-artifacts/signal_gate_2025/g_vs_kalshi_today.json
+# Intermediate training artifacts — keep the ML G bracket training parquet
+# and diagnostic JSON so the training pipeline is reproducible end-to-end
+# from committed artifacts. Stray debug artifacts stay ignored by default.

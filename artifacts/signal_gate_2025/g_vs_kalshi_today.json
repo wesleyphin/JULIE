@@ -1,0 +1,9 @@
+{
+  "n_signals": 258,
+  "n_with_both": 100,
+  "agreement_rate": 0.16,
+  "both_block": 7,
+  "both_pass": 9,
+  "g_only_veto": 0,
+  "kalshi_only_veto": 84
+}

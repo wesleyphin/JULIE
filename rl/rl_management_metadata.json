@@ -19,35 +19,35 @@
     "batch_size": 128,
     "ent_coef": 0.01,
     "seed": 42,
-    "elapsed_seconds": 164.0,
+    "elapsed_seconds": 236.0,
     "n_train_episodes": 3621,
     "n_val_episodes": 640
   },
   "val_stats_ppo": {
     "n": 640,
-    "total_pnl": 176949.97000000003,
-    "mean_pnl": 276.48432812500005,
-    "median_pnl": 94.565,
-    "win_rate": 0.9609375,
-    "mean_reward": 5.4352959375,
-    "mean_bars_held": 9.4390625,
+    "total_pnl": 144473.74000000002,
+    "mean_pnl": 225.74021875000003,
+    "median_pnl": 82.03999999999999,
+    "win_rate": 0.9171875,
+    "mean_reward": 4.430804375,
+    "mean_bars_held": 8.4,
     "action_counts": {
-      "0": 1277,
+      "0": 1457,
       "1": 131,
-      "2": 172,
+      "2": 240,
       "3": 0,
-      "4": 3996,
+      "4": 3099,
       "5": 2,
-      "6": 465
+      "6": 449
     }
   },
   "val_stats_de3_baseline": {
     "n": 640,
-    "total_pnl": 1161.8299999999977,
-    "mean_pnl": 1.8153593749999963,
+    "total_pnl": 649.3299999999977,
+    "mean_pnl": 1.0145781249999963,
     "median_pnl": 0.51,
-    "win_rate": 0.5140625,
-    "mean_reward": -0.22816156250000005,
+    "win_rate": 0.5109375,
+    "mean_reward": -0.24417718750000006,
     "mean_bars_held": 26.446875,
     "action_counts": {
       "0": 16671,
@@ -61,11 +61,11 @@
   },
   "val_stats_hold_baseline": {
     "n": 640,
-    "total_pnl": 656.8299999999972,
-    "mean_pnl": 1.0262968749999957,
-    "median_pnl": -29.235,
-    "win_rate": 0.44375,
-    "mean_reward": -0.2623178125000001,
+    "total_pnl": 88.0799999999972,
+    "mean_pnl": 0.1376249999999956,
+    "median_pnl": -30.74,
+    "win_rate": 0.440625,
+    "mean_reward": -0.28009125000000007,
     "mean_bars_held": 28.284375,
     "action_counts": {
       "0": 18102,
@@ -77,6 +77,6 @@
       "6": 0
     }
   },
-  "delta_vs_hold": 176293.14000000004,
-  "delta_vs_de3": 175788.14000000004
+  "delta_vs_hold": 144385.66000000003,
+  "delta_vs_de3": 143824.41000000003
 }

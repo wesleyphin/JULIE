@@ -4294,6 +4294,115 @@ def _stage_live_de3_break_even_stop_update(
     )
 
 
+def _apply_rl_management_action(
+    client: Optional["ProjectXClient"],
+    trade: Optional[dict],
+    action: int,
+    action_name: str,
+    *,
+    current_time: "datetime.datetime",
+    market_price: float,
+    bar_high: float,
+    bar_low: float,
+    bar_index: Optional[int] = None,
+) -> Optional[dict]:
+    """Execute an RL-policy action against the live trade.
+
+    For safety we only execute the SL-modification actions here:
+      MOVE_SL_TO_BE, TIGHTEN_SL_25PCT, TIGHTEN_SL_50PCT
+
+    TAKE_PARTIAL_* and REVERSE are intentionally NOT wired yet — they
+    require dedicated partial-close / flatten-and-reverse broker paths
+    that need careful testing against the bot's own trade tracking. The
+    shadow log still records the policy's preference for those actions
+    so operators can observe how often they fire and make an informed
+    decision before wiring them.
+
+    Returns a dict of form:
+      {"status": "applied", "new_sl": <price>}   on success
+      {"status": "deferred", "reason": "..."}     when the action isn't
+                                                    wired for live execution
+      {"status": "skipped",  "reason": "..."}     when the action is wired
+                                                    but current state makes
+                                                    it a no-op (ratchet check
+                                                    fails, already at BE, etc.)
+      None                                         on error
+    """
+    if not isinstance(trade, dict):
+        return None
+
+    # Actions RL can fire (integers mirror rl/trade_env.py constants)
+    ACT_HOLD = 0
+    ACT_MOVE_SL_TO_BE = 1
+    ACT_TIGHTEN_SL_25 = 2
+    ACT_TIGHTEN_SL_50 = 3
+    ACT_TAKE_PARTIAL_50 = 4
+    ACT_TAKE_PARTIAL_FULL = 5
+    ACT_REVERSE = 6
+
+    if action == ACT_HOLD:
+        return {"status": "applied", "reason": "hold"}
+
+    side = str(trade.get("side", "")).upper()
+    try:
+        entry = float(trade.get("entry_price", 0.0) or 0.0)
+        current_sl = float(trade.get("sl_price") or trade.get("effective_stop_price") or entry)
+    except Exception:
+        return None
+    if entry <= 0 or side not in ("LONG", "SHORT"):
+        return None
+
+    target = None
+    if action == ACT_MOVE_SL_TO_BE:
+        target = entry + TICK_SIZE if side == "LONG" else entry - TICK_SIZE
+    elif action == ACT_TIGHTEN_SL_25:
+        if side == "LONG":
+            dist = market_price - current_sl
+            if dist > 0:
+                target = current_sl + dist * 0.25
+        else:
+            dist = current_sl - market_price
+            if dist > 0:
+                target = current_sl - dist * 0.25
+    elif action == ACT_TIGHTEN_SL_50:
+        if side == "LONG":
+            dist = market_price - current_sl
+            if dist > 0:
+                target = current_sl + dist * 0.50
+        else:
+            dist = current_sl - market_price
+            if dist > 0:
+                target = current_sl - dist * 0.50
+
+    if target is not None:
+        # Round to tick and enforce ratchet (don't loosen)
+        target = round(target / TICK_SIZE) * TICK_SIZE
+        if side == "LONG" and target <= current_sl + 1e-9:
+            return {"status": "skipped", "reason": f"ratchet_would_not_improve {target}<={current_sl}"}
+        if side == "SHORT" and target >= current_sl - 1e-9:
+            return {"status": "skipped", "reason": f"ratchet_would_not_improve {target}>={current_sl}"}
+        result = _apply_pivot_trail_sl(
+            client, trade, float(target),
+            current_time=current_time, market_price=market_price,
+            bar_high=bar_high, bar_low=bar_low, bar_index=bar_index,
+        )
+        if isinstance(result, dict) and result.get("status") == "updated":
+            logging.info(
+                "[RL_LIVE] %s %s SL → %.2f (action=%s)",
+                str(trade.get("strategy", "")), side, float(target), action_name,
+            )
+            return {"status": "applied", "new_sl": float(target), "action": action_name,
+                    "inner": result}
+        return result
+
+    # Partial close / reverse actions — deferred; not wired yet
+    if action in (ACT_TAKE_PARTIAL_50, ACT_TAKE_PARTIAL_FULL, ACT_REVERSE):
+        return {"status": "deferred",
+                "reason": f"{action_name} needs dedicated broker path — shadow-only"}
+
+    return {"status": "skipped", "reason": f"unknown_action_{action}"}
+
+
 def _apply_pivot_trail_sl(
     client: Optional["ProjectXClient"],
     trade: Optional[dict],
@@ -11310,16 +11419,32 @@ async def run_bot():
                                             float(trade["_rl_mfe_pts"]), float(trade["_rl_mae_pts"]),
                                             _rl_reg, _rl_name,
                                         )
-                                        # Active mode is intentionally NOT
-                                        # wired yet — the 7 discrete actions
-                                        # need individual broker-execution
-                                        # paths (SL move / partial close /
-                                        # reverse) that are non-trivial. Keep
-                                        # shadow-only until the policy's
-                                        # behavior is validated in logs.
-                                        # is_rl_management_live_active() is
-                                        # checked here for future use.
-                                        _ = _mls_rl.is_rl_management_live_active()
+                                        # Active mode: execute SAFE actions
+                                        # (SL moves only). TAKE_PARTIAL_* /
+                                        # REVERSE return "deferred" and are
+                                        # only logged. Operators can observe
+                                        # the deferred rate and decide when
+                                        # to wire the missing paths.
+                                        if _mls_rl.is_rl_management_live_active():
+                                            try:
+                                                _rl_apply = _apply_rl_management_action(
+                                                    client, trade, int(_rl_action), _rl_name,
+                                                    current_time=current_time,
+                                                    market_price=current_price,
+                                                    bar_high=bar_high, bar_low=bar_low,
+                                                    bar_index=bar_count,
+                                                )
+                                                if isinstance(_rl_apply, dict):
+                                                    logging.info(
+                                                        "[RL_LIVE] status=%s action=%s %s",
+                                                        _rl_apply.get("status"), _rl_name,
+                                                        _rl_apply.get("reason", ""),
+                                                    )
+                                            except Exception as _rl_apply_exc:
+                                                logging.debug(
+                                                    "rl active-mode apply err: %s",
+                                                    _rl_apply_exc,
+                                                )
                         except Exception as _rl_exc:
                             logging.debug("rl management shadow err: %s", _rl_exc)
                         _kalshi_tp_result = _apply_kalshi_tp_trail(
