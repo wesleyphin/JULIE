@@ -15,89 +15,141 @@ This document explains the current Julie bot from a technical perspective:
 It is intentionally focused on the current filterless live stack, because that
 is the path the bot is actually meant to run on.
 
-## What's New (2026-04-23 evening) — cascade loss blocker ACTIVATED by default
+## RL Trade-Management Policy Guards
+
+The v3 RL policy could fire `TIGHTEN_SL_25PCT` and `TIGHTEN_SL_50PCT`
+actions aggressively in trending regimes, ratcheting the stop behind
+the price and getting swept on normal pullbacks. Two complementary
+guards now sit between the policy and the broker.
+
+### Live executor gates (`julie001._apply_rl_management_action`)
+
+Two policy filters reject bad TIGHTEN actions before they reach the
+broker. Both are configurable per-session via env vars; both default
+to ON via the launcher.
+
+- **Regime gate** (`JULIE_RL_REGIME_GATE_ACTIVE`). When the episode's
+  regime is `calm_trend`, the gate rejects `TIGHTEN_SL_25` and
+  `TIGHTEN_SL_50` and lets only `MOVE_SL_TO_BE` through. The reasoning:
+  in a confirmed trend the right behavior is to let the trade breathe;
+  chasing the SL on every favorable bar invites mean-reversion sweeps.
+- **MFE-floor gate** (`JULIE_RL_MIN_MFE_FRAC_FOR_TIGHTEN`). Rejects
+  any TIGHTEN action when the maximum favorable excursion so far is
+  less than a configurable fraction of the trade's TP distance
+  (default 0.50). The trade must have moved at least halfway to its
+  TP before SL tightening is permitted.
+
+Both gates emit `[RL_LIVE] status=skipped` log lines with the gate
+name and the relevant scalars so post-hoc audits can identify exactly
+why an action was blocked.
+
+### RL v4 reward shaping (`rl/trade_env.py`, `rl/train_ppo.py`)
+
+The terminal-PnL-only reward used by v3 cannot distinguish a small
+realized gain from a TIGHTEN-then-sweep from the same gain produced
+by a clean hold-to-TP — both look identical when the episode ends.
+v4 adds three reward-shaping signals:
+
+- **Regime tighten penalty** (`--calm-trend-tighten-penalty`). A small
+  per-step penalty applied whenever a TIGHTEN action fires in
+  `calm_trend` regime. Steers the policy away from the failure mode
+  the live gate also blocks, but inside the trained policy itself.
+- **Low-MFE tighten penalty** (`--low-mfe-tighten-penalty`,
+  `--low-mfe-threshold`). Per-step penalty when a TIGHTEN action
+  fires before the trade has moved a configurable fraction of its TP
+  distance.
+- **Opportunity-cost penalty** (`--opportunity-cost-weight`). A
+  terminal penalty equal to a fraction of the gap between the
+  realized PnL and the best PnL that an unmodified hold would have
+  produced (capped at the original TP, so the policy is not penalized
+  for failing to hit unrealistic targets). This teaches the agent
+  directly that locking in a small win when a large win was clearly
+  available is a worse outcome than waiting.
+
+The output of a v4 training run is saved alongside v3 in
+`artifacts/signal_gate_2025/` under a `_v4_*` suffix instead of
+overwriting the canonical model. A separate A/B harness
+(`scripts/ab_rl_v3_vs_v4.py`) runs both models against the held-out
+validation split and reports which wins on mean PnL/trade and on
+win-rate. Promotion to canonical (rename to
+`model_rl_management.zip`) is a manual step — the README does not
+make claims about which version is currently canonical.
+
+---
+
+## Cascade Loss Blocker
 
 Evidence-gated mechanical circuit breaker that fires on a **time-window
 same-side loss cluster** (distinct from the existing
 `DirectionalLossBlocker`, which counts strictly-consecutive losses with
 no time bound).
 
-**Rule**: if within the last `window_minutes` there have been ≥ `count`
-losing trades on the same SIDE, block new same-side entries for
-`cooldown_minutes` after the most recent loss.
+### Rule
 
-**Backtest** (`scripts/backtest_consec_loss_blocker.py`, 24-config sweep
-across 2025 full year + 2026 Jan-Apr, 5,237 trades across 370 trading
-days):
+If within a sliding window of `window_minutes`, the bot has experienced
+at least `count` losing trades on a particular SIDE, every new same-side
+entry is rejected for the next `cooldown_minutes` measured from the most
+recent qualifying loss. Each additional same-side loss inside the window
+extends the cooldown — the clock always resets to the latest loss.
 
-| Config (count / window / cooldown) | 2026 Δ PnL | 2025 Δ PnL | Comment |
-|---|---:|---:|---|
-| 2 / 30min / 30min | **+$1,133** | **+$4,222** | Shipped default; balance of lift + block rate (~11% of trades) |
-| 2 / 60min / 30min | +$1,438 | +$7,181 | Best single-config lift in both tapes |
-| 2 / 15min / 10min | +$469 | +$3,272 | Most conservative; still positive |
-| 3 / 10min / 10min | +$50 | +$2,283 | Barely fires on 2026; existing DirectionalLossBlocker covers this |
+The opposite side is unaffected; LONG losses don't block SHORT entries.
+Wins between losses do not reset the counter (only the window passing
+clears it). This is intentionally different from the
+`DirectionalLossBlocker`'s strictly-consecutive count: the cascade
+blocker is designed to catch *rapid clustering* of losses regardless of
+intervening wins.
 
-Counterfactual confirmed: the blocked trades aggregate to the net loss
-they would have caused (e.g. 2026@30/30: blocked 96 trades, blocked PnL
-= −$1,133 — the entire lift comes from *not* taking a genuinely bad set).
+### Configuration
 
-**Ship status**: **ACTIVE BY DEFAULT** as of 2026-04-23 evening. The
-launcher (`launch_filterless_live.py`) sets
-`JULIE_CASCADE_BLOCKER_ACTIVE=1` via `os.environ.setdefault` — same
-pattern as the v2 CM gate. The new blocker does NOT replace
-`DirectionalLossBlocker`; both run in series, each catching a different
-pattern (cascade = rapid cluster within a sliding window, directional =
-strictly-consecutive string with no time bound).
-
-**Env flags** (read at bot startup; launcher provides the defaults):
+The blocker is activated by default in the launcher and tuned via env
+vars. All four are part of the AI-loop auto-adjust whitelist; the
+activation flag is marked `high_risk` so the applier will not flip it
+without manual confirmation, while the count / window / cooldown tunables
+are auto-adjustable within their bounds subject to the standard
+backtest-validator gate.
 
 ```
-JULIE_CASCADE_BLOCKER_ACTIVE=1                  # default 1 (ON via launcher)
-JULIE_CASCADE_BLOCKER_COUNT=2                   # default 2, bounds [2,4]
-JULIE_CASCADE_BLOCKER_WINDOW_MIN=30             # default 30, bounds [10,60]
-JULIE_CASCADE_BLOCKER_COOLDOWN_MIN=30           # default 30, bounds [10,60]
+JULIE_CASCADE_BLOCKER_ACTIVE=1            # default 1 (ON via launcher)
+JULIE_CASCADE_BLOCKER_COUNT=2             # default 2, bounds [2,4]
+JULIE_CASCADE_BLOCKER_WINDOW_MIN=30       # default 30, bounds [10,60]
+JULIE_CASCADE_BLOCKER_COOLDOWN_MIN=30     # default 30, bounds [10,60]
 ```
 
-**Disable** with `export JULIE_CASCADE_BLOCKER_ACTIVE=0` before launching
-(or globally freeze AI-loop config with `export JULIE_FREEZE_AUTO_CONFIG=1`).
-The module's internal default remains `False` — only the launcher activates
-it. So an external script that imports `CascadeLossBlocker` directly without
-setting the env var still gets the safe-OFF behavior.
+The module's internal default is OFF — only the launcher activates it.
+Any external caller that imports `CascadeLossBlocker` directly without
+setting the env var gets the safe-OFF behavior. To disable for a single
+session, `export JULIE_CASCADE_BLOCKER_ACTIVE=0` before launching.
 
-**AI-loop integration**: all 4 params are now in the auto-adjust
-whitelist (`tools/ai_loop/config.py`). The activation flag is marked
-`high_risk=True` — applier will refuse to flip it without manual
-confirmation. Tuning params (count / window / cooldown) are safely
-auto-applyable within their bounds with the standard cooldown /
-backtest gate applied.
+### Implementation
 
-**Files touched**:
-
-| File | Change |
+| File | Role |
 |---|---|
-| `cascade_loss_blocker.py` | New module — `CascadeLossBlocker` + `_NoOpCascadeLossBlocker` |
-| `julie001.py` | Instantiation + state persistence + 4 entry-path hooks mirroring `DirectionalLossBlocker` |
-| `tools/ai_loop/config.py` | 4 new whitelist entries (active + 3 tunables) |
-| `scripts/backtest_consec_loss_blocker.py` | New — 24-config sweep with counterfactual |
-| `backtest_reports/consec_loss_blocker_sweep.json` | Results from the sweep |
+| `cascade_loss_blocker.py` | The module: `CascadeLossBlocker` + `_NoOpCascadeLossBlocker` |
+| `julie001.py` | Instantiation + state persistence + four entry-path hooks |
+| `tools/ai_loop/config.py` | Four whitelist entries for the AI-loop auto-adjuster |
+| `scripts/backtest_consec_loss_blocker.py` | Configuration sweep harness (operational use) |
 
-**Session-level cascade it would catch**: the 2026-04-22 17:06-17:14 cascade
-(3 DE3 `5min_18-21_Long_Rev_T2_SL10_TP25` LONG losses in 8 minutes on
-a 40-pt crash, netting −$354). With `count=2 / window=30 / cool=30`,
-after Loss #2 at +3 min the blocker would cool down LONGs for 30 min,
-saving Loss #3 unambiguously.
+The blocker mirrors `DirectionalLossBlocker`'s API
+(`record_trade_result`, `should_block_trade`, `get_state`, `load_state`)
+so it slots into the same four entry-path hook points using the existing
+consensus-rescue / rescue-trigger / event-logger plumbing — a strong
+cross-filter consensus can still override it. Each block emits a log
+line including the count of recent same-side losses and the remaining
+cooldown.
 
 ---
 
-## What's New (2026-04-23 update) — AI-loop auto-improver + logs→parquet→analyzer
+## AI-Loop Auto-Improver
 
-The late-April 2026 automation wave finished wiring a self-contained,
-safety-gated "AI loop" that every weekday at **14:30 PT (17:30 ET = 30 min
-into CME maintenance)** reads what the bot did, compares it to long-tape
-backtest consensus, proposes config changes, backtests them, and only
-applies anything that passes a strict safety gate.
+A self-contained, safety-gated "AI loop" runs once per weekday during
+the CME futures maintenance window and is also invokable manually. It
+consumes the bot's own logs, compares them to long-horizon backtest
+consensus and to the price-regime parquet, proposes whitelisted
+configuration changes, validates each one with a backtest, and only
+then applies it — with a complete audit trail and an auto-revert
+monitor watching the next several sessions.
 
-### 5-layer stack (`tools/ai_loop/`)
+### Five-layer stack (`tools/ai_loop/`)
 
 | Layer | Module | What it does |
 |---|---|---|
@@ -111,63 +163,70 @@ applies anything that passes a strict safety gate.
 ### Backtest-consensus journals (`tools/ai_loop/backtest_journal.py`)
 
 A companion to the daily journal that reads one-or-many
-`closed_trades.json` from replay directories and emits the same markdown +
-structured JSON shape as the daily, but aggregated across the full tape.
-Two canonical priors are shipped:
+`closed_trades.json` files from replay directories and emits the same
+markdown + structured JSON shape as the daily journal, but aggregated
+across an arbitrary tape rather than a single session. The output gives
+the analyzer a long-horizon "prior" to compare today's session against,
+plus per-day price-regime context joined from the live-prices parquet.
+Multiple labels (e.g. `2025_full`, `2026_full`) can be loaded
+simultaneously via the analyzer's `--backtest-journal` flag.
 
-- **`backtest_2025_full`** — 12 monthly replays, **3,552 trades · 288 days · +$6,572 net · PF 1.05**
-- **`backtest_2026_full`** — 8 Jan→Apr replays, **961 trades · 82 days · +$4,052 net · PF 1.12**
+### Logs → parquet → analyzer pipeline
 
-Feed them to the analyzer with `--backtest-journal 2026_full --backtest-journal 2025_full`.
+Layer 0 (`price_parquet_updater.py`) extracts every per-minute bar from
+the live log and from every replay log it can find under
+`backtest_reports/`, dedupes by `bar_ts`, and writes them to
+`ai_loop_data/live_prices.parquet`. A small manifest tracks log
+size+mtime so reruns are idempotent and only scan files that have grown.
 
-### What the priors made visible (repeatable across both years)
-
-1. **SHORT side is structural drag.** 2025: 771 shorts, −$2,731 (WR 47%). 2026: 206 shorts, −$1,393 (WR 50%). LONGs carry the whole stack in both years.
-2. **`Short_Mom` family** is negative in both years (2026: −$1,276 over 63 trades).
-3. **Profit factor < 1.30 in both years** → no threshold nudge will save the bot; it needs structural change (side/session filter or sub-strategy retirement).
-4. **Cascade days (≥3-loss intraday runs) happened on 33% of trading days** across 370 days — justifies a mechanical consecutive-loss circuit breaker, not an ML retrain.
-5. **Session drag shifts with regime**: 2025 hates pre_open + afternoon, 2026 hates lunch — any session filter must be regime-aware.
-
-### The logs→parquet→analyzer signal that fell out of it
-
-Once Layer 0 built `live_prices.parquet` (521,957 bars · 2025-01-01 →
-2026-04-23 · 408 unique days from live + every replay), the analyzer's
-`rule_price_regime_correlates_losses` immediately surfaced a finding the
-journal-only stack couldn't see:
-
-> Best days in both years have **~2× the intraday range** of worst days.
-> The bot needs movement to work — quiet tapes are the drag, not volatile ones.
-
-A follow-up sweep (`scripts/backtest_low_vol_filter.py`) confirmed the
-signal is actionable but regime-specific:
-
-| Tape | Best ex-post threshold | Δ PnL vs baseline | PF base → filtered |
-|---|---|---:|---|
-| 2025 (288d) | skip days w/ intraday range < **30 pts** | **+$1,882** | 1.05 → 1.06 |
-| 2026 ( 82d) | skip days w/ intraday range < **80 pts** | **+$2,120** | 1.12 → 1.25 |
-
-Both years show a real lift at their own regime's threshold; thresholds
-set too aggressively destroy PnL (2025 at 80pt: −$10k; 2026 at 120pt:
-−$3k). A live filter would need to run on a trailing 30-min window and
-use the regime-appropriate threshold — next session's work.
+`price_context.py` exposes `load_prices()`, `day_context(date)`, and
+`window_context(start, end)` helpers that produce per-day open/high/low/
+close, intraday range, trend direction, bar-to-bar volatility, and a
+per-session breakdown. The daily and consensus journals attach a
+`price_context` block to their output, and the analyzer passes the
+loaded DataFrame through to every rule via the `prices` keyword
+argument so rules can correlate journal outcomes with price regime.
 
 ### Safety rails (`tools/ai_loop/config.py`)
 
-Every auto-apply must pass **all** of:
+Every auto-apply must pass an explicit chain of checks before the
+applier touches anything:
 
-- Whitelisted param (currently 4 entries: `cm_gate_v2_override_threshold`, `JULIE_ML_KALSHI_TP_PNL_THR`, `JULIE_KALSHI_CM_GATE_V2_ACTIVE`, `JULIE_ML_RL_MGMT_ACTIVE`). Side/session/sub-strategy changes are surfaced as *advisories* but are NOT auto-applyable.
-- Inside bounds (e.g. CM gate threshold 0.45-0.80)
-- Step size ≤ `max_step_delta` (e.g. 0.05 per apply)
-- 7-day cooldown per param · ≤2 applies per day global
-- Kill switch: `JULIE_FREEZE_AUTO_CONFIG=1` short-circuits everything
-- Stop-loss: if live DD exceeds $500 in last 48h, freeze for 7 days
-- Backtest gate: ≥5% lift AND DD inflation ≤1.2× on the validator's tape
+- The parameter must appear in the `AUTO_ADJUSTABLE_PARAMS` whitelist.
+  Anything outside the whitelist (side disable, session window,
+  sub-strategy retirement) can be surfaced as an *advisory* but cannot
+  be auto-applied.
+- The proposed value must fall inside the bounds declared in the
+  whitelist entry.
+- The single-apply step size must be no larger than `max_step_delta`.
+- The same parameter cannot be re-applied within `COOLDOWN_DAYS` of the
+  last successful change to it (default 7 days).
+- The total number of applies in any single day across all parameters
+  must not exceed `MAX_APPLIES_PER_DAY` (default 2).
+- A global kill switch (`JULIE_FREEZE_AUTO_CONFIG=1`) short-circuits
+  the entire applier and can be flipped without restarting the bot.
+- A live-PnL stop-loss freezes auto-applies for a week if drawdown over
+  the last 48 hours exceeds `STOP_LOSS_48H_DOLLARS` (default $500).
+- A backtest-validator gate runs every candidate change against the
+  most recent replay's closed trades; only ones that show
+  `BACKTEST_MIN_LIFT_PCT` lift and inflate max drawdown by at most
+  `BACKTEST_MAX_DD_INFLATE` are green-lit.
+- Parameters marked `high_risk: True` (e.g. activation flags for the
+  RL policy or the cascade blocker) are refused even when validated —
+  they require manual confirmation.
+
+Every apply attempt — green-lit, skipped, or rejected — appends a
+record to `ai_loop_data/audit.jsonl` with the commit SHA (when applied),
+parameter, current value, proposed value, validator result, and the
+applier's verdict.
 
 ### Scheduling (`tools/ai_loop/schedule/`)
 
-Launchd plist fires **weekday 14:30 PT (17:30 ET)** — 30 minutes into CME
-futures maintenance, when the bot has written final session state but the
-market is closed so there's no race with live trades:
+A `launchd` plist fires the orchestrator weekdays at 14:30 PT (17:30 ET)
+— thirty minutes into the CME futures maintenance window, when the bot
+has written its final session state but the market is closed so there
+is no race with live trades. The same orchestrator can be invoked
+manually:
 
 ```bash
 bash tools/ai_loop/schedule/install.sh       # install + load
@@ -176,80 +235,54 @@ tail -f ai_loop_data/run_daily.log           # observe
 python3 -m tools.ai_loop.run_daily --dry-run # run manually without applying
 ```
 
-### Key AI-loop files
+### Key files
 
-| File | Purpose |
+| File | Role |
 |---|---|
-| `tools/ai_loop/run_daily.py` | Orchestrator that runs all 5 layers |
-| `tools/ai_loop/price_parquet_updater.py` | Layer-0 logs → parquet |
-| `tools/ai_loop/price_context.py` | Parquet loader + per-day / per-window regime helpers |
-| `tools/ai_loop/journal.py` | Layer-1 daily journal (now with `price_context`) |
-| `tools/ai_loop/backtest_journal.py` | Long-tape consensus journal (priors for analyzer) |
-| `tools/ai_loop/analyzer.py` | Layer-2 recommendation engine + 6 rules (2 price-regime-aware) |
-| `tools/ai_loop/validator.py` | Layer-3 backtest-gated validation |
-| `tools/ai_loop/applier.py` | Layer-4 git-committed auto-apply with audit trail |
+| `tools/ai_loop/run_daily.py` | Orchestrator that runs all five layers in sequence |
+| `tools/ai_loop/price_parquet_updater.py` | Layer-0 log → parquet extractor |
+| `tools/ai_loop/price_context.py` | Parquet loader plus per-day / per-window regime helpers |
+| `tools/ai_loop/journal.py` | Layer-1 daily journal writer (markdown + JSON, with price-context) |
+| `tools/ai_loop/backtest_journal.py` | Long-tape consensus journal builder |
+| `tools/ai_loop/analyzer.py` | Layer-2 recommendation engine; rule modules consume journals + priors + prices |
+| `tools/ai_loop/validator.py` | Layer-3 backtest-gated validator; advisories pass as `status=info` |
+| `tools/ai_loop/applier.py` | Layer-4 auto-apply with git audit trail |
 | `tools/ai_loop/monitor.py` | Layer-5 drift monitor + auto-revert |
 | `tools/ai_loop/config.py` | Whitelist + safety constants |
-| `tools/ai_loop/state.py` | Persistent state (cooldowns, freeze, pnl history) |
-| `tools/ai_loop/schedule/com.julie.ai_loop.plist` | launchd weekday 14:30 PT trigger |
-| `scripts/backtest_low_vol_filter.py` | Sweep low-vol filter thresholds against the parquet |
-| `ai_loop_data/live_prices.parquet` | 521k bars (2025-01 → current) extracted from logs |
-| `ai_loop_data/journals/` | Daily + backtest-consensus markdown + JSON |
+| `tools/ai_loop/state.py` | Persistent state (cooldowns, freeze flag, PnL history) |
+| `tools/ai_loop/schedule/com.julie.ai_loop.plist` | `launchd` weekday 14:30 PT trigger |
+| `ai_loop_data/live_prices.parquet` | Logs-extracted per-minute bar history |
+| `ai_loop_data/journals/` | Daily and consensus journals (markdown + JSON) |
 | `ai_loop_data/recommendations/` | Analyzer output per run |
 | `ai_loop_data/validated/` | Validator output per run |
-| `ai_loop_data/applied/` | Applier output per run (commit SHA, status, reason) |
+| `ai_loop_data/applied/` | Applier output per run |
 | `ai_loop_data/audit.jsonl` | Append-only audit log of every apply attempt |
 
 ---
 
-## What's New (2026-04-22 update)
+## Machine Learning Overlay Stack — Live Layers
 
-The late-April 2026 wave promoted three pieces of infrastructure that
-previously shipped in scaffold or shadow state:
+The bot runs a layered ensemble of machine-learning models on top of
+the rule-based strategy engines. Each layer observes a specific
+decision point and either vetoes, modifies, or augments what the
+rule-based engine wanted to do. Layers fall into three families:
 
-- **LFO overlay promoted to v2** (25 → 64 features). The new model
-  consumes the 32-dim bar-sequence encoder embedding and an 8-dim
-  cross-market feature vector (MNQ + VIX) in addition to the original
-  bar-shape / distance / regime features. Rolling-origin A/B over six
-  windows showed v2 beats v1 in **6/6 chunks** with mean AUC jumping from
-  0.554 → 0.653. Payload schema fix (`categorical_maps`, `numeric_features`
-  extended with `enc_*` + cross-market keys) was required or the v2 model
-  would have scored against zeros at inference. Canonical is now the v2
-  joblib; v1 is preserved at `model_lfo_v1_pre_encoder.joblib`.
+1. **Per-strategy big-loss classifiers** (Filter G) that veto a
+   signal before any order is placed when the predicted probability
+   of a large loss is high.
+2. **Overlay layers** that modify the trade after a signal has passed
+   the entry filters: choosing the fill style, predicting the trade's
+   ability to reach a level, or scoring the prediction-market crowd's
+   view.
+3. **A reinforcement-learning policy** that takes per-bar
+   trade-management actions on every active position.
 
-- **RL trade-management promoted to v3 (SL-only, 4-action) and ACTIVATED.**
-  Previously shadow-only with a 7-action policy. An audit revealed that
-  95%+ of the 7-action policy's expected edge depended on
-  `TAKE_PARTIAL_50PCT` actions executing, which the live executor defers
-  (only SL moves are wired). A restricted 4-action variant (HOLD,
-  MOVE_SL_TO_BE, TIGHTEN_SL_25PCT, TIGHTEN_SL_50PCT) was retrained with
-  the same extended obs and now actively steers stops.
-  `JULIE_ML_RL_MGMT_ACTIVE=1` is the launcher default. The 7-action v2 is
-  retained at `model_rl_management_v2_for_future_partial_close.zip` for
-  future promotion once the partial-close broker path is wired.
-
-- **Bar-sequence encoder + cross-market features actively wired.**
-  Previously the encoder was trained but unused; cross-market features
-  were scaffolded with stub zero defaults. Both are now real inputs into
-  the LFO and RL inference paths. MNQ (810k 1-min bars from Databento)
-  and VIX (577 daily bars from Yahoo) are cached as parquets and loaded
-  once on first use.
-
-- **Live executor guard (`would_breach_market`)** added to the RL
-  SL-mover. The first live session exposed a backtest/live discrepancy:
-  when RL fires `MOVE_SL_TO_BE` on a trade that is slightly underwater,
-  the new SL lands on the wrong side of current market and the broker
-  immediately force-fills the exit at a small loss. The backtest env
-  treats SL as a next-bar price-path constraint, not a mid-bar
-  immediate fill. The executor now skips any SL move that would
-  already be breached by current market; the trade retains its
-  original SL and gets a chance to recover.
-
-Earlier in April 2026, nine ML models were running live. The oldest —
-**Machine Learning G** — is a set of four per-strategy big-loss
-classifiers that veto signals before they're placed (shipped months
-ago, already live). The five overlay layers sit on top of the
-rule-based engines and each observes a specific decision point.
+All layers are live by default when launched via
+`launch_filterless_live.py`. The launcher uses `os.environ.setdefault`
+for every flag so per-session overrides are honored, and any individual
+layer can be demoted to shadow-only (it still logs every decision but
+takes no live action) by exporting its env flag set to `0` before
+launching.
 
 ### Machine Learning G — per-strategy big-loss veto (live since prior releases)
 
@@ -270,152 +303,152 @@ rule-based engines and each observes a specific decision point.
 | **Kalshi entry gate** | Past the rule's support-score filter, is this trade still worth taking? | `model_kalshi_gate.joblib` |
 | **Kalshi TP gate** | Does the Kalshi crowd believe this trade can reach its take-profit price? | `model_kalshi_tp_gate.joblib` |
 
-### RL trade-management policy (Path 3, ACTIVE as of 2026-04-22)
+### RL trade-management policy (Path 3, live)
 
-A PPO-trained reinforcement-learning agent that replaces the rule-based
+A PPO-trained reinforcement-learning agent replaces the rule-based
 stack of trade-management heuristics (break-even, profit milestone,
-tiered take, pivot trail) with one joint policy making a per-bar decision
-from the full trade context. **As of 2026-04-22 this policy actively
-steers stops in production** — `JULIE_ML_RL_MGMT_ACTIVE=1` is the
-launcher default.
+tiered take, pivot trail) with one joint policy that picks a per-bar
+action from the full trade context. The policy actively steers stops
+in production; activation is controlled by
+`JULIE_ML_RL_MGMT_ACTIVE` (launcher default `1`).
 
-**Canonical: v3 SL-only, 4 actions, 212-dim obs.**
+**Action space.** The canonical policy has four discrete actions
+(`HOLD`, `MOVE_SL_TO_BE`, `TIGHTEN_SL_25PCT`, `TIGHTEN_SL_50PCT`).
+Every action the policy can emit has a wired live broker path.
+A larger seven-action variant (`TAKE_PARTIAL_50PCT`,
+`TAKE_PARTIAL_FULL`, `REVERSE`) is kept as a reference artifact
+under `model_rl_management_v2_for_future_partial_close.zip` for the
+day the partial-close broker path is built; until then those actions
+have no live execution and would silently no-op if the canonical
+policy could emit them.
 
-| Layer | Decision point | Artifact |
-|---|---|---|
-| **RL management v3** (Path 3) | Per-bar: HOLD / move SL to BE / tighten SL 25-50% | `model_rl_management.zip` (SB3 PPO, Discrete(4)) |
-
-**v1 / v2 / v3 history.**
-
-| Version | Obs dim | Actions | Status | Notes |
-|---|---|---|---|---|
-| v1 | 172 | 7 | archived (`model_rl_management_v1_pre_extended.zip`, local only) | Pre-extended-obs baseline |
-| v2 | 212 | 7 | retained for future promotion (`model_rl_management_v2_for_future_partial_close.zip`) | Extended obs (encoder + cross-market). Wins backtest at $295.91/trade mean but 95%+ of edge depends on `TAKE_PARTIAL_50PCT` executing; live executor defers that action |
-| **v3** | **212** | **4** | **live canonical** | Same extended obs as v2 but restricted action space to the subset the live executor wires. Backtest mean $30.15/trade, WR 98%, aggressive BE + tighten strategy |
-
-**Observation layout (212 dims, v2 and v3):**
+**Observation layout (212 dims).** The agent sees:
 
 - 150 dims — 30 bars × 5 OHLCV features (bar tape)
-- 7 dims — trade-state scalars (pnl, bars held, mfe, mae, side sign, cur SL distance, cur TP distance)
+- 7 dims — trade-state scalars (pnl, bars held, mfe, mae, side sign, current SL distance, current TP distance)
 - 4 dims — regime one-hot
 - 6 dims — session one-hot
 - 3 dims — Kalshi aligned probabilities (entry, SL, TP)
-- 2 dims — running peak/trough PnL
-- **32 dims — bar-sequence encoder embedding (Path 1, added in v2)**
-- **8 dims — cross-market feature vector (Path 4, added in v2)**
+- 2 dims — running peak / trough PnL
+- 32 dims — bar-sequence encoder embedding (Path 1)
+- 8 dims — cross-market feature vector (Path 4)
 
-The last two blocks are snapshotted once at trade entry and reused every
-bar; cache-hit inference latency is ~0.29 ms per call.
+The encoder embedding and the cross-market vector are snapshotted once
+at trade entry and reused on every subsequent bar; their per-bar cost
+is dominated by the cache lookup.
 
-Trained on ~4,000 historical trade episodes with 85/15 temporal split.
-300k PPO timesteps, 4 DummyVecEnvs, ~5 minutes on CPU.
+**Executor safety.** `_apply_rl_management_action` in `julie001.py`
+translates the policy's chosen action into a broker call and applies
+several layered guards before the action reaches the wire:
 
-**Executor safety.** The `_apply_rl_management_action` function in
-`julie001.py` translates RL actions into broker calls. v3's 4-action
-space (`HOLD`, `MOVE_SL_TO_BE`, `TIGHTEN_SL_25PCT`, `TIGHTEN_SL_50PCT`) is
-fully wired — every action the policy can emit has a live broker path.
-Two guards protect against pathological moves:
+1. **Ratchet check.** A proposed new SL must be tighter than the
+   current SL; the RL is never permitted to loosen the stop.
+2. **Market-breach check.** A proposed new SL must sit on the
+   protective side of current market by at least one tick. Without
+   this guard, a `MOVE_SL_TO_BE` on a trade that is slightly
+   underwater would place the new SL on the wrong side of market and
+   the broker would force-fill the exit immediately.
+3. **Regime gate.** In the `calm_trend` regime the executor rejects
+   `TIGHTEN_SL_25` and `TIGHTEN_SL_50` and lets only `MOVE_SL_TO_BE`
+   through; the trend is intact and chasing the SL invites a sweep
+   on a normal pullback.
+4. **MFE-floor gate.** Any TIGHTEN action is rejected when the trade's
+   maximum favorable excursion is less than a configurable fraction of
+   its TP distance (default 0.50). The trade must have moved a
+   meaningful share of the way to TP before SL tightening is permitted.
 
-  1. **Ratchet check** — new SL must be tighter than current SL.
-     Prevents the RL from loosening the stop.
-  2. **Market-breach check (added 2026-04-22)** — new SL must be on
-     the protective side of current market by at least one tick. For
-     a LONG, `target < market − tick`; for a SHORT, `target > market +
-     tick`. Without this, a `MOVE_SL_TO_BE` on an underwater trade
-     places the SL on the wrong side of current market and the broker
-     immediately force-fills the exit. Guard-skipped actions log a
-     `status=skipped reason=would_breach_market …` line and the trade
-     retains its existing SL.
+Each rejected action emits a `status=skipped` log line with the
+relevant scalars so audits can identify exactly why an action was
+blocked. The trade retains its existing SL.
 
-**Why v2 isn't canonical even though its backtest looks better.** Auditing
-the live executor revealed that only 3 of the 7-action v2 policy's actions
-are wired (HOLD + 2 SL-tighten variants). `TAKE_PARTIAL_50PCT` /
-`TAKE_PARTIAL_FULL` / `REVERSE` all return `status=deferred` and log only
-— wiring them requires new broker-side code (`close_trade_leg_partial`,
-bracket-resize, running `remaining_size` state). With v2 as canonical
-and the live flag on, every partial-close action the policy chose would
-be silently discarded, and the policy's overall behavior would degrade
-*below* a rule-only baseline (backtest: $9.98/trade under that regime).
-v3 is the live-safe replacement; v2 is preserved for the day the
-partial-close path is wired (the "Option B" TODO).
+**Reward shaping.** The training environment (`rl/trade_env.py`)
+includes optional shaping signals that bias the policy away from the
+same failure modes the executor blocks:
 
-**Trainer:** `rl/train_ppo.py` (`--extended-obs --sl-only` for v3).
-**Env:** `rl/trade_env.py` (`extended_obs`, `n_actions=4` kwargs).
-**Inference:** `rl/inference.py` (auto-detects obs_dim + action space at
-load, caches augmentation per trade via `trade_id`).
-**Comparison:** `rl/compare_policies.py --model-v2 …` for head-to-head
-scoring of any two policies.
+- A per-step penalty for TIGHTEN actions in the `calm_trend` regime.
+- A per-step penalty for TIGHTEN actions when MFE / TP is below a
+  threshold.
+- A terminal opportunity-cost penalty equal to a fraction of the gap
+  between the realized PnL and the best PnL an unmodified hold would
+  have produced (capped at the original TP, so the policy is never
+  penalized for failing to hit unrealistic targets). This teaches the
+  policy directly that locking in a small win when a large win was
+  available is a worse outcome than waiting.
 
-### Bar-sequence encoder (Path 1, LIVE since 2026-04-22)
+All shaping weights are CLI flags on `rl/train_ppo.py`; setting them
+to zero recovers the unshaped reward for backwards compatibility.
 
-Self-supervised dilated-CNN encoder that ingests the last 60 bars of
-OHLCV and produces a 32-dim embedding. Trained on ~200k bar sequences
-via next-bar-direction prediction (3-way up / flat / down) plus a small
-return-regression auxiliary.
+**Trainer:** `rl/train_ppo.py` (use `--extended-obs --sl-only` to
+reproduce the canonical training configuration; add the
+`--calm-trend-tighten-penalty`, `--low-mfe-tighten-penalty`, and
+`--opportunity-cost-weight` flags to apply shaping).
+**Env:** `rl/trade_env.py` (`extended_obs`, `n_actions=4`, plus the
+shaping kwargs).
+**Inference:** `rl/inference.py` auto-detects obs_dim and action space
+at load and caches per-trade observation augmentation via `trade_id`.
+**Comparison:** `rl/compare_policies.py --model-v2 …` and
+`scripts/ab_rl_v3_vs_v4.py` for head-to-head scoring of any two
+policies on the validation split.
 
-| metric | value |
-|---|---|
-| Training accuracy (3-way direction, random = 33%) | **72%** |
-| Embedding dim | 32 |
-| Parameters | ~20k |
-| CPU inference cost per embedding | <1 ms (cache-hit: 0.3 ms) |
+### Bar-sequence encoder (Path 1, live)
 
-**Artifact:** `artifacts/signal_gate_2025/bar_encoder.pt`
-**Trainer:** `rl/bar_encoder.py`
+A self-supervised dilated-CNN encoder ingests the most recent 60 bars
+of OHLCV and produces a 32-dim embedding intended to summarize the
+recent price tape in a way other learned layers can consume cheaply.
+The encoder is trained as an auxiliary task on next-bar-direction
+prediction (three-way up / flat / down) with a small return-regression
+component.
+
+**Artifact:** `artifacts/signal_gate_2025/bar_encoder.pt` (PyTorch
+checkpoint).
+**Trainer:** `rl/bar_encoder.py`.
 **Integration:** `ml_overlay_shadow.get_bar_embedding(bars_df)` returns
-the 32-dim embedding for the most recent window. **As of 2026-04-22 the
-encoder is an active input into two live layers:**
+the 32-dim embedding for the most recent window. The embedding is
+snapshotted once at trade entry and cached for subsequent reads inside
+the same trade.
 
-  1. **LFO v2** consumes the 32 `enc_*` features alongside its original
-     bar-shape / distance / regime features. Retrain A/B showed +0.100
-     AUC vs v1. The LFO scoring path (`ml_overlay_shadow.score_lfo`)
-     auto-computes the embedding when the loaded payload has
-     `uses_bar_encoder=True`.
-  2. **RL v2/v3** includes the 32-dim embedding as part of its 212-dim
-     observation, snapshotted at trade entry and reused every bar.
+The encoder is an active input into the LFO and RL layers. The LFO
+scoring path auto-computes the embedding when the loaded payload's
+`uses_bar_encoder` flag is set; the RL observation includes the
+embedding as part of its 212-dim vector.
 
-A/B tests on three other classifier overlays (Kalshi TP, Pivot Trail,
-PCT overlay) showed the encoder + cross-market feature set adds no
-measurable lift on those layers — they are local pattern classifiers
-where regime / sequence context is noise. The encoder is therefore a
-targeted win for **decision-type layers** (LFO, RL) rather than a
-universal lift. See `scripts/signal_gate/rolling_origin_ab.py` +
-`scripts/signal_gate/retrain_and_ab_pct.py` for the harness.
+Other classifier overlays (Kalshi TP, Pivot Trail, PCT overlay) do
+not currently consume the encoder — they are local pattern
+classifiers where the sequence context did not produce measurable
+lift in retrain testing. The encoder is therefore a targeted input
+for decision-type layers rather than a universal augmentation.
 
-### Cross-market features (Path 4, LIVE with real data since 2026-04-22)
+### Cross-market features (Path 4, live)
 
-Feature extractor with stable schema across MES-MNQ correlation, VIX
-regime, and DXY level readings:
+A stable-schema feature extractor that joins MES bars with several
+external series:
 
 ```
 mnq_ret_5min_pct          MNQ short-term return
 mnq_ret_30min_pct         MNQ medium-term return
-mes_mnq_corr_30bar        30-bar rolling correlation
+mes_mnq_corr_30bar        30-bar rolling MES↔MNQ correlation
 mes_mnq_divergence_pct    spread between MES and MNQ 30-min returns
 vix_level                 absolute VIX close
 vix_regime_code           0=calm / 1=normal / 2=high / 3=extreme
 vix_rate_of_change_5d     VIX 5-day pct change
-dxy_level                 USD index (stub, default 100)
+dxy_level                 USD index (currently stubbed at 100)
 ```
 
-**Cached historical data (as of 2026-04-22):**
+The cross-market data is sourced from continuous non-adjusted
+front-month MNQ 1-min bars (Databento) and VIX daily bars (Yahoo).
+Both series are cached as parquet files under `data/`. Roll-day
+protection clips MES↔MNQ divergence and the MNQ return features so
+front-month switches do not produce artifact jumps that would
+destabilize a downstream model.
 
-| parquet | rows | source | note |
-|---|---|---|---|
-| `data/mnq_master_continuous.parquet` | **810,482** MNQ 1-min bars | Databento `GLBX.MDP3 / MNQ.c.0` | Continuous non-adjusted front-month |
-| `data/vix_daily.parquet` | **577** VIX daily bars | Yahoo Finance `^VIX` chart API | Spot index close |
-
-Roll-day protection: divergence is clipped to ±5%, 30-min MNQ return
-to ±5%, 5-min MNQ return to ±2%. Both MES and MNQ are continuous
-non-adjusted, so front-month switches produce artifact jumps that
-would otherwise destabilize the divergence feature.
-
-**Module:** `rl/cross_market.py`
-**Integration:** `ml_overlay_shadow.get_cross_market_features(ts_et, mes_bars=...)`.
-**Live consumers:** LFO v2 (as 8 additional numeric features) and RL
-v2/v3 (as 8 scaled dims appended to the 212-dim observation).
-Singleton-loaded on first call; parquet reads are ~50-100 ms one-time,
-per-lookup cost ~0.15 ms afterward.
+**Module:** `rl/cross_market.py`.
+**Integration:**
+`ml_overlay_shadow.get_cross_market_features(ts_et, mes_bars=...)`.
+**Live consumers:** the LFO model (as eight additional numeric
+features in its input) and the RL policy (as eight scaled dims
+appended to the 212-dim observation). The extractor is singleton-loaded
+on first call so per-lookup cost is dominated by a small dataframe
+slice rather than a parquet read.
 
 All nine are live by default when launched via `launch_filterless_live.py`.
 Full details in **section 11 (Machine Learning Overlay Stack)** below.
@@ -1867,13 +1900,15 @@ ran through, not in synthetic price paths.
 above and below, ATR14, original stop/take distances, regime one-hot,
 session bucket, ET hour.
 
-*v2 — canonical since 2026-04-22 (64 features):* all of the v1 features,
-plus the 32-dim bar-sequence encoder embedding (`enc_00 … enc_31`) and
-the 8-dim cross-market feature vector (MNQ returns / correlation / VIX
-level / VIX regime code / etc). Retrained via
-`scripts/signal_gate/retrain_with_encoder.py`. Rolling-origin A/B
-(`scripts/signal_gate/rolling_origin_ab.py`) showed v2 beats v1 in 6/6
-chunks with mean AUC 0.554 → 0.653.
+*v2 — current canonical (64 features):* all of the v1 features, plus
+the 32-dim bar-sequence encoder embedding (`enc_00 … enc_31`) and the
+8-dim cross-market feature vector (MNQ returns / correlation / VIX
+level / VIX regime code / etc.). Retrained via
+`scripts/signal_gate/retrain_with_encoder.py`. Promotion from v1 to v2
+was gated by a rolling-origin A/B harness
+(`scripts/signal_gate/rolling_origin_ab.py`) that requires the new
+model to beat the incumbent on the AUC metric across multiple
+chronological splits before the joblib is renamed to canonical.
 
 **What the layer contributes.** The live rule decides WAIT vs IMMEDIATE on
 a small set of geometric rules that doesn't learn from outcomes. The ML

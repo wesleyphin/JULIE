@@ -176,6 +176,26 @@ os.environ.setdefault("JULIE_ML_KALSHI_TP_PNL_THR", "0")
 # set to "1" (default) for live steering.
 os.environ.setdefault("JULIE_ML_RL_MGMT_ACTIVE", "1")
 
+# RL policy guards (added 2026-04-23 after live diagnostic showed the
+# v3 policy was leaving ~$390 / 16h on the table by tightening SL too
+# aggressively in calm_trend regime — TIGHTEN actions firing at MFE
+# 1.5-3pt on strategies with TP=12-25pt; normal pullbacks then swept
+# the tightened SL):
+#
+#   JULIE_RL_REGIME_GATE_ACTIVE=1
+#       In calm_trend regime, reject TIGHTEN_SL_25 and TIGHTEN_SL_50.
+#       Only allow MOVE_SL_TO_BE. Lets the trend extend instead of
+#       chasing the SL behind every favorable bar.
+#
+#   JULIE_RL_MIN_MFE_FRAC_FOR_TIGHTEN=0.50
+#       Reject TIGHTEN actions when MFE / tp_dist < this fraction.
+#       Default 0.50 means trade must have moved at least halfway to
+#       its TP before RL is allowed to tighten. Set to 0 to disable.
+#
+# Both can be flipped off independently for A/B observation.
+os.environ.setdefault("JULIE_RL_REGIME_GATE_ACTIVE", "1")
+os.environ.setdefault("JULIE_RL_MIN_MFE_FRAC_FOR_TIGHTEN", "0.50")
+
 # --- Kalshi CM-breakout gate v2 (direction-specific ML, AUC 0.77) ---
 # Two GBT classifiers (LONG / SHORT) trained on 125,678 aligned
 # MES+MNQ+VIX 1-min bars with a direct price-direction target

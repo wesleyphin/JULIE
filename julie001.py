@@ -4388,6 +4388,8 @@ def _apply_rl_management_action(
     bar_high: float,
     bar_low: float,
     bar_index: Optional[int] = None,
+    regime: Optional[str] = None,
+    mfe_pts: Optional[float] = None,
 ) -> Optional[dict]:
     """Execute an RL-policy action against the live trade.
 
@@ -4400,6 +4402,21 @@ def _apply_rl_management_action(
     shadow log still records the policy's preference for those actions
     so operators can observe how often they fire and make an informed
     decision before wiring them.
+
+    POLICY GUARDS (added 2026-04-23 after live diagnostic showed RL was
+    leaving ~$390 / 16h on the table by tightening too aggressively in
+    calm_trend regime — exits at MFE 1.5-3pt on strategies with TP=12-25pt):
+
+    1. **Regime gate**: in `calm_trend` regime, reject TIGHTEN_SL_25 /
+       TIGHTEN_SL_50. Only allow MOVE_SL_TO_BE. The trend is intact;
+       chasing the SL behind the price catches normal pullbacks.
+    2. **MFE-floor gate**: reject any TIGHTEN action when MFE/tp_dist <
+       JULIE_RL_MIN_MFE_FRAC_FOR_TIGHTEN (default 0.50). Prevents
+       locking in trivial gains that get swept on the next bar.
+
+    Both gates can be disabled via env:
+        JULIE_RL_REGIME_GATE_ACTIVE=0       # disable regime gate
+        JULIE_RL_MIN_MFE_FRAC_FOR_TIGHTEN=0 # disable MFE-floor gate
 
     Returns a dict of form:
       {"status": "applied", "new_sl": <price>}   on success
@@ -4425,6 +4442,45 @@ def _apply_rl_management_action(
 
     if action == ACT_HOLD:
         return {"status": "applied", "reason": "hold"}
+
+    # ─── Policy guards ───────────────────────────────────────────
+    # Apply BEFORE the SL-modification math so we don't waste cycles or
+    # emit misleading log lines when the action is going to be rejected.
+    if action in (ACT_TIGHTEN_SL_25, ACT_TIGHTEN_SL_50):
+        # Guard 1: regime gate — block tightens in calm_trend
+        regime_gate_active = os.environ.get(
+            "JULIE_RL_REGIME_GATE_ACTIVE", "1"
+        ).strip() not in ("0", "false", "False", "")
+        if regime_gate_active and regime == "calm_trend":
+            return {
+                "status": "skipped",
+                "reason": (
+                    f"regime_gate calm_trend — TIGHTEN action blocked "
+                    f"(let trend extend; only BE allowed)"
+                ),
+            }
+        # Guard 2: MFE-floor gate
+        try:
+            min_mfe_frac = float(os.environ.get(
+                "JULIE_RL_MIN_MFE_FRAC_FOR_TIGHTEN", "0.50"
+            ))
+        except (ValueError, TypeError):
+            min_mfe_frac = 0.50
+        if min_mfe_frac > 0 and mfe_pts is not None:
+            try:
+                tp_dist = float(trade.get("tp_dist") or 0.0)
+            except (ValueError, TypeError):
+                tp_dist = 0.0
+            if tp_dist > 0:
+                mfe_ratio = float(mfe_pts) / tp_dist
+                if mfe_ratio < min_mfe_frac:
+                    return {
+                        "status": "skipped",
+                        "reason": (
+                            f"mfe_floor mfe_pts={mfe_pts:.2f} / tp_dist={tp_dist:.2f} "
+                            f"= {mfe_ratio:.2%} < {min_mfe_frac:.0%} — premature TIGHTEN"
+                        ),
+                    }
 
     side = str(trade.get("side", "")).upper()
     try:
@@ -11620,6 +11676,8 @@ async def run_bot():
                                                     market_price=current_price,
                                                     bar_high=bar_high, bar_low=bar_low,
                                                     bar_index=bar_count,
+                                                    regime=_rl_reg,
+                                                    mfe_pts=float(trade.get("_rl_mfe_pts", 0.0) or 0.0),
                                                 )
                                                 if isinstance(_rl_apply, dict):
                                                     logging.info(

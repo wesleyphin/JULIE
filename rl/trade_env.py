@@ -251,12 +251,42 @@ class TradeManagementEnv(gym.Env):
         seed: Optional[int] = None,
         extended_obs: bool = False,
         n_actions: int = 7,
+        # v4 reward shaping (added 2026-04-23 after live diagnostic):
+        # the v3 policy was firing TIGHTEN actions in calm_trend regime
+        # at MFE 1.5-3pt on strategies with TP=12-25pt, then getting
+        # swept on the next pullback. The terminal-$-only reward couldn't
+        # distinguish "got $30 by tightening" from "got $30 by holding"
+        # because both look the same at episode end. These shaping terms
+        # bias the agent away from premature tightens.
+        calm_trend_tighten_penalty: float = 0.30,
+        low_mfe_tighten_penalty: float = 0.20,
+        low_mfe_threshold: float = 0.50,
+        # Opportunity-cost shaping (the big one): at episode end,
+        # compare realized $ to the BEST POSSIBLE realized $ if the
+        # trade had been held without SL changes (max favorable price
+        # from entry to end-of-available-bars × size × point value).
+        # Penalty = (best_possible - realized) / reward_scale * weight.
+        # Catches the exact failure mode the live log showed:
+        # "exited at +$30 but could have exited at +$110 ten bars later".
+        # Default 0.25 = takes 25% of the missed-$ as a per-episode penalty.
+        opportunity_cost_weight: float = 0.25,
     ):
         """n_actions: 7 (default) exposes the full action space. 4 restricts
         to HOLD / MOVE_SL_TO_BE / TIGHTEN_SL_25 / TIGHTEN_SL_50 — the subset
         the live executor currently wires (see julie001._apply_rl_management_action).
         Use 4 to train a live-safe policy that doesn't depend on partial-close
-        or reverse actions executing."""
+        or reverse actions executing.
+
+        Reward shaping (v4):
+          calm_trend_tighten_penalty: per-step penalty for TIGHTEN_25 or
+            TIGHTEN_50 when episode regime_label == "calm_trend". Set to 0
+            to disable. Default 0.30 (≈ $15 of terminal-reward equivalent).
+          low_mfe_tighten_penalty: per-step penalty when TIGHTEN fires
+            with MFE / |original_tp - entry| < low_mfe_threshold. Default
+            0.20 (≈ $10 equivalent).
+          low_mfe_threshold: the MFE/TP ratio below which low_mfe_tighten
+            fires. Default 0.50.
+        """
         super().__init__()
         assert episodes, "at least one episode required"
         assert n_actions in (4, 7), f"n_actions must be 4 or 7, got {n_actions}"
@@ -266,6 +296,10 @@ class TradeManagementEnv(gym.Env):
         self.reward_scale = reward_scale
         self.extended_obs = bool(extended_obs)
         self.n_actions = int(n_actions)
+        self.calm_trend_tighten_penalty = float(calm_trend_tighten_penalty)
+        self.low_mfe_tighten_penalty = float(low_mfe_tighten_penalty)
+        self.low_mfe_threshold = float(low_mfe_threshold)
+        self.opportunity_cost_weight = float(opportunity_cost_weight)
 
         self.action_space = spaces.Discrete(self.n_actions)
         # Observations are clamped to a sane range; actual values rarely
@@ -361,8 +395,10 @@ class TradeManagementEnv(gym.Env):
             self._move_sl_to_breakeven()
         elif action == ACT_TIGHTEN_SL_25:
             self._tighten_sl(0.25, cur_price)
+            reward += self._tighten_shaping_penalty()
         elif action == ACT_TIGHTEN_SL_50:
             self._tighten_sl(0.50, cur_price)
+            reward += self._tighten_shaping_penalty()
         elif action == ACT_TAKE_PARTIAL_50:
             close_sz = max(1, int(self._remaining_size * 0.5))
             pnl = self._realize_pnl(fill_price, close_sz)
@@ -448,6 +484,10 @@ class TradeManagementEnv(gym.Env):
         # Terminal reward = realized $ / scale
         if self._done:
             reward += self._realized_pnl_dollars / self.reward_scale
+            # v4 opportunity-cost shaping: penalize when the trade left
+            # money on the table that an unmodified hold would have captured.
+            if self.opportunity_cost_weight > 0:
+                reward += self._opportunity_cost_penalty()
         obs = self._build_obs()
         info = {
             "bars_held": self._bars_held,
@@ -467,6 +507,85 @@ class TradeManagementEnv(gym.Env):
         if self._cur_bar_idx >= len(ep.bars):
             return float(ep.bars.iloc[-1]["close"])
         return float(ep.bars.iloc[self._cur_bar_idx]["close"])
+
+    def _opportunity_cost_penalty(self) -> float:
+        """Penalty for early exits that missed a much larger PnL.
+
+        Looks at every bar from entry+1 through the LAST AVAILABLE bar in
+        the episode (not the bar the agent exited on). Computes the best
+        favorable price and what the trade would have realized if it had
+        exited there at the original entry size — capped at the original
+        TP (we're not crediting the agent for unrealistic targets).
+
+        Penalty = (best_possible_$ - realized_$) / reward_scale * weight,
+        clamped at 0 (never reward worse outcomes).
+
+        Returns 0 if shaping is disabled or signal is non-positive.
+        """
+        ep = self._ep
+        if self.opportunity_cost_weight <= 0:
+            return 0.0
+        try:
+            entry = float(ep.entry_price)
+            tp = float(ep.original_tp_price)
+            size = int(ep.size)
+            point_value = float(getattr(ep, "point_value", 5.0))  # MES default
+        except Exception:
+            return 0.0
+        # Slice bars from entry+1 to the end (or the last bar before episode ended)
+        start = self._entry_bar_idx + 1
+        if start >= len(ep.bars):
+            return 0.0
+        future = ep.bars.iloc[start:]
+        if ep.side == "LONG":
+            best_price = float(future["high"].max())
+            # cap at TP (no credit for unrealistic exits past TP)
+            best_price = min(best_price, tp)
+            best_pts = best_price - entry
+        else:  # SHORT
+            best_price = float(future["low"].min())
+            best_price = max(best_price, tp)
+            best_pts = entry - best_price
+        if best_pts <= 0:
+            return 0.0
+        best_dollars = best_pts * size * point_value
+        gap_dollars = best_dollars - float(self._realized_pnl_dollars)
+        if gap_dollars <= 0:
+            return 0.0
+        # Penalty in reward-units (negative)
+        return -(gap_dollars / self.reward_scale) * self.opportunity_cost_weight
+
+    def _tighten_shaping_penalty(self) -> float:
+        """v4 reward shaping: discourage premature TIGHTEN actions.
+
+        Two additive components, both NEGATIVE rewards (penalties):
+          1. calm_trend penalty — fires whenever episode regime is
+             calm_trend. Trend is intact; chasing the SL behind the
+             price catches normal pullbacks.
+          2. low-MFE penalty — fires whenever MFE / |original_tp - entry|
+             < threshold. Punishes locking in trivial gains that get
+             swept on the next mean-reversion bar.
+
+        Returns 0 if both shaping components are disabled (set via
+        constructor kwargs to 0.0).
+        """
+        ep = self._ep
+        penalty = 0.0
+        # 1. Calm-trend penalty
+        if (self.calm_trend_tighten_penalty > 0
+                and getattr(ep, "regime_label", None) == "calm_trend"):
+            penalty -= self.calm_trend_tighten_penalty
+        # 2. Low-MFE penalty
+        if self.low_mfe_tighten_penalty > 0 and self.low_mfe_threshold > 0:
+            try:
+                tp_dist = abs(float(ep.original_tp_price) - float(ep.entry_price))
+            except Exception:
+                tp_dist = 0.0
+            if tp_dist > 0:
+                ratio = self._mfe_pts / tp_dist
+                if ratio < self.low_mfe_threshold:
+                    penalty -= self.low_mfe_tighten_penalty
+        return penalty
 
     def _instant_fill_price(self) -> float:
         """Price a market-order close actually fills at, given the env's

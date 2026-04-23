@@ -47,11 +47,18 @@ OUT_MODEL = ROOT / "artifacts" / "signal_gate_2025" / "model_rl_management.zip"
 OUT_META = ROOT / "rl" / "rl_management_metadata.json"
 
 
-def make_env(episodes, seed=None, extended_obs=False, n_actions=7):
+def make_env(episodes, seed=None, extended_obs=False, n_actions=7,
+             calm_trend_tighten_penalty=0.0, low_mfe_tighten_penalty=0.0,
+             low_mfe_threshold=0.50, opportunity_cost_weight=0.0):
     def _thunk():
-        env = TradeManagementEnv(episodes, seed=seed,
-                                  extended_obs=extended_obs,
-                                  n_actions=n_actions)
+        env = TradeManagementEnv(
+            episodes, seed=seed,
+            extended_obs=extended_obs, n_actions=n_actions,
+            calm_trend_tighten_penalty=calm_trend_tighten_penalty,
+            low_mfe_tighten_penalty=low_mfe_tighten_penalty,
+            low_mfe_threshold=low_mfe_threshold,
+            opportunity_cost_weight=opportunity_cost_weight,
+        )
         return env
     return _thunk
 
@@ -118,6 +125,23 @@ def main():
                          "partial-close or reverse paths. Saves to "
                          "model_rl_management_v3_sl_only.zip (can combine "
                          "with --extended-obs).")
+    ap.add_argument("--calm-trend-tighten-penalty", type=float, default=0.0,
+                    help="v4 reward shaping: per-step penalty for TIGHTEN actions "
+                         "in calm_trend regime. Default 0 = OFF. Try 0.30 "
+                         "(≈ $15 of terminal-reward equivalent).")
+    ap.add_argument("--low-mfe-tighten-penalty", type=float, default=0.0,
+                    help="v4 reward shaping: per-step penalty for TIGHTEN actions "
+                         "when MFE / |original_tp - entry| < threshold. Default 0 = OFF.")
+    ap.add_argument("--low-mfe-threshold", type=float, default=0.50,
+                    help="MFE/TP ratio below which low_mfe_tighten penalty fires.")
+    ap.add_argument("--opportunity-cost-weight", type=float, default=0.0,
+                    help="v4 reward shaping: penalize early exits that left "
+                         "money on the table. Penalty = (best_possible - "
+                         "realized) / reward_scale * weight. Default 0 = OFF; "
+                         "0.25 is a reasonable starting value.")
+    ap.add_argument("--label", default=None,
+                    help="Append a custom suffix to the output model name "
+                         "(e.g. 'v4_shaped'). Default uses --sl-only / --extended-obs.")
     args = ap.parse_args()
 
     print(f"[load] episodes from {EP_PKL}")
@@ -143,7 +167,11 @@ def main():
           f"extended_obs={args.extended_obs}  n_actions={n_actions}")
     vec_env = DummyVecEnv([make_env(train_eps, seed=args.seed + i,
                                      extended_obs=args.extended_obs,
-                                     n_actions=n_actions)
+                                     n_actions=n_actions,
+                                     calm_trend_tighten_penalty=args.calm_trend_tighten_penalty,
+                                     low_mfe_tighten_penalty=args.low_mfe_tighten_penalty,
+                                     low_mfe_threshold=args.low_mfe_threshold,
+                                     opportunity_cost_weight=args.opportunity_cost_weight)
                            for i in range(args.n_envs)])
 
     model = PPO(
@@ -195,7 +223,9 @@ def main():
     out_model = OUT_MODEL
     out_meta = OUT_META
     suffix = ""
-    if args.sl_only:
+    if args.label:
+        suffix = "_" + args.label.lstrip("_")
+    elif args.sl_only:
         suffix = "_v3_sl_only"
     elif args.extended_obs:
         suffix = "_v2"
@@ -226,6 +256,11 @@ def main():
             "elapsed_seconds": round(elapsed, 1),
             "n_train_episodes": len(train_eps),
             "n_val_episodes": len(val_eps),
+            "calm_trend_tighten_penalty": args.calm_trend_tighten_penalty,
+            "low_mfe_tighten_penalty": args.low_mfe_tighten_penalty,
+            "low_mfe_threshold": args.low_mfe_threshold,
+            "opportunity_cost_weight": args.opportunity_cost_weight,
+            "label": args.label,
         },
         "val_stats_ppo": ppo_stats,
         "val_stats_de3_baseline": de3_stats,

@@ -1,0 +1,86 @@
+{
+  "model_kind": "PPO_MlpPolicy_trade_mgmt_v3_sl_only",
+  "obs_dim": 212,
+  "extended_obs": true,
+  "sl_only": true,
+  "n_actions": 4,
+  "action_names": {
+    "0": "HOLD",
+    "1": "MOVE_SL_TO_BE",
+    "2": "TIGHTEN_SL_25PCT",
+    "3": "TIGHTEN_SL_50PCT"
+  },
+  "training": {
+    "total_timesteps": 300000,
+    "n_envs": 4,
+    "lr": 0.0003,
+    "n_steps": 1024,
+    "batch_size": 128,
+    "ent_coef": 0.01,
+    "seed": 42,
+    "elapsed_seconds": 321.8,
+    "n_train_episodes": 3621,
+    "n_val_episodes": 640,
+    "calm_trend_tighten_penalty": 0.3,
+    "low_mfe_tighten_penalty": 0.2,
+    "low_mfe_threshold": 0.5,
+    "opportunity_cost_weight": 0.25,
+    "label": "v4_calm_shaped"
+  },
+  "val_stats_ppo": {
+    "n": 640,
+    "total_pnl": 13823.079999999998,
+    "mean_pnl": 21.598562499999996,
+    "median_pnl": 1.02,
+    "win_rate": 0.9875,
+    "mean_reward": -0.16629265624999998,
+    "mean_bars_held": 4.7265625,
+    "action_counts": {
+      "0": 1281,
+      "1": 1506,
+      "2": 47,
+      "3": 191,
+      "4": 0,
+      "5": 0,
+      "6": 0
+    }
+  },
+  "val_stats_de3_baseline": {
+    "n": 640,
+    "total_pnl": 649.3299999999977,
+    "mean_pnl": 1.0145781249999963,
+    "median_pnl": 0.51,
+    "win_rate": 0.5109375,
+    "mean_reward": -0.850517265625,
+    "mean_bars_held": 26.446875,
+    "action_counts": {
+      "0": 16671,
+      "1": 202,
+      "2": 0,
+      "3": 53,
+      "4": 0,
+      "5": 0,
+      "6": 0
+    }
+  },
+  "val_stats_hold_baseline": {
+    "n": 640,
+    "total_pnl": 88.0799999999972,
+    "mean_pnl": 0.1376249999999956,
+    "median_pnl": -30.74,
+    "win_rate": 0.440625,
+    "mean_reward": -0.8800348437500002,
+    "mean_bars_held": 28.284375,
+    "action_counts": {
+      "0": 18102,
+      "1": 0,
+      "2": 0,
+      "3": 0,
+      "4": 0,
+      "5": 0,
+      "6": 0
+    }
+  },
+  "delta_vs_hold": 13735.0,
+  "delta_vs_de3": 13173.75
+}
