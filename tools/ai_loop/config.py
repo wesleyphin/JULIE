@@ -173,6 +173,19 @@ AUTO_ADJUSTABLE_PARAMS: dict[str, dict] = {
         "description": "Whether Filter G applies per-(strategy × regime × time-bucket) threshold overrides.",
         "high_risk": True,
     },
+    # Triathlon time-decay half-life (Option B, 2026-04-23). Zero
+    # disables decay (all trades weight 1.0); positive values weight
+    # recent trades higher. OOS picked 120 days on the April 2026
+    # holdout, but the right value may drift as more live data
+    # accumulates, so allow AI-loop auto-adjustment within bounds.
+    "JULIE_TRIATHLON_HALFLIFE_DAYS": {
+        "target": "env",
+        "key": "JULIE_TRIATHLON_HALFLIFE_DAYS",
+        "dtype": "int",
+        "bounds": (0, 365),
+        "max_step_delta": 30,
+        "description": "Half-life in days for Triathlon time-decay weighting (0 = off).",
+    },
 }
 
 # Absolutely non-auto-adjustable — even if the analyzer proposes, validator

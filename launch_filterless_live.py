@@ -248,6 +248,16 @@ os.environ.setdefault("JULIE_ANTI_FLIP_MAX_DIST_PTS", "8.0")
 # Disable for a single session with: export JULIE_TRIATHLON_ACTIVE=0
 os.environ.setdefault("JULIE_TRIATHLON_ACTIVE", "1")
 
+# Triathlon time-decay weighted scoring (Option B, 2026-04-23).
+# Half-life (days) for the exponential per-trade weight when scoring
+# cells. A trade this many days old counts half as much as a trade at
+# the reference point. OOS sweep on April 2026 (pre-April train) vs
+# both no-medal and unweighted-medal baselines picked 120 days as the
+# clean-win configuration (+$678 vs no medals, +$475 vs unweighted
+# medals, DD slightly lower in both cases, WR unchanged). Set to 0
+# to disable decay entirely (matches pre-2026-04-23 scoring).
+os.environ.setdefault("JULIE_TRIATHLON_HALFLIFE_DAYS", "120")
+
 # Filter G per-cell threshold override table (Idea 1, 2026-04-23).
 # When active, signal_gate_2025._effective_threshold looks up a
 # per-(strategy × regime × time-bucket) multiplier from

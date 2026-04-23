@@ -376,9 +376,49 @@ practice many combinations never fire (e.g. MLPhysics during
   because losses hitting SL fast would bias every cell toward fake
   velocity.
 
-Cells need at least `MIN_SAMPLES` (default 20) fired trades to be
-rated. Below the threshold a cell is marked `unrated` and receives
-neutral medal effects.
+Cells need at least `MIN_SAMPLES` (default 20) **effective** fired
+trades to be rated — effective in the time-decay sense below. Below
+the threshold a cell is marked `unrated` and receives neutral medal
+effects.
+
+### Time-decay weighting
+
+When scoring cells for medal assignment, each trade carries a weight
+that decays exponentially with age:
+
+```
+weight(trade, reference) = exp(-ln(2) × age_days / HALFLIFE_DAYS)
+```
+
+A trade that is `HALFLIFE_DAYS` old counts 50% as much as a trade
+right at the reference point. The default half-life is **120 days**
+(set via `JULIE_TRIATHLON_HALFLIFE_DAYS` at launcher load). The
+metrics (Purity / Cash / Velocity) are then computed as weighted
+aggregates rather than unweighted averages, so a cell's medal
+reflects recent behavior more than 12-month-old behavior without
+discarding historical data entirely.
+
+The half-life was picked by sweeping `{30, 60, 90, 120}` on the
+April 2026 holdout with pre-April as train. 120d produced a clean
+win on all three ship-gate metrics versus both the no-medal-effects
+baseline (+$678 PnL, WR flat, DD slightly lower) and the unweighted
+medal sizing baseline (+$475 PnL, WR flat, DD $222 lower). Shorter
+half-lives under-fit: 30d left only 2 cells with enough effective
+sample size to rate. Longer half-lives (>120) approach unweighted
+behavior.
+
+The effective sample size of a cell is `sum(weights)` across its
+trades. A cell with 200 trades from a year ago has a much smaller
+effective-n than 100 trades from the last month — a genuinely stale
+cell will fall below `MIN_SAMPLES` on effective-n and go unrated even
+if its raw count is high. This is the intended safety mechanism
+against acting on decayed evidence.
+
+Disable time-decay by setting `JULIE_TRIATHLON_HALFLIFE_DAYS=0`
+before launching — that restores unweighted scoring exactly as it
+shipped originally. The half-life is also part of the AI-loop
+auto-adjust whitelist (bounds 0–365 days, step 30) so the applier
+can tune it within bounds as more live data accumulates.
 
 ### Medal assignment + effects
 

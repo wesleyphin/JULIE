@@ -29,10 +29,12 @@ A few implementation notes:
 from __future__ import annotations
 
 import logging
+import math
+import os
 import sqlite3
 import statistics
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from . import cell_key, cell_key_parts
@@ -42,6 +44,46 @@ MIN_SAMPLES = 20
 """Minimum fired-trade count in a cell for it to be scored. Below
 this, the cell is tagged `unrated` and receives default medal
 effects (neutral priority / size)."""
+
+
+# Time-decay scoring (2026-04-23). When a half-life is set, per-trade
+# weights decay exponentially with age relative to a reference timestamp:
+#
+#     weight(trade_ts, reference) = exp(-ln(2) * age_days / half_life_days)
+#
+# A trade exactly `half_life_days` old contributes 50% as much as a
+# trade right at the reference point. Default half-life (set by the
+# env var below) is 60 days — roughly a quarter of a calendar year —
+# which weights recent behavior more without discarding older data
+# entirely.
+#
+# Disable by setting env JULIE_TRIATHLON_HALFLIFE_DAYS=0 (treats every
+# trade as weight 1, identical to the pre-2026-04-23 behavior).
+DEFAULT_HALFLIFE_DAYS = float(os.environ.get("JULIE_TRIATHLON_HALFLIFE_DAYS", "60"))
+
+
+def _trade_weight(
+    trade_ts: datetime,
+    reference_ts: Optional[datetime],
+    half_life_days: float,
+) -> float:
+    """Exponential time-decay weight. Returns 1.0 when time-decay is off
+    (half_life_days <= 0) or reference_ts is missing."""
+    if half_life_days <= 0 or reference_ts is None or trade_ts is None:
+        return 1.0
+    try:
+        # Normalize tz: if only one side is tz-aware, strip tz from both
+        # for the diff. We just need a relative-days delta, not absolute.
+        a = trade_ts
+        b = reference_ts
+        if a.tzinfo is not None and b.tzinfo is None:
+            a = a.replace(tzinfo=None)
+        elif b.tzinfo is not None and a.tzinfo is None:
+            b = b.replace(tzinfo=None)
+        age_days = max(0.0, (b - a).total_seconds() / 86400.0)
+    except Exception:
+        return 1.0
+    return math.exp(-math.log(2) * age_days / half_life_days)
 
 
 @dataclass
@@ -67,13 +109,24 @@ def score_cell(
     *,
     include_counterfactual: bool = False,
     min_samples: int = MIN_SAMPLES,
+    half_life_days: float = DEFAULT_HALFLIFE_DAYS,
+    reference_ts: Optional[datetime] = None,
 ) -> LeagueScore:
     """Compute the three league metrics for one cell.
 
-    Reads from the `signals` + `outcomes` tables, joined. Counterfactual
-    outcomes (from blocked signals resolved via forward-walk) are
-    excluded by default so the cash league reflects only live-realized
-    PnL. Set include_counterfactual=True to fold them in.
+    Reads from the `signals` + `outcomes` tables, joined.
+
+    Time-decay (added 2026-04-23): when `half_life_days > 0`, every
+    trade is weighted by an exponential decay based on how many days
+    it sits before `reference_ts` (default: now). A half-life of 60
+    days means a trade 60 days old counts half as much as a trade at
+    the reference point. Set `half_life_days=0` to restore unweighted
+    behavior (every trade weight=1; matches pre-2026-04-23 scoring).
+
+    Counterfactual outcomes (from blocked signals resolved via
+    forward-walk) are excluded by default so the cash metric reflects
+    only live-realized PnL. Set include_counterfactual=True to fold
+    them in.
     """
     ck = cell_key(strategy, regime, time_bucket)
 
@@ -84,6 +137,7 @@ def score_cell(
         conn.execute(
             """
             SELECT
+                s.ts,
                 s.status,
                 s.size,
                 o.pnl_dollars,
@@ -117,25 +171,62 @@ def score_cell(
             purity=None, cash=None, velocity=None,
         )
 
-    # PURITY — win rate
-    wins = [r for r in fired_rows if (r["pnl_dollars"] or 0) > 0]
-    purity = len(wins) / len(fired_rows)
+    # Default reference = now (in the trades' timezone is fine since
+    # _trade_weight normalizes tz before computing the age delta)
+    if reference_ts is None and half_life_days > 0:
+        reference_ts = datetime.now(timezone.utc)
 
-    # CASH — per-contract normalized avg PnL
-    total_pnl = sum((r["pnl_dollars"] or 0.0) for r in fired_rows)
-    total_size = sum(max(1, r["size"] or 1) for r in fired_rows)
-    cash = total_pnl / max(1, total_size)
+    # Per-trade weights — all 1.0 when time-decay is off
+    weights: list[float] = []
+    for r in fired_rows:
+        try:
+            ts = datetime.fromisoformat(r["ts"])
+        except Exception:
+            ts = None
+        weights.append(_trade_weight(ts, reference_ts, half_life_days))
 
-    # VELOCITY — median 1/bars_held over winners (winners only so losers
-    # hitting SL on bar 1 don't dominate).
-    win_bars = [
-        int(r["bars_held"]) for r in wins
-        if r["bars_held"] is not None and int(r["bars_held"]) > 0
+    # Effective sample size = sum(weights). When time-decay is off it
+    # equals len(fired_rows); when on, stale cells drop below
+    # min_samples here and are treated as unrated.
+    effective_n = sum(weights)
+    if effective_n < min_samples:
+        return LeagueScore(
+            cell_key=ck,
+            n_signals=n_signals, n_fired=n_fired, n_blocked=n_blocked,
+            purity=None, cash=None, velocity=None,
+        )
+
+    # PURITY — weighted win rate
+    sum_w = sum(weights) or 1.0
+    sum_w_wins = sum(w for w, r in zip(weights, fired_rows)
+                      if (r["pnl_dollars"] or 0) > 0)
+    purity = sum_w_wins / sum_w
+
+    # CASH — weighted per-contract avg PnL
+    weighted_pnl = sum(w * (r["pnl_dollars"] or 0.0)
+                        for w, r in zip(weights, fired_rows))
+    weighted_size = sum(w * max(1, r["size"] or 1)
+                         for w, r in zip(weights, fired_rows))
+    cash = weighted_pnl / max(1.0, weighted_size)
+
+    # VELOCITY — on winners only so losers hitting SL on bar 1 don't
+    # bias. When time-decay is off we preserve exact pre-2026-04-23
+    # behavior (median of raw bars_held). When on we use the weighted
+    # mean of 1/bars_held — same intent, smoother under weights.
+    win_entries = [
+        (w, int(r["bars_held"]))
+        for w, r in zip(weights, fired_rows)
+        if (r["pnl_dollars"] or 0) > 0
+        and r["bars_held"] is not None and int(r["bars_held"]) > 0
     ]
-    if not win_bars:
+    if not win_entries:
         velocity = None
+    elif half_life_days > 0:
+        sum_ww = sum(w for w, _ in win_entries) or 1.0
+        weighted_inv = sum(w * (1.0 / b) for w, b in win_entries)
+        velocity = weighted_inv / sum_ww
     else:
-        velocity = 1.0 / float(statistics.median(win_bars))
+        velocity = 1.0 / float(statistics.median([b for _, b in win_entries]))
 
     return LeagueScore(
         cell_key=ck,
@@ -151,9 +242,11 @@ def score_all_cells(
     *,
     include_counterfactual: bool = False,
     min_samples: int = MIN_SAMPLES,
+    half_life_days: float = DEFAULT_HALFLIFE_DAYS,
+    reference_ts: Optional[datetime] = None,
 ) -> list[LeagueScore]:
     """Score every (strategy, regime, time_bucket) triple present in
-    the signals table."""
+    the signals table. See `score_cell` for the time-decay kwargs."""
     triples = [
         (r["strategy"], r["regime"], r["time_bucket"])
         for r in conn.execute(
@@ -165,6 +258,8 @@ def score_all_cells(
             conn, s, r, t,
             include_counterfactual=include_counterfactual,
             min_samples=min_samples,
+            half_life_days=half_life_days,
+            reference_ts=reference_ts,
         )
         for s, r, t in triples
     ]
