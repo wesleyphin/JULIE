@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-23T19:27:14.908448+00:00",
+  "generated_at": "2026-04-23T19:42:04.384884+00:00",
   "n_cells_total": 46,
   "n_cells_rated": 26,
   "medal_counts": {
@@ -9,7 +9,7 @@
     "bronze": 1
   },
   "totals": {
-    "n_fired_all": 5238,
+    "n_fired_all": 5241,
     "n_blocked_all": 0,
     "retrain_queue_open": 0
   },
@@ -29,7 +29,7 @@
       "purity_rank": 1,
       "cash_rank": 1,
       "velocity_rank": 2,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|dead_tape|overnight",
@@ -46,7 +46,7 @@
       "purity_rank": 2,
       "cash_rank": 2,
       "velocity_rank": 25,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|dead_tape|afternoon",
@@ -63,7 +63,7 @@
       "purity_rank": 5,
       "cash_rank": 3,
       "velocity_rank": 23,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|neutral|overnight",
@@ -80,7 +80,7 @@
       "purity_rank": 3,
       "cash_rank": 4,
       "velocity_rank": 20,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|calm_trend|overnight",
@@ -97,7 +97,7 @@
       "purity_rank": 4,
       "cash_rank": 5,
       "velocity_rank": 19,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|whipsaw|morning",
@@ -114,7 +114,7 @@
       "purity_rank": 17,
       "cash_rank": 14,
       "velocity_rank": 3,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|neutral|morning",
@@ -131,7 +131,7 @@
       "purity_rank": 16,
       "cash_rank": 15,
       "velocity_rank": 5,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "RegimeAdaptive|calm_trend|overnight",
@@ -148,7 +148,7 @@
       "purity_rank": 23,
       "cash_rank": 20,
       "velocity_rank": 1,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|calm_trend|lunch",
@@ -165,7 +165,7 @@
       "purity_rank": 18,
       "cash_rank": 25,
       "velocity_rank": 4,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|dead_tape|pre_open",
@@ -182,7 +182,7 @@
       "purity_rank": 6,
       "cash_rank": 6,
       "velocity_rank": 24,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|neutral|afternoon",
@@ -190,8 +190,8 @@
       "regime": "neutral",
       "time_bucket": "afternoon",
       "medal": "silver",
-      "n_signals": 153,
-      "n_fired": 153,
+      "n_signals": 156,
+      "n_fired": 156,
       "n_blocked": 0,
       "purity": 0.5425,
       "cash": 4.18,
@@ -199,7 +199,7 @@
       "purity_rank": 9,
       "cash_rank": 7,
       "velocity_rank": 15,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|whipsaw|pre_open",
@@ -216,7 +216,7 @@
       "purity_rank": 10,
       "cash_rank": 8,
       "velocity_rank": 8,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|calm_trend|morning",
@@ -233,7 +233,7 @@
       "purity_rank": 13,
       "cash_rank": 9,
       "velocity_rank": 10,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|dead_tape|morning",
@@ -250,7 +250,7 @@
       "purity_rank": 21,
       "cash_rank": 10,
       "velocity_rank": 21,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|calm_trend|post_close",
@@ -267,7 +267,7 @@
       "purity_rank": 15,
       "cash_rank": 11,
       "velocity_rank": 22,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|neutral|post_close",
@@ -284,7 +284,7 @@
       "purity_rank": 14,
       "cash_rank": 12,
       "velocity_rank": 26,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "RegimeAdaptive|dead_tape|pre_open",
@@ -301,7 +301,7 @@
       "purity_rank": 20,
       "cash_rank": 13,
       "velocity_rank": 18,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|neutral|pre_open",
@@ -318,7 +318,7 @@
       "purity_rank": 8,
       "cash_rank": 16,
       "velocity_rank": 17,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "RegimeAdaptive|neutral|overnight",
@@ -335,7 +335,7 @@
       "purity_rank": 25,
       "cash_rank": 17,
       "velocity_rank": 9,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|whipsaw|afternoon",
@@ -352,7 +352,7 @@
       "purity_rank": 12,
       "cash_rank": 18,
       "velocity_rank": 6,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "RegimeAdaptive|calm_trend|pre_open",
@@ -369,7 +369,7 @@
       "purity_rank": 22,
       "cash_rank": 19,
       "velocity_rank": 7,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "RegimeAdaptive|neutral|pre_open",
@@ -386,7 +386,7 @@
       "purity_rank": 24,
       "cash_rank": 22,
       "velocity_rank": 12,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|neutral|lunch",
@@ -403,7 +403,7 @@
       "purity_rank": 7,
       "cash_rank": 23,
       "velocity_rank": 13,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|calm_trend|pre_open",
@@ -420,7 +420,7 @@
       "purity_rank": 11,
       "cash_rank": 24,
       "velocity_rank": 14,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|calm_trend|afternoon",
@@ -437,7 +437,7 @@
       "purity_rank": 19,
       "cash_rank": 26,
       "velocity_rank": 11,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "RegimeAdaptive|dead_tape|overnight",
@@ -454,7 +454,7 @@
       "purity_rank": 26,
       "cash_rank": 21,
       "velocity_rank": 16,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "AetherFlow|calm_trend|afternoon",
@@ -471,7 +471,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "AetherFlow|calm_trend|lunch",
@@ -488,7 +488,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "AetherFlow|calm_trend|morning",
@@ -505,7 +505,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "AetherFlow|calm_trend|overnight",
@@ -522,7 +522,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "AetherFlow|calm_trend|post_close",
@@ -539,7 +539,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "AetherFlow|calm_trend|pre_open",
@@ -556,7 +556,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "AetherFlow|neutral|afternoon",
@@ -573,7 +573,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "AetherFlow|neutral|lunch",
@@ -590,7 +590,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "AetherFlow|neutral|morning",
@@ -607,7 +607,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "AetherFlow|neutral|post_close",
@@ -624,7 +624,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "AetherFlow|whipsaw|lunch",
@@ -641,7 +641,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "AetherFlow|whipsaw|morning",
@@ -658,7 +658,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "AetherFlow|whipsaw|post_close",
@@ -675,7 +675,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "AetherFlow|whipsaw|pre_open",
@@ -692,7 +692,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|dead_tape|lunch",
@@ -709,7 +709,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|dead_tape|post_close",
@@ -726,7 +726,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|whipsaw|overnight",
@@ -743,7 +743,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "DynamicEngine3|whipsaw|post_close",
@@ -760,7 +760,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "RegimeAdaptive|whipsaw|overnight",
@@ -777,7 +777,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     },
     {
       "cell_key": "RegimeAdaptive|whipsaw|pre_open",
@@ -794,7 +794,7 @@
       "purity_rank": null,
       "cash_rank": null,
       "velocity_rank": null,
-      "scored_at": "2026-04-23T19:27:14.862165+00:00"
+      "scored_at": "2026-04-23T19:42:04.344940+00:00"
     }
   ],
   "recent_signals": [
@@ -813,6 +813,54 @@
       "pnl_dollars": 125.5,
       "exit_source": "take",
       "counterfactual": 0
+    },
+    {
+      "signal_id": "d64bacc7-142e-491d-bc18-11beb6f3cf66",
+      "ts": "2026-04-23T15:30:11.856655-04:00",
+      "strategy": "DynamicEngine3",
+      "side": "LONG",
+      "regime": "neutral",
+      "time_bucket": "afternoon",
+      "status": "fired",
+      "block_filter": null,
+      "block_reason": null,
+      "entry_price": 0.0,
+      "size": 5,
+      "pnl_dollars": null,
+      "exit_source": null,
+      "counterfactual": null
+    },
+    {
+      "signal_id": "185f35f7-7ad0-4632-99d7-7f3cc0f9f3c2",
+      "ts": "2026-04-23T15:30:08.328576-04:00",
+      "strategy": "DynamicEngine3",
+      "side": "LONG",
+      "regime": "neutral",
+      "time_bucket": "afternoon",
+      "status": "fired",
+      "block_filter": null,
+      "block_reason": null,
+      "entry_price": 0.0,
+      "size": 1,
+      "pnl_dollars": null,
+      "exit_source": null,
+      "counterfactual": null
+    },
+    {
+      "signal_id": "f78b1f91-6304-4f9c-901b-7819b00498bd",
+      "ts": "2026-04-23T15:29:53.930716-04:00",
+      "strategy": "DynamicEngine3",
+      "side": "LONG",
+      "regime": "neutral",
+      "time_bucket": "afternoon",
+      "status": "fired",
+      "block_filter": null,
+      "block_reason": null,
+      "entry_price": 0.0,
+      "size": 5,
+      "pnl_dollars": null,
+      "exit_source": null,
+      "counterfactual": null
     }
   ],
   "retrain_queue": []

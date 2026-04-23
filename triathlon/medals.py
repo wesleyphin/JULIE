@@ -43,11 +43,27 @@ BRONZE_PCTILE = 0.80    # top 80%
 
 
 # ─── runtime effects ───────────────────────────────────────────
+#
+# Size multipliers were neutralized to 1.0 on 2026-04-23 after an
+# out-of-sample validation (`scripts/backtest_triathlon_oos.py`)
+# showed the train-period medal ranking did NOT reliably predict
+# April-2026 per-cell edge:
+#   - silver (+$4.29/tr) and bronze (+$5.12/tr) both beat
+#     gold (+$4.17/tr) in the holdout
+#   - the +$267 PnL lift on 644 trades was within sample noise
+#   - DD got worse by $242
+#   - Spearman (train_rank → April_value) was +0.27 to +0.54 —
+#     weak to moderate, not strong enough for confident scaling
+# Priority deltas are KEPT because (a) closed_trades-only backtest
+# can't simulate rescue-queue priority and (b) priority deltas are
+# smaller perturbations to live behavior than size multipliers.
+# Flip size multipliers back on by editing this dict when a future
+# OOS validation shows medal→edge transfer more clearly.
 MEDAL_EFFECTS: dict[str, dict[str, float]] = {
-    "gold":      {"priority_delta": +1, "size_mult": 1.50},
+    "gold":      {"priority_delta": +1, "size_mult": 1.00},
     "silver":    {"priority_delta":  0, "size_mult": 1.00},
-    "bronze":    {"priority_delta": -1, "size_mult": 0.75},
-    "probation": {"priority_delta": -2, "size_mult": 0.50},
+    "bronze":    {"priority_delta": -1, "size_mult": 1.00},
+    "probation": {"priority_delta": -2, "size_mult": 1.00},
     "unrated":   {"priority_delta":  0, "size_mult": 1.00},
 }
 

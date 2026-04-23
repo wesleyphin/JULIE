@@ -345,11 +345,22 @@ leagues determines its medal:
 
 | Medal | Rule | Priority delta | Size multiplier |
 |---|---|---:|---:|
-| **gold** | top 20% in at least one league | +1 | ×1.50 |
+| **gold** | top 20% in at least one league | +1 | ×1.00 † |
 | **silver** | top 50% in at least one league | 0 | ×1.00 |
-| **bronze** | top 80% in at least one league | −1 | ×0.75 |
-| **probation** | bottom 20% in **every** league simultaneously | −2 | ×0.50 |
+| **bronze** | top 80% in at least one league | −1 | ×1.00 † |
+| **probation** | bottom 20% in **every** league simultaneously | −2 | ×1.00 † |
 | **unrated** | under min-samples threshold | 0 | ×1.00 |
+
+† **Size multipliers currently neutralized to 1.0.** An out-of-sample
+validation (`scripts/backtest_triathlon_oos.py`, April-2026 holdout)
+showed the train-period medal ranking did not reliably predict April
+per-cell edge — silver and bronze both out-traded gold on avg $/trade
+in the holdout, and the overall +$267 PnL lift on 644 trades was
+within sample noise with a worse max-drawdown. Priority deltas remain
+active (they were not part of the backtest and represent smaller
+perturbations). The size multipliers are kept in the `MEDAL_EFFECTS`
+dict in `triathlon/medals.py` so they can be flipped back on when a
+future OOS validation shows medal→edge transfer more clearly.
 
 Priority delta is added to the existing priority score the rescue
 queue reads (FAST=2, NORMAL=1, LOOSE=0). Size multiplier is applied
