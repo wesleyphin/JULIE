@@ -77,6 +77,69 @@ make claims about which version is currently canonical.
 
 ---
 
+## Anti-Flip Blocker
+
+Mechanical filter that rejects a new signal when the opposite side just
+stopped out near the same price. Catches the structural failure mode
+where a SHORT stop-loss gets hit on a breakout and the bot immediately
+fires a LONG at the same price (or vice versa) — two trades wasted
+defending the same micro-structure noise, typically right at the top
+of the move.
+
+### Rule
+
+When any trade closes as a stop-out (negative realized PnL and either a
+`stop` / `stop_gap` source tag, or an exit price within 1.5 points of
+the trade's stop price), the module records the timestamp and exit
+price for that side. For the next `JULIE_ANTI_FLIP_WINDOW_MIN` minutes,
+any new OPPOSITE-side signal whose entry is within
+`JULIE_ANTI_FLIP_MAX_DIST_PTS` of the recorded stop price is rejected.
+
+The blocker is side-asymmetric and memoryless between sides: a SHORT
+stop-out blocks near-price LONG entries but leaves SHORT re-entries
+alone; conversely a LONG stop-out blocks near-price SHORT entries only.
+A winning exit (take-profit, manual close, reverse, time horizon) never
+records state; only stop-out losses populate the blocker. Once the
+window expires or the next same-side signal is far enough from the
+stop price, the filter stops firing.
+
+### Configuration
+
+Activated by default via the launcher. All three params are part of
+the AI-loop auto-adjust whitelist; the activation flag is marked
+`high_risk` so the applier will not flip it without manual
+confirmation, while the window and distance tunables are
+auto-adjustable within bounds subject to the backtest validator.
+
+```
+JULIE_ANTI_FLIP_BLOCKER_ACTIVE=1       # default 1 (ON via launcher)
+JULIE_ANTI_FLIP_WINDOW_MIN=30          # default 30, bounds [5,60]
+JULIE_ANTI_FLIP_MAX_DIST_PTS=8.0       # default 8.0, bounds [2.0,15.0]
+```
+
+The module's internal default is OFF — only the launcher activates it.
+Any external caller that imports `AntiFlipBlocker` directly without
+setting the env var gets the safe-OFF behavior.
+
+### Implementation
+
+| File | Role |
+|---|---|
+| `anti_flip_blocker.py` | The module: `AntiFlipBlocker` + `_NoOpAntiFlipBlocker` |
+| `julie001.py` | Instantiation, state persistence, stop-out recording in the close path, and four entry-path hooks |
+| `tools/ai_loop/config.py` | Three whitelist entries for the AI-loop auto-adjuster |
+| `scripts/backtest_anti_flip_blocker.py` | Configuration sweep harness (operational use) |
+
+The blocker mirrors `DirectionalLossBlocker` and `CascadeLossBlocker`'s
+API (`should_block_trade`, `record_trade_close`, `get_state`,
+`load_state`) so it slots into the same entry-path hook points using
+the existing consensus-rescue / rescue-trigger / event-logger
+plumbing. A strong cross-filter consensus can still override it. Each
+block emits a log line that includes the prior stop's timestamp,
+price, and the distance from the new signal.
+
+---
+
 ## Cascade Loss Blocker
 
 Evidence-gated mechanical circuit breaker that fires on a **time-window

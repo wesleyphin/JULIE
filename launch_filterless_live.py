@@ -226,6 +226,19 @@ os.environ.setdefault("JULIE_CASCADE_BLOCKER_COUNT", "2")
 os.environ.setdefault("JULIE_CASCADE_BLOCKER_WINDOW_MIN", "30")
 os.environ.setdefault("JULIE_CASCADE_BLOCKER_COOLDOWN_MIN", "30")
 
+# Anti-flip blocker — when a SHORT stops out and a LONG signal fires near
+# the stop price within a short window (or vice versa), reject the new
+# signal. Catches the DE3 "flip at the top / flip at the bottom" pattern
+# observed on 2026-04-23 (SHORT stopped at 7172.50, LONG flipped at 7171.75
+# sixty seconds later, then rode into a 64pt dump and lost). Parameter
+# sweep over 2025 full year + 2026 Jan-Apr at window=30min max_dist=8pt:
+#     2026: +$235  ·  2025: +$2,944  ·  combined +$3,179 lift
+# Active by default as of 2026-04-23 late. Override with
+#     export JULIE_ANTI_FLIP_BLOCKER_ACTIVE=0
+os.environ.setdefault("JULIE_ANTI_FLIP_BLOCKER_ACTIVE", "1")
+os.environ.setdefault("JULIE_ANTI_FLIP_WINDOW_MIN", "30")
+os.environ.setdefault("JULIE_ANTI_FLIP_MAX_DIST_PTS", "8.0")
+
 os.environ.setdefault("JULIE_REGIME_CB_WHIPSAW", "250")
 os.environ.setdefault("JULIE_REGIME_CB_NEUTRAL", "350")
 os.environ.setdefault("JULIE_REGIME_CB_CALM", "500")

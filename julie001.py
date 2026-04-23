@@ -7554,6 +7554,23 @@ async def run_bot():
         from cascade_loss_blocker import _NoOpCascadeLossBlocker
         cascade_loss_blocker = _NoOpCascadeLossBlocker()
 
+    # Anti-flip circuit breaker — when a stop-out on one side is followed
+    # by a fresh signal on the OPPOSITE side, near the same price, within
+    # a short window, reject it. Catches the DE3 "flip at the top / flip
+    # at the bottom" pattern that cost the bot on 2026-04-23 (SHORT stopped
+    # at 7172.50, LONG flipped at 7171.75 sixty seconds later, then rode
+    # into a 64pt dump). Defaults chosen from 2025+2026 sweep: 30min /
+    # 8pt. See scripts/backtest_anti_flip_blocker.py.
+    try:
+        from anti_flip_blocker import AntiFlipBlocker
+        anti_flip_blocker: Any = AntiFlipBlocker()
+    except Exception as _antiflip_exc:
+        logging.warning(
+            "[AntiFlipBlocker] import failed (%s) — using no-op", _antiflip_exc
+        )
+        from anti_flip_blocker import _NoOpAntiFlipBlocker
+        anti_flip_blocker = _NoOpAntiFlipBlocker()
+
     impulse_filter = ImpulseFilterCls(lookback=20, impulse_multiplier=2.5)
 
     # === DUAL-FILTER SYSTEM ===
@@ -9092,6 +9109,25 @@ async def run_bot():
             cascade_loss_blocker.record_trade_result(trade_side, pnl_dollars, close_time)
         except Exception as _cb_exc:  # pragma: no cover — defensive
             logging.debug("[CascadeBlocker] record_trade_result error: %s", _cb_exc)
+        # Anti-flip blocker records stop-outs only. The module classifies
+        # via either the source string ("stop"/"stop_gap"/"confirmed stop
+        # fill") or via exit≈sl_price proximity, so both backtest-tape and
+        # live-broker source conventions are handled.
+        try:
+            _trade_sl_price = None
+            for _key in ("sl_price", "stop_price", "current_stop_price",
+                          "effective_stop_price", "de3_effective_stop_price"):
+                _v = trade.get(_key) if isinstance(trade, dict) else None
+                if _v is not None:
+                    _trade_sl_price = float(_v)
+                    break
+            anti_flip_blocker.record_trade_close(
+                trade_side, pnl_dollars, float(exit_price),
+                source=close_source, sl_price=_trade_sl_price,
+                close_time=close_time,
+            )
+        except Exception as _af_exc:  # pragma: no cover — defensive
+            logging.debug("[AntiFlipBlocker] record_trade_close error: %s", _af_exc)
         circuit_breaker.update_trade_result(pnl_dollars)
         _lfg_notify_trade_closed(closed_trade)
         _record_live_realized_pnl(live_drawdown_state, pnl_dollars, close_time=close_time)
@@ -9363,6 +9399,10 @@ async def run_bot():
             cascade_loss_blocker.load_state(persisted_state.get("cascade_loss_blocker"))
         except Exception as _cb_exc:  # pragma: no cover — defensive
             logging.debug("[CascadeBlocker] load_state error: %s", _cb_exc)
+        try:
+            anti_flip_blocker.load_state(persisted_state.get("anti_flip_blocker"))
+        except Exception as _af_exc:  # pragma: no cover — defensive
+            logging.debug("[AntiFlipBlocker] load_state error: %s", _af_exc)
         circuit_breaker.load_state(persisted_state.get("circuit_breaker"))
         if penalty_blocker is not None:
             penalty_blocker.load_state(persisted_state.get("penalty_box_blocker"))
@@ -9721,6 +9761,7 @@ async def run_bot():
             "chop_filter": chop_filter.get_state(),
             "directional_loss_blocker": directional_loss_blocker.get_state(),
             "cascade_loss_blocker": cascade_loss_blocker.get_state(),
+            "anti_flip_blocker": anti_flip_blocker.get_state(),
             "circuit_breaker": circuit_breaker.get_state(),
             "penalty_box_blocker": penalty_blocker.get_state() if penalty_blocker is not None else None,
             "penalty_box_blocker_asia": penalty_blocker_asia.get_state() if penalty_blocker_asia is not None else None,
@@ -13534,6 +13575,15 @@ async def run_bot():
                                         logging.info(f"⛔ CONSENSUS BLOCKED by CascadeLossBlocker: {casc_reason}")
                                         continue
                             if not consensus_rescued:
+                                _af_entry_px = float(signal.get('entry_price') or signal.get('price') or current_price or 0)
+                                af_blocked, af_reason = anti_flip_blocker.should_block_trade(signal['side'], _af_entry_px, current_time)
+                                if af_blocked:
+                                    if try_consensus_rescue("AntiFlipBlocker", af_reason):
+                                        do_execute = True
+                                    else:
+                                        logging.info(f"⛔ CONSENSUS BLOCKED by AntiFlipBlocker: {af_reason}")
+                                        continue
+                            if not consensus_rescued:
                                 trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
                                 if trend_blocked:
                                     if try_consensus_rescue("TrendFilter", trend_reason):
@@ -13854,6 +13904,12 @@ async def run_bot():
                             casc_blocked, casc_reason = cascade_loss_blocker.should_block_trade(signal['side'], current_time)
                             if casc_blocked:
                                 if not try_rescue_trigger(casc_reason, 'CascadeLoss'):
+                                    continue
+
+                            _af_entry_px = float(signal.get('entry_price') or signal.get('price') or current_price or 0)
+                            af_blocked, af_reason = anti_flip_blocker.should_block_trade(signal['side'], _af_entry_px, current_time)
+                            if af_blocked:
+                                if not try_rescue_trigger(af_reason, 'AntiFlip'):
                                     continue
 
                             impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])
@@ -14868,6 +14924,15 @@ async def run_bot():
                                 else:
                                     event_logger.log_filter_check("CascadeLossBlocker", sig['side'], True, strategy=sig.get('strategy', s_name))
 
+                                # Anti-flip blocker — opposite-side stop-out near this price
+                                _af_entry_px = float(sig.get('entry_price') or sig.get('price') or current_price or 0)
+                                af_blocked, af_reason = anti_flip_blocker.should_block_trade(sig['side'], _af_entry_px, current_time)
+                                if af_blocked:
+                                    event_logger.log_filter_check("AntiFlipBlocker", sig['side'], False, af_reason, strategy=sig.get('strategy', s_name))
+                                    del pending_loose_signals[s_name]; continue
+                                else:
+                                    event_logger.log_filter_check("AntiFlipBlocker", sig['side'], True, strategy=sig.get('strategy', s_name))
+
                                 # Impulse Filter (Prevent catching falling knife / fading rocket ship)
                                 impulse_blocked, impulse_reason = impulse_filter.should_block_trade(sig['side'])
                                 if impulse_blocked:
@@ -15694,6 +15759,15 @@ async def run_bot():
                                             continue
                                         else:
                                             event_logger.log_filter_check("CascadeLossBlocker", signal['side'], True, strategy=signal.get('strategy', s_name))
+
+                                        # Anti-flip blocker — opposite-side stop-out near this price
+                                        _af_entry_px = float(signal.get('entry_price') or signal.get('price') or current_price or 0)
+                                        af_blocked, af_reason = anti_flip_blocker.should_block_trade(signal['side'], _af_entry_px, current_time)
+                                        if af_blocked:
+                                            event_logger.log_filter_check("AntiFlipBlocker", signal['side'], False, af_reason, strategy=signal.get('strategy', s_name))
+                                            continue
+                                        else:
+                                            event_logger.log_filter_check("AntiFlipBlocker", signal['side'], True, strategy=signal.get('strategy', s_name))
 
                                         tp_dist = signal.get('tp_dist', 15.0)
 

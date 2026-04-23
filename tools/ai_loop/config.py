@@ -116,6 +116,37 @@ AUTO_ADJUSTABLE_PARAMS: dict[str, dict] = {
         "max_step_delta": 15,
         "description": "Cooldown (minutes) after the most recent qualifying loss.",
     },
+    # Anti-flip blocker — rejects new opposite-side signals that fire
+    # close to the price where the last trade just stopped out. Catches
+    # the "flip at the stop" failure mode (2026-04-23 SHORT stopped at
+    # 7172.50 then LONG flipped at 7171.75). The activation flag is
+    # marked high_risk so the applier won't flip it without manual
+    # confirmation; window/distance are auto-adjustable within bounds.
+    "JULIE_ANTI_FLIP_BLOCKER_ACTIVE": {
+        "target": "env",
+        "key": "JULIE_ANTI_FLIP_BLOCKER_ACTIVE",
+        "dtype": "bool",
+        "bounds": (0, 1),
+        "max_step_delta": 1,
+        "description": "Whether the anti-flip blocker is active.",
+        "high_risk": True,
+    },
+    "JULIE_ANTI_FLIP_WINDOW_MIN": {
+        "target": "env",
+        "key": "JULIE_ANTI_FLIP_WINDOW_MIN",
+        "dtype": "int",
+        "bounds": (5, 60),
+        "max_step_delta": 15,
+        "description": "Minutes after a stop-out during which opposite-side near-price signals are blocked.",
+    },
+    "JULIE_ANTI_FLIP_MAX_DIST_PTS": {
+        "target": "env",
+        "key": "JULIE_ANTI_FLIP_MAX_DIST_PTS",
+        "dtype": "float",
+        "bounds": (2.0, 15.0),
+        "max_step_delta": 2.0,
+        "description": "Max distance in points from the last stop-out price to trigger the block.",
+    },
 }
 
 # Absolutely non-auto-adjustable — even if the analyzer proposes, validator
