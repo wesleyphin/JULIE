@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Julie AI-loop nightly runner (launchd plist)
+
+  Fires during Topstep/CME's daily maintenance window:
+    16:00 ET  (13:00 PT)  — NY session close (equity settlement)
+    17:00 ET  (14:00 PT)  — CME futures maintenance break begins
+    18:00 ET  (15:00 PT)  — CME futures reopen
+
+  We fire at 14:30 PT = 17:30 ET — 30 min into the CME maintenance
+  window. By then:
+    - Bot has written final trade + session state
+    - Market is idle so there's no race with live trade management
+    - Any config change we apply takes effect when the bot relaunches
+      for the next session (user's choice when to restart)
+
+  Install:
+    bash tools/ai_loop/schedule/install.sh
+
+  Uninstall:
+    bash tools/ai_loop/schedule/uninstall.sh
+
+  Observe:
+    tail -f ai_loop_data/run_daily.log
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.julie.ai_loop</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>cd /Users/wes/Downloads/JULIE001 &amp;&amp; PATH=/opt/homebrew/Caskroom/miniconda/base/bin:$PATH /opt/homebrew/Caskroom/miniconda/base/bin/python3 -m tools.ai_loop.run_daily &gt;&gt; ai_loop_data/run_daily.log 2&gt;&amp;1</string>
+    </array>
+
+    <key>StartCalendarInterval</key>
+    <array>
+        <!-- Monday through Friday at 14:30 local (PT). Weekends skipped
+             because futures are closed Fri 14:00 PT through Sun 15:00 PT -->
+        <dict>
+            <key>Weekday</key>
+            <integer>1</integer>
+            <key>Hour</key>
+            <integer>14</integer>
+            <key>Minute</key>
+            <integer>30</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key>
+            <integer>2</integer>
+            <key>Hour</key>
+            <integer>14</integer>
+            <key>Minute</key>
+            <integer>30</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key>
+            <integer>3</integer>
+            <key>Hour</key>
+            <integer>14</integer>
+            <key>Minute</key>
+            <integer>30</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key>
+            <integer>4</integer>
+            <key>Hour</key>
+            <integer>14</integer>
+            <key>Minute</key>
+            <integer>30</integer>
+        </dict>
+        <dict>
+            <key>Weekday</key>
+            <integer>5</integer>
+            <key>Hour</key>
+            <integer>14</integer>
+            <key>Minute</key>
+            <integer>30</integer>
+        </dict>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/wes/Downloads/JULIE001</string>
+
+    <key>StandardOutPath</key>
+    <string>/Users/wes/Downloads/JULIE001/ai_loop_data/launchd.stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/wes/Downloads/JULIE001/ai_loop_data/launchd.stderr.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/Caskroom/miniconda/base/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+
+    <!-- Don't run if laptop is asleep; run-at-load=false so install
+         doesn't fire immediately. RunAtLoad=true (if you want it to
+         also run once at install time) is false here on purpose. -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <!-- If mac was asleep at the scheduled time, catch up on wake -->
+    <key>StartCalendarIntervalRunAtLoad</key>
+    <false/>
+
+    <!-- Throttle so we can't accidentally loop-spawn -->
+    <key>ThrottleInterval</key>
+    <integer>300</integer>
+</dict>
+</plist>
