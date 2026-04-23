@@ -159,6 +159,20 @@ AUTO_ADJUSTABLE_PARAMS: dict[str, dict] = {
         "description": "Whether the Triathlon Engine applies medal-driven size/priority effects live.",
         "high_risk": True,
     },
+    # Filter G per-cell threshold override (Idea 1). Loads the pre-April-
+    # derived multiplier table at runtime; bleeding cells get 0.75×
+    # threshold (more aggressive veto), strong cells get 1.15×. high_risk
+    # because flipping off reverts to the undifferentiated-threshold
+    # behavior and removes a PnL optimization.
+    "JULIE_FILTERG_PER_CELL_ACTIVE": {
+        "target": "env",
+        "key": "JULIE_FILTERG_PER_CELL_ACTIVE",
+        "dtype": "bool",
+        "bounds": (0, 1),
+        "max_step_delta": 1,
+        "description": "Whether Filter G applies per-(strategy × regime × time-bucket) threshold overrides.",
+        "high_risk": True,
+    },
 }
 
 # Absolutely non-auto-adjustable — even if the analyzer proposes, validator

@@ -271,10 +271,83 @@ def _session_multiplier(cum_day_pnl: float) -> float:
 
 _EFFECTIVE_THR_FLOOR = float(os.environ.get("JULIE_GATE_EFF_THR_FLOOR", "0.25"))
 
+# Per-(strategy × regime × time-bucket) threshold overrides produced by
+# `scripts/idea1_filterg_per_cell_calibrate.py` from the seeded ledger.
+# Loaded lazily; a missing file or missing cell key yields multiplier 1.0
+# (no change from the existing regime × session behavior).
+_PER_CELL_ACTIVE = os.environ.get("JULIE_FILTERG_PER_CELL_ACTIVE", "1").strip() not in ("0", "false", "False", "")
+_PER_CELL_TABLE_PATH = Path(__file__).resolve().parent / "ai_loop_data" / "triathlon" / "filterg_threshold_overrides.json"
+_PER_CELL_CACHE: Optional[Dict[str, float]] = None
+
+
+def _load_per_cell_overrides() -> Dict[str, float]:
+    """Lazy-load the per-cell multiplier table. Returns {} on any I/O
+    or parse error (fail-closed)."""
+    global _PER_CELL_CACHE
+    if _PER_CELL_CACHE is not None:
+        return _PER_CELL_CACHE
+    if not _PER_CELL_ACTIVE:
+        _PER_CELL_CACHE = {}
+        return _PER_CELL_CACHE
+    try:
+        import json as _json
+        if _PER_CELL_TABLE_PATH.exists():
+            payload = _json.loads(_PER_CELL_TABLE_PATH.read_text())
+            mults = payload.get("runtime_multipliers", {}) or {}
+            # Keep only valid float values
+            out: Dict[str, float] = {}
+            for k, v in mults.items():
+                try:
+                    out[str(k)] = float(v)
+                except (ValueError, TypeError):
+                    continue
+            _PER_CELL_CACHE = out
+            logging.info(
+                "[signal_gate_2025] per-cell threshold overrides loaded: "
+                "%d cells from %s", len(out), _PER_CELL_TABLE_PATH,
+            )
+        else:
+            _PER_CELL_CACHE = {}
+    except Exception as exc:
+        logging.warning("[signal_gate_2025] per-cell override load failed: %s", exc)
+        _PER_CELL_CACHE = {}
+    return _PER_CELL_CACHE
+
+
+def _time_bucket_of_hour(et_hour: int) -> str:
+    """Mirrors triathlon time-bucket logic so per-cell keys match the
+    Triathlon Engine's cell coordinates."""
+    h = float(et_hour)
+    if h < 4.0:
+        h += 24.0
+    if 4.0 <= h < 9.5:   return "pre_open"
+    if 9.5 <= h < 12.0:  return "morning"
+    if 12.0 <= h < 14.0: return "lunch"
+    if 14.0 <= h < 16.0: return "afternoon"
+    if 16.0 <= h < 17.0: return "post_close"
+    return "overnight"
+
+
+def _per_cell_multiplier(strategy: str, regime: str, et_hour: int) -> float:
+    """Look up the per-cell multiplier. Returns 1.0 when inactive, missing,
+    or when the cell isn't in the override table."""
+    if not _PER_CELL_ACTIVE:
+        return 1.0
+    table = _load_per_cell_overrides()
+    if not table:
+        return 1.0
+    # Mirror the triathlon cell-key shape. Strategy is kept as-is (not
+    # normalized to family) because the Triathlon table uses full strategy
+    # labels like "DynamicEngine3" / "RegimeAdaptive".
+    tb = _time_bucket_of_hour(et_hour)
+    ck = f"{strategy}|{str(regime or '').lower()}|{tb}"
+    return float(table.get(ck, 1.0))
+
 
 def _effective_threshold(base_thr: float, regime: str = "",
-                         cum_day_pnl: float = 0.0) -> Tuple[float, float]:
-    """Apply regime × session multipliers to a gate's base threshold.
+                         cum_day_pnl: float = 0.0,
+                         strategy: str = "", et_hour: int = 0) -> Tuple[float, float]:
+    """Apply regime × session × per-cell multipliers to a gate's base threshold.
     Returns (effective, combined_multiplier).
 
     v5.5: apply a floor on the EFFECTIVE threshold. Whipsaw regime mult
@@ -282,10 +355,20 @@ def _effective_threshold(base_thr: float, regime: str = "",
     over-vetoed borderline winners on high-ATR trend days. Floor at 0.25
     ensures G only fires when it's at least moderately confident
     (>= 25% P(big_loss)) regardless of regime.
+
+    v6 (per-cell, 2026-04-23): after computing the regime × session
+    multiplier, ALSO apply a per-(strategy × regime × time-bucket)
+    multiplier loaded from the Idea-1 override table. Cells classified
+    as "bleeding" in pre-April data receive a tighter threshold
+    (mult < 1.0, more aggressive veto); cells classified as "strong"
+    receive a more lenient threshold (mult > 1.0). Unrated / neutral
+    cells get 1.0 and behave exactly as before. Disable with
+    JULIE_FILTERG_PER_CELL_ACTIVE=0. The floor still applies.
     """
     regime_mult = _REGIME_THR_MULT.get(str(regime or "").lower(), 1.0)
     session_mult = _session_multiplier(cum_day_pnl)
-    mult = regime_mult * session_mult
+    per_cell_mult = _per_cell_multiplier(strategy, regime, et_hour) if strategy else 1.0
+    mult = regime_mult * session_mult * per_cell_mult
     eff = float(base_thr) * mult
     if eff < _EFFECTIVE_THR_FLOOR:
         eff = _EFFECTIVE_THR_FLOOR
@@ -323,7 +406,10 @@ def should_veto_signal(
     if p is None:
         return False, ""
     base_thr = float(payload.get("veto_threshold", 0.35))
-    eff_thr, mult = _effective_threshold(base_thr, mkt_regime, cum_day_pnl)
+    eff_thr, mult = _effective_threshold(
+        base_thr, mkt_regime, cum_day_pnl,
+        strategy=str(strategy or ""), et_hour=int(et_hour or 0),
+    )
     if p >= eff_thr:
         mult_tag = f" x{mult:.2f}[{mkt_regime} dd=${cum_day_pnl:+.0f}]" if mult != 1.0 else ""
         return True, (

@@ -248,6 +248,19 @@ os.environ.setdefault("JULIE_ANTI_FLIP_MAX_DIST_PTS", "8.0")
 # Disable for a single session with: export JULIE_TRIATHLON_ACTIVE=0
 os.environ.setdefault("JULIE_TRIATHLON_ACTIVE", "1")
 
+# Filter G per-cell threshold override table (Idea 1, 2026-04-23).
+# When active, signal_gate_2025._effective_threshold looks up a
+# per-(strategy × regime × time-bucket) multiplier from
+# ai_loop_data/triathlon/filterg_threshold_overrides.json, produced by
+# scripts/idea1_filterg_per_cell_calibrate.py. Bleeding cells (avg
+# PnL < -$2 on pre-April data) tighten threshold to 0.75× base; strong
+# cells (avg PnL > +$5) loosen to 1.15× base; neutral cells unchanged.
+# OOS backtest on April 2026 showed a +$3.5k optimistic-bound lift
+# with 25% of bleeding-cell trades retroactively blocked — that's the
+# ceiling, real live effect will be smaller but directionally positive.
+# Disable with: export JULIE_FILTERG_PER_CELL_ACTIVE=0
+os.environ.setdefault("JULIE_FILTERG_PER_CELL_ACTIVE", "1")
+
 os.environ.setdefault("JULIE_REGIME_CB_WHIPSAW", "250")
 os.environ.setdefault("JULIE_REGIME_CB_NEUTRAL", "350")
 os.environ.setdefault("JULIE_REGIME_CB_CALM", "500")

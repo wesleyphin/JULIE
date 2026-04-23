@@ -249,6 +249,49 @@ A 120-bar startup pre-warm populates the guard's bar cache before
 the live feed opens (same bootstrap path as the regime classifier's
 pre-warm) so the guard can score signals from the first live bar.
 
+### Filter G per-cell threshold overrides
+
+Filter G's base threshold (default 0.35) is modified at runtime by
+three multipliers, applied in sequence:
+
+1. **Regime multiplier** — per-market-regime mapping. Whipsaw 0.60×
+   (more aggressive veto on chop), calm_trend 1.05× (slightly more
+   lenient on directional tapes), neutral / warmup 1.0×.
+2. **Session multiplier** — per-strategy cumulative-day-PnL
+   adaptation. When the strategy is already up $100+, loosen to 1.25×
+   (let winners run); when down $200+, tighten to 0.80× (catch
+   losers).
+3. **Per-cell multiplier** — new as of 2026-04-23. Loaded from
+   `ai_loop_data/triathlon/filterg_threshold_overrides.json` (produced
+   by `scripts/idea1_filterg_per_cell_calibrate.py`). Per
+   (strategy × regime × time-bucket) cell. Cells classified as
+   *bleeding* on pre-April 2026 data (avg PnL/trade < −$2, n ≥ 20)
+   receive a 0.75× multiplier (tighter = more aggressive veto).
+   Cells classified as *strong* (avg PnL/trade > +$5, n ≥ 20)
+   receive 1.15× (more lenient). Neutral / unrated cells get 1.0
+   (no change).
+
+All three multiplicative effects stack, and the final effective
+threshold is floored at 0.25 so Filter G never fires on less than
+25% P(big_loss) regardless of regime + cell.
+
+**Per-cell calibration caveat.** The per-cell table was derived from
+retrospective PnL outcomes on fired trades (not from directly-observed
+Filter G block correctness, which would require SHADOW_GATE logs at
+larger scale than currently available). The OOS backtest used an
+**optimistic-bound proxy** that assumes tightened thresholds
+retroactively remove the worst-outcome trades in bleeding cells. That
+proxy showed a clean win (+$3.5k PnL, −$1.2k MaxDD, +3.7pp WR), but
+the real live effect will be smaller than the proxy because Filter G
+doesn't have perfect retroactive foresight. The direction is correct;
+the magnitude should be monitored live and re-validated after 1-2
+months of real data via the same script.
+
+Disable with `export JULIE_FILTERG_PER_CELL_ACTIVE=0` before
+launching; the flag is also in the AI-loop auto-adjust whitelist
+(marked `high_risk` so the applier won't flip it without manual
+confirmation).
+
 ### Filter G — per-strategy big-loss classifiers
 
 Four GBT classifiers (one per live strategy: DE3, AetherFlow,
