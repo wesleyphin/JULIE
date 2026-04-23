@@ -23,9 +23,11 @@ CSS = """
 @page { size: letter; margin: 0.8in; }
 body { font-family: -apple-system, Helvetica, Arial, sans-serif;
        font-size: 10pt; line-height: 1.35; color: #222; }
-h1 { font-size: 20pt; border-bottom: 2px solid #333; padding-bottom: 4pt;
-     page-break-before: always; }
-h1:first-of-type { page-break-before: avoid; }
+/* No page-break-before on h1 — xhtml2pdf doesn't honor :first-of-type
+   or inline overrides, so the only way to keep page-1 non-blank is
+   to not force a break at all. The README uses a single h1 (title)
+   and h2 for section boundaries, so this loses nothing. */
+h1 { font-size: 20pt; border-bottom: 2px solid #333; padding-bottom: 4pt; }
 h2 { font-size: 15pt; border-bottom: 1px solid #aaa; padding-bottom: 3pt;
      margin-top: 18pt; }
 h3 { font-size: 12pt; margin-top: 14pt; }
