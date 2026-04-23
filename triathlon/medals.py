@@ -44,27 +44,48 @@ BRONZE_PCTILE = 0.80    # top 80%
 
 # ─── runtime effects ───────────────────────────────────────────
 #
-# Size multipliers were neutralized to 1.0 on 2026-04-23 after an
-# out-of-sample validation (`scripts/backtest_triathlon_oos.py`)
-# showed the train-period medal ranking did NOT reliably predict
-# April-2026 per-cell edge:
-#   - silver (+$4.29/tr) and bronze (+$5.12/tr) both beat
-#     gold (+$4.17/tr) in the holdout
-#   - the +$267 PnL lift on 644 trades was within sample noise
-#   - DD got worse by $242
-#   - Spearman (train_rank → April_value) was +0.27 to +0.54 —
-#     weak to moderate, not strong enough for confident scaling
-# Priority deltas are KEPT because (a) closed_trades-only backtest
-# can't simulate rescue-queue priority and (b) priority deltas are
-# smaller perturbations to live behavior than size multipliers.
-# Flip size multipliers back on by editing this dict when a future
-# OOS validation shows medal→edge transfer more clearly.
+# BOTH size multipliers AND priority deltas are neutralized to 0/1.0
+# as of 2026-04-23 after two out-of-sample validations:
+#
+# 1. Size multipliers (`scripts/backtest_triathlon_oos.py`,
+#    April-2026 holdout, 644 trades): train-period medal ranking did
+#    NOT reliably predict April per-cell edge — silver (+$4.29/tr)
+#    and bronze (+$5.12/tr) both beat gold (+$4.17/tr); the +$267
+#    PnL lift was within sample noise with worse DD; Spearman
+#    (train rank → April value) was +0.27 to +0.54, weak to moderate.
+#
+# 2. Priority deltas (`scripts/backtest_triathlon_priority.py`,
+#    April-2026 replay log, full rescue-queue candidate stream):
+#    only 5 bars in the whole 20-day tape had genuinely-competing
+#    candidates (different strategy or side on the same minute).
+#    On every one of those 5 bars, the priority-adjusted sort picked
+#    the SAME winner as the baseline sort — either because both
+#    candidates had the same medal, or because the gold-medal
+#    candidate was ALREADY winning via alphabetical tie-break in the
+#    base sort. Net trade-selection change: 0 / 5 bars. Net PnL
+#    delta: $0.00.
+#
+#    SECONDARY FINDING: the live sort key `_live_signal_sort_key` in
+#    julie001.py doesn't currently read the `triathlon_priority_delta`
+#    field on the signal dict at all — so priority deltas are also
+#    literally dead code in the current binary. Even if the live
+#    wiring gets added later, the backtest shows the effect would be
+#    zero on this tape.
+#
+# The whole Triathlon infrastructure — ledger, scoring, medal
+# assignment, dashboard, counterfactual resolver, retrain hook — stays
+# active. It's earning its keep as observability. The RUNTIME EFFECTS
+# (size × priority) have been neutralized because the data doesn't
+# support them.
+#
+# Reversible: restore the old values in this dict when a future
+# validation shows the medal→decision transfer more clearly.
 MEDAL_EFFECTS: dict[str, dict[str, float]] = {
-    "gold":      {"priority_delta": +1, "size_mult": 1.00},
-    "silver":    {"priority_delta":  0, "size_mult": 1.00},
-    "bronze":    {"priority_delta": -1, "size_mult": 1.00},
-    "probation": {"priority_delta": -2, "size_mult": 1.00},
-    "unrated":   {"priority_delta":  0, "size_mult": 1.00},
+    "gold":      {"priority_delta": 0, "size_mult": 1.00},
+    "silver":    {"priority_delta": 0, "size_mult": 1.00},
+    "bronze":    {"priority_delta": 0, "size_mult": 1.00},
+    "probation": {"priority_delta": 0, "size_mult": 1.00},
+    "unrated":   {"priority_delta": 0, "size_mult": 1.00},
 }
 
 
