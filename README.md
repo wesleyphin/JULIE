@@ -2,203 +2,291 @@
 
 This document explains the current Julie bot from a technical perspective:
 
-- what the live bot is
-- how the runtime is structured
+- what the live bot is and how the runtime is structured
 - how market data becomes orders
 - how the active strategy engines work
-- how the sentiment monitor and emergency exits fit into live trading
+- the four entry-path safety filters (loss-cluster protections) and when each fires
+- the regime classifier (whipsaw / calm_trend / dead_tape / neutral) and its bracket / size / risk overrides
+- the iter-11 risk layer (LossFactorGuard + regime-adaptive circuit breaker)
+- how the ML overlay stack layers on top of the rule-based engines
+- the AI-loop auto-improver (journal → analyzer → validator → applier → monitor)
 - how the Kalshi gate interacts with execution and dashboard visibility
-- **how the ML overlay stack layers on top of the rule-based engines (new)**
+- how the sentiment monitor and emergency exits fit into live trading
 - how to bootstrap the local workspace and FinBERT dependencies
 - what the important artifacts and files are
 
 It is intentionally focused on the current filterless live stack, because that
 is the path the bot is actually meant to run on.
 
-## RL Trade-Management Policy Guards
+## Entry-Path Safety Filters
 
-The v3 RL policy could fire `TIGHTEN_SL_25PCT` and `TIGHTEN_SL_50PCT`
-actions aggressively in trending regimes, ratcheting the stop behind
-the price and getting swept on normal pullbacks. Two complementary
-guards now sit between the policy and the broker.
+Every strategy signal passes through a fixed chain of safety filters
+before the bot places an order. Four of those filters are
+loss-cluster protections — each catches a different pathological
+pattern in recent trade history. They run in series at all four
+signal-birth hook sites in `julie001.py` using the same
+`consensus-rescue` / `rescue-trigger` / `event-logger` plumbing, so a
+strong cross-filter consensus can still override any individual
+block.
 
-### Live executor gates (`julie001._apply_rl_management_action`)
+All four filters are active by default when the bot is started via
+the launcher. Each filter has an `ACTIVE` env flag that can be set
+to `0` before launching to demote the filter to a no-op for that
+session, plus tunable parameters that the AI-loop auto-adjuster can
+move within documented bounds.
 
-Two policy filters reject bad TIGHTEN actions before they reach the
-broker. Both are configurable per-session via env vars; both default
-to ON via the launcher.
+### Filter 1 — `DirectionalLossBlocker`
 
-- **Regime gate** (`JULIE_RL_REGIME_GATE_ACTIVE`). When the episode's
-  regime is `calm_trend`, the gate rejects `TIGHTEN_SL_25` and
-  `TIGHTEN_SL_50` and lets only `MOVE_SL_TO_BE` through. The reasoning:
-  in a confirmed trend the right behavior is to let the trade breathe;
-  chasing the SL on every favorable bar invites mean-reversion sweeps.
-- **MFE-floor gate** (`JULIE_RL_MIN_MFE_FRAC_FOR_TIGHTEN`). Rejects
-  any TIGHTEN action when the maximum favorable excursion so far is
-  less than a configurable fraction of the trade's TP distance
-  (default 0.50). The trade must have moved at least halfway to its
-  TP before SL tightening is permitted.
+Counts **strictly-consecutive** losses on one side with no time
+bound. After N consecutive same-side losses, that side is blocked
+for a configurable cool-off window; a single winning trade on the
+same side resets the counter. The filter also has a "bias reversal"
+mode that flips allowed direction entirely after 4 consecutive same-
+side losses for the rest of the current session quarter (Daye's
+Quarterly Theory).
 
-Both gates emit `[RL_LIVE] status=skipped` log lines with the gate
-name and the relevant scalars so post-hoc audits can identify exactly
-why an action was blocked.
+Module: `directional_loss_blocker.py`. Parameters:
+`consecutive_loss_limit` (default 3), `block_minutes` (default 15),
+`bias_reversal_limit` (default 4), `JULIE_DLB=1` to enable.
 
-### RL v4 reward shaping (`rl/trade_env.py`, `rl/train_ppo.py`)
+### Filter 2 — `CascadeLossBlocker`
 
-The terminal-PnL-only reward used by v3 cannot distinguish a small
-realized gain from a TIGHTEN-then-sweep from the same gain produced
-by a clean hold-to-TP — both look identical when the episode ends.
-v4 adds three reward-shaping signals:
+Counts same-side losses **inside a sliding time window**, ignoring
+intervening wins. Fires when at least `COUNT` losing trades land on
+the same side within the last `WINDOW_MIN` minutes; every new
+same-side entry is rejected for `COOLDOWN_MIN` measured from the
+most recent qualifying loss (so each additional same-side loss
+extends the cooldown). Catches rapid-fire loss clusters that
+`DirectionalLossBlocker`'s strictly-consecutive count can miss when
+wins sneak between losses.
 
-- **Regime tighten penalty** (`--calm-trend-tighten-penalty`). A small
-  per-step penalty applied whenever a TIGHTEN action fires in
-  `calm_trend` regime. Steers the policy away from the failure mode
-  the live gate also blocks, but inside the trained policy itself.
-- **Low-MFE tighten penalty** (`--low-mfe-tighten-penalty`,
-  `--low-mfe-threshold`). Per-step penalty when a TIGHTEN action
-  fires before the trade has moved a configurable fraction of its TP
-  distance.
-- **Opportunity-cost penalty** (`--opportunity-cost-weight`). A
-  terminal penalty equal to a fraction of the gap between the
-  realized PnL and the best PnL that an unmodified hold would have
-  produced (capped at the original TP, so the policy is not penalized
-  for failing to hit unrealistic targets). This teaches the agent
-  directly that locking in a small win when a large win was clearly
-  available is a worse outcome than waiting.
+Module: `cascade_loss_blocker.py`. Launcher defaults:
 
-The output of a v4 training run is saved alongside v3 in
-`artifacts/signal_gate_2025/` under a `_v4_*` suffix instead of
-overwriting the canonical model. A separate A/B harness
-(`scripts/ab_rl_v3_vs_v4.py`) runs both models against the held-out
-validation split and reports which wins on mean PnL/trade and on
-win-rate. Promotion to canonical (rename to
-`model_rl_management.zip`) is a manual step — the README does not
-make claims about which version is currently canonical.
+```
+JULIE_CASCADE_BLOCKER_ACTIVE=1            # default 1 (ON)
+JULIE_CASCADE_BLOCKER_COUNT=2             # bounds [2,4]
+JULIE_CASCADE_BLOCKER_WINDOW_MIN=30       # bounds [10,60]
+JULIE_CASCADE_BLOCKER_COOLDOWN_MIN=30     # bounds [10,60]
+```
+
+### Filter 3 — `AntiFlipBlocker`
+
+Rejects a new **opposite-side** signal that fires near the price
+where the last trade just stopped out. Side-asymmetric: a SHORT
+stop-out blocks near-price LONG entries only; same-side SHORT
+re-entries are unaffected. A stop-out is detected either by a
+`stop` / `stop_gap` source tag (backtest tape) or by the exit price
+being within 1.5 points of the trade's recorded SL (live broker
+tag). Only stop-out losses populate the filter; winning exits, manual
+closes, reversals, and horizon exits never record state.
+
+Module: `anti_flip_blocker.py`. Launcher defaults:
+
+```
+JULIE_ANTI_FLIP_BLOCKER_ACTIVE=1          # default 1 (ON)
+JULIE_ANTI_FLIP_WINDOW_MIN=30             # bounds [5,60]
+JULIE_ANTI_FLIP_MAX_DIST_PTS=8.0          # bounds [2.0,15.0]
+```
+
+### Filter 4 — RL regime / MFE gates
+
+Two policy guards sit between the RL trade-management policy and
+the broker, rejecting `TIGHTEN_SL_25PCT` / `TIGHTEN_SL_50PCT`
+actions before they reach the executor. The regime gate blocks
+TIGHTEN actions in `calm_trend` regime (lets only `MOVE_SL_TO_BE`
+through); the MFE-floor gate blocks any TIGHTEN whose current MFE is
+less than a configurable fraction of the trade's TP distance.
+Together they prevent the RL from ratcheting stops behind a trend
+on every favorable bar and getting swept on mean-reversion
+pullbacks.
+
+Implemented in `julie001._apply_rl_management_action`. Launcher
+defaults:
+
+```
+JULIE_RL_REGIME_GATE_ACTIVE=1             # default 1 (ON)
+JULIE_RL_MIN_MFE_FRAC_FOR_TIGHTEN=0.50    # MFE/TP ratio floor
+```
+
+Rejected actions emit `[RL_LIVE] status=skipped` log lines with the
+gate name and the relevant scalars so post-hoc audits can identify
+exactly which guard fired.
+
+### Filter state + persistence
+
+`DirectionalLossBlocker`, `CascadeLossBlocker`, and
+`AntiFlipBlocker` all implement the same persistence API
+(`get_state` / `load_state`) and their state round-trips through
+`bot_state.json` across restarts. Stop-out history, cooldown clocks,
+and consecutive-loss counters survive bot restarts cleanly. The RL
+executor gates are stateless (they consult the current trade's
+regime label and live MFE at each call).
+
+All four filters are part of the AI-loop auto-adjust whitelist.
+Activation flags are marked `high_risk` so the applier will not
+flip them without manual confirmation; the numeric tunables
+(windows, distances, counts, MFE thresholds) are auto-adjustable
+within their documented bounds subject to the backtest validator
+gate. See the AI-Loop section below for details.
 
 ---
 
-## Anti-Flip Blocker
+## Regime Classifier
 
-Mechanical filter that rejects a new signal when the opposite side just
-stopped out near the same price. Catches the structural failure mode
-where a SHORT stop-loss gets hit on a breakout and the bot immediately
-fires a LONG at the same price (or vice versa) — two trades wasted
-defending the same micro-structure noise, typically right at the top
-of the move.
+A rolling close-based regime classifier labels the current session
+into one of five states, then mutates configuration and signal
+brackets accordingly. Enabled via `JULIE_REGIME_CLASSIFIER=1`
+(launcher default).
 
-### Rule
+### Regimes
 
-When any trade closes as a stop-out (negative realized PnL and either a
-`stop` / `stop_gap` source tag, or an exit price within 1.5 points of
-the trade's stop price), the module records the timestamp and exit
-price for that side. For the next `JULIE_ANTI_FLIP_WINDOW_MIN` minutes,
-any new OPPOSITE-side signal whose entry is within
-`JULIE_ANTI_FLIP_MAX_DIST_PTS` of the recorded stop price is rejected.
+| Regime | Trigger | Effect |
+|---|---|---|
+| `warmup` | Bootstrap state before enough closes have accumulated | No-op |
+| `dead_tape` | `vol_bp < JULIE_REGIME_DEAD_VOL_BP` (default 1.5) — bottom-percentile volatility | Rewrites signal brackets to TP=3 / SL=5 / BE-trigger=3, forces size=1, disables BE-arm mechanism |
+| `whipsaw` | `vol_bp > 3.5` AND `eff < EFF_LOW` (default 0.05) — violent chop | Raises Kalshi entry-block buffer to 0.25, tightens adaptive circuit breaker |
+| `calm_trend` | `eff > EFF_HIGH` (default 0.12) — directional with moderate/low vol | Raises opposite-reversal confirmation requirement to 5 bars, loosens adaptive CB |
+| `neutral` | Everything else | Restores all config keys to their pre-regime baselines |
 
-The blocker is side-asymmetric and memoryless between sides: a SHORT
-stop-out blocks near-price LONG entries but leaves SHORT re-entries
-alone; conversely a LONG stop-out blocks near-price SHORT entries only.
-A winning exit (take-profit, manual close, reverse, time horizon) never
-records state; only stop-out losses populate the blocker. Once the
-window expires or the next same-side signal is far enough from the
-stop price, the filter stops firing.
+Each transition respects a `TRANSITION_COOLDOWN_BARS` (default 30)
+debounce so the classifier can't oscillate across a single noisy
+print.
 
-### Configuration
+### Dead-tape bracket rewrite
 
-Activated by default via the launcher. All three params are part of
-the AI-loop auto-adjust whitelist; the activation flag is marked
-`high_risk` so the applier will not flip it without manual
-confirmation, while the window and distance tunables are
-auto-adjustable within bounds subject to the backtest validator.
+On bottom-percentile-vol sessions, DE3's default TP=25 / SL=10 / BE-
+at-10pt never activate because the day's max favorable excursion
+only reaches 3-6 points. `apply_dead_tape_brackets` runs inside
+`_signal_birth_hook` (called at every signal-birth site in
+`julie001.py`) and rewrites `tp_dist` / `sl_dist` to scalp values
+before the pct_overlay snapshot or any downstream BE / trail logic
+sees them.
+
+Three additional protections fire together on dead-tape:
+
+1. **Size override.** The signal's `size` field is forced to 1
+   regardless of strategy-internal sizing — a 3-point scalp risk
+   should not be amplified by a 10-contract sizing decision that
+   was calibrated against 25-point TPs.
+2. **BE-arm disabled.** A 3pt BE trigger with a 5pt SL is close
+   enough to current market that slippage at entry plus the BE-move
+   can put the new stop on the wrong side of market, triggering a
+   "crossed stop" force-flatten for a small loss. With BE-arm off,
+   the trade runs to either the 3pt TP or the 5pt SL, no mid-trade
+   management.
+3. **No trail.** Same reasoning as BE-arm disable; the TP is tight
+   enough that trailing produces force-flatten risk without reward.
+
+Env tunables (all read at `regime_classifier.py` import time):
 
 ```
-JULIE_ANTI_FLIP_BLOCKER_ACTIVE=1       # default 1 (ON via launcher)
-JULIE_ANTI_FLIP_WINDOW_MIN=30          # default 30, bounds [5,60]
-JULIE_ANTI_FLIP_MAX_DIST_PTS=8.0       # default 8.0, bounds [2.0,15.0]
+JULIE_REGIME_DEAD_VOL_BP=1.5          # vol-bp below which regime=dead_tape
+JULIE_REGIME_DEAD_TP=3.0              # rewritten tp_dist on dead-tape signals
+JULIE_REGIME_DEAD_SL=5.0              # rewritten sl_dist on dead-tape signals
+JULIE_REGIME_DEAD_BE_TRIGGER=3.0      # reference BE trigger (recorded but BE-arm disabled)
 ```
 
-The module's internal default is OFF — only the launcher activates it.
-Any external caller that imports `AntiFlipBlocker` directly without
-setting the env var gets the safe-OFF behavior.
+### 120-bar startup pre-warm
 
-### Implementation
+The classifier needs at least `WINDOW_BARS` (default 120) recent
+closes before it can emit anything other than `warmup`. At startup,
+`julie001.py` pre-warms the classifier by feeding it the last 120
+historical bars from the bootstrap warmup dataset before the live
+bar feed opens. Without pre-warm the classifier would spend the
+first ~2 hours of live session in `warmup` regardless of tape
+conditions, missing dead_tape / whipsaw / calm_trend detection on
+the most important early part of the session.
 
-| File | Role |
-|---|---|
-| `anti_flip_blocker.py` | The module: `AntiFlipBlocker` + `_NoOpAntiFlipBlocker` |
-| `julie001.py` | Instantiation, state persistence, stop-out recording in the close path, and four entry-path hooks |
-| `tools/ai_loop/config.py` | Three whitelist entries for the AI-loop auto-adjuster |
-| `scripts/backtest_anti_flip_blocker.py` | Configuration sweep harness (operational use) |
+A matching 120-bar pre-warm runs for the `LossFactorGuard` bar
+cache at the same bootstrap point, so the iter-11 risk layer also
+starts the live session with enough context to score the first
+signals.
 
-The blocker mirrors `DirectionalLossBlocker` and `CascadeLossBlocker`'s
-API (`should_block_trade`, `record_trade_close`, `get_state`,
-`load_state`) so it slots into the same entry-path hook points using
-the existing consensus-rescue / rescue-trigger / event-logger
-plumbing. A strong cross-filter consensus can still override it. Each
-block emits a log line that includes the prior stop's timestamp,
-price, and the distance from the new signal.
+Every pre-warmed classifier emits a startup log line including the
+current regime it classified the bootstrap window into:
+
+```
+Regime classifier pre-warmed with 120 historical bars |
+  current regime=dead_tape vol=1.25bp eff=0.027
+```
+
+### Adaptive circuit-breaker per regime
+
+When `JULIE_REGIME_ADAPTIVE_CB=1`, the classifier mutates the
+circuit-breaker's daily loss cap and consecutive-loss limit on each
+regime transition. Tight caps on whipsaw (default $250 / 4 consec),
+medium on neutral ($350 / 5 consec), loose on calm_trend ($500 / 7
+consec). Dead-tape inherits the neutral caps — the scalp brackets
+already constrain per-trade exposure.
 
 ---
 
-## Cascade Loss Blocker
+## Iter-11 Risk Layer
 
-Evidence-gated mechanical circuit breaker that fires on a **time-window
-same-side loss cluster** (distinct from the existing
-`DirectionalLossBlocker`, which counts strictly-consecutive losses with
-no time bound).
+The iter-11 risk layer wraps the loss-cluster filters with two
+additional protections: a per-strategy big-loss classifier (Filter
+G) and a `LossFactorGuard` that tracks loss velocity across the
+session.
 
-### Rule
+### LossFactorGuard
 
-If within a sliding window of `window_minutes`, the bot has experienced
-at least `count` losing trades on a particular SIDE, every new same-side
-entry is rejected for the next `cooldown_minutes` measured from the most
-recent qualifying loss. Each additional same-side loss inside the window
-extends the cooldown — the clock always resets to the latest loss.
+Tracks per-bar loss factor — a rolling ratio of recent drawdown to
+recent gains — and vetoes new entries when the current factor
+exceeds a regime-dependent threshold. Module: `loss_factor_guard.py`.
+Integration hooks in `julie001.py`:
 
-The opposite side is unaffected; LONG losses don't block SHORT entries.
-Wins between losses do not reset the counter (only the window passing
-clears it). This is intentionally different from the
-`DirectionalLossBlocker`'s strictly-consecutive count: the cascade
-blocker is designed to catch *rapid clustering* of losses regardless of
-intervening wins.
+- `init_guard` — one-time setup with regime-specific thresholds.
+- `notify_trend_day` — updates the trend-day context used in the
+  guard's regime classifier.
+- `notify_bar` — per-bar update of the rolling loss cache.
+- `notify_trade_closed` — records the trade's realized outcome so
+  the rolling window reflects genuine loss velocity rather than
+  noise.
+- `should_veto_entry` — the entry-path query; returns a
+  `(vetoed, reason)` tuple read at every signal-birth site.
 
-### Configuration
+A 120-bar startup pre-warm populates the guard's bar cache before
+the live feed opens (same bootstrap path as the regime classifier's
+pre-warm) so the guard can score signals from the first live bar.
 
-The blocker is activated by default in the launcher and tuned via env
-vars. All four are part of the AI-loop auto-adjust whitelist; the
-activation flag is marked `high_risk` so the applier will not flip it
-without manual confirmation, while the count / window / cooldown tunables
-are auto-adjustable within their bounds subject to the standard
-backtest-validator gate.
+### Filter G — per-strategy big-loss classifiers
 
-```
-JULIE_CASCADE_BLOCKER_ACTIVE=1            # default 1 (ON via launcher)
-JULIE_CASCADE_BLOCKER_COUNT=2             # default 2, bounds [2,4]
-JULIE_CASCADE_BLOCKER_WINDOW_MIN=30       # default 30, bounds [10,60]
-JULIE_CASCADE_BLOCKER_COOLDOWN_MIN=30     # default 30, bounds [10,60]
-```
+Four GBT classifiers (one per live strategy: DE3, AetherFlow,
+RegimeAdaptive, MLPhysics) score each signal's probability of
+producing a large loss. Entries are vetoed when `P(big_loss) >=
+threshold` (default 0.35). Artifacts:
 
-The module's internal default is OFF — only the launcher activates it.
-Any external caller that imports `CascadeLossBlocker` directly without
-setting the env var gets the safe-OFF behavior. To disable for a single
-session, `export JULIE_CASCADE_BLOCKER_ACTIVE=0` before launching.
-
-### Implementation
-
-| File | Role |
+| Classifier | Artifact |
 |---|---|
-| `cascade_loss_blocker.py` | The module: `CascadeLossBlocker` + `_NoOpCascadeLossBlocker` |
-| `julie001.py` | Instantiation + state persistence + four entry-path hooks |
-| `tools/ai_loop/config.py` | Four whitelist entries for the AI-loop auto-adjuster |
-| `scripts/backtest_consec_loss_blocker.py` | Configuration sweep harness (operational use) |
+| Machine Learning G — DE3 | `artifacts/signal_gate_2025/model_de3.joblib` |
+| Machine Learning G — AetherFlow | `artifacts/signal_gate_2025/model_aetherflow.joblib` |
+| Machine Learning G — RegimeAdaptive | `artifacts/signal_gate_2025/model_regimeadaptive.joblib` |
+| Machine Learning G — MLPhysics | `artifacts/signal_gate_2025/model_mlphysics.joblib` |
 
-The blocker mirrors `DirectionalLossBlocker`'s API
-(`record_trade_result`, `should_block_trade`, `get_state`, `load_state`)
-so it slots into the same four entry-path hook points using the existing
-consensus-rescue / rescue-trigger / event-logger plumbing — a strong
-cross-filter consensus can still override it. Each block emits a log
-line including the count of recent same-side losses and the remaining
-cooldown.
+The classifiers emit a `[SHADOW_GATE_2025]` log line for every
+candidate signal with the computed probability and the live veto
+decision, so the calibration set accumulates data even when
+upstream filters (Kalshi overlay, filter-check chain) reject the
+signal before Filter G gets consulted.
+
+### Launcher wiring
+
+Iter-11's risk layer is enabled via the default launcher
+environment (`launch_filterless_live.py`). Relevant flags (all set
+to their iter-11 defaults via `os.environ.setdefault`):
+
+```
+JULIE_CB=1                              # circuit breaker
+JULIE_DLB=1                             # directional loss blocker
+JULIE_DD_SCALE=1                        # dynamic drawdown scaling
+JULIE_REGIME_CLASSIFIER=1               # regime classifier
+JULIE_REGIME_ADAPTIVE_CB=1              # per-regime CB thresholds
+JULIE_LOSS_FACTOR_GUARD=1               # LossFactorGuard
+JULIE_CB_MAX_DAILY_LOSS=350             # daily-loss cap
+JULIE_CB_MAX_CONSEC_LOSSES=5            # consecutive-loss cap
+JULIE_CB_MAX_TRAILING_DD=0              # trailing DD cap (0 = off)
+JULIE_SIGNAL_GATE_2025=1                # Filter G primary veto
+```
 
 ---
 
