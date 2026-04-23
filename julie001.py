@@ -2215,13 +2215,32 @@ def _live_signal_confidence(sig: Optional[dict]) -> float:
 
 
 def _live_signal_sort_key(item: tuple[Any, Any, Any, Any]) -> tuple:
+    """Rescue-queue sort key. Returns a tuple; Python sorts ascending
+    so LOWER values sort FIRST = higher effective priority.
+
+    Base priority values: 0=SENTIMENT (best), 1=FAST, 2=STANDARD.
+
+    Triathlon adjustment (since 2026-04-23): if the signal dict carries
+    a `triathlon_priority_delta` (set by `_signal_birth_hook` when the
+    Triathlon Engine is active), we subtract it from the base priority.
+    Triathlon semantics: a POSITIVE delta means "promote" (gold=+1),
+    a NEGATIVE delta means "demote" (bronze=-1, probation=-2). Subtract
+    so that a positive delta produces a smaller effective priority
+    which sorts earlier. Signals without the delta (Triathlon off or
+    cell unrated) add 0 → no change from historical behavior.
+    """
     priority, _strat, signal, strat_name = item
     sig = signal if isinstance(signal, dict) else {}
+    try:
+        medal_delta = int(sig.get("triathlon_priority_delta", 0) or 0)
+    except (ValueError, TypeError):
+        medal_delta = 0
+    adjusted_priority = int(priority) - medal_delta
     strategy_label = str(sig.get("strategy", strat_name) or strat_name)
     sub_strategy = str(sig.get("sub_strategy", sig.get("combo_key", "")) or "")
     side = _normalize_live_side(sig.get("side")) or ""
     return (
-        int(priority),
+        adjusted_priority,
         -_live_signal_confidence(sig),
         strategy_label,
         sub_strategy,

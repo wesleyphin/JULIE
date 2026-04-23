@@ -345,41 +345,42 @@ leagues determines its medal:
 
 | Medal | Rule | Priority delta | Size multiplier |
 |---|---|---:|---:|
-| **gold** | top 20% in at least one league | 0 † | ×1.00 † |
+| **gold** | top 20% in at least one league | +1 | ×1.50 |
 | **silver** | top 50% in at least one league | 0 | ×1.00 |
-| **bronze** | top 80% in at least one league | 0 † | ×1.00 † |
-| **probation** | bottom 20% in **every** league simultaneously | 0 † | ×1.00 † |
+| **bronze** | top 80% in at least one league | −1 | ×1.00 |
+| **probation** | bottom 20% in **every** league simultaneously | −2 | ×0.50 |
 | **unrated** | under min-samples threshold | 0 | ×1.00 |
 
-† **BOTH size multipliers AND priority deltas currently neutralized.**
-Two out-of-sample validations against April 2026 produced honest-zero
-effect signals:
+Priority-delta semantics: a POSITIVE priority_delta promotes the signal
+in the rescue queue (sorts earlier). `_live_signal_sort_key` in
+`julie001.py` subtracts the delta from the base priority so gold's +1
+produces a smaller effective sort priority = sorts first; probation's
+−2 pushes it later. Signals without a delta (Triathlon off, or cell
+unrated) add 0 → no change from the pre-Triathlon sort behavior.
+
+**Honest caveat — the OOS evidence for these effects is weak.** Two
+backtests on April 2026 data showed:
 
 - **Size effects** (`scripts/backtest_triathlon_oos.py`, 644-trade
   April holdout): train-period medal ranking did not reliably predict
-  April per-cell edge — silver and bronze both out-traded gold on avg
-  $/trade in the holdout, the +$267 PnL lift was within sample noise,
-  and max drawdown got worse.
-- **Priority effects** (`scripts/backtest_triathlon_priority.py`,
-  full rescue-queue candidate stream from the April replay log): only
-  5 bars across the whole 20-day tape had genuinely-competing
-  candidates (different strategy or side on the same minute-bar). On
-  every one of those 5 bars, the priority-adjusted sort picked the
-  **same** winner as the baseline sort. Net trade-selection change:
-  0 / 5 bars. Net PnL delta: $0.
-  *(Secondary finding: the live
-  `_live_signal_sort_key` in julie001.py doesn't currently read the
-  `triathlon_priority_delta` field at all — so priority is literally
-  dead code in the current binary. Even with the intended wiring, the
-  backtest showed zero effect.)*
+  April per-cell edge — silver and bronze out-traded gold on avg
+  $/trade in the holdout; the +$267 PnL lift was within sample noise;
+  max DD got worse. Spearman (train-rank → April-value) was 0.27–0.54.
+- **Priority effects** (`scripts/backtest_triathlon_priority.py`, full
+  rescue-queue candidate stream from the April replay): only 5 bars
+  across 20 days had genuinely-competing candidates, and 0 / 5 flipped
+  under the priority-adjusted sort (alphabetical tie-break dominated,
+  or both candidates shared the same medal).
 
-The whole Triathlon infrastructure — ledger, league scoring, medal
-assignment, dashboard, counterfactual resolver, retrain hook — stays
-active and continues recording. Only the live RUNTIME EFFECTS (size
-+ priority multipliers) have been neutralized because the data
-doesn't support them. Both are easily reversible by restoring the
-old values in `MEDAL_EFFECTS` (`triathlon/medals.py`) if a future
-validation shows the medal → decision transfer more clearly.
+The effects were briefly neutralized after those backtests, then
+re-enabled on operator instruction. The rationale for keeping them on
+despite weak OOS signal: the April 2026 tape is a small, one-month
+sample where DE3 dominates and probation is empty; as live data
+accumulates across more regimes, the effects may show clearer
+transfer. Watch the Triathlon dashboard tab's recent-signals stream
+for unexpected behavior, and re-run the backtests after 3+ months of
+fresh live data. Flip back to neutral by setting all priority_deltas
+to 0 and size_mults to 1.0 in `MEDAL_EFFECTS` (`triathlon/medals.py`).
 
 Priority delta is added to the existing priority score the rescue
 queue reads (FAST=2, NORMAL=1, LOOSE=0). Size multiplier is applied

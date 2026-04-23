@@ -44,48 +44,43 @@ BRONZE_PCTILE = 0.80    # top 80%
 
 # ─── runtime effects ───────────────────────────────────────────
 #
-# BOTH size multipliers AND priority deltas are neutralized to 0/1.0
-# as of 2026-04-23 after two out-of-sample validations:
+# Operator-chosen live config (2026-04-23 re-enable):
+#   gold      priority +1, size ×1.50
+#   silver    priority  0, size ×1.00
+#   bronze    priority -1, size ×1.00
+#   probation priority -2, size ×0.50
+#   unrated   priority  0, size ×1.00
 #
-# 1. Size multipliers (`scripts/backtest_triathlon_oos.py`,
-#    April-2026 holdout, 644 trades): train-period medal ranking did
-#    NOT reliably predict April per-cell edge — silver (+$4.29/tr)
-#    and bronze (+$5.12/tr) both beat gold (+$4.17/tr); the +$267
-#    PnL lift was within sample noise with worse DD; Spearman
-#    (train rank → April value) was +0.27 to +0.54, weak to moderate.
+# Priority-delta semantics: a POSITIVE priority_delta promotes the
+# signal (sorts it EARLIER in the rescue queue). The live sort in
+# julie001._live_signal_sort_key subtracts this value from the base
+# priority so gold's +1 produces a smaller sort-priority number,
+# which sorts before peers. Probation's -2 pushes the sort-priority
+# UP so it sorts later (or gets dropped if the queue has more
+# candidates than slots).
 #
-# 2. Priority deltas (`scripts/backtest_triathlon_priority.py`,
-#    April-2026 replay log, full rescue-queue candidate stream):
-#    only 5 bars in the whole 20-day tape had genuinely-competing
-#    candidates (different strategy or side on the same minute).
-#    On every one of those 5 bars, the priority-adjusted sort picked
-#    the SAME winner as the baseline sort — either because both
-#    candidates had the same medal, or because the gold-medal
-#    candidate was ALREADY winning via alphabetical tie-break in the
-#    base sort. Net trade-selection change: 0 / 5 bars. Net PnL
-#    delta: $0.00.
-#
-#    SECONDARY FINDING: the live sort key `_live_signal_sort_key` in
-#    julie001.py doesn't currently read the `triathlon_priority_delta`
-#    field on the signal dict at all — so priority deltas are also
-#    literally dead code in the current binary. Even if the live
-#    wiring gets added later, the backtest shows the effect would be
-#    zero on this tape.
-#
-# The whole Triathlon infrastructure — ledger, scoring, medal
-# assignment, dashboard, counterfactual resolver, retrain hook — stays
-# active. It's earning its keep as observability. The RUNTIME EFFECTS
-# (size × priority) have been neutralized because the data doesn't
-# support them.
-#
-# Reversible: restore the old values in this dict when a future
-# validation shows the medal→decision transfer more clearly.
+# Historical context: both effects were neutralized to 0/1.0 on
+# 2026-04-23 after two OOS validations against April 2026:
+#   - Size effects (scripts/backtest_triathlon_oos.py): train-period
+#     medal ranking didn't reliably predict April per-cell edge —
+#     silver and bronze both out-traded gold; +$267 lift on 644
+#     trades was within sample noise with worse DD.
+#   - Priority effects (scripts/backtest_triathlon_priority.py):
+#     only 5 bars in the whole 20-day April tape had genuinely-
+#     competing candidates, and zero of those 5 flipped under
+#     priority-active sort. (Also: the live sort key didn't consult
+#     priority_delta at all — dead code.)
+# Operator re-enabled on the same date. The live sort key is now
+# wired to consult triathlon_priority_delta so priority effects
+# actually take effect this time. Watch live behavior — if the
+# signal-to-noise continues to look weak after N weeks of live
+# recording, re-run the backtests and consider re-neutralizing.
 MEDAL_EFFECTS: dict[str, dict[str, float]] = {
-    "gold":      {"priority_delta": 0, "size_mult": 1.00},
-    "silver":    {"priority_delta": 0, "size_mult": 1.00},
-    "bronze":    {"priority_delta": 0, "size_mult": 1.00},
-    "probation": {"priority_delta": 0, "size_mult": 1.00},
-    "unrated":   {"priority_delta": 0, "size_mult": 1.00},
+    "gold":      {"priority_delta": +1, "size_mult": 1.50},
+    "silver":    {"priority_delta":  0, "size_mult": 1.00},
+    "bronze":    {"priority_delta": -1, "size_mult": 1.00},
+    "probation": {"priority_delta": -2, "size_mult": 0.50},
+    "unrated":   {"priority_delta":  0, "size_mult": 1.00},
 }
 
 
