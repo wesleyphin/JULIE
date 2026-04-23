@@ -77,6 +77,45 @@ AUTO_ADJUSTABLE_PARAMS: dict[str, dict] = {
         "description": "Whether RL v3 actively steers stops.",
         "high_risk": True,
     },
+    # Cascade loss blocker — time-window loss-cluster veto (separate from
+    # DirectionalLossBlocker which counts strictly-consecutive losses).
+    # Backtest on 2025+2026 (5,237 trades / 370 days) at count=2 /
+    # window=30min / cool=30min showed +$1.1k (2026) and +$4.2k (2025)
+    # lift with lower DD in both. High-risk flag ensures the applier
+    # won't flip it without manual confirmation.
+    "JULIE_CASCADE_BLOCKER_ACTIVE": {
+        "target": "env",
+        "key": "JULIE_CASCADE_BLOCKER_ACTIVE",
+        "dtype": "bool",
+        "bounds": (0, 1),
+        "max_step_delta": 1,
+        "description": "Whether the time-window cascade loss blocker is active.",
+        "high_risk": True,
+    },
+    "JULIE_CASCADE_BLOCKER_COUNT": {
+        "target": "env",
+        "key": "JULIE_CASCADE_BLOCKER_COUNT",
+        "dtype": "int",
+        "bounds": (2, 4),
+        "max_step_delta": 1,
+        "description": "N same-side losses within window that trip the cascade blocker.",
+    },
+    "JULIE_CASCADE_BLOCKER_WINDOW_MIN": {
+        "target": "env",
+        "key": "JULIE_CASCADE_BLOCKER_WINDOW_MIN",
+        "dtype": "int",
+        "bounds": (10, 60),
+        "max_step_delta": 15,
+        "description": "Rolling window length (minutes) for the cascade blocker.",
+    },
+    "JULIE_CASCADE_BLOCKER_COOLDOWN_MIN": {
+        "target": "env",
+        "key": "JULIE_CASCADE_BLOCKER_COOLDOWN_MIN",
+        "dtype": "int",
+        "bounds": (10, 60),
+        "max_step_delta": 15,
+        "description": "Cooldown (minutes) after the most recent qualifying loss.",
+    },
 }
 
 # Absolutely non-auto-adjustable — even if the analyzer proposes, validator

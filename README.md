@@ -15,6 +15,71 @@ This document explains the current Julie bot from a technical perspective:
 It is intentionally focused on the current filterless live stack, because that
 is the path the bot is actually meant to run on.
 
+## What's New (2026-04-23 later) — cascade loss blocker (shipped OFF by default)
+
+Evidence-gated mechanical circuit breaker that fires on a **time-window
+same-side loss cluster** (distinct from the existing
+`DirectionalLossBlocker`, which counts strictly-consecutive losses with
+no time bound).
+
+**Rule**: if within the last `window_minutes` there have been ≥ `count`
+losing trades on the same SIDE, block new same-side entries for
+`cooldown_minutes` after the most recent loss.
+
+**Backtest** (`scripts/backtest_consec_loss_blocker.py`, 24-config sweep
+across 2025 full year + 2026 Jan-Apr, 5,237 trades across 370 trading
+days):
+
+| Config (count / window / cooldown) | 2026 Δ PnL | 2025 Δ PnL | Comment |
+|---|---:|---:|---|
+| 2 / 30min / 30min | **+$1,133** | **+$4,222** | Shipped default; balance of lift + block rate (~11% of trades) |
+| 2 / 60min / 30min | +$1,438 | +$7,181 | Best single-config lift in both tapes |
+| 2 / 15min / 10min | +$469 | +$3,272 | Most conservative; still positive |
+| 3 / 10min / 10min | +$50 | +$2,283 | Barely fires on 2026; existing DirectionalLossBlocker covers this |
+
+Counterfactual confirmed: the blocked trades aggregate to the net loss
+they would have caused (e.g. 2026@30/30: blocked 96 trades, blocked PnL
+= −$1,133 — the entire lift comes from *not* taking a genuinely bad set).
+
+**Ship status**: **OFF BY DEFAULT**. Turn on with `JULIE_CASCADE_BLOCKER_ACTIVE=1`.
+The new blocker does NOT replace `DirectionalLossBlocker`; both run in
+series, each catching a different pattern (cascade = rapid cluster,
+directional = strictly-consecutive string).
+
+**Env flags** (all read at bot startup):
+
+```
+JULIE_CASCADE_BLOCKER_ACTIVE=1                  # default 0 (off)
+JULIE_CASCADE_BLOCKER_COUNT=2                   # default 2, bounds [2,4]
+JULIE_CASCADE_BLOCKER_WINDOW_MIN=30             # default 30, bounds [10,60]
+JULIE_CASCADE_BLOCKER_COOLDOWN_MIN=30           # default 30, bounds [10,60]
+```
+
+**AI-loop integration**: all 4 params are now in the auto-adjust
+whitelist (`tools/ai_loop/config.py`). The activation flag is marked
+`high_risk=True` — applier will refuse to flip it without manual
+confirmation. Tuning params (count / window / cooldown) are safely
+auto-applyable within their bounds with the standard cooldown /
+backtest gate applied.
+
+**Files touched**:
+
+| File | Change |
+|---|---|
+| `cascade_loss_blocker.py` | New module — `CascadeLossBlocker` + `_NoOpCascadeLossBlocker` |
+| `julie001.py` | Instantiation + state persistence + 4 entry-path hooks mirroring `DirectionalLossBlocker` |
+| `tools/ai_loop/config.py` | 4 new whitelist entries (active + 3 tunables) |
+| `scripts/backtest_consec_loss_blocker.py` | New — 24-config sweep with counterfactual |
+| `backtest_reports/consec_loss_blocker_sweep.json` | Results from the sweep |
+
+**Session-level cascade it would catch**: the 2026-04-22 17:06-17:14 cascade
+(3 DE3 `5min_18-21_Long_Rev_T2_SL10_TP25` LONG losses in 8 minutes on
+a 40-pt crash, netting −$354). With `count=2 / window=30 / cool=30`,
+after Loss #2 at +3 min the blocker would cool down LONGs for 30 min,
+saving Loss #3 unambiguously.
+
+---
+
 ## What's New (2026-04-23 update) — AI-loop auto-improver + logs→parquet→analyzer
 
 The late-April 2026 automation wave finished wiring a self-contained,

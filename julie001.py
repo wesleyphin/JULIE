@@ -7480,6 +7480,24 @@ async def run_bot():
         consecutive_loss_limit=3,
         block_minutes=15,
     )
+
+    # Cascade circuit breaker — time-window loss cluster veto, DIFFERENT
+    # from the DirectionalLossBlocker (which counts strictly-consecutive
+    # losses regardless of time). OFF by default; activate with
+    # JULIE_CASCADE_BLOCKER_ACTIVE=1. Backtest on 2025+2026 (5,237 trades /
+    # 370 days) showed count=2 / window=30min / cool=30min adds +$1.1k
+    # (2026) and +$4.2k (2025) with lower DD. See
+    # scripts/backtest_consec_loss_blocker.py.
+    try:
+        from cascade_loss_blocker import CascadeLossBlocker
+        cascade_loss_blocker: Any = CascadeLossBlocker()
+    except Exception as _cascade_exc:
+        logging.warning(
+            "[CascadeBlocker] import failed (%s) — using no-op", _cascade_exc
+        )
+        from cascade_loss_blocker import _NoOpCascadeLossBlocker
+        cascade_loss_blocker = _NoOpCascadeLossBlocker()
+
     impulse_filter = ImpulseFilterCls(lookback=20, impulse_multiplier=2.5)
 
     # === DUAL-FILTER SYSTEM ===
@@ -9011,6 +9029,13 @@ async def run_bot():
         update_mom_rescue_score(trade, pnl_points, close_time)
         update_hostile_day_on_close(trade.get("strategy"), pnl_points, close_time)
         directional_loss_blocker.record_trade_result(trade_side, pnl_points, close_time)
+        # Cascade blocker uses DOLLARS, not points, for the sign check —
+        # points and dollars share sign for a normal close so either works,
+        # but we pass dollars to match its docstring. OFF by default.
+        try:
+            cascade_loss_blocker.record_trade_result(trade_side, pnl_dollars, close_time)
+        except Exception as _cb_exc:  # pragma: no cover — defensive
+            logging.debug("[CascadeBlocker] record_trade_result error: %s", _cb_exc)
         circuit_breaker.update_trade_result(pnl_dollars)
         _lfg_notify_trade_closed(closed_trade)
         _record_live_realized_pnl(live_drawdown_state, pnl_dollars, close_time=close_time)
@@ -9278,6 +9303,10 @@ async def run_bot():
         extension_filter.load_state(persisted_state.get("extension_filter"))
         chop_filter.load_state(persisted_state.get("chop_filter"))
         directional_loss_blocker.load_state(persisted_state.get("directional_loss_blocker"))
+        try:
+            cascade_loss_blocker.load_state(persisted_state.get("cascade_loss_blocker"))
+        except Exception as _cb_exc:  # pragma: no cover — defensive
+            logging.debug("[CascadeBlocker] load_state error: %s", _cb_exc)
         circuit_breaker.load_state(persisted_state.get("circuit_breaker"))
         if penalty_blocker is not None:
             penalty_blocker.load_state(persisted_state.get("penalty_box_blocker"))
@@ -9635,6 +9664,7 @@ async def run_bot():
             "extension_filter": extension_filter.get_state(),
             "chop_filter": chop_filter.get_state(),
             "directional_loss_blocker": directional_loss_blocker.get_state(),
+            "cascade_loss_blocker": cascade_loss_blocker.get_state(),
             "circuit_breaker": circuit_breaker.get_state(),
             "penalty_box_blocker": penalty_blocker.get_state() if penalty_blocker is not None else None,
             "penalty_box_blocker_asia": penalty_blocker_asia.get_state() if penalty_blocker_asia is not None else None,
@@ -13438,6 +13468,14 @@ async def run_bot():
                                         logging.info(f"⛔ CONSENSUS BLOCKED by DirectionalLossBlocker: {dir_reason}")
                                         continue
                             if not consensus_rescued:
+                                casc_blocked, casc_reason = cascade_loss_blocker.should_block_trade(signal['side'], current_time)
+                                if casc_blocked:
+                                    if try_consensus_rescue("CascadeLossBlocker", casc_reason):
+                                        do_execute = True
+                                    else:
+                                        logging.info(f"⛔ CONSENSUS BLOCKED by CascadeLossBlocker: {casc_reason}")
+                                        continue
+                            if not consensus_rescued:
                                 trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
                                 if trend_blocked:
                                     if try_consensus_rescue("TrendFilter", trend_reason):
@@ -13753,6 +13791,11 @@ async def run_bot():
                             dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
                             if dir_blocked:
                                 if not try_rescue_trigger(dir_reason, 'DirectionalLoss'):
+                                    continue
+
+                            casc_blocked, casc_reason = cascade_loss_blocker.should_block_trade(signal['side'], current_time)
+                            if casc_blocked:
+                                if not try_rescue_trigger(casc_reason, 'CascadeLoss'):
                                     continue
 
                             impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])
@@ -14759,6 +14802,14 @@ async def run_bot():
                                 else:
                                     event_logger.log_filter_check("DirectionalLossBlocker", sig['side'], True, strategy=sig.get('strategy', s_name))
 
+                                # Cascade Loss Blocker — time-window loss cluster (OFF by default)
+                                casc_blocked, casc_reason = cascade_loss_blocker.should_block_trade(sig['side'], current_time)
+                                if casc_blocked:
+                                    event_logger.log_filter_check("CascadeLossBlocker", sig['side'], False, casc_reason, strategy=sig.get('strategy', s_name))
+                                    del pending_loose_signals[s_name]; continue
+                                else:
+                                    event_logger.log_filter_check("CascadeLossBlocker", sig['side'], True, strategy=sig.get('strategy', s_name))
+
                                 # Impulse Filter (Prevent catching falling knife / fading rocket ship)
                                 impulse_blocked, impulse_reason = impulse_filter.should_block_trade(sig['side'])
                                 if impulse_blocked:
@@ -15577,6 +15628,14 @@ async def run_bot():
                                             continue
                                         else:
                                             event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], True, strategy=signal.get('strategy', s_name))
+
+                                        # Cascade Loss Blocker — time-window cluster veto (OFF by default)
+                                        casc_blocked, casc_reason = cascade_loss_blocker.should_block_trade(signal['side'], current_time)
+                                        if casc_blocked:
+                                            event_logger.log_filter_check("CascadeLossBlocker", signal['side'], False, casc_reason, strategy=signal.get('strategy', s_name))
+                                            continue
+                                        else:
+                                            event_logger.log_filter_check("CascadeLossBlocker", signal['side'], True, strategy=signal.get('strategy', s_name))
 
                                         tp_dist = signal.get('tp_dist', 15.0)
 
