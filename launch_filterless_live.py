@@ -239,6 +239,15 @@ os.environ.setdefault("JULIE_ANTI_FLIP_BLOCKER_ACTIVE", "1")
 os.environ.setdefault("JULIE_ANTI_FLIP_WINDOW_MIN", "30")
 os.environ.setdefault("JULIE_ANTI_FLIP_MAX_DIST_PTS", "8.0")
 
+# Triathlon Engine — per-cell performance tracking (strategy × regime ×
+# time-bucket) with three leagues (Purity / Cash / Velocity) and a
+# medal-driven size/priority multiplier on live signals. Seeded from
+# 2025 full year + 2026 Jan-Apr historical trades. Records every live
+# signal (fired or blocked) into ai_loop_data/triathlon/ledger.db so
+# the medals stay refreshed as live data accumulates.
+# Disable for a single session with: export JULIE_TRIATHLON_ACTIVE=0
+os.environ.setdefault("JULIE_TRIATHLON_ACTIVE", "1")
+
 os.environ.setdefault("JULIE_REGIME_CB_WHIPSAW", "250")
 os.environ.setdefault("JULIE_REGIME_CB_NEUTRAL", "350")
 os.environ.setdefault("JULIE_REGIME_CB_CALM", "500")

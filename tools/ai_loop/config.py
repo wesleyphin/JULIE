@@ -147,6 +147,18 @@ AUTO_ADJUSTABLE_PARAMS: dict[str, dict] = {
         "max_step_delta": 2.0,
         "description": "Max distance in points from the last stop-out price to trigger the block.",
     },
+    # Triathlon Engine — per-cell medal-driven size/priority.
+    # Activation flag marked high_risk so the applier won't flip it
+    # without manual confirmation.
+    "JULIE_TRIATHLON_ACTIVE": {
+        "target": "env",
+        "key": "JULIE_TRIATHLON_ACTIVE",
+        "dtype": "bool",
+        "bounds": (0, 1),
+        "max_step_delta": 1,
+        "description": "Whether the Triathlon Engine applies medal-driven size/priority effects live.",
+        "high_risk": True,
+    },
 }
 
 # Absolutely non-auto-adjustable — even if the analyzer proposes, validator

@@ -290,6 +290,199 @@ JULIE_SIGNAL_GATE_2025=1                # Filter G primary veto
 
 ---
 
+## Triathlon Engine
+
+A per-cell performance tracker with live feedback into signal sizing
+and priority. Every signal the bot generates is assigned a **cell** —
+the triple of (strategy × regime × time-bucket) — and every cell is
+scored across three leagues. Each cell's best percentile across the
+three leagues determines its **medal**, and the medal maps to a
+multiplier applied to the signal's size and a delta applied to the
+signal's priority on the rescue queue.
+
+The engine is enabled via `JULIE_TRIATHLON_ACTIVE=1` (launcher
+default). It is a non-blocking overlay — if the ledger is unavailable
+or any single recording call fails, the engine fails closed (acts as
+unrated / neutral effects) and live trading continues unaffected.
+
+### Cells
+
+A cell is the triple `(strategy, regime, time_bucket)`:
+
+- **strategy** — the signal's engine: `DynamicEngine3`, `AetherFlow`,
+  `RegimeAdaptive`, or `MLPhysics`.
+- **regime** — from the regime classifier: `whipsaw`, `calm_trend`,
+  `dead_tape`, `neutral`, or `warmup`.
+- **time_bucket** — NY hour-of-day bucket: `pre_open` (04:00-09:30),
+  `morning` (09:30-12:00), `lunch` (12:00-14:00), `afternoon`
+  (14:00-16:00), `post_close` (16:00-17:00), `overnight` (17:00-04:00).
+
+The full cell space has up to 4 × 5 × 6 = 120 cells, though in
+practice many combinations never fire (e.g. MLPhysics during
+`warmup`).
+
+### Three leagues (all higher = better)
+
+- **Purity** — win rate on fired trades in the cell (fraction of
+  trades with `pnl_dollars > 0`). Measures the cell's hit rate.
+- **Cash** — per-contract normalized average PnL in dollars. Measures
+  the cell's dollar edge without penalizing cells that trade smaller
+  sizes (e.g. under the dead-tape size=1 override).
+- **Velocity** — `1 / median_bars_held` for **winning** trades only.
+  Measures how quickly the edge materializes. Losers are excluded
+  because losses hitting SL fast would bias every cell toward fake
+  velocity.
+
+Cells need at least `MIN_SAMPLES` (default 20) fired trades to be
+rated. Below the threshold a cell is marked `unrated` and receives
+neutral medal effects.
+
+### Medal assignment + effects
+
+Each rated cell's rank in each league is converted to a percentile
+(rank / n_rated). The cell's best percentile across the three
+leagues determines its medal:
+
+| Medal | Rule | Priority delta | Size multiplier |
+|---|---|---:|---:|
+| **gold** | top 20% in at least one league | +1 | ×1.50 |
+| **silver** | top 50% in at least one league | 0 | ×1.00 |
+| **bronze** | top 80% in at least one league | −1 | ×0.75 |
+| **probation** | bottom 20% in **every** league simultaneously | −2 | ×0.50 |
+| **unrated** | under min-samples threshold | 0 | ×1.00 |
+
+Priority delta is added to the existing priority score the rescue
+queue reads (FAST=2, NORMAL=1, LOOSE=0). Size multiplier is applied
+to the signal's `size` field at signal birth (rounded to nearest
+integer, floor 1).
+
+The "best percentile" rule lets a cell with a standout league still
+get credit even if the other leagues are middling — e.g. a scalp
+cell with high velocity but modest cash can still be gold. Probation
+is intentionally hard to earn: a cell must be in the bottom 20% in
+every dimension simultaneously, not just one.
+
+### Ledger (sqlite)
+
+`ai_loop_data/triathlon/ledger.db` stores four tables:
+
+| Table | Role |
+|---|---|
+| `signals` | One row per signal (fired or blocked) with strategy, regime, time-bucket, entry price, SL/TP distances, status, and block filter/reason if rejected |
+| `outcomes` | One row per resolved signal: realized PnL, exit source, bars held, and a `counterfactual` flag distinguishing real trades from simulated-for-blocked-signals |
+| `standings` | Per-cell league scores + medal, append-only; one row per (cell_key, scored_at) so historical snapshots are preserved |
+| `current_medals` | The latest per-cell medal assignments — read by the live runtime hot path |
+| `retrain_queue` | Queued retrain requests produced when a strategy's aggregate purity drops across two consecutive scoring runs |
+
+The ledger uses WAL mode so the dashboard and analyzer can read
+concurrently with the bot writing.
+
+### Counterfactual walk-forward
+
+Every blocked signal carries its intended entry price plus the SL
+and TP distances it would have used. The counterfactual resolver
+(`python3 -m triathlon resolve-cf`) walks forward from each blocked
+signal's timestamp through the price parquet (Layer 0 of the AI
+Loop) and determines whether the trade would have hit TP, hit SL,
+or timed out. The resulting simulated PnL is written to the
+`outcomes` table with `counterfactual=True`. League scoring
+excludes counterfactual outcomes from the cash metric by default
+(keeping it tied to real realized PnL), but the dashboard can fold
+them in to visualize what blocks cost.
+
+### Seeding from 2025 + 2026 historical trades
+
+At setup, the engine was seeded from the same historical bundle the
+backtest-consensus journals use: twelve 2025 monthly replays plus the
+2026 Jan-Apr multi-source bundle. The seed classifies each trade's
+regime by replaying its entry timestamp through the same
+`RegimeClassifier._classify` logic the live bot uses, so historical
+cells map onto the current taxonomy.
+
+Run the seed with:
+
+```bash
+python3 -m triathlon seed       # from 2025 + 2026 historical trades
+python3 -m triathlon rescore    # compute standings + assign medals
+python3 -m triathlon medals     # print current standings
+python3 -m triathlon status     # health summary
+```
+
+### Retrain hook
+
+After each rescoring run, `retrain_hook.queue_retrains()` compares
+each strategy's aggregate weighted-average purity across the two
+most recent standings snapshots. If a strategy drops more than
+`PURITY_DROP_THRESHOLD` (default 0.08 absolute), a retrain request
+is queued in the `retrain_queue` table with the drop amount and
+sample size as its reason.
+
+The queue is a signal, not an action — the engine does **not**
+actually retrain models autonomously. A queued entry is visible in
+the dashboard, available via `python3 -m triathlon queue-retrains`,
+and intended to be consumed by a human operator (or an authorized
+scheduled job in the future) who runs the actual retraining.
+
+### Runtime hook (`tools/triathlon_runtime.py`)
+
+A thin adapter the bot imports at startup. Public API:
+
+- `is_active()` — gate reading `JULIE_TRIATHLON_ACTIVE`. All other
+  calls short-circuit to safe defaults when false.
+- `lookup_signal_effects(strategy, regime, time_bucket)` — hot-path
+  point lookup into the cached medal map. Returns
+  `{medal, size_mult, priority_delta, cell_key}`.
+- `record_signal(...)` — persist a fired / blocked signal row.
+  Called from `_signal_birth_hook` at every signal-birth site.
+- `record_outcome(signal_id, pnl_dollars, ...)` — persist the
+  realized outcome when a trade closes.
+- `refresh_medals(force=False)` — reload the cached medal map,
+  throttled to a 5-minute refresh interval.
+
+The adapter lazy-opens the sqlite ledger on first use and fails
+permanently-closed if that open raises — so a missing DB, a bad
+install, or any other startup fault can never break live trading.
+
+### Dashboard tab
+
+The Monte Carlo dashboard's Filterless live view shows a live
+Triathlon Engine section that polls `/triathlon_state.json` every
+10 seconds. The tab renders the medal tally strip, a filterable
+per-cell table (sorted by medal, then cash descending), the last
+50 live signals with their block reasons, and the open retrain
+queue. The state JSON is refreshed by `python3 -m triathlon export`
+(auto-called by `rescore`).
+
+### AI-Loop integration
+
+`JULIE_TRIATHLON_ACTIVE` is in the `AUTO_ADJUSTABLE_PARAMS`
+whitelist, flagged `high_risk` so the applier will refuse to flip
+it without manual confirmation. The other Triathlon parameters
+(medal cutoffs, shaping weights) are compile-time constants in
+`triathlon/medals.py` and `triathlon/leagues.py` — they are
+deliberately outside the auto-adjust whitelist because changing
+them retroactively recategorizes every historical signal.
+
+### Files
+
+| File | Role |
+|---|---|
+| `triathlon/__init__.py` | Package constants (cell-key helpers, time-bucket boundaries) |
+| `triathlon/ledger.py` | SQLite schema + signal/outcome dataclasses + transaction helpers |
+| `triathlon/leagues.py` | Per-league metric computation + ranking |
+| `triathlon/medals.py` | Medal cutoffs, effects, rescoring, live lookup |
+| `triathlon/counterfactual.py` | Forward-walk blocked signals to produce simulated outcomes |
+| `triathlon/seed.py` | Bootstrap from historical `closed_trades.json` bundles |
+| `triathlon/retrain_hook.py` | Purity-drop detection + retrain queue |
+| `triathlon/export.py` | Dashboard JSON exporter |
+| `triathlon/__main__.py` | CLI (`python3 -m triathlon seed/rescore/resolve-cf/medals/status/export/queue-retrains`) |
+| `tools/triathlon_runtime.py` | Thin adapter for `julie001.py` |
+| `montecarlo/.../components/TriathlonTab.tsx` | React tab for the dashboard |
+| `ai_loop_data/triathlon/ledger.db` | The live ledger |
+| `montecarlo/.../public/triathlon_state.json` | Dashboard-polled state snapshot |
+
+---
+
 ## AI-Loop Auto-Improver
 
 A self-contained, safety-gated "AI loop" runs once per weekday during

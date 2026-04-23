@@ -115,8 +115,35 @@ from signal_gate_2025 import (
 )
 
 
+def _triathlon_mark_blocked(signal, filter_name, reason=""):
+    """Flip a Triathlon-recorded signal from 'fired' to 'blocked' when
+    a downstream filter rejects it. Safe no-op when the engine is off
+    or the signal wasn't recorded at birth time."""
+    try:
+        sig_id = signal.get("triathlon_signal_id") if isinstance(signal, dict) else None
+        if not sig_id:
+            return
+        import tools.triathlon_runtime as _tri_mb
+        if not _tri_mb.is_active():
+            return
+        conn = _tri_mb._get_conn()  # internal, safe — returns None if unavailable
+        if conn is None:
+            return
+        conn.execute("BEGIN")
+        try:
+            conn.execute(
+                "UPDATE signals SET status='blocked', block_filter=?, block_reason=? WHERE signal_id=?",
+                (filter_name, str(reason)[:240], sig_id),
+            )
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+    except Exception:
+        pass
+
+
 def _signal_birth_hook(signal):
-    """Called at every signal-birth site. Does three things:
+    """Called at every signal-birth site. Does four things, in order:
       1. On dead_tape regime, rewrite signal tp_dist / sl_dist to scalp
          values (TP=3 / SL=5 by default) before any downstream
          consumer captures them.
@@ -125,6 +152,11 @@ def _signal_birth_hook(signal):
          — runs on every signal regardless of what upstream filters (Kalshi,
          FILTER_CHECK) will do, so we accumulate calibration data for G even
          when Kalshi short-circuits first.
+      4. Triathlon Engine: look up the cell's current medal + effects,
+         apply the size multiplier to signal['size'], stash the medal /
+         priority_delta / cell_key / triathlon_signal_id on the signal
+         dict so later entry-path code and the close path can read them.
+         Gated by JULIE_TRIATHLON_ACTIVE.
     Never raises — all failures silently no-op."""
     # Dead-tape bracket rewrite runs FIRST so the size-cap + shadow-log
     # see the scalp tp_dist / sl_dist values when dead_tape is active.
@@ -138,6 +170,62 @@ def _signal_birth_hook(signal):
         pass
     try:
         _signal_gate_shadow_log(signal)
+    except Exception:
+        pass
+    # Triathlon medal lookup + size/priority effect application.
+    # Runs AFTER dead_tape/size_cap so the recorded size reflects the
+    # final decision. Gated off by default for the pure function;
+    # tools.triathlon_runtime respects JULIE_TRIATHLON_ACTIVE internally.
+    try:
+        import tools.triathlon_runtime as _tri
+        if _tri.is_active():
+            # Figure out current regime (falls back to 'neutral' if the
+            # regime classifier hasn't been initialized yet).
+            try:
+                from regime_classifier import current_regime as _cur_regime
+                _regime = _cur_regime() or "neutral"
+            except Exception:
+                _regime = "neutral"
+            # Time-bucket from signal's embedded ts (if present) or now.
+            import datetime as _dt
+            _ts = signal.get("ts") if isinstance(signal, dict) else None
+            if not isinstance(_ts, _dt.datetime):
+                _ts = _dt.datetime.now(NY_TZ) if "NY_TZ" in globals() else _dt.datetime.now()
+            _h = _ts.hour + _ts.minute / 60.0
+            _bucket = _tri.time_bucket_of(_h)
+            _strat = str(signal.get("strategy") or "Unknown")
+            _effects = _tri.lookup_signal_effects(_strat, _regime, _bucket)
+            # Apply size multiplier (minimum 1 contract).
+            try:
+                _base_size = int(signal.get("size") or 1)
+            except Exception:
+                _base_size = 1
+            _new_size = max(1, int(round(_base_size * float(_effects.get("size_mult", 1.0)))))
+            if _new_size != _base_size:
+                signal["size"] = _new_size
+                signal["triathlon_size_before"] = _base_size
+            signal["triathlon_medal"] = _effects.get("medal")
+            signal["triathlon_priority_delta"] = int(_effects.get("priority_delta", 0))
+            signal["triathlon_cell_key"] = _effects.get("cell_key")
+            signal["triathlon_regime"] = _regime
+            signal["triathlon_bucket"] = _bucket
+            # Persist the signal row now; record_signal returns a signal_id
+            # we stash on the signal dict so the close path can attach the
+            # outcome to the exact same row.
+            _sig_id = _tri.record_signal(
+                strategy=_strat,
+                sub_strategy=str(signal.get("sub_strategy") or signal.get("combo_key") or "") or None,
+                side=str(signal.get("side") or ""),
+                regime=_regime, time_bucket=_bucket,
+                entry_price=float(signal.get("entry_price") or signal.get("price") or 0.0),
+                tp_dist=signal.get("tp_dist"),
+                sl_dist=signal.get("sl_dist"),
+                size=_new_size,
+                status="fired",      # will be flipped to 'blocked' later if a filter rejects
+                ts=_ts,
+            )
+            if _sig_id:
+                signal["triathlon_signal_id"] = _sig_id
     except Exception:
         pass
 
@@ -9138,6 +9226,30 @@ async def run_bot():
             )
         except Exception as _af_exc:  # pragma: no cover — defensive
             logging.debug("[AntiFlipBlocker] record_trade_close error: %s", _af_exc)
+        # Triathlon Engine: write the realized outcome back to the
+        # triathlon ledger against the signal_id the signal-birth hook
+        # stashed on the trade dict. Safe — does nothing if the engine
+        # is inactive or the signal_id wasn't captured.
+        try:
+            import tools.triathlon_runtime as _tri_close
+            _tri_sig_id = trade.get("triathlon_signal_id") if isinstance(trade, dict) else None
+            if _tri_sig_id:
+                _bars_held = None
+                try:
+                    if isinstance(trade.get("entry_time"), datetime.datetime) and isinstance(close_time, datetime.datetime):
+                        _bars_held = max(1, int(round((close_time - trade["entry_time"]).total_seconds() / 60.0)))
+                except Exception:
+                    _bars_held = None
+                _tri_close.record_outcome(
+                    _tri_sig_id,
+                    pnl_dollars=float(pnl_dollars),
+                    pnl_points=float(pnl_points) if pnl_points is not None else None,
+                    exit_source=close_source,
+                    bars_held=_bars_held,
+                    counterfactual=False,
+                )
+        except Exception as _tri_exc:
+            logging.debug("[triathlon] record_outcome error: %s", _tri_exc)
         circuit_breaker.update_trade_result(pnl_dollars)
         _lfg_notify_trade_closed(closed_trade)
         _record_live_realized_pnl(live_drawdown_state, pnl_dollars, close_time=close_time)
@@ -13595,6 +13707,7 @@ async def run_bot():
                                         do_execute = True
                                     else:
                                         logging.info(f"⛔ CONSENSUS BLOCKED by DirectionalLossBlocker: {dir_reason}")
+                                        _triathlon_mark_blocked(signal, 'DirectionalLossBlocker', dir_reason)
                                         continue
                             if not consensus_rescued:
                                 casc_blocked, casc_reason = cascade_loss_blocker.should_block_trade(signal['side'], current_time)
@@ -13603,6 +13716,7 @@ async def run_bot():
                                         do_execute = True
                                     else:
                                         logging.info(f"⛔ CONSENSUS BLOCKED by CascadeLossBlocker: {casc_reason}")
+                                        _triathlon_mark_blocked(signal, 'CascadeLossBlocker', casc_reason)
                                         continue
                             if not consensus_rescued:
                                 _af_entry_px = float(signal.get('entry_price') or signal.get('price') or current_price or 0)
@@ -13612,6 +13726,7 @@ async def run_bot():
                                         do_execute = True
                                     else:
                                         logging.info(f"⛔ CONSENSUS BLOCKED by AntiFlipBlocker: {af_reason}")
+                                        _triathlon_mark_blocked(signal, 'AntiFlipBlocker', af_reason)
                                         continue
                             if not consensus_rescued:
                                 trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
@@ -13929,17 +14044,20 @@ async def run_bot():
                             dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
                             if dir_blocked:
                                 if not try_rescue_trigger(dir_reason, 'DirectionalLoss'):
+                                    _triathlon_mark_blocked(signal, 'DirectionalLossBlocker', dir_reason)
                                     continue
 
                             casc_blocked, casc_reason = cascade_loss_blocker.should_block_trade(signal['side'], current_time)
                             if casc_blocked:
                                 if not try_rescue_trigger(casc_reason, 'CascadeLoss'):
+                                    _triathlon_mark_blocked(signal, 'CascadeLossBlocker', casc_reason)
                                     continue
 
                             _af_entry_px = float(signal.get('entry_price') or signal.get('price') or current_price or 0)
                             af_blocked, af_reason = anti_flip_blocker.should_block_trade(signal['side'], _af_entry_px, current_time)
                             if af_blocked:
                                 if not try_rescue_trigger(af_reason, 'AntiFlip'):
+                                    _triathlon_mark_blocked(signal, 'AntiFlipBlocker', af_reason)
                                     continue
 
                             impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])

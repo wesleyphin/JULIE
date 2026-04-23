@@ -25,6 +25,7 @@ import {
   YAxis,
 } from 'recharts';
 import StatsCard from './components/StatsCard';
+import TriathlonTab from './components/TriathlonTab';
 import {
   FilterlessEvent,
   FilterlessKalshiMetrics,
@@ -1596,6 +1597,10 @@ function FilterlessLiveApp() {
             </div>
           </Panel>
         )}
+
+        <section className="rounded-xl border border-neutral-800 bg-surface shadow-lg">
+          <TriathlonTab />
+        </section>
       </main>
     </div>
   );
