@@ -191,6 +191,17 @@ def validate_all(target_date: date) -> Path:
             rec["validation"] = {"status": "error", "reason": rec["error"]}
             validated.append(rec)
             continue
+        # Advisories: informational only — not auto-applyable by design.
+        # Mark as "info" so applier skips them cleanly and the daily
+        # summary still surfaces them.
+        if rec.get("kind") == "advisory" or rec.get("auto_applyable") is False:
+            rec["validation"] = {
+                "status": "info",
+                "reason": "advisory from backtest prior — manual review only",
+                "mode": "advisory",
+            }
+            validated.append(rec)
+            continue
         validated.append(validate_rec(rec, baseline_trades))
 
     out = VALIDATED_DIR / f"{target_date.isoformat()}.json"
@@ -214,7 +225,8 @@ def main():
     greens = sum(1 for r in data["recommendations"] if r.get("validation", {}).get("status") == "green")
     rejects = sum(1 for r in data["recommendations"] if r.get("validation", {}).get("status") == "reject")
     errors = sum(1 for r in data["recommendations"] if r.get("validation", {}).get("status") == "error")
-    print(f"[validator] greenlit={greens}  rejected={rejects}  errored={errors}")
+    infos = sum(1 for r in data["recommendations"] if r.get("validation", {}).get("status") == "info")
+    print(f"[validator] greenlit={greens}  rejected={rejects}  errored={errors}  info/advisory={infos}")
 
 
 if __name__ == "__main__":

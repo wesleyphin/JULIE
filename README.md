@@ -15,6 +15,119 @@ This document explains the current Julie bot from a technical perspective:
 It is intentionally focused on the current filterless live stack, because that
 is the path the bot is actually meant to run on.
 
+## What's New (2026-04-23 update) — AI-loop auto-improver + logs→parquet→analyzer
+
+The late-April 2026 automation wave finished wiring a self-contained,
+safety-gated "AI loop" that every weekday at **14:30 PT (17:30 ET = 30 min
+into CME maintenance)** reads what the bot did, compares it to long-tape
+backtest consensus, proposes config changes, backtests them, and only
+applies anything that passes a strict safety gate.
+
+### 5-layer stack (`tools/ai_loop/`)
+
+| Layer | Module | What it does |
+|---|---|---|
+| 0 | `price_parquet_updater.py` | Parses `[INFO] Bar: ... \| Price: X` lines from the live log and every replay log, appends new bars to `ai_loop_data/live_prices.parquet` (manifest-tracked, idempotent) |
+| 1 | `journal.py` | Writes today's human-readable markdown journal + structured JSON sidecar: PnL, per-layer block rates, counterfactuals, pattern flags — now also attaches `price_context` (intraday range, trend, per-session range/vol) |
+| 2 | `analyzer.py` | Reads last N daily journals + optional long-tape backtest priors + the price parquet, emits whitelisted param-change recommendations and prior-based structural advisories |
+| 3 | `validator.py` | Fast-backtests each candidate change against the most recent replay's closed_trades; only passes ones that show ≥5% lift and ≤1.2× DD inflation; passes advisories through as `status=info` |
+| 4 | `applier.py` | Applies `status=green` recommendations via env var or joblib payload edit, git-commits with `[AUTO_APPLIED]`, records to audit log |
+| 5 | `monitor.py` | Nightly drift check: if live PnL drops >2σ below backtest forecast over 5 sessions, auto-reverts the most recent change |
+
+### Backtest-consensus journals (`tools/ai_loop/backtest_journal.py`)
+
+A companion to the daily journal that reads one-or-many
+`closed_trades.json` from replay directories and emits the same markdown +
+structured JSON shape as the daily, but aggregated across the full tape.
+Two canonical priors are shipped:
+
+- **`backtest_2025_full`** — 12 monthly replays, **3,552 trades · 288 days · +$6,572 net · PF 1.05**
+- **`backtest_2026_full`** — 8 Jan→Apr replays, **961 trades · 82 days · +$4,052 net · PF 1.12**
+
+Feed them to the analyzer with `--backtest-journal 2026_full --backtest-journal 2025_full`.
+
+### What the priors made visible (repeatable across both years)
+
+1. **SHORT side is structural drag.** 2025: 771 shorts, −$2,731 (WR 47%). 2026: 206 shorts, −$1,393 (WR 50%). LONGs carry the whole stack in both years.
+2. **`Short_Mom` family** is negative in both years (2026: −$1,276 over 63 trades).
+3. **Profit factor < 1.30 in both years** → no threshold nudge will save the bot; it needs structural change (side/session filter or sub-strategy retirement).
+4. **Cascade days (≥3-loss intraday runs) happened on 33% of trading days** across 370 days — justifies a mechanical consecutive-loss circuit breaker, not an ML retrain.
+5. **Session drag shifts with regime**: 2025 hates pre_open + afternoon, 2026 hates lunch — any session filter must be regime-aware.
+
+### The logs→parquet→analyzer signal that fell out of it
+
+Once Layer 0 built `live_prices.parquet` (521,957 bars · 2025-01-01 →
+2026-04-23 · 408 unique days from live + every replay), the analyzer's
+`rule_price_regime_correlates_losses` immediately surfaced a finding the
+journal-only stack couldn't see:
+
+> Best days in both years have **~2× the intraday range** of worst days.
+> The bot needs movement to work — quiet tapes are the drag, not volatile ones.
+
+A follow-up sweep (`scripts/backtest_low_vol_filter.py`) confirmed the
+signal is actionable but regime-specific:
+
+| Tape | Best ex-post threshold | Δ PnL vs baseline | PF base → filtered |
+|---|---|---:|---|
+| 2025 (288d) | skip days w/ intraday range < **30 pts** | **+$1,882** | 1.05 → 1.06 |
+| 2026 ( 82d) | skip days w/ intraday range < **80 pts** | **+$2,120** | 1.12 → 1.25 |
+
+Both years show a real lift at their own regime's threshold; thresholds
+set too aggressively destroy PnL (2025 at 80pt: −$10k; 2026 at 120pt:
+−$3k). A live filter would need to run on a trailing 30-min window and
+use the regime-appropriate threshold — next session's work.
+
+### Safety rails (`tools/ai_loop/config.py`)
+
+Every auto-apply must pass **all** of:
+
+- Whitelisted param (currently 4 entries: `cm_gate_v2_override_threshold`, `JULIE_ML_KALSHI_TP_PNL_THR`, `JULIE_KALSHI_CM_GATE_V2_ACTIVE`, `JULIE_ML_RL_MGMT_ACTIVE`). Side/session/sub-strategy changes are surfaced as *advisories* but are NOT auto-applyable.
+- Inside bounds (e.g. CM gate threshold 0.45-0.80)
+- Step size ≤ `max_step_delta` (e.g. 0.05 per apply)
+- 7-day cooldown per param · ≤2 applies per day global
+- Kill switch: `JULIE_FREEZE_AUTO_CONFIG=1` short-circuits everything
+- Stop-loss: if live DD exceeds $500 in last 48h, freeze for 7 days
+- Backtest gate: ≥5% lift AND DD inflation ≤1.2× on the validator's tape
+
+### Scheduling (`tools/ai_loop/schedule/`)
+
+Launchd plist fires **weekday 14:30 PT (17:30 ET)** — 30 minutes into CME
+futures maintenance, when the bot has written final session state but the
+market is closed so there's no race with live trades:
+
+```bash
+bash tools/ai_loop/schedule/install.sh       # install + load
+bash tools/ai_loop/schedule/uninstall.sh     # remove
+tail -f ai_loop_data/run_daily.log           # observe
+python3 -m tools.ai_loop.run_daily --dry-run # run manually without applying
+```
+
+### Key AI-loop files
+
+| File | Purpose |
+|---|---|
+| `tools/ai_loop/run_daily.py` | Orchestrator that runs all 5 layers |
+| `tools/ai_loop/price_parquet_updater.py` | Layer-0 logs → parquet |
+| `tools/ai_loop/price_context.py` | Parquet loader + per-day / per-window regime helpers |
+| `tools/ai_loop/journal.py` | Layer-1 daily journal (now with `price_context`) |
+| `tools/ai_loop/backtest_journal.py` | Long-tape consensus journal (priors for analyzer) |
+| `tools/ai_loop/analyzer.py` | Layer-2 recommendation engine + 6 rules (2 price-regime-aware) |
+| `tools/ai_loop/validator.py` | Layer-3 backtest-gated validation |
+| `tools/ai_loop/applier.py` | Layer-4 git-committed auto-apply with audit trail |
+| `tools/ai_loop/monitor.py` | Layer-5 drift monitor + auto-revert |
+| `tools/ai_loop/config.py` | Whitelist + safety constants |
+| `tools/ai_loop/state.py` | Persistent state (cooldowns, freeze, pnl history) |
+| `tools/ai_loop/schedule/com.julie.ai_loop.plist` | launchd weekday 14:30 PT trigger |
+| `scripts/backtest_low_vol_filter.py` | Sweep low-vol filter thresholds against the parquet |
+| `ai_loop_data/live_prices.parquet` | 521k bars (2025-01 → current) extracted from logs |
+| `ai_loop_data/journals/` | Daily + backtest-consensus markdown + JSON |
+| `ai_loop_data/recommendations/` | Analyzer output per run |
+| `ai_loop_data/validated/` | Validator output per run |
+| `ai_loop_data/applied/` | Applier output per run (commit SHA, status, reason) |
+| `ai_loop_data/audit.jsonl` | Append-only audit log of every apply attempt |
+
+---
+
 ## What's New (2026-04-22 update)
 
 The late-April 2026 wave promoted three pieces of infrastructure that

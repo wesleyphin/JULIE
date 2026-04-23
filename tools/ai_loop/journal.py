@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .config import ROOT, JOURNALS_DIR
+from . import price_context
 
 LOG_PATH = ROOT / "topstep_live_bot.log"
 BOT_STATE_PATH = ROOT / "bot_state.json"
@@ -298,7 +299,8 @@ def flag_patterns(stats: dict) -> list[str]:
     return flags
 
 
-def render_markdown(stats: dict, summary: dict, breakdown: dict, flags: list[str]) -> str:
+def render_markdown(stats: dict, summary: dict, breakdown: dict, flags: list[str],
+                     price_ctx: dict | None = None) -> str:
     date_s = stats["date"]
     lines = [
         f"# Julie daily journal — {date_s}",
@@ -341,6 +343,33 @@ def render_markdown(stats: dict, summary: dict, breakdown: dict, flags: list[str
             )
     else:
         lines.append("(no closed trades)")
+    if price_ctx:
+        lines.extend([
+            "",
+            "## Price-regime context (from logs → parquet)",
+            "",
+            f"| metric | value |",
+            f"|---|---:|",
+            f"| Bars on record | {price_ctx.get('n_bars', 0)} |",
+            f"| Open / Close | {price_ctx.get('open', '?')} / {price_ctx.get('close', '?')} |",
+            f"| High / Low | {price_ctx.get('high', '?')} / {price_ctx.get('low', '?')} |",
+            f"| Intraday range | **{price_ctx.get('range_pts', '?')} pts** |",
+            f"| Net trend | {price_ctx.get('trend_pts', '?')} pts ({price_ctx.get('trend_dir', '?')}) |",
+            f"| Bar-to-bar vol (σ) | {price_ctx.get('bar_vol_pts', '?')} pts |",
+        ])
+        sessions = price_ctx.get("sessions") or {}
+        if sessions:
+            lines.extend(["", "**Per-session range:**", ""])
+            lines.append("| session | bars | range | trend | vol |")
+            lines.append("|---|---:|---:|---:|---:|")
+            order = ["pre_open","morning","lunch","afternoon","post_close","overnight"]
+            for name in order:
+                if name not in sessions: continue
+                s = sessions[name]
+                lines.append(
+                    f"| {name} | {s['n_bars']} | {s.get('range_pts','?')} | "
+                    f"{s.get('trend_pts','?')} | {s.get('bar_vol_pts','?')} |"
+                )
     lines.extend(["", "## Auto-flagged patterns", ""])
     if flags:
         for fl in flags:
@@ -364,12 +393,19 @@ def write_journal(target_date: date) -> tuple[Path, Path]:
     summary = compute_session_summary(stats)
     breakdown = compute_block_rate_breakdown(stats)
     flags = flag_patterns(stats)
-    md = render_markdown(stats, summary, breakdown, flags)
+    # Price-regime context from the logs→parquet store (may be None if
+    # the updater hasn't been run yet or today's log has no bars).
+    try:
+        pc = price_context.day_context(target_date)
+    except Exception:
+        pc = None
+    md = render_markdown(stats, summary, breakdown, flags, price_ctx=pc)
     structured = {
         "date": target_date.isoformat(),
         "summary": summary,
         "breakdown_by_layer": breakdown,
         "pattern_flags": flags,
+        "price_context": pc,
         "raw_counts": {k: len(v) for k, v in stats.items() if isinstance(v, list)},
         # keep trades for downstream analyzer
         "trades_closed": stats["trades_closed"],

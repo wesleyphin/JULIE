@@ -25,6 +25,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from . import journal, analyzer, validator, applier, monitor
+from . import price_parquet_updater, price_context
 from .config import is_frozen, KILL_SWITCH_ENV, DATA_DIR
 from . import state
 
@@ -39,7 +40,21 @@ def main() -> int:
                     help="Stop after validator (don't run applier or monitor).")
     ap.add_argument("--skip-monitor", action="store_true",
                     help="Don't run the drift monitor.")
+    ap.add_argument(
+        "--backtest-journal",
+        action="append",
+        default=None,
+        help=(
+            "Backtest consensus label(s) to feed the analyzer as priors. "
+            "Repeatable. Default: ['2026_full']. Pass '' to disable."
+        ),
+    )
     args = ap.parse_args()
+    # argparse "append" + "default" would double-add; supply default manually
+    if args.backtest_journal is None:
+        prior_labels = ["2026_full"]
+    else:
+        prior_labels = [lbl for lbl in args.backtest_journal if lbl]
 
     d = (datetime.strptime(args.date, "%Y-%m-%d").date() if args.date
          else date.today())
@@ -53,8 +68,19 @@ def main() -> int:
 
     rc = 0
     try:
+        # ─── Layer 0: Price parquet append (logs → parquet) ─
+        print("Layer 0 · price-parquet updater")
+        try:
+            pu = price_parquet_updater.update_from_logs(verbose=False)
+            print(f"  added {pu['new_rows']:,} new bars  "
+                  f"(total on disk: {pu['total_rows']:,})")
+            # reset cache so downstream rules pick up the new rows
+            price_context.clear_cache()
+        except Exception as exc:
+            print(f"  ! updater error (non-fatal): {type(exc).__name__}: {exc}")
+
         # ─── Layer 1: Journal ─────────────────────────────
-        print("Layer 1 · journal")
+        print("\nLayer 1 · journal")
         md, js = journal.write_journal(d)
         print(f"  wrote {md.name}")
         print(f"  wrote {js.name}")
@@ -63,13 +89,24 @@ def main() -> int:
 
         # ─── Layer 2: Analyzer ────────────────────────────
         print("\nLayer 2 · analyzer")
-        rec_path = analyzer.write_recommendations(d)
+        if prior_labels:
+            print(f"  priors: {prior_labels}")
+        rec_path = analyzer.write_recommendations(d, prior_labels=prior_labels or None)
         rec_data = json.loads(rec_path.read_text())
         n_recs = len(rec_data["recommendations"])
         print(f"  {n_recs} recommendation(s) generated")
         for r in rec_data["recommendations"]:
             if "error" in r:
                 print(f"    ! {r['id']} errored: {r['error']}")
+            elif r.get("kind") == "advisory":
+                findings = r.get("findings")
+                if findings:
+                    detail = f"{len(findings)} structural findings"
+                elif r.get("direction"):
+                    detail = f"price-regime {r['direction']} signal"
+                else:
+                    detail = r.get("rule_id", "advisory")
+                print(f"    ⚑ {r['id']}: ADVISORY ({r.get('prior_label') or r.get('date','?')}) — {detail}")
             else:
                 print(f"    · {r['id']}  {r['param']}  {r.get('current')}→{r.get('proposed')}")
         if n_recs == 0:
@@ -96,7 +133,8 @@ def main() -> int:
         applied_path = applier.apply_all(d, dry_run=args.dry_run)
         ap_data = json.loads(applied_path.read_text())
         for r in ap_data["results"]:
-            print(f"  {r['status']:10s}  {r['param']:45s}  {r['reason']}")
+            param = r.get("param") or f"(advisory:{r.get('rule_id','?')})"
+            print(f"  {r['status']:10s}  {param:45s}  {r['reason']}")
 
         # ─── Layer 5: Monitor ─────────────────────────────
         if not args.skip_monitor:
