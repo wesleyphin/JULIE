@@ -188,6 +188,24 @@ os.environ.setdefault("JULIE_ML_RL_MGMT_ACTIVE", "1")
 # shadow-only ([CM_GATE_V2] log lines still emit for observation).
 os.environ.setdefault("JULIE_KALSHI_CM_GATE_V2_ACTIVE", "1")
 
+# Cascade loss blocker — time-window same-side loss cluster veto.
+# Distinct from DirectionalLossBlocker (which counts strictly-consecutive
+# losses with no time bound). Backtest on 5,237 trades / 370 days
+# (2025 + 2026 Jan-Apr) at the default config (count=2 / window=30min /
+# cool=30min) showed:
+#     2026: +$1,133 vs baseline (PF 1.12→1.17, DD ↓$1.5k)
+#     2025: +$4,222 vs baseline (PF 1.04→1.07, DD ↓$1.1k)
+# Counterfactual confirmed the blocked set is genuinely net-losing
+# (~11% of trades blocked, blocked PnL = exact -lift). Activated by
+# default as of 2026-04-23 after backtest review. Override with
+#     export JULIE_CASCADE_BLOCKER_ACTIVE=0
+# to disable, or change COUNT/WINDOW_MIN/COOLDOWN_MIN to tune. See
+# scripts/backtest_consec_loss_blocker.py for the 24-config sweep.
+os.environ.setdefault("JULIE_CASCADE_BLOCKER_ACTIVE", "1")
+os.environ.setdefault("JULIE_CASCADE_BLOCKER_COUNT", "2")
+os.environ.setdefault("JULIE_CASCADE_BLOCKER_WINDOW_MIN", "30")
+os.environ.setdefault("JULIE_CASCADE_BLOCKER_COOLDOWN_MIN", "30")
+
 os.environ.setdefault("JULIE_REGIME_CB_WHIPSAW", "250")
 os.environ.setdefault("JULIE_REGIME_CB_NEUTRAL", "350")
 os.environ.setdefault("JULIE_REGIME_CB_CALM", "500")

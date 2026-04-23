@@ -15,7 +15,7 @@ This document explains the current Julie bot from a technical perspective:
 It is intentionally focused on the current filterless live stack, because that
 is the path the bot is actually meant to run on.
 
-## What's New (2026-04-23 later) — cascade loss blocker (shipped OFF by default)
+## What's New (2026-04-23 evening) — cascade loss blocker ACTIVATED by default
 
 Evidence-gated mechanical circuit breaker that fires on a **time-window
 same-side loss cluster** (distinct from the existing
@@ -41,19 +41,28 @@ Counterfactual confirmed: the blocked trades aggregate to the net loss
 they would have caused (e.g. 2026@30/30: blocked 96 trades, blocked PnL
 = −$1,133 — the entire lift comes from *not* taking a genuinely bad set).
 
-**Ship status**: **OFF BY DEFAULT**. Turn on with `JULIE_CASCADE_BLOCKER_ACTIVE=1`.
-The new blocker does NOT replace `DirectionalLossBlocker`; both run in
-series, each catching a different pattern (cascade = rapid cluster,
-directional = strictly-consecutive string).
+**Ship status**: **ACTIVE BY DEFAULT** as of 2026-04-23 evening. The
+launcher (`launch_filterless_live.py`) sets
+`JULIE_CASCADE_BLOCKER_ACTIVE=1` via `os.environ.setdefault` — same
+pattern as the v2 CM gate. The new blocker does NOT replace
+`DirectionalLossBlocker`; both run in series, each catching a different
+pattern (cascade = rapid cluster within a sliding window, directional =
+strictly-consecutive string with no time bound).
 
-**Env flags** (all read at bot startup):
+**Env flags** (read at bot startup; launcher provides the defaults):
 
 ```
-JULIE_CASCADE_BLOCKER_ACTIVE=1                  # default 0 (off)
+JULIE_CASCADE_BLOCKER_ACTIVE=1                  # default 1 (ON via launcher)
 JULIE_CASCADE_BLOCKER_COUNT=2                   # default 2, bounds [2,4]
 JULIE_CASCADE_BLOCKER_WINDOW_MIN=30             # default 30, bounds [10,60]
 JULIE_CASCADE_BLOCKER_COOLDOWN_MIN=30           # default 30, bounds [10,60]
 ```
+
+**Disable** with `export JULIE_CASCADE_BLOCKER_ACTIVE=0` before launching
+(or globally freeze AI-loop config with `export JULIE_FREEZE_AUTO_CONFIG=1`).
+The module's internal default remains `False` — only the launcher activates
+it. So an external script that imports `CascadeLossBlocker` directly without
+setting the env var still gets the safe-OFF behavior.
 
 **AI-loop integration**: all 4 params are now in the auto-adjust
 whitelist (`tools/ai_loop/config.py`). The activation flag is marked
