@@ -103,7 +103,18 @@ def export_state(
     medal_order = {"gold": 0, "silver": 1, "bronze": 2, "probation": 3, "unrated": 4}
     cells.sort(key=lambda c: (medal_order.get(c["medal"], 9), -(c.get("cash") or 0)))
 
-    # Recent live signals
+    # Recent live signals.
+    #
+    # IMPORTANT: only show signals that either:
+    #   (a) have a paired outcome row  → executed trade (closed)
+    #   (b) are explicitly tagged `blocked`  → known block
+    # Signals in status='fired' with NO outcome are near-certainly
+    # SIGNAL-BIRTH recordings that got dropped by downstream filters
+    # (single-position-at-a-time, Kalshi, impulse, regime) that aren't
+    # instrumented to flip status → 'blocked'. Showing those in the
+    # dashboard would imply trades happened that never reached the
+    # broker — we filter them out so the Recent Signals list matches
+    # what the operator sees on Topstep.
     recent = [
         dict(row)
         for row in conn.execute(
@@ -115,12 +126,29 @@ def export_state(
             FROM signals s
             LEFT JOIN outcomes o ON o.signal_id = s.signal_id
             WHERE s.source_tag = 'live'
+              AND (o.signal_id IS NOT NULL OR s.status = 'blocked')
             ORDER BY s.ts DESC
             LIMIT ?
             """,
             (recent_signal_limit,),
         )
     ]
+
+    # Separate counts for transparency: TOTAL signals recorded vs how
+    # many were genuine executed trades (have outcome row). These
+    # numbers disagree because DE3 fires candidate-level signals every
+    # bar while a trade is open, all of which the signal-birth hook
+    # records as "fired" even though only one became an order.
+    counts_live = conn.execute(
+        """SELECT
+            SUM(CASE WHEN s.source_tag='live' THEN 1 ELSE 0 END)           AS n_live_total,
+            SUM(CASE WHEN s.source_tag='live' AND o.signal_id IS NOT NULL
+                     THEN 1 ELSE 0 END)                                     AS n_live_executed,
+            SUM(CASE WHEN s.source_tag='live' AND s.status='blocked'
+                     THEN 1 ELSE 0 END)                                     AS n_live_blocked
+           FROM signals s LEFT JOIN outcomes o ON o.signal_id = s.signal_id
+        """
+    ).fetchone()
 
     # Retrain queue
     retrain_open = conn.execute(
@@ -150,6 +178,14 @@ def export_state(
             "n_fired_all": n_fired_all,
             "n_blocked_all": n_blocked_all,
             "retrain_queue_open": retrain_open,
+            # Live-only counts for the dashboard's transparency note.
+            # n_live_executed is the count that matches Topstep trade
+            # history; n_live_total - n_live_executed is the gap
+            # between "DE3 wanted to fire" and "Topstep registered a
+            # trade" (mostly single-position-at-a-time suppression).
+            "n_live_total": int(counts_live["n_live_total"] or 0),
+            "n_live_executed": int(counts_live["n_live_executed"] or 0),
+            "n_live_blocked_flagged": int(counts_live["n_live_blocked"] or 0),
         },
         "cells": cells,
         "recent_signals": recent,

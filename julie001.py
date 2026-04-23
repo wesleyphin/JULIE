@@ -3734,6 +3734,20 @@ def _build_live_active_trade(
         "rescue_from_sub_strategy": signal.get("rescue_from_sub_strategy"),
         "trend_day_tier": signal.get("trend_day_tier"),
         "trend_day_dir": signal.get("trend_day_dir"),
+        # Triathlon Engine: carry the signal-birth ID + cell metadata
+        # through to the trade dict so the trade-close path can write
+        # the realized outcome back against the correct signal row.
+        # Without this, `record_outcome` at close time has no signal_id
+        # to anchor to and the outcome is silently dropped — which is
+        # the bug that kept live Topstep trades from showing up in the
+        # Triathlon dashboard until now.
+        "triathlon_signal_id":      signal.get("triathlon_signal_id"),
+        "triathlon_medal":          signal.get("triathlon_medal"),
+        "triathlon_cell_key":       signal.get("triathlon_cell_key"),
+        "triathlon_regime":         signal.get("triathlon_regime"),
+        "triathlon_bucket":         signal.get("triathlon_bucket"),
+        "triathlon_priority_delta": signal.get("triathlon_priority_delta"),
+        "triathlon_size_before":    signal.get("triathlon_size_before"),
         "de3_trade_management_enabled": de3_trade_management_enabled,
         "de3_break_even_enabled": de3_break_even_enabled,
         "de3_break_even_activate_on_next_bar": bool(

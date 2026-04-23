@@ -60,7 +60,14 @@ type TriathlonState = {
   n_cells_total: number;
   n_cells_rated: number;
   medal_counts: Record<string, number>;
-  totals: { n_fired_all: number; n_blocked_all: number; retrain_queue_open: number };
+  totals: {
+    n_fired_all: number;
+    n_blocked_all: number;
+    retrain_queue_open: number;
+    n_live_total?: number;         // live signal-birth records (may far exceed executed)
+    n_live_executed?: number;      // signals with paired outcome = Topstep-registered trades
+    n_live_blocked_flagged?: number;
+  };
   cells: CellRow[];
   recent_signals: RecentSignal[];
   retrain_queue: RetrainEntry[];
@@ -139,8 +146,13 @@ export function TriathlonTab(): React.ReactElement {
       <div style={{ marginBottom: 8, fontSize: 12, color: '#888' }}>
         generated {new Date(state.generated_at).toLocaleString()} ·{' '}
         {state.n_cells_rated} / {state.n_cells_total} cells rated ·{' '}
-        {state.totals.n_fired_all.toLocaleString()} fired ·{' '}
-        {state.totals.n_blocked_all.toLocaleString()} blocked
+        {state.totals.n_fired_all.toLocaleString()} signal-birth records ·{' '}
+        {state.totals.n_blocked_all.toLocaleString()} tagged-blocked
+        {state.totals.n_live_executed !== undefined && (
+          <> · <strong style={{ color: '#7ecb70' }}>
+            {state.totals.n_live_executed.toLocaleString()} executed live
+          </strong></>
+        )}
       </div>
 
       {/* Medal tally strip */}
@@ -243,14 +255,30 @@ export function TriathlonTab(): React.ReactElement {
         </table>
       </div>
 
-      {/* Recent signals */}
+      {/* Recent signals — only executed trades + explicitly-blocked signals */}
       <h3 style={{ color: '#fff', marginTop: 8 }}>
-        Recent live signals ({state.recent_signals.length})
+        Recent executed trades + blocked signals ({state.recent_signals.length})
       </h3>
+      <div style={{ fontSize: 12, color: '#888', marginBottom: 8, lineHeight: 1.4 }}>
+        Only rows that matched a paired trade-close outcome OR were explicitly
+        tagged blocked are shown — these are the events that actually reached
+        Topstep (or were rejected by an instrumented filter). Bar-level
+        candidate signals that DE3 emitted while a position was already open
+        (single-position suppression) or that were rejected by non-instrumented
+        filters (Kalshi, impulse, regime) are omitted because they never became
+        trades.
+        {state.totals?.n_live_total !== undefined && state.totals?.n_live_executed !== undefined && (
+          <> Live-feed counters:&nbsp;
+            <strong>{state.totals.n_live_total}</strong> signal-birth records,&nbsp;
+            <strong>{state.totals.n_live_executed}</strong> matched an executed trade,&nbsp;
+            <strong>{state.totals.n_live_blocked_flagged ?? 0}</strong> explicitly blocked.
+          </>
+        )}
+      </div>
       {state.recent_signals.length === 0 ? (
         <div style={{ fontSize: 13, color: '#888' }}>
-          No live signals recorded yet. The engine begins recording when the bot
-          (with <code>JULIE_TRIATHLON_ACTIVE=1</code>) emits its next signal.
+          No executed trades or flagged-blocked signals recorded yet since the
+          Triathlon Engine's last activation.
         </div>
       ) : (
         <div style={{ overflowX: 'auto', marginBottom: 24 }}>
