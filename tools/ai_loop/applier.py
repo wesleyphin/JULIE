@@ -136,6 +136,18 @@ def apply_one(rec: dict, dry_run: bool = False) -> dict:
     }
 
     # Kill switches
+    # JULIE_AILOOP_APPLY (2026-04-24): default-OFF kill switch.
+    # Distinct from JULIE_FREEZE_AUTO_CONFIG (which is opt-IN freeze) —
+    # this one is opt-IN unfreeze. Even if JULIE_FREEZE_AUTO_CONFIG is
+    # unset, the applier refuses to write unless JULIE_AILOOP_APPLY=1.
+    # Journaling (analyzer, validator, audit log) is untouched — this
+    # kill switch only blocks the write+commit+state mutation.
+    import os as _os
+    if _os.environ.get("JULIE_AILOOP_APPLY", "0").strip() != "1":
+        result["status"] = "skipped"
+        result["reason"] = "JULIE_AILOOP_APPLY=0 — auto-apply disabled (journaling-only mode)"
+        _audit(result)
+        return result
     if is_frozen():
         result["status"] = "skipped"
         result["reason"] = f"JULIE_FREEZE_AUTO_CONFIG is set"

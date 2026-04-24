@@ -147,6 +147,14 @@ os.environ.setdefault("JULIE_REGIME_ML_BE", "1")         # Model C v6 SHIPPED (A
 #   scripts/regime_ml/train_sameside.py docstring.
 os.environ.setdefault("JULIE_SAMESIDE_ML", "1")                        # Model SHIPPED
 os.environ.setdefault("JULIE_SAMESIDE_ML_MAX_CONTRACTS", "2")          # hard cap
+#
+# Auto-write kill switches (2026-04-24): disable every path that
+# writes to config.py / joblib / retrain_queue automatically. Keep
+# all JOURNALING / telemetry / ledger inserts / log analysis intact.
+# Rollback any individual switch with `export <FLAG>=1` at runtime.
+os.environ.setdefault("JULIE_FREEZE_AUTO_CONFIG", "1")                 # AI-loop: global freeze (pre-existing switch)
+os.environ.setdefault("JULIE_AILOOP_APPLY", "0")                       # AI-loop applier: NEW default-off switch
+os.environ.setdefault("JULIE_TRIATHLON_RETRAIN_QUEUE", "0")            # retrain_hook: journal-only mode
 os.environ.setdefault("JULIE_LFG_CHART_VETO", "0")             # filter F OFF
 #
 # Filter G ON (primary veto layer for 2025+ regime):

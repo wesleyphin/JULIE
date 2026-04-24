@@ -17,6 +17,7 @@ authorization) makes the decision to actually retrain.
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
@@ -31,6 +32,13 @@ a strategy that was hitting 60% drops to ≤52%."""
 
 COOLDOWN_DAYS = 3
 """Don't re-queue a retrain for the same strategy within this window."""
+
+# Queue-write kill switch (2026-04-24): when not explicitly '1', the
+# `queue_retrains` function still RUNS detection + logs each candidate,
+# but SKIPS the INSERT into retrain_queue. This keeps the monitoring
+# channel (purity drops get journaled) without committing a retrain
+# request to persistent state. `strategies_to_retrain` is untouched.
+_QUEUE_WRITES_ENABLED = os.environ.get("JULIE_TRIATHLON_RETRAIN_QUEUE", "0").strip() == "1"
 
 
 def strategies_to_retrain(conn: sqlite3.Connection) -> list[dict]:
@@ -134,10 +142,22 @@ def queue_retrains(
             f"purity_drop {c['prev_purity']:.3f}→{c['cur_purity']:.3f} "
             f"(Δ={c['drop']:.3f}, n={c['n_signals']})"
         )
+        queue_ts = now.isoformat()
+        if not _QUEUE_WRITES_ENABLED:
+            # Journaling-only mode: log the detection but DON'T write to
+            # retrain_queue. Operator can still see the signal via log
+            # output or by running `python3 -m triathlon queue-retrains`
+            # to list candidates.
+            logging.info(
+                "[triathlon.retrain-hook] DETECTED degradation (not queued — "
+                "JULIE_TRIATHLON_RETRAIN_QUEUE=0): %s | %s", strat, reason,
+            )
+            queued.append({"strategy": strat, "queue_ts": queue_ts,
+                            "reason": reason, "queued_to_db": False})
+            continue
         # Queue one entry per cell_key prefix (we use strategy|* as a
         # strategy-wide retrain marker; cells are scoped via the
         # strategy prefix).
-        queue_ts = now.isoformat()
         conn.execute(
             """INSERT OR REPLACE INTO retrain_queue
                (cell_key, queued_at, reason, status, completed_at, notes)
@@ -145,7 +165,8 @@ def queue_retrains(
             (f"{strat}|_ANY_REGIME|_ANY_BUCKET",
              queue_ts, reason, "queued", None, None),
         )
-        queued.append({"strategy": strat, "queue_ts": queue_ts, "reason": reason})
+        queued.append({"strategy": strat, "queue_ts": queue_ts,
+                        "reason": reason, "queued_to_db": True})
     return queued
 
 
