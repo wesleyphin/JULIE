@@ -132,7 +132,7 @@ os.environ.setdefault("JULIE_REGIME_GREEN_UNLOCK_SIZE", "3")
 #     regressed by $11k when stacked with A → kept on RULE.
 #   - Model C (BE-arm disable): killed on own gates → kept on RULE.
 # Disable individually with: export JULIE_REGIME_ML_BRACKETS=0
-os.environ.setdefault("JULIE_REGIME_ML_BRACKETS", "1")   # Model A SHIPPED
+os.environ.setdefault("JULIE_REGIME_ML_BRACKETS", "1")   # Model A SHIPPED (HGB-only payload, thr=0.50)
 os.environ.setdefault("JULIE_REGIME_ML_SIZE", "0")       # Model B killed in combined
 os.environ.setdefault("JULIE_REGIME_ML_BE", "0")         # Model C killed
 os.environ.setdefault("JULIE_LFG_CHART_VETO", "0")             # filter F OFF
