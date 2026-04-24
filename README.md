@@ -260,16 +260,48 @@ LightGBM OpenMP conflicts. B v6 and C v6 artifacts live at
 `artifacts/regime_ml_v6_size/` and `artifacts/regime_ml_v6_be/`.
 
 **Reproducible trainer kit**: `scripts/regime_ml/` contains standalone,
-argparse-driven, LightGBM-free trainers for all three models plus a
+argparse-driven, LightGBM-free trainers for all four models plus a
 diagnostic. One command per model:
 ```bash
 python3 scripts/regime_ml/train_model_a.py   # scalp brackets
 python3 scripts/regime_ml/train_model_b.py   # size reduction (needs A shipped)
 python3 scripts/regime_ml/train_model_c.py   # BE disable (needs A shipped)
+python3 scripts/regime_ml/train_sameside.py  # same-side stack-or-suppress (reads replay logs)
 python3 scripts/regime_ml/diagnose.py        # re-verify ship gates
 ```
-See `scripts/regime_ml/README.md` for full documentation, ship gates,
+See `scripts/regime_ml/README.md` for full documentation, ship gates
+(including the documented DD/PnL-ratio gate substitution for SameSide),
 and rollback flags.
+
+### SameSide stack-or-suppress ML (shipped 2026-04-24)
+
+Replaces the hard rule at `julie001.py:14659` ("Ignoring same-side
+signal") with an HGB classifier that decides `stack` (add 1 contract,
+capped at 2 total) vs `suppress` (existing behavior). 6h counterfactual
+showed 64.5% WR on same-side blocks — real opportunity cost.
+
+| metric | value |
+|---|---|
+| Training events | 19,546 (from 2025 replay logs) |
+| OOS events | 913 (2026-01-27 → 2026-04-20) |
+| Ship threshold | 0.50 |
+| OOS stacks taken | 377 |
+| OOS WR | 58.1% |
+| OOS PnL lift | +$3,320 |
+| OOS MaxDD | $590 |
+| **DD/PnL ratio** | **17.8%** (gate ≤ 30%) |
+| Oracle capture | 23.4% (of $14,169 perfect-stack) |
+
+Safety:
+- `JULIE_SAMESIDE_ML_MAX_CONTRACTS=2` hard cap — ML never pushes beyond 2 stacked contracts
+- Existing Kalshi / CircuitBreaker / regime_veto / LossFactorGuard gates still run after ML approves the stack
+- `JULIE_SAMESIDE_ML=0` env flag restores the original hard-block rule
+
+Gate-2 documentation: the originally-specified "DD ≤ 110% × baseline_DD"
+gate was unsatisfiable because baseline suppress-all has DD=$0. User
+redefined to "DD/PnL ratio ≤ 30%" as the risk-adjusted equivalent —
+full audit trail preserved in `scripts/regime_ml/train_sameside.py`
+docstring and the ship commit.
 
 Live wiring: `regime_classifier._features_with_a_pred()` runs Model A
 first, then appends `a_pred_scalp` to the feature dict before predicting

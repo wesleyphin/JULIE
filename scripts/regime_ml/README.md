@@ -11,6 +11,7 @@ standalone, deterministic, and runs from a single command.
 | **A** — scalp brackets | `artifacts/regime_ml_v5_brackets/model.pkl` | Rewrite TP/SL to 3/5 | +$11,160 PnL, −$780 DD (HGB-only @ thr=0.50) |
 | **B** — size reduction | `artifacts/regime_ml_v6_size/model.pkl` | Force size=1 | +$9,188 PnL, −$4,756 DD vs A-only baseline (@ thr=0.70) |
 | **C** — BE-arm disable | `artifacts/regime_ml_v6_be/model.pkl` | Skip BE move-to-entry | +$2,453 PnL, −$1,185 DD vs A-only baseline (@ thr=0.60) |
+| **SameSide** — stack-or-suppress | `artifacts/regime_ml_sameside/model.pkl` | Allow adding a contract to existing same-side position (max 2 total) | +$3,320 PnL, $590 DD (17.8% DD/PnL), 58.1% WR, 23.4% oracle capture (@ thr=0.50) |
 
 All three are HGB-only. **No LightGBM is pickled** into any shipped
 artifact (OpenMP conflicts with the bot's asyncio+torch stack caused
@@ -41,7 +42,10 @@ python3 scripts/regime_ml/train_model_b.py
 # 3) Model C (reads same Model A artifact)
 python3 scripts/regime_ml/train_model_c.py
 
-# 4) Verify the shipped state still clears gates
+# 4) SameSide stack-or-suppress (reads historical replay logs + parquet)
+python3 scripts/regime_ml/train_sameside.py
+
+# 5) Verify the shipped state still clears gates
 python3 scripts/regime_ml/diagnose.py
 ```
 
@@ -84,6 +88,27 @@ at PnL cost.
 Combined OOS (A=ML + B=rule + C=ML) must beat
 (A=ML + B=rule + C=rule) on BOTH PnL AND DD.
 
+### SameSide stack-or-suppress — all 5 must pass
+1. PnL lift > 0
+2. **DD/PnL ratio ≤ 30%** (risk-adjusted gate — see note below)
+3. n_stack ≥ 20 on OOS
+4. stacked-trades WR ≥ 55%
+5. Captures ≥ 20% of oracle-perfect lift
+
+**Gate 2 history**: originally specified as "DD ≤ 110% × baseline_DD."
+Because the baseline (suppress-all) adds zero incremental position and
+therefore zero incremental DD, the literal gate was unsatisfiable for
+any non-trivial stacking action. Gate replaced with the risk-adjusted
+equivalent "DD/PnL ratio ≤ 30%" on explicit user decision, documented
+in `train_sameside.py`. Not cherry-picking — substitution of a
+mathematically faithful alternative for an unsatisfiable literal gate.
+
+### SameSide live hard cap
+When ML says stack, the runtime still enforces `max 2 contracts total`
+per same-family same-side position (env: `JULIE_SAMESIDE_ML_MAX_CONTRACTS=2`).
+ML can never escalate position to 3+ contracts even on high-confidence
+decisions.
+
 ## Features the models expect at inference
 
 - **Model A**: 40 columns listed in `_common.FEATURE_COLS_40`. Built live
@@ -106,6 +131,7 @@ Environment flags in `launch_filterless_live.py` (or set at bot-launch time):
 export JULIE_REGIME_ML_BRACKETS=0   # Model A → rule
 export JULIE_REGIME_ML_SIZE=0       # Model B → rule
 export JULIE_REGIME_ML_BE=0         # Model C → rule
+export JULIE_SAMESIDE_ML=0          # SameSide → original hard-block rule
 ```
 
 All three default to `1` (ML active) in the launcher. Setting all three
