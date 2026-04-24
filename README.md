@@ -259,6 +259,18 @@ All three models (A v5, B v6, C v6) are HGB-only payloads to prevent
 LightGBM OpenMP conflicts. B v6 and C v6 artifacts live at
 `artifacts/regime_ml_v6_size/` and `artifacts/regime_ml_v6_be/`.
 
+**Reproducible trainer kit**: `scripts/regime_ml/` contains standalone,
+argparse-driven, LightGBM-free trainers for all three models plus a
+diagnostic. One command per model:
+```bash
+python3 scripts/regime_ml/train_model_a.py   # scalp brackets
+python3 scripts/regime_ml/train_model_b.py   # size reduction (needs A shipped)
+python3 scripts/regime_ml/train_model_c.py   # BE disable (needs A shipped)
+python3 scripts/regime_ml/diagnose.py        # re-verify ship gates
+```
+See `scripts/regime_ml/README.md` for full documentation, ship gates,
+and rollback flags.
+
 Live wiring: `regime_classifier._features_with_a_pred()` runs Model A
 first, then appends `a_pred_scalp` to the feature dict before predicting
 B and C. Default all env flags enabled (`JULIE_REGIME_ML_{BRACKETS,SIZE,BE}=1`).
