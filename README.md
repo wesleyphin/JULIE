@@ -186,6 +186,58 @@ JULIE_REGIME_DEAD_SL=5.0              # rewritten sl_dist on dead-tape signals
 JULIE_REGIME_DEAD_BE_TRIGGER=3.0      # reference BE trigger (recorded but BE-arm disabled)
 ```
 
+### Regime-ML action-space decomposition (v5, shipped 2026-04-24)
+
+The legacy `apply_dead_tape_brackets` coupled three actions — scalp bracket
+rewrite, size→1, BE-arm off — behind a single vol_bp<1.5 threshold. v5
+decomposes these into three independently-gated functions (`apply_scalp_brackets`,
+`apply_size_reduction`, `apply_be_disable`) so each action can be driven by
+its own ML model or fall back to the rule.
+
+Training: HGB + LightGBM ensemble with cost-sensitive class weights,
+40 features (vol_bp at 5 lookbacks, vol slopes, ATR, range/body stats,
+momentum, volume-z, session timing, cross-strategy proxies).
+Outcome-labeled over 15-minute forward windows on 2024-07 → 2026-01
+training / 2026-01-27 → 2026-04-20 OOS holdout.
+
+Ship-or-kill per model against strict gates:
+
+| Model | Action | Verdict | OOS lift (April) |
+|---|---|---|---|
+| A — scalp brackets | rewrite TP/SL to 3/5 | **SHIP** @ thr=0.70 | +$3,916 PnL vs rule, DD $2,001 ≤ $2,442 |
+| B — size reduction | force size=1 | KILL in combined | passed alone but regressed PnL -$11k when stacked with A |
+| C — BE-arm disable | skip BE move-to-entry | KILL | lost at every threshold |
+
+Combined A=ML, B=rule, C=rule on April OOS: **+$35,979 PnL vs rule-all
++$23,635 (+$12,343 lift, -$2,526 DD)**. Both combined gates pass.
+
+Env flags in `launch_filterless_live.py`:
+
+```
+JULIE_REGIME_ML_BRACKETS=1    # Model A shipped (set to 0 to revert to rule)
+JULIE_REGIME_ML_SIZE=0        # Model B kept on rule fallback
+JULIE_REGIME_ML_BE=0          # Model C kept on rule fallback
+```
+
+When `JULIE_REGIME_ML_BRACKETS=1`, `apply_scalp_brackets` queries the
+HGB+LightGBM ensemble at every signal-birth using a feature snapshot
+built from the classifier's 520-bar OHLCV history (`record_bar` called
+from julie001's per-bar hook). If the ensemble's dead_tape probability
+≥ 0.70, brackets rewrite to 3/5; otherwise the rule's vol_bp<1.5 check
+applies.
+
+Artifacts: `artifacts/regime_ml_v5_brackets/model.pkl` (ensemble
+payload) + `feature_order.json` (feature schema + threshold).
+Training script: `scripts/ml_regime_v5_three_models.py`. OOS metrics:
+`artifacts/regime_ml_v5_summary.json`.
+
+Previously killed attempts preserved for audit:
+`scripts/ml_regime_classifier.py` (v1 supervised-on-rules),
+`ml_regime_classifier_v2.py` (outcome-labeled per-bar),
+`ml_regime_classifier_v3.py` (confidence-thresholded hybrid),
+`ml_regime_classifier_v4.py` (stacked improvements — identified that
+coupled action space was blocking a real +$3,193 lift).
+
 ### 120-bar startup pre-warm
 
 The classifier needs at least `WINDOW_BARS` (default 120) recent
