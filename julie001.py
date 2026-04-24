@@ -10248,14 +10248,31 @@ async def run_bot():
         from regime_classifier import get_regime_classifier as _get_rc
         _rc = _get_rc()
         if _rc is not None:
-            warmup_bars = master_df.tail(120)
+            # Warm the rule classifier with 120 bars AND the ML history with
+            # 520 bars (v5 features need 480-bar deepest lookback).
+            warmup_rule = master_df.tail(120)
+            warmup_ml = master_df.tail(max(_rc.ML_FEATURE_HISTORY_BARS, 520))
             try:
-                _close_col = "close" if "close" in warmup_bars.columns else "Close"
-                for _ts, _row in warmup_bars.iterrows():
+                _close_col = "close" if "close" in warmup_rule.columns else "Close"
+                for _ts, _row in warmup_rule.iterrows():
                     _update_regime_classifier(_ts, float(_row[_close_col]))
+                # Deeper OHLCV warm for ML feature builder
+                _o_col = "open" if "open" in warmup_ml.columns else "Open"
+                _h_col = "high" if "high" in warmup_ml.columns else "High"
+                _l_col = "low" if "low" in warmup_ml.columns else "Low"
+                _v_col = "volume" if "volume" in warmup_ml.columns else ("Volume" if "Volume" in warmup_ml.columns else None)
+                for _ts, _row in warmup_ml.iterrows():
+                    _rc.record_bar(
+                        _ts,
+                        float(_row.get(_o_col, _row[_close_col])),
+                        float(_row.get(_h_col, _row[_close_col])),
+                        float(_row.get(_l_col, _row[_close_col])),
+                        float(_row[_close_col]),
+                        float(_row.get(_v_col, 0.0) or 0.0) if _v_col else 0.0,
+                    )
                 logging.info(
-                    "Regime classifier pre-warmed with %d historical bars | current regime=%s vol=%.2fbp eff=%.3f",
-                    len(warmup_bars), _rc.regime, _rc.state.vol_bp, _rc.state.eff,
+                    "Regime classifier pre-warmed | rule bars=%d ML history bars=%d | current regime=%s vol=%.2fbp eff=%.3f",
+                    len(warmup_rule), len(warmup_ml), _rc.regime, _rc.state.vol_bp, _rc.state.eff,
                 )
             except Exception as _rc_exc:
                 logging.warning("Regime classifier pre-warm failed: %s", _rc_exc)
@@ -10919,6 +10936,23 @@ async def run_bot():
             except Exception as _mls_exc:
                 logging.debug("shadow ML PCT scoring failed: %s", _mls_exc, exc_info=True)
             _update_regime_classifier(current_time, currbar['close'])
+            # Also feed OHLCV into the classifier's ML feature history so
+            # the v5 regime-ML models (apply_scalp_brackets / size / be) can
+            # build a feature snapshot at signal-birth time.
+            try:
+                from regime_classifier import get_regime_classifier as _get_rc
+                _rc_ml = _get_rc()
+                if _rc_ml is not None:
+                    _rc_ml.record_bar(
+                        current_time,
+                        float(currbar.get('open', currbar['close'])),
+                        float(currbar.get('high', currbar['close'])),
+                        float(currbar.get('low',  currbar['close'])),
+                        float(currbar['close']),
+                        float(currbar.get('volume', 0.0) or 0.0),
+                    )
+            except Exception:
+                logging.debug("regime ML record_bar failed", exc_info=True)
             # Feed trend-day state into LossFactorGuard so the counter-trend
             # reversal veto can act on it (filter C).
             _lfg_notify_trend_day(trend_day_tier, trend_day_dir)

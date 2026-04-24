@@ -123,6 +123,18 @@ os.environ.setdefault("JULIE_REGIME_SIZE_CAP", "0")            # filter D OFF
 os.environ.setdefault("JULIE_REGIME_SIZE_CAP_VALUE", "1")
 os.environ.setdefault("JULIE_REGIME_GREEN_UNLOCK_PNL", "999999")  # filter E OFF (unreachable threshold)
 os.environ.setdefault("JULIE_REGIME_GREEN_UNLOCK_SIZE", "3")
+#
+# Regime ML action-space decomposition (v5, shipped 2026-04-24):
+#   - Model A (scalp brackets): OOS April lift +$12,343 PnL AND -$2,526 DD
+#     at ship threshold 0.70. Decouples bracket geometry from size/BE so
+#     scalp rewrite can apply on any vol regime without breaking safety.
+#   - Model B (size reduction): passed individual gates but combined-PnL
+#     regressed by $11k when stacked with A → kept on RULE.
+#   - Model C (BE-arm disable): killed on own gates → kept on RULE.
+# Disable individually with: export JULIE_REGIME_ML_BRACKETS=0
+os.environ.setdefault("JULIE_REGIME_ML_BRACKETS", "1")   # Model A SHIPPED
+os.environ.setdefault("JULIE_REGIME_ML_SIZE", "0")       # Model B killed in combined
+os.environ.setdefault("JULIE_REGIME_ML_BE", "0")         # Model C killed
 os.environ.setdefault("JULIE_LFG_CHART_VETO", "0")             # filter F OFF
 #
 # Filter G ON (primary veto layer for 2025+ regime):

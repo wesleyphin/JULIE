@@ -98,9 +98,20 @@ class RegimeState:
 
 
 class RegimeClassifier:
+    # History depth needed by ML v5 features (largest lookback = 480 bars)
+    ML_FEATURE_HISTORY_BARS = 520
+
     def __init__(self) -> None:
         self.enabled = True
         self._closes: Deque[float] = deque(maxlen=WINDOW_BARS)
+        # OHLCV history for ML feature building; deeper lookback than _closes
+        # because v5 features use vol_bp at 480-bar window.
+        self._ml_o: Deque[float] = deque(maxlen=self.ML_FEATURE_HISTORY_BARS)
+        self._ml_h: Deque[float] = deque(maxlen=self.ML_FEATURE_HISTORY_BARS)
+        self._ml_l: Deque[float] = deque(maxlen=self.ML_FEATURE_HISTORY_BARS)
+        self._ml_c: Deque[float] = deque(maxlen=self.ML_FEATURE_HISTORY_BARS)
+        self._ml_v: Deque[float] = deque(maxlen=self.ML_FEATURE_HISTORY_BARS)
+        self._ml_ts: Deque = deque(maxlen=self.ML_FEATURE_HISTORY_BARS)
         self._state = RegimeState()
         # Snapshot baselines once so NEUTRAL can restore them.
         overlay = CONFIG.get("KALSHI_TRADE_OVERLAY") or {}
@@ -109,6 +120,149 @@ class RegimeClassifier:
         self._baseline_buf_fp = float(buf.get("forward_primary", 0.10))
         rev_cfg = CONFIG.get("LIVE_OPPOSITE_REVERSAL") or {}
         self._baseline_rev_confirm = int(rev_cfg.get("required_confirmations", 3))
+
+    def record_bar(self, ts, o: float, h: float, l: float, c: float, v: float = 0.0) -> None:
+        """Push an OHLCV sample into the ML history deques. Call this alongside
+        update() for live bars so the ML feature builder has fresh data.
+        """
+        try:
+            self._ml_o.append(float(o))
+            self._ml_h.append(float(h))
+            self._ml_l.append(float(l))
+            self._ml_c.append(float(c))
+            self._ml_v.append(float(v))
+            self._ml_ts.append(ts)
+        except Exception:
+            pass
+
+    def build_ml_feature_snapshot(self) -> Optional[dict]:
+        """Compute the 40-feature snapshot used by v5 ML models. Returns
+        None if history is too shallow for the deepest feature.
+        """
+        if len(self._ml_c) < 480:
+            return None
+        import numpy as np
+        import pandas as pd
+        c = np.array(self._ml_c, dtype=float)
+        o = np.array(self._ml_o, dtype=float)
+        h = np.array(self._ml_h, dtype=float)
+        l = np.array(self._ml_l, dtype=float)
+        v = np.array(self._ml_v, dtype=float)
+
+        def roll_vol_eff(closes, window):
+            rets = (closes[-window:][1:] - closes[-window:][:-1]) / closes[-window:][:-1]
+            mean = rets.mean()
+            var = ((rets - mean) ** 2).sum() / max(1, len(rets) - 1)
+            vol = (var ** 0.5) * 10_000.0
+            abs_sum = np.abs(rets).sum()
+            eff = abs(rets.sum()) / abs_sum if abs_sum > 0 else 0.0
+            return float(vol), float(eff)
+
+        vol30,  eff30  = roll_vol_eff(c, 30)
+        vol60,  eff60  = roll_vol_eff(c, 60)
+        vol120, eff120 = roll_vol_eff(c, 120)
+        vol240, eff240 = roll_vol_eff(c, 240)
+        vol480, eff480 = roll_vol_eff(c, 480)
+
+        # Slopes — need historical vol values, approximate with shorter calcs
+        vol60_lag10 = roll_vol_eff(c[:-10], 60)[0] if len(c) >= 70 else vol60
+        vol60_lag30 = roll_vol_eff(c[:-30], 60)[0] if len(c) >= 90 else vol60
+        vol120_lag60 = roll_vol_eff(c[:-60], 120)[0] if len(c) >= 180 else vol120
+        eff60_lag30 = roll_vol_eff(c[:-30], 60)[1] if len(c) >= 90 else eff60
+
+        vol_slope_10 = vol60 - vol60_lag10
+        vol_slope_30 = vol60 - vol60_lag30
+        vol_slope_60 = vol120 - vol120_lag60
+        eff_slope_30 = eff60 - eff60_lag30
+
+        prev_c = np.r_[c[0], c[:-1]]
+        tr = np.maximum(h - l, np.maximum(np.abs(h - prev_c), np.abs(l - prev_c)))
+        atr14 = float(tr[-14:].mean())
+        atr30 = float(tr[-30:].mean())
+
+        rng_pct = (h - l) / np.where(c != 0, c, 1.0)
+        range_pct_20 = float(rng_pct[-20:].mean() * 10_000)
+        range_pct_120 = float(rng_pct[-120:].mean() * 10_000)
+
+        hl = np.maximum(h - l, 1e-9)
+        body_ratio = np.abs(c - o) / hl
+        body_ratio_20 = float(body_ratio[-20:].mean())
+        body_ratio_60 = float(body_ratio[-60:].mean())
+        abs_body_20 = float(np.abs(c - o)[-20:].mean())
+        up_bar_pct_20 = float((c >= o)[-20:].astype(float).mean())
+
+        # Consecutive up/down run lengths
+        up_bar = (c >= o).astype(int)
+        run_up = 0; run_down = 0; max_ru = 0; max_rd = 0
+        for i in range(len(c) - 20, len(c)):
+            if up_bar[i]:
+                run_up += 1; run_down = 0
+            else:
+                run_down += 1; run_up = 0
+            max_ru = max(max_ru, run_up)
+            max_rd = max(max_rd, run_down)
+
+        gap_pct = float((o[-1] - prev_c[-1]) / max(prev_c[-1], 1.0) * 10_000)
+        gap_abs_mean_20 = float(np.abs((o[-20:] - prev_c[-20:]) / np.where(prev_c[-20:] != 0, prev_c[-20:], 1.0))[-20:].mean() * 10_000)
+
+        def mom(n):
+            if len(c) <= n: return 0.0
+            return float((c[-1] - c[-1-n]) / max(c[-1-n], 1.0) * 10_000)
+        mom_5 = mom(5); mom_15 = mom(15); mom_30 = mom(30); mom_60 = mom(60); mom_120 = mom(120)
+
+        v_mean = float(v[-200:].mean()) if len(v) >= 200 else float(v.mean())
+        v_std = float(v[-200:].std()) if len(v) >= 200 else float(v.std() or 1.0)
+        volume_z_20 = float((v[-1] - v_mean) / (v_std or 1.0))
+        volume_ma_ratio = float(v[-1] / max(v_mean, 1.0))
+
+        c60 = c[-60:]
+        max_runup_60 = float((c60.max() - c60[0]) / max(c60[0], 1e-9) * 10_000)
+        max_rundown_60 = float((c60[0] - c60.min()) / max(c60[0], 1e-9) * 10_000)
+
+        ts_last = self._ml_ts[-1]
+        try:
+            et_hour = int(ts_last.hour)
+            et_min = int(ts_last.minute)
+            day_of_week = int(ts_last.weekday())
+        except Exception:
+            et_hour = 0; et_min = 0; day_of_week = 0
+        minutes_into_session = (et_hour - 9) * 60 + et_min if 9 <= et_hour < 16 else -1
+
+        # Cross-strategy proxies (last 10/20-bar move / breakout heuristics)
+        c20 = c[-20:]
+        high_20 = float(c20.max())
+        low_20 = float(c20.min())
+        c5 = c[-5:]
+        broke_high = 1.0 if float(c5.max()) > high_20 else 0.0
+        broke_low = 1.0 if float(c5.min()) < low_20 else 0.0
+        any_strategy_signal_30 = float(broke_high + broke_low)
+        max_move_10 = float(c[-10:].max() - c[-10:].min())
+        big_move_10 = 1.0 if max_move_10 >= 6.0 else 0.0
+
+        return {
+            "vol_bp_30": vol30, "eff_30": eff30,
+            "vol_bp_60": vol60, "eff_60": eff60,
+            "vol_bp_120": vol120, "eff_120": eff120,
+            "vol_bp_240": vol240, "eff_240": eff240,
+            "vol_bp_480": vol480, "eff_480": eff480,
+            "vol_slope_10": vol_slope_10, "vol_slope_30": vol_slope_30,
+            "vol_slope_60": vol_slope_60, "eff_slope_30": eff_slope_30,
+            "atr14": atr14, "atr30": atr30,
+            "range_pct_20": range_pct_20, "range_pct_120": range_pct_120,
+            "body_ratio_20": body_ratio_20, "body_ratio_60": body_ratio_60,
+            "abs_body_20": abs_body_20, "up_bar_pct_20": up_bar_pct_20,
+            "run_up_max_20": float(max_ru), "run_down_max_20": float(max_rd),
+            "gap_pct": gap_pct, "gap_abs_mean_20": gap_abs_mean_20,
+            "mom_5": mom_5, "mom_15": mom_15, "mom_30": mom_30,
+            "mom_60": mom_60, "mom_120": mom_120,
+            "volume_z_20": volume_z_20, "volume_ma_ratio": volume_ma_ratio,
+            "max_runup_60": max_runup_60, "max_rundown_60": max_rundown_60,
+            "et_hour": float(et_hour),
+            "minutes_into_session": float(minutes_into_session),
+            "day_of_week": float(day_of_week),
+            "any_strategy_signal_30": any_strategy_signal_30,
+            "big_move_10": big_move_10,
+        }
 
     @property
     def regime(self) -> str:
@@ -316,51 +470,224 @@ def apply_regime_size_cap(signal: dict) -> bool:
     return True
 
 
-def apply_dead_tape_brackets(signal: dict) -> bool:
-    """When regime=dead_tape, rewrite signal tp_dist/sl_dist to scalp values,
-    force size to 1, and disable the BE-arm mechanism.
+# ─── Decoupled action space (2026-04-24) ──────────────────────────────────
+#
+# apply_dead_tape_brackets historically did THREE things in one shot:
+#   1. rewrite TP/SL to scalp geometry (3/5)
+#   2. force size to 1
+#   3. disable BE-arm
+#
+# v4 ML research found genuine PnL lift from (1) alone but couldn't ship
+# because forcing (2)+(3) on ML-called-scalp bars (which include high-vol
+# bars where low-size + BE-off is wrong) fails the catastrophic-safety gate.
+#
+# We split into three independently-gated functions. Each can be driven by
+# a separate ML model OR fall through to the rule. Env flags control:
+#     JULIE_REGIME_ML_BRACKETS — model A drives bracket rewrite (else rule)
+#     JULIE_REGIME_ML_SIZE     — model B drives size reduction (else rule)
+#     JULIE_REGIME_ML_BE       — model C drives BE disable (else rule)
+#
+# Default all flags OFF → behavior identical to pre-split rule.
+# apply_dead_tape_brackets() remains as a thin compatibility wrapper.
 
-    Mutates signal in place. Returns True if applied.
+ML_BRACKETS_ENABLED = os.environ.get("JULIE_REGIME_ML_BRACKETS", "0").strip() == "1"
+ML_SIZE_ENABLED     = os.environ.get("JULIE_REGIME_ML_SIZE",     "0").strip() == "1"
+ML_BE_ENABLED       = os.environ.get("JULIE_REGIME_ML_BE",       "0").strip() == "1"
 
-    DE3's default 25/10 TP/SL and BE-at-10pt never activate on dead-tape days
-    (max MFE 3-6pt). Tighten to TP=3/SL=5 so the day's micro-moves actually
-    settle trades green.
+# Each ML model is lazy-loaded from artifacts/regime_ml_v5_* when its env
+# flag is on. If the artifact is missing, the module silently falls back
+# to the rule for that action. Shipped ML paths print a one-liner at init.
+_ML_BRACKET_MODEL = None
+_ML_SIZE_MODEL    = None
+_ML_BE_MODEL      = None
 
-    Size override: strategy-internal sizing can multiply a -0.25pt wiggle
-    into a significant loss on dead-tape days. Force size=1 so the 3pt
-    scalp risk matches reward.
 
-    BE-arm disable: BE-arm on a 3pt trigger with 5pt SL + entry slippage
-    creates a race condition where the bot moves stop above current market,
-    detects the "crossed stop" and force-flattens for a small loss. Safer
-    to let the fixed 5pt SL run to completion; TP=3 is tight enough that
-    BE adds force-flatten risk without adding reward.
-    """
+def _rule_says_dead_tape() -> bool:
+    """Current regime flag as determined by the rule classifier."""
+    return _CLASSIFIER is not None and _CLASSIFIER.regime == "dead_tape"
+
+
+def _predict_with_payload(payload: dict, features: dict) -> bool:
+    """Reconstruct the ensemble prediction from saved components (no pickled closures)."""
+    import numpy as _np
+    feature_cols = payload["feature_cols"]
+    hgb = payload["hgb"]; lgbm = payload["lgbm"]
+    positive_class = payload["positive_class"]
+    l2i = payload["label_to_int"]
+    threshold = float(payload["threshold"])
+    row = _np.array([[features.get(c, 0.0) for c in feature_cols]], dtype=float)
+    hgb_classes = list(hgb.classes_)
+    p_idx = hgb_classes.index(positive_class)
+    p_hgb = hgb.predict_proba(row)[0, p_idx]
+    pos_int = l2i[positive_class]
+    p_lgb = lgbm.predict_proba(row)[0, pos_int]
+    return ((p_hgb + p_lgb) / 2.0) >= threshold
+
+
+def _ml_says(model_key: str, features: Optional[dict]) -> Optional[bool]:
+    """Lazy-load the named ML model and return its prediction, or None if
+    the model isn't available or features are missing."""
+    global _ML_BRACKET_MODEL, _ML_SIZE_MODEL, _ML_BE_MODEL
+    if features is None:
+        return None
+    try:
+        from pathlib import Path as _Path
+        import pickle as _pickle
+        _ART = _Path(__file__).resolve().parent / "artifacts"
+        key_to_slot = {
+            "brackets": ("_ML_BRACKET_MODEL", "regime_ml_v5_brackets"),
+            "size":     ("_ML_SIZE_MODEL",    "regime_ml_v5_size"),
+            "be":       ("_ML_BE_MODEL",      "regime_ml_v5_be"),
+        }
+        if model_key not in key_to_slot:
+            return None
+        slot_name, dir_name = key_to_slot[model_key]
+        payload = globals().get(slot_name)
+        if payload is None:
+            pkl = _ART / dir_name / "model.pkl"
+            if not pkl.exists():
+                return None
+            with pkl.open("rb") as fh:
+                payload = _pickle.load(fh)
+            globals()[slot_name] = payload
+        return _predict_with_payload(payload, features)
+    except Exception:
+        logging.debug("ML model load/predict failed (%s)", model_key, exc_info=True)
+        return None
+
+
+def _auto_features(bar_features: Optional[dict]) -> Optional[dict]:
+    """If caller didn't supply features, try to build them from the classifier's
+    internal OHLCV history (via record_bar). Returns None if history is shallow."""
+    if bar_features is not None:
+        return bar_features
     if _CLASSIFIER is None:
-        return False
-    if _CLASSIFIER.regime != "dead_tape":
-        return False
+        return None
+    try:
+        return _CLASSIFIER.build_ml_feature_snapshot()
+    except Exception:
+        logging.debug("auto feature build failed", exc_info=True)
+        return None
+
+
+def apply_scalp_brackets(signal: dict, *, bar_features: Optional[dict] = None) -> bool:
+    """Rewrite TP/SL to scalp values (3/5) when we want tight-geometry risk.
+
+    Decision source:
+      - if JULIE_REGIME_ML_BRACKETS=1 AND model-A artifact loads: ML decides
+      - else: rule (dead_tape regime → rewrite, else passthrough)
+
+    Mutates signal. Returns True if rewritten.
+    """
     if not isinstance(signal, dict):
+        return False
+    should_rewrite: Optional[bool] = None
+    if ML_BRACKETS_ENABLED:
+        ml = _ml_says("brackets", _auto_features(bar_features))
+        if ml is not None:
+            should_rewrite = ml
+    if should_rewrite is None:
+        should_rewrite = _rule_says_dead_tape()
+    if not should_rewrite:
         return False
     original_tp = signal.get("tp_dist")
     original_sl = signal.get("sl_dist")
-    original_size = signal.get("size")
     signal["tp_dist"] = DEAD_TAPE_TP_PTS
     signal["sl_dist"] = DEAD_TAPE_SL_PTS
+    signal["scalp_bracket_applied"] = True
+    signal["scalp_bracket_original_tp_dist"] = original_tp
+    signal["scalp_bracket_original_sl_dist"] = original_sl
+    signal["scalp_bracket_source"] = "ml" if (ML_BRACKETS_ENABLED and _ML_BRACKET_MODEL) else "rule"
+    return True
+
+
+def apply_size_reduction(signal: dict, *, bar_features: Optional[dict] = None) -> bool:
+    """Force size = 1 when we expect a high-variance forward window.
+
+    Decision source:
+      - if JULIE_REGIME_ML_SIZE=1 AND model-B artifact loads: ML decides
+      - else: rule (dead_tape → force size=1, else passthrough)
+
+    Mutates signal. Returns True if size was reduced.
+    """
+    if not isinstance(signal, dict):
+        return False
+    should_reduce: Optional[bool] = None
+    if ML_SIZE_ENABLED:
+        ml = _ml_says("size", _auto_features(bar_features))
+        if ml is not None:
+            should_reduce = ml
+    if should_reduce is None:
+        should_reduce = _rule_says_dead_tape()
+    if not should_reduce:
+        return False
+    original_size = signal.get("size")
+    if original_size == 1:
+        return False
     signal["size"] = 1
-    # Disable BE-arm (race-condition on tight stops, see docstring).
+    signal["size_reduced_to_1"] = True
+    signal["size_reduction_original_size"] = original_size
+    signal["size_reduction_source"] = "ml" if (ML_SIZE_ENABLED and _ML_SIZE_MODEL) else "rule"
+    return True
+
+
+def apply_be_disable(signal: dict, *, bar_features: Optional[dict] = None) -> bool:
+    """Disable BE-arm when we expect mean-reversion that would whipsaw the
+    BE-triggered stop.
+
+    Decision source:
+      - if JULIE_REGIME_ML_BE=1 AND model-C artifact loads: ML decides
+      - else: rule (dead_tape → BE-off, else passthrough)
+
+    Mutates signal. Returns True if BE was disabled.
+    """
+    if not isinstance(signal, dict):
+        return False
+    should_disable: Optional[bool] = None
+    if ML_BE_ENABLED:
+        ml = _ml_says("be", _auto_features(bar_features))
+        if ml is not None:
+            should_disable = ml
+    if should_disable is None:
+        should_disable = _rule_says_dead_tape()
+    if not should_disable:
+        return False
     signal["de3_break_even_enabled"] = False
     signal["de3_break_even_activate_on_next_bar"] = False
-    # Audit trail
-    signal["dead_tape_original_tp_dist"] = original_tp
-    signal["dead_tape_original_sl_dist"] = original_sl
-    signal["dead_tape_original_size"] = original_size
-    signal["dead_tape_be_trigger_pts"] = DEAD_TAPE_BE_TRIGGER_PTS
-    signal["dead_tape_regime_active"] = True
-    logging.info(
-        "Dead-tape bracket rewrite: %s %s | tp %s->%.1f sl %s->%.1f size %s->1 BE=off | vol=%.2fbp",
-        signal.get("strategy", "?"), signal.get("side", "?"),
-        original_tp, DEAD_TAPE_TP_PTS, original_sl, DEAD_TAPE_SL_PTS,
-        original_size, _CLASSIFIER.state.vol_bp,
-    )
+    signal["be_disabled"] = True
+    signal["be_disabled_source"] = "ml" if (ML_BE_ENABLED and _ML_BE_MODEL) else "rule"
     return True
+
+
+def apply_dead_tape_brackets(signal: dict, *, bar_features: Optional[dict] = None) -> bool:
+    """Compatibility wrapper preserving the old unified-action call site.
+
+    Calls the three decoupled functions in order. Each is independently
+    driven by ML (if enabled + artifact loaded) or rule. Behavior identical
+    to the pre-split version WHEN all three env flags are OFF (the default).
+
+    Returns True if ANY of the three actions was applied (matching old
+    semantics where True meant "dead-tape overrides kicked in").
+    """
+    a = apply_scalp_brackets(signal, bar_features=bar_features)
+    b = apply_size_reduction(signal, bar_features=bar_features)
+    c = apply_be_disable(signal, bar_features=bar_features)
+    any_applied = a or b or c
+    if any_applied:
+        # Preserve legacy audit fields for downstream consumers
+        signal["dead_tape_original_tp_dist"] = signal.get("scalp_bracket_original_tp_dist", signal.get("dead_tape_original_tp_dist"))
+        signal["dead_tape_original_sl_dist"] = signal.get("scalp_bracket_original_sl_dist", signal.get("dead_tape_original_sl_dist"))
+        signal["dead_tape_original_size"]    = signal.get("size_reduction_original_size", signal.get("dead_tape_original_size"))
+        signal["dead_tape_be_trigger_pts"]   = DEAD_TAPE_BE_TRIGGER_PTS
+        signal["dead_tape_regime_active"]    = True
+        vol_bp = _CLASSIFIER.state.vol_bp if _CLASSIFIER is not None else 0.0
+        logging.info(
+            "Dead-tape override: %s %s | tp->%s sl->%s size->%s BE=%s | vol=%.2fbp | sources=(brackets:%s, size:%s, be:%s)",
+            signal.get("strategy", "?"), signal.get("side", "?"),
+            signal.get("tp_dist"), signal.get("sl_dist"), signal.get("size"),
+            "off" if signal.get("be_disabled") else "on", vol_bp,
+            signal.get("scalp_bracket_source", "none"),
+            signal.get("size_reduction_source", "none"),
+            signal.get("be_disabled_source", "none"),
+        )
+    return any_applied

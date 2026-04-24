@@ -1,0 +1,94 @@
+{
+  "report": {
+    "oos_n": 47851,
+    "rule_label_dist": {
+      "dead_tape": 22344,
+      "calm_trend": 20142,
+      "whipsaw": 5365
+    },
+    "ml_label_dist": {
+      "dead_tape": 22322,
+      "calm_trend": 20164,
+      "whipsaw": 5365
+    },
+    "accuracy": 0.9995402394934275,
+    "labels_sorted": [
+      "calm_trend",
+      "dead_tape",
+      "whipsaw"
+    ],
+    "confusion": [
+      [
+        20142,
+        0,
+        0
+      ],
+      [
+        22,
+        22322,
+        0
+      ],
+      [
+        0,
+        0,
+        5365
+      ]
+    ],
+    "rule_sim": {
+      "pnl": 70.0,
+      "wr": 49.13793103448276,
+      "dd": 976.25,
+      "n": 6380
+    },
+    "ml_sim": {
+      "pnl": 22.5,
+      "wr": 49.122257053291534,
+      "dd": 976.25,
+      "n": 6380
+    },
+    "sanity_catastrophic_pct": 0.0,
+    "sanity_n_ml_dead_tape": 22322,
+    "sanity_n_high_vol_dead_tape": 0,
+    "disagree_n": 22,
+    "disagree_by_pair": {
+      "dead_tape->calm_trend": 22
+    }
+  },
+  "gates": {
+    "accuracy_ok": true,
+    "pnl_ok": false,
+    "dd_ok": true,
+    "sanity_ok": true,
+    "SHIP": false
+  },
+  "feature_columns": [
+    "vol_bp_120",
+    "eff_120",
+    "vol_bp_60",
+    "eff_60",
+    "atr14",
+    "range_pct_20",
+    "body_ratio_20",
+    "up_bar_pct_20",
+    "mom_5",
+    "mom_15",
+    "mom_30",
+    "volume_z_20",
+    "et_hour",
+    "et_minute_bucket",
+    "range_pct_120"
+  ],
+  "labels": [
+    "calm_trend",
+    "dead_tape",
+    "whipsaw"
+  ],
+  "train_window": [
+    "2024-07-01",
+    "2026-01-26"
+  ],
+  "oos_window": [
+    "2026-01-27",
+    "2026-04-20"
+  ]
+}
