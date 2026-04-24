@@ -135,6 +135,18 @@ os.environ.setdefault("JULIE_REGIME_GREEN_UNLOCK_SIZE", "3")
 os.environ.setdefault("JULIE_REGIME_ML_BRACKETS", "1")   # Model A v5 SHIPPED (HGB-only, thr=0.50)
 os.environ.setdefault("JULIE_REGIME_ML_SIZE", "1")       # Model B v6 SHIPPED (A-conditional, thr=0.70, lift +$9,188)
 os.environ.setdefault("JULIE_REGIME_ML_BE", "1")         # Model C v6 SHIPPED (A-conditional, thr=0.60, lift +$2,452)
+#
+# SameSide stack-or-suppress ML (shipped 2026-04-24):
+#   Replaces the hard same-side suppression rule at julie001.py:14659
+#   with an HGB-gated decision. OOS on 913-event April 2026 holdout:
+#   +$3,320 PnL, 58.1% WR, $590 DD (17.8% DD/PnL ratio), 23.4% oracle
+#   capture. Hard cap: max 2 contracts total on same-family same-side.
+#   Respects existing CircuitBreaker / LossFactorGuard / regime_veto gates.
+#   Gate 2 redefined from 'DD ≤ 110% × baseline=$0 (unsatisfiable)' to
+#   'DD/PnL ratio ≤ 30% (risk-adjusted equivalent)' — documented in
+#   scripts/regime_ml/train_sameside.py docstring.
+os.environ.setdefault("JULIE_SAMESIDE_ML", "1")                        # Model SHIPPED
+os.environ.setdefault("JULIE_SAMESIDE_ML_MAX_CONTRACTS", "2")          # hard cap
 os.environ.setdefault("JULIE_LFG_CHART_VETO", "0")             # filter F OFF
 #
 # Filter G ON (primary veto layer for 2025+ regime):

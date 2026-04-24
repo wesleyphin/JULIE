@@ -2155,7 +2155,12 @@ def _allow_same_side_parallel_entry(
     primary_family = _live_strategy_family_name(primary_trade.get("strategy"))
     signal_family = _live_strategy_family_name(signal.get("strategy"))
     if primary_family == "de3":
-        return signal_family in {"regimeadaptive", "aetherflow"}
+        if signal_family in {"regimeadaptive", "aetherflow"}:
+            return True
+        # DE3+DE3 same-side → normally suppressed. Check SameSide ML.
+        if signal_family == "de3":
+            return _sameside_ml_allows_stack(primary_trade, signal, tracked_live_trades)
+        return False
     if primary_family == "aetherflow" and signal_family == "aetherflow":
         max_legs = max(
             1,
@@ -2174,7 +2179,117 @@ def _allow_same_side_parallel_entry(
             family_name="aetherflow",
         )
         return same_side_af_count < max_legs
+    # RA+RA: fall back to SameSide ML (was hard-blocked)
+    if primary_family == "regimeadaptive" and signal_family == "regimeadaptive":
+        return _sameside_ml_allows_stack(primary_trade, signal, tracked_live_trades)
     return False
+
+
+# ─── SameSide ML stack gate (shipped 2026-04-24) ──────────────────────────
+#
+# HGB-only classifier trained on 19,546 historical same-side events (2025)
+# with 913-event OOS holdout (2026-01-27→04-20). Ship gate passed at
+# thr=0.50: +$3,320 PnL, 58.1% WR, $590 DD (17.8% DD/PnL ratio), 23.4%
+# oracle capture. Env-gated by JULIE_SAMESIDE_ML; default OFF in code
+# (launcher flips to ON). Hard cap: max 2 contracts total (this + existing).
+
+_SAMESIDE_ML_ENABLED = os.environ.get("JULIE_SAMESIDE_ML", "0").strip() == "1"
+_SAMESIDE_ML_MAX_CONTRACTS = int(os.environ.get("JULIE_SAMESIDE_ML_MAX_CONTRACTS", "2"))
+_SAMESIDE_ML_PAYLOAD = None   # lazy-loaded
+
+
+def _sameside_ml_allows_stack(
+    primary_trade: Optional[dict],
+    signal: Optional[dict],
+    tracked_live_trades: Optional[list[dict]] = None,
+) -> bool:
+    """Return True iff the SameSide ML model endorses adding a contract to
+    the existing same-side position, subject to hard safety caps."""
+    if not _SAMESIDE_ML_ENABLED:
+        return False
+    if not isinstance(primary_trade, dict) or not isinstance(signal, dict):
+        return False
+    # Hard contracts cap — sum of existing tracked same-side family size
+    try:
+        current_same_side = 0
+        if tracked_live_trades:
+            for t in tracked_live_trades:
+                if _live_strategy_family_name(t.get("strategy")) == _live_strategy_family_name(primary_trade.get("strategy")) \
+                        and _normalize_live_side(t.get("side")) == _normalize_live_side(signal.get("side")):
+                    current_same_side += max(1, _coerce_int(t.get("size"), 1) or 1)
+        if current_same_side + 1 > _SAMESIDE_ML_MAX_CONTRACTS:
+            return False
+    except Exception:
+        logging.debug("sameside stack cap check failed", exc_info=True)
+        return False
+
+    # Lazy-load ML payload + regime classifier handle for features
+    global _SAMESIDE_ML_PAYLOAD
+    try:
+        if _SAMESIDE_ML_PAYLOAD is None:
+            from pathlib import Path as _Path
+            import pickle as _pickle
+            pkl = _Path(__file__).resolve().parent / "artifacts" / "regime_ml_sameside" / "model.pkl"
+            if not pkl.exists():
+                return False
+            with pkl.open("rb") as fh:
+                _SAMESIDE_ML_PAYLOAD = _pickle.load(fh)
+        from regime_classifier import get_regime_classifier as _get_rc
+        rc = _get_rc()
+        if rc is None:
+            return False
+        snap = rc.build_ml_feature_snapshot()
+        if snap is None:
+            return False
+        # Build the 50-feature input expected by the SameSide model
+        entry_price = float(_coerce_float(primary_trade.get("entry_price"), 0.0))
+        if entry_price <= 0:
+            return False
+        signal_price = float(_coerce_float(signal.get("price"), entry_price))
+        side_sign = 1 if _normalize_live_side(primary_trade.get("side")) == "LONG" else -1
+        current_price = signal_price
+        unrealized_pts = (current_price - entry_price) * side_sign
+        tp_dist = float(_coerce_float(primary_trade.get("tp_dist"), 6.0))
+        sl_dist = float(_coerce_float(primary_trade.get("sl_dist"), 4.0))
+        entry_ts = primary_trade.get("entry_time") or primary_trade.get("signal_time")
+        try:
+            bars_held = max(0, int((pd.Timestamp(signal.get("signal_time") or pd.Timestamp.now(tz="America/New_York"))
+                                     - pd.Timestamp(entry_ts)).total_seconds() // 60))
+        except Exception:
+            bars_held = 0
+        signal_strategy = str(signal.get("strategy", "")).lower()
+        row = dict(snap)
+        row.update({
+            "bars_held": float(bars_held),
+            "unrealized_pts": unrealized_pts,
+            "unrealized_frac": unrealized_pts / max(entry_price, 1.0),
+            "dist_to_tp": tp_dist - unrealized_pts,
+            "dist_to_sl": sl_dist + unrealized_pts,
+            "side_sign": float(side_sign),
+            "signal_to_position_delta": signal_price - entry_price,
+            "is_de3": 1.0 if "dynamicengine" in signal_strategy else 0.0,
+            "is_ra":  1.0 if "regimeadaptive" in signal_strategy else 0.0,
+            "is_af":  1.0 if "aetherflow" in signal_strategy else 0.0,
+        })
+        feature_cols = _SAMESIDE_ML_PAYLOAD["feature_cols"]
+        threshold = float(_SAMESIDE_ML_PAYLOAD.get("threshold", 0.50))
+        X = np.array([[row.get(c, 0.0) for c in feature_cols]], dtype=float)
+        hgb = _SAMESIDE_ML_PAYLOAD["hgb"]
+        stack_idx = list(hgb.classes_).index(_SAMESIDE_ML_PAYLOAD.get("positive_class", "stack"))
+        p = float(hgb.predict_proba(X)[0, stack_idx])
+        decision = p >= threshold
+        if decision:
+            logging.info(
+                "[SAMESIDE ML] stack ALLOW: %s %s | position_entry=%.2f signal_price=%.2f "
+                "unrealized=%.2fpts bars_held=%d | proba=%.3f (thr=%.2f) | cap=%d/%d",
+                signal.get("strategy", "?"), signal.get("side", "?"),
+                entry_price, signal_price, unrealized_pts, bars_held,
+                p, threshold, current_same_side + 1, _SAMESIDE_ML_MAX_CONTRACTS,
+            )
+        return decision
+    except Exception:
+        logging.debug("sameside ML check failed", exc_info=True)
+        return False
 
 
 def _normalize_live_side(value: Optional[str]) -> Optional[str]:
