@@ -238,6 +238,31 @@ Previously killed attempts preserved for audit:
 `ml_regime_classifier_v4.py` (stacked improvements — identified that
 coupled action space was blocking a real +$3,193 lift).
 
+### v6 — Models B + C ship via A-conditional training (2026-04-24)
+
+v5 post-mortem (`scripts/ml_regime_v5_diagnose.py`) found the root cause
+of B/C failure was interaction with Model A, not labels or features:
+training B and C in isolation meant they couldn't see that "reduce size"
+or "disable BE" on bars where A had already rewritten to scalp brackets
+was destructive (scalp-sized scalp trades have trivial PnL).
+
+v6 retraining adds Model A's prediction as a 41st feature so B and C
+learn A-conditional decisions. Ship gates: combined (A=ML + this=ML +
+others=rule) must beat (A=ML + others=rule) on PnL AND DD.
+
+| Model | Training data | OOS threshold | Combined lift | Verdict |
+|---|---|---|---|---|
+| B v6 (size) | 17,367 rows with `a_pred_scalp` feature | 0.70 | +$9,188 PnL / −$4,756 DD | SHIP |
+| C v6 (BE) | 1,202 rows conditional on trade reaching BE trigger | 0.60 | +$2,453 PnL / −$1,185 DD | SHIP |
+
+All three models (A v5, B v6, C v6) are HGB-only payloads to prevent
+LightGBM OpenMP conflicts. B v6 and C v6 artifacts live at
+`artifacts/regime_ml_v6_size/` and `artifacts/regime_ml_v6_be/`.
+
+Live wiring: `regime_classifier._features_with_a_pred()` runs Model A
+first, then appends `a_pred_scalp` to the feature dict before predicting
+B and C. Default all env flags enabled (`JULIE_REGIME_ML_{BRACKETS,SIZE,BE}=1`).
+
 ### 120-bar startup pre-warm
 
 The classifier needs at least `WINDOW_BARS` (default 120) recent
