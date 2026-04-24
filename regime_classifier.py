@@ -135,11 +135,17 @@ class RegimeClassifier:
         except Exception:
             pass
 
+    @property
+    def ml_ready(self) -> bool:
+        """True iff the ML feature cache is deep enough to build a valid
+        40-feature snapshot (deepest feature needs 480 bars)."""
+        return len(self._ml_c) >= 480
+
     def build_ml_feature_snapshot(self) -> Optional[dict]:
         """Compute the 40-feature snapshot used by v5 ML models. Returns
         None if history is too shallow for the deepest feature.
         """
-        if len(self._ml_c) < 480:
+        if not self.ml_ready:
             return None
         import numpy as np
         import pandas as pd

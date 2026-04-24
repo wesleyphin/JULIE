@@ -10274,6 +10274,47 @@ async def run_bot():
                     "Regime classifier pre-warmed | rule bars=%d ML history bars=%d | current regime=%s vol=%.2fbp eff=%.3f",
                     len(warmup_rule), len(warmup_ml), _rc.regime, _rc.state.vol_bp, _rc.state.eff,
                 )
+                # Bar-1 ML readiness self-test: now that the 520-bar cache is
+                # full, verify every enabled ML model can produce a prediction
+                # using the pre-warm cache. This forces lazy-load of all
+                # shipped artifacts BEFORE the first live signal hits
+                # apply_scalp_brackets / apply_size_reduction / apply_be_disable.
+                try:
+                    from regime_classifier import (
+                        ML_BRACKETS_ENABLED as _ML_A_EN,
+                        ML_SIZE_ENABLED as _ML_B_EN,
+                        ML_BE_ENABLED as _ML_C_EN,
+                        _ml_says as _ml_predict,
+                        _features_with_a_pred as _feat_plus_a,
+                    )
+                    snap = _rc.build_ml_feature_snapshot()
+                    if snap is None:
+                        logging.warning("[ML READY?] feature snapshot unavailable "
+                                        "(ml_ready=%s, cache=%d bars)",
+                                        _rc.ml_ready, len(_rc._ml_c))
+                    else:
+                        # Pre-touch each model to lazy-load from disk
+                        a_pred = _ml_predict("brackets", dict(snap)) if _ML_A_EN else None
+                        b_pred = _ml_predict("size",     _feat_plus_a(dict(snap))) if _ML_B_EN else None
+                        c_pred = _ml_predict("be",       _feat_plus_a(dict(snap))) if _ML_C_EN else None
+                        # Verify each enabled flag's model actually loaded
+                        from regime_classifier import (
+                            _ML_BRACKET_MODEL as _MA, _ML_SIZE_MODEL as _MB, _ML_BE_MODEL as _MC,
+                        )
+                        status_a = f"A={'loaded' if _MA else 'missing'}/pred={a_pred}" if _ML_A_EN else "A=disabled"
+                        status_b = f"B={'loaded' if _MB else 'missing'}/pred={b_pred}" if _ML_B_EN else "B=disabled"
+                        status_c = f"C={'loaded' if _MC else 'missing'}/pred={c_pred}" if _ML_C_EN else "C=disabled"
+                        all_ok = (
+                            (not _ML_A_EN or _MA is not None)
+                            and (not _ML_B_EN or _MB is not None)
+                            and (not _ML_C_EN or _MC is not None)
+                        )
+                        logging.info(
+                            "[ML READY%s] pre-warm self-test bar-1 | snapshot=40feat | %s | %s | %s",
+                            "" if all_ok else "!", status_a, status_b, status_c,
+                        )
+                except Exception as _ml_exc:
+                    logging.warning("ML readiness self-test failed: %s", _ml_exc, exc_info=True)
             except Exception as _rc_exc:
                 logging.warning("Regime classifier pre-warm failed: %s", _rc_exc)
 
