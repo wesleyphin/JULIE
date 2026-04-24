@@ -1,0 +1,21 @@
+{
+  "model_b": {
+    "oos_rows": 4780,
+    "disagreement_pct": 0.41841004184100417,
+    "over_fire_pct": 0.20920502092050208,
+    "under_fire_pct": 0.20920502092050208,
+    "over_fire_cost_usd": 92.5,
+    "under_fire_gain_missed_usd": 57.5,
+    "clear_signal_bars": 4720,
+    "clear_signal_pct": 98.74476987447699
+  },
+  "model_c": {
+    "oos_rows": 3378,
+    "be_reach_rate_pct": 79.66745608841524,
+    "oos_bars_with_be_reaching_trade": 3378,
+    "conditional_pct": 100.0,
+    "cond_diff_mean": -1.229647720544701,
+    "cond_diff_std": 44.03533415025178,
+    "clear_signal_conditional_pct": 100.0
+  }
+}

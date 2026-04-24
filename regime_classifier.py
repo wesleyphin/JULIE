@@ -546,8 +546,8 @@ def _ml_says(model_key: str, features: Optional[dict]) -> Optional[bool]:
         _ART = _Path(__file__).resolve().parent / "artifacts"
         key_to_slot = {
             "brackets": ("_ML_BRACKET_MODEL", "regime_ml_v5_brackets"),
-            "size":     ("_ML_SIZE_MODEL",    "regime_ml_v5_size"),
-            "be":       ("_ML_BE_MODEL",      "regime_ml_v5_be"),
+            "size":     ("_ML_SIZE_MODEL",    "regime_ml_v6_size"),
+            "be":       ("_ML_BE_MODEL",      "regime_ml_v6_be"),
         }
         if model_key not in key_to_slot:
             return None
@@ -578,6 +578,24 @@ def _auto_features(bar_features: Optional[dict]) -> Optional[dict]:
     except Exception:
         logging.debug("auto feature build failed", exc_info=True)
         return None
+
+
+def _features_with_a_pred(bar_features: Optional[dict]) -> Optional[dict]:
+    """Return feature dict extended with `a_pred_scalp` — Model A's prediction
+    for this bar. v6 models B and C expect this feature. If Model A isn't
+    available or feature is missing, returns base features unchanged (caller
+    should interpret missing a_pred_scalp as 0 = default brackets)."""
+    feats = _auto_features(bar_features)
+    if feats is None:
+        return None
+    # Query Model A for the scalp-bracket prediction
+    try:
+        feats = dict(feats)  # don't mutate caller
+        a_pred = _ml_says("brackets", feats)
+        feats["a_pred_scalp"] = 1 if a_pred is True else 0
+    except Exception:
+        feats["a_pred_scalp"] = 0
+    return feats
 
 
 def apply_scalp_brackets(signal: dict, *, bar_features: Optional[dict] = None) -> bool:
@@ -624,7 +642,8 @@ def apply_size_reduction(signal: dict, *, bar_features: Optional[dict] = None) -
         return False
     should_reduce: Optional[bool] = None
     if ML_SIZE_ENABLED:
-        ml = _ml_says("size", _auto_features(bar_features))
+        # Model B v6 requires a_pred_scalp feature (A's prediction)
+        ml = _ml_says("size", _features_with_a_pred(bar_features))
         if ml is not None:
             should_reduce = ml
     if should_reduce is None:
@@ -655,7 +674,8 @@ def apply_be_disable(signal: dict, *, bar_features: Optional[dict] = None) -> bo
         return False
     should_disable: Optional[bool] = None
     if ML_BE_ENABLED:
-        ml = _ml_says("be", _auto_features(bar_features))
+        # Model C v6 requires a_pred_scalp feature (A's prediction)
+        ml = _ml_says("be", _features_with_a_pred(bar_features))
         if ml is not None:
             should_disable = ml
     if should_disable is None:

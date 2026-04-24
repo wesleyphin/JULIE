@@ -132,9 +132,9 @@ os.environ.setdefault("JULIE_REGIME_GREEN_UNLOCK_SIZE", "3")
 #     regressed by $11k when stacked with A → kept on RULE.
 #   - Model C (BE-arm disable): killed on own gates → kept on RULE.
 # Disable individually with: export JULIE_REGIME_ML_BRACKETS=0
-os.environ.setdefault("JULIE_REGIME_ML_BRACKETS", "1")   # Model A SHIPPED (HGB-only payload, thr=0.50)
-os.environ.setdefault("JULIE_REGIME_ML_SIZE", "0")       # Model B killed in combined
-os.environ.setdefault("JULIE_REGIME_ML_BE", "0")         # Model C killed
+os.environ.setdefault("JULIE_REGIME_ML_BRACKETS", "1")   # Model A v5 SHIPPED (HGB-only, thr=0.50)
+os.environ.setdefault("JULIE_REGIME_ML_SIZE", "1")       # Model B v6 SHIPPED (A-conditional, thr=0.70, lift +$9,188)
+os.environ.setdefault("JULIE_REGIME_ML_BE", "1")         # Model C v6 SHIPPED (A-conditional, thr=0.60, lift +$2,452)
 os.environ.setdefault("JULIE_LFG_CHART_VETO", "0")             # filter F OFF
 #
 # Filter G ON (primary veto layer for 2025+ regime):
