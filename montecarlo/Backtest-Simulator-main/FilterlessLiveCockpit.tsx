@@ -613,6 +613,14 @@ function dominantColor(name: string): string {
   return COLORS.cyan;
 }
 
+function companionDominantColor(name: string): string {
+  if (name === 'trend') return COLORS.cyan;
+  if (name === 'burst') return COLORS.lime;
+  if (name === 'dispersed') return COLORS.pink;
+  if (name === 'rot') return COLORS.amber;
+  return COLORS.violet;
+}
+
 function deriveFeatures(
   liveState: FilterlessLiveState,
   effectiveStatus: string,
@@ -761,14 +769,42 @@ function idleColorPulse(x: number, y: number, wave: number, f: AetherFeatures, t
   return (tide * 0.055) + (sparkle * 0.025) + (wave * 1.1) + (0.025 * f.transitionEnergy);
 }
 
-function shiftedManifoldColor(baseHex: string, x: number, y: number, wave: number, f: AetherFeatures, timeSeconds: number, strength: number): string {
+function shiftedManifoldColor(dominantName: string, x: number, y: number, wave: number, f: AetherFeatures, timeSeconds: number, strength: number): string {
+  const baseHex = dominantColor(dominantName);
   const drift = 0.5 + (0.5 * Math.sin((timeSeconds * 0.34) + (x * 2.2) - (y * 1.7) + f.pressure30));
   const glint = 0.5 + (0.5 * Math.sin((timeSeconds * 1.6) + (x * 9.0) + (y * 7.2)));
+  const eddy = Math.sin((timeSeconds * 0.82) + (x * 8.8) - (y * 7.4) + (f.transitionEnergy * 2.1));
+  const colorX = clip(
+    x + (strength * ((0.045 * Math.sin((timeSeconds * 0.42) + (y * 5.6) + f.pressure30)) + (0.024 * eddy))),
+    -1,
+    1,
+  );
+  const colorY = clip01(
+    y + (strength * ((0.038 * Math.cos((timeSeconds * 0.5) + (x * 4.8) - f.directionalBias)) - (0.02 * eddy))),
+  );
+  const shiftedDominant = pressurePlaneDominant(colorX, colorY, f);
+  const shiftedHex = dominantColor(shiftedDominant);
+  const companionHex = companionDominantColor(dominantName);
   const coolTone = blendHexColors(COLORS.cyan, COLORS.violet, 0.22 + (0.38 * drift));
   const warmTone = blendHexColors(COLORS.green, COLORS.amber, clip01(f.burstPressure + (0.35 * glint)));
+  const localTone = blendHexColors(companionHex, shiftedHex, shiftedDominant === dominantName ? 0.28 : 0.72);
+  const localMix = (0.055 + (0.075 * drift) + (0.035 * clip01(Math.abs(wave) * 18))) * strength;
+  const boundaryMix = (shiftedDominant === dominantName ? 0.045 + (0.03 * glint) : 0.18 + (0.1 * glint)) * strength;
   const coolMix = (0.06 + (0.07 * drift) + (0.04 * clip01(f.foldDepth + Math.abs(wave) * 8))) * strength;
   const warmMix = (0.025 + (0.035 * glint * clip01(f.transitionEnergy + f.burstPressure))) * strength;
-  return blendHexColors(blendHexColors(baseHex, coolTone, coolMix), warmTone, warmMix);
+  return blendHexColors(
+    blendHexColors(
+      blendHexColors(
+        blendHexColors(baseHex, localTone, localMix),
+        shiftedHex,
+        boundaryMix,
+      ),
+      coolTone,
+      coolMix,
+    ),
+    warmTone,
+    warmMix,
+  );
 }
 
 function dominantSurface(x: number, y: number, f: AetherFeatures): string {
@@ -1228,7 +1264,7 @@ const AetherflowCanvas: React.FC<{ features: AetherFeatures }> = ({ features }) 
         const center = face.pts.reduce((acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }), { x: 0, y: 0 });
         const colorPulse = idleColorPulse(center.x / 4, center.y / 4, face.wave, features, timeSeconds) * waveStrength;
         const shade = clip(0.42 + ((v10Height + 0.28) * 0.54) + (((face.depth + 2) / 8) * 0.22) + colorPulse, 0.22, 1.28);
-        const fillColor = shiftedManifoldColor(dominantColor(face.dominant), center.x / 4, center.y / 4, face.wave, features, timeSeconds, waveStrength);
+        const fillColor = shiftedManifoldColor(face.dominant, center.x / 4, center.y / 4, face.wave, features, timeSeconds, waveStrength);
         ctx.beginPath();
         face.pts.forEach((point, index) => {
           if (index === 0) ctx.moveTo(point.p.x, point.p.y);
