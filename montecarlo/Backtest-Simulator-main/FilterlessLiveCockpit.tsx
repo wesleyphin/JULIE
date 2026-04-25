@@ -12,6 +12,7 @@ import type {
 const REFRESH_MS = 3000;
 const FEED_STALE_SECONDS = 90;
 const FEED_OFFLINE_SECONDS = 300;
+const MANIFOLD_IDLE_FPS = 24;
 const TAU = Math.PI * 2;
 
 const COLORS = {
@@ -689,6 +690,19 @@ function pressurePlaneHeight(x: number, y: number, f: AetherFeatures): number {
   return clip((visualSurfaceHeight(raw) * 0.54) + directionalFold + streamFold, -0.18, 1.12);
 }
 
+function manifoldIdleWave(x: number, y: number, f: AetherFeatures, timeSeconds: number): number {
+  const amp = 0.012 + (0.02 * f.foldDepth) + (0.012 * f.transitionEnergy) + (0.008 * f.stress);
+  const stream = Math.sin((timeSeconds * 1.04) + (x * 4.8) - (y * 6.2) + (f.pressure30 * 1.7));
+  const cross = Math.sin((timeSeconds * 0.72) + ((x + y) * 5.6) + (f.directionalBias * 1.9));
+  const pulse = Math.cos((timeSeconds * 1.28) - (y * 7.4) + (f.burstPressure * 2.3));
+  return amp * ((0.58 * stream) + (0.3 * cross) + (0.12 * pulse));
+}
+
+function idleColorPulse(x: number, y: number, wave: number, f: AetherFeatures, timeSeconds: number): number {
+  const flow = 0.5 + (0.5 * Math.sin((timeSeconds * 0.92) + (x * 3.2) + (y * 4.7)));
+  return (flow * 0.08) + (wave * 1.45) + (0.035 * f.transitionEnergy);
+}
+
 function dominantSurface(x: number, y: number, f: AetherFeatures): string {
   const nx = x / 2.4;
   const ny = (y + 1.6) / 3.2;
@@ -1057,184 +1071,218 @@ const AetherflowCanvas: React.FC<{ features: AetherFeatures }> = ({ features }) 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const setup = setupCanvas(canvas);
-    if (!setup) return;
-    const { ctx, width, height, dpr } = setup;
-    ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = '#030006';
-    ctx.fillRect(0, 0, width, height);
+    let frameId = 0;
+    let lastFrameTime = 0;
+    const frameIntervalMs = 1000 / MANIFOLD_IDLE_FPS;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 
-    const drawLabel = (text: string, point: { x: number; y: number }, color: string, align: CanvasTextAlign = 'center') => {
+    const drawFrame = (frameTime: number) => {
+      const setup = setupCanvas(canvas);
+      if (!setup) return;
+      const { ctx, width, height, dpr } = setup;
+      const timeSeconds = reduceMotion ? 0 : frameTime / 1000;
+      const waveStrength = reduceMotion ? 0 : (dragRef.current.dragging ? 0.36 : 1);
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = '#030006';
+      ctx.fillRect(0, 0, width, height);
+
+      const drawLabel = (text: string, point: { x: number; y: number }, color: string, align: CanvasTextAlign = 'center') => {
+        ctx.save();
+        ctx.font = `${10 * dpr}px "JetBrains Mono", monospace`;
+        ctx.textAlign = align;
+        ctx.textBaseline = 'middle';
+        ctx.shadowBlur = 13 * dpr;
+        ctx.shadowColor = color;
+        ctx.fillStyle = color;
+        ctx.fillText(text, point.x, point.y);
+        ctx.restore();
+      };
+
+      const strokePath = (points: Array<{ x: number; y: number }>, color: string, lineWidth: number) => {
+        ctx.save();
+        ctx.beginPath();
+        points.forEach((point, index) => {
+          if (index === 0) ctx.moveTo(point.x, point.y);
+          else ctx.lineTo(point.x, point.y);
+        });
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth * dpr;
+        ctx.stroke();
+        ctx.restore();
+      };
+
+      const cols = 48;
+      const rows = 28;
+      const points: Array<Array<{ x: number; y: number; z: number; baseZ: number; wave: number; p: ReturnType<typeof projectSurfacePoint>; dominant: string }>> = [];
+      for (let row = 0; row <= rows; row += 1) {
+        const line = [];
+        const y = row / rows;
+        for (let col = 0; col <= cols; col += 1) {
+          const x = -1 + (2 * col) / cols;
+          const baseZ = pressurePlaneHeight(x, y, features);
+          const wave = manifoldIdleWave(x, y, features, timeSeconds) * waveStrength;
+          const z = clip(baseZ + wave, -0.2, 1.16);
+          line.push({
+            x,
+            y,
+            z,
+            baseZ,
+            wave,
+            p: projectSurfacePoint(x, y, z, width, height, scene),
+            dominant: pressurePlaneDominant(x, y, features),
+          });
+        }
+        points.push(line);
+      }
+
+      const faces = [];
+      for (let row = 0; row < rows; row += 1) {
+        for (let col = 0; col < cols; col += 1) {
+          const a = points[row][col];
+          const b = points[row][col + 1];
+          const c = points[row + 1][col + 1];
+          const d = points[row + 1][col];
+          const heightAvg = (a.baseZ + b.baseZ + c.baseZ + d.baseZ) / 4;
+          const waveAvg = (a.wave + b.wave + c.wave + d.wave) / 4;
+          faces.push({
+            pts: [a, b, c, d],
+            depth: (a.p.depth + b.p.depth + c.p.depth + d.p.depth) / 4,
+            height: heightAvg,
+            wave: waveAvg,
+            dominant: [a, b, c, d].sort((p1, p2) => p2.baseZ - p1.baseZ)[0].dominant,
+          });
+        }
+      }
+
+      faces.sort((a, b) => a.depth - b.depth);
+      faces.forEach((face) => {
+        const v10Height = face.height / 0.54;
+        const center = face.pts.reduce((acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }), { x: 0, y: 0 });
+        const colorPulse = idleColorPulse(center.x / 4, center.y / 4, face.wave, features, timeSeconds) * waveStrength;
+        const shade = clip(0.42 + ((v10Height + 0.28) * 0.54) + (((face.depth + 2) / 8) * 0.22) + colorPulse, 0.22, 1.28);
+        ctx.beginPath();
+        face.pts.forEach((point, index) => {
+          if (index === 0) ctx.moveTo(point.p.x, point.p.y);
+          else ctx.lineTo(point.p.x, point.p.y);
+        });
+        ctx.closePath();
+        ctx.fillStyle = shadedColor(dominantColor(face.dominant), shade, 0.7 + (0.06 * waveStrength));
+        ctx.fill();
+        ctx.strokeStyle = v10Height > 0.78 ? 'rgba(255,255,255,0.16)' : `rgba(168,85,255,${0.12 + (0.05 * waveStrength)})`;
+        ctx.lineWidth = 0.68 * dpr;
+        ctx.stroke();
+      });
+
+      ctx.save();
+      ctx.lineWidth = 1.1 * dpr;
+      [0.16, 0.28, 0.4, 0.52, 0.64, 0.76, 0.88].forEach((y, index) => {
+        ctx.beginPath();
+        for (let step = 0; step <= 144; step += 1) {
+          const x = -0.98 + (1.96 * step) / 144;
+          const z = clip(pressurePlaneHeight(x, y, features) + (manifoldIdleWave(x, y, features, timeSeconds) * waveStrength) + 0.014, -0.2, 1.18);
+          const p = projectSurfacePoint(x, y, z, width, height, scene);
+          if (step === 0) ctx.moveTo(p.x, p.y);
+          else ctx.lineTo(p.x, p.y);
+        }
+        ctx.strokeStyle = index % 2 ? `rgba(168,85,255,${0.24 + (0.1 * waveStrength)})` : `rgba(53,245,255,${0.21 + (0.08 * waveStrength)})`;
+        ctx.stroke();
+      });
+      ctx.restore();
+
+      const origin = projectSurfacePoint(-1.08, 0, 0, width, height, scene);
+      const farRight = projectSurfacePoint(1.1, 0, 0, width, height, scene);
+      const nearRight = projectSurfacePoint(1.1, 1.08, 0, width, height, scene);
+      const nearLeft = projectSurfacePoint(-1.08, 1.08, 0, width, height, scene);
+      const axisZ = { x: origin.x, y: origin.y - height * 0.43 };
+      strokePath([origin, farRight, nearRight, nearLeft, origin], 'rgba(168,85,255,0.42)', 1.5);
+      strokePath([origin, axisZ], 'rgba(168,85,255,0.72)', 1.5);
+      strokePath([origin, nearLeft], 'rgba(168,85,255,0.42)', 1.2);
+
       ctx.save();
       ctx.font = `${10 * dpr}px "JetBrains Mono", monospace`;
-      ctx.textAlign = align;
-      ctx.textBaseline = 'middle';
-      ctx.shadowBlur = 13 * dpr;
-      ctx.shadowColor = color;
-      ctx.fillStyle = color;
-      ctx.fillText(text, point.x, point.y);
+      ctx.fillStyle = alphaColor(COLORS.muted, 0.92);
+      const pressureLabel = projectSurfacePoint(1.14, 0.66, 0.1, width, height, scene);
+      const transitionLabelX = clip(nearLeft.x + 8 * dpr, 8 * dpr, width - 96 * dpr);
+      ctx.fillText('INTENSITY', axisZ.x + 10 * dpr, axisZ.y + 8 * dpr);
+      ctx.fillText('PRESSURE -1', pressureLabel.x + 8 * dpr, pressureLabel.y - 4 * dpr);
+      ctx.fillText('TRANSITION', transitionLabelX, nearLeft.y + 18 * dpr);
       ctx.restore();
-    };
 
-    const strokePath = (points: Array<{ x: number; y: number }>, color: string, lineWidth: number) => {
+      const markerTarget = markerTargetForRegime(features);
+      const markerZ = pressurePlaneHeight(markerTarget.x, markerTarget.y, features);
+      const markerWave = manifoldIdleWave(markerTarget.x, markerTarget.y, features, timeSeconds) * waveStrength;
+      const marker = projectSurfacePoint(markerTarget.x, markerTarget.y, markerZ + markerWave + 0.05, width, height, scene);
+      const base = projectSurfacePoint(markerTarget.x, markerTarget.y, 0, width, height, scene);
+      const activeColor = regimeColor(features.regime);
       ctx.save();
+      ctx.strokeStyle = activeColor;
+      ctx.lineWidth = 2 * dpr;
+      ctx.shadowBlur = (14 + (4 * waveStrength * Math.sin(timeSeconds * 1.4))) * dpr;
+      ctx.shadowColor = activeColor;
       ctx.beginPath();
-      points.forEach((point, index) => {
-        if (index === 0) ctx.moveTo(point.x, point.y);
-        else ctx.lineTo(point.x, point.y);
-      });
-      ctx.strokeStyle = color;
-      ctx.lineWidth = lineWidth * dpr;
+      ctx.moveTo(base.x, base.y);
+      ctx.lineTo(marker.x, marker.y);
       ctx.stroke();
+      ctx.fillStyle = activeColor;
+      ctx.beginPath();
+      ctx.arc(marker.x, marker.y, (6 + (1.2 * waveStrength * (0.5 + (0.5 * Math.sin(timeSeconds * 1.8))))) * dpr, 0, TAU);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.font = `${11 * dpr}px "JetBrains Mono", monospace`;
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = COLORS.text;
+      ctx.fillText(features.regime, marker.x + 13 * dpr, marker.y - 8 * dpr);
+      ctx.fillStyle = COLORS.muted;
+      ctx.fillText(`pressure ${fmt(features.pressure30)} / burst ${fmt(features.burstPressure)}`, marker.x + 13 * dpr, marker.y + 9 * dpr);
+      ctx.restore();
+
+      drawLabel('trend ridge', projectSurfacePoint(features.pressure30, 0.78, 0.4 + (manifoldIdleWave(features.pressure30, 0.78, features, timeSeconds) * waveStrength), width, height, scene), COLORS.green);
+      drawLabel('burst peak', projectSurfacePoint(Math.sign(features.pressure30 || 0.001) * 0.55, features.transitionEnergy, 0.58 + (manifoldIdleWave(Math.sign(features.pressure30 || 0.001) * 0.55, features.transitionEnergy, features, timeSeconds) * waveStrength), width, height, scene), COLORS.amber);
+      drawLabel('chop shelf', projectSurfacePoint(0, 0.38, 0.44 + (manifoldIdleWave(0, 0.38, features, timeSeconds) * waveStrength), width, height, scene), COLORS.cyan);
+      drawLabel('rot wall', projectSurfacePoint(-0.72, 0.58, 0.5 + (manifoldIdleWave(-0.72, 0.58, features, timeSeconds) * waveStrength), width, height, scene), COLORS.red);
+
+      const cx = width - 58 * dpr;
+      const cy = 48 * dpr;
+      const rx = 28 * dpr;
+      const ry = 15 * dpr;
+      const dotX = cx + Math.sin(scene.yaw) * rx;
+      const dotY = cy - scene.pitch * 38 * dpr;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(168,85,255,0.36)';
+      ctx.lineWidth = 1 * dpr;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, TAU);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx - rx, cy);
+      ctx.lineTo(cx + rx, cy);
+      ctx.moveTo(cx, cy - 24 * dpr);
+      ctx.lineTo(cx, cy + 24 * dpr);
+      ctx.stroke();
+      ctx.fillStyle = COLORS.cyan;
+      ctx.shadowBlur = 12 * dpr;
+      ctx.shadowColor = COLORS.cyan;
+      ctx.beginPath();
+      ctx.arc(dotX, dotY, 4 * dpr, 0, TAU);
+      ctx.fill();
       ctx.restore();
     };
 
-    const cols = 48;
-    const rows = 28;
-    const points: Array<Array<{ x: number; y: number; z: number; p: ReturnType<typeof projectSurfacePoint>; dominant: string }>> = [];
-    for (let row = 0; row <= rows; row += 1) {
-      const line = [];
-      const y = row / rows;
-      for (let col = 0; col <= cols; col += 1) {
-        const x = -1 + (2 * col) / cols;
-        const z = pressurePlaneHeight(x, y, features);
-        line.push({
-          x,
-          y,
-          z,
-          p: projectSurfacePoint(x, y, z, width, height, scene),
-          dominant: pressurePlaneDominant(x, y, features),
-        });
+    const animate = (frameTime: number) => {
+      if (frameTime - lastFrameTime >= frameIntervalMs) {
+        lastFrameTime = frameTime;
+        drawFrame(frameTime);
       }
-      points.push(line);
+      frameId = window.requestAnimationFrame(animate);
+    };
+
+    drawFrame(performance.now());
+    if (!reduceMotion) {
+      frameId = window.requestAnimationFrame(animate);
     }
-
-    const faces = [];
-    for (let row = 0; row < rows; row += 1) {
-      for (let col = 0; col < cols; col += 1) {
-        const a = points[row][col];
-        const b = points[row][col + 1];
-        const c = points[row + 1][col + 1];
-        const d = points[row + 1][col];
-        const heightAvg = (a.z + b.z + c.z + d.z) / 4;
-        faces.push({
-          pts: [a, b, c, d],
-          depth: (a.p.depth + b.p.depth + c.p.depth + d.p.depth) / 4,
-          height: heightAvg,
-          dominant: [a, b, c, d].sort((p1, p2) => p2.z - p1.z)[0].dominant,
-        });
-      }
-    }
-
-    faces.sort((a, b) => a.depth - b.depth);
-    faces.forEach((face) => {
-      const v10Height = face.height / 0.54;
-      const shade = clip(0.42 + ((v10Height + 0.28) * 0.54) + (((face.depth + 2) / 8) * 0.22), 0.22, 1.22);
-      ctx.beginPath();
-      face.pts.forEach((point, index) => {
-        if (index === 0) ctx.moveTo(point.p.x, point.p.y);
-        else ctx.lineTo(point.p.x, point.p.y);
-      });
-      ctx.closePath();
-      ctx.fillStyle = shadedColor(dominantColor(face.dominant), shade, 0.72);
-      ctx.fill();
-      ctx.strokeStyle = v10Height > 0.78 ? 'rgba(255,255,255,0.16)' : 'rgba(168,85,255,0.13)';
-      ctx.lineWidth = 0.68 * dpr;
-      ctx.stroke();
-    });
-
-    ctx.save();
-    ctx.lineWidth = 1.1 * dpr;
-    [0.16, 0.28, 0.4, 0.52, 0.64, 0.76, 0.88].forEach((y, index) => {
-      ctx.beginPath();
-      for (let step = 0; step <= 144; step += 1) {
-        const x = -0.98 + (1.96 * step) / 144;
-        const z = pressurePlaneHeight(x, y, features) + 0.014;
-        const p = projectSurfacePoint(x, y, z, width, height, scene);
-        if (step === 0) ctx.moveTo(p.x, p.y);
-        else ctx.lineTo(p.x, p.y);
-      }
-      ctx.strokeStyle = index % 2 ? 'rgba(168,85,255,0.30)' : 'rgba(53,245,255,0.25)';
-      ctx.stroke();
-    });
-    ctx.restore();
-
-    const origin = projectSurfacePoint(-1.08, 0, 0, width, height, scene);
-    const farRight = projectSurfacePoint(1.1, 0, 0, width, height, scene);
-    const nearRight = projectSurfacePoint(1.1, 1.08, 0, width, height, scene);
-    const nearLeft = projectSurfacePoint(-1.08, 1.08, 0, width, height, scene);
-    const axisZ = { x: origin.x, y: origin.y - height * 0.43 };
-    strokePath([origin, farRight, nearRight, nearLeft, origin], 'rgba(168,85,255,0.42)', 1.5);
-    strokePath([origin, axisZ], 'rgba(168,85,255,0.72)', 1.5);
-    strokePath([origin, nearLeft], 'rgba(168,85,255,0.42)', 1.2);
-
-    ctx.save();
-    ctx.font = `${10 * dpr}px "JetBrains Mono", monospace`;
-    ctx.fillStyle = alphaColor(COLORS.muted, 0.92);
-    const pressureLabel = projectSurfacePoint(1.14, 0.66, 0.1, width, height, scene);
-    const transitionLabelX = clip(nearLeft.x + 8 * dpr, 8 * dpr, width - 96 * dpr);
-    ctx.fillText('INTENSITY', axisZ.x + 10 * dpr, axisZ.y + 8 * dpr);
-    ctx.fillText('PRESSURE -1', pressureLabel.x + 8 * dpr, pressureLabel.y - 4 * dpr);
-    ctx.fillText('TRANSITION', transitionLabelX, nearLeft.y + 18 * dpr);
-    ctx.restore();
-
-    const markerTarget = markerTargetForRegime(features);
-    const markerZ = pressurePlaneHeight(markerTarget.x, markerTarget.y, features);
-    const marker = projectSurfacePoint(markerTarget.x, markerTarget.y, markerZ + 0.05, width, height, scene);
-    const base = projectSurfacePoint(markerTarget.x, markerTarget.y, 0, width, height, scene);
-    const activeColor = regimeColor(features.regime);
-    ctx.save();
-    ctx.strokeStyle = activeColor;
-    ctx.lineWidth = 2 * dpr;
-    ctx.shadowBlur = 14 * dpr;
-    ctx.shadowColor = activeColor;
-    ctx.beginPath();
-    ctx.moveTo(base.x, base.y);
-    ctx.lineTo(marker.x, marker.y);
-    ctx.stroke();
-    ctx.fillStyle = activeColor;
-    ctx.beginPath();
-    ctx.arc(marker.x, marker.y, 6 * dpr, 0, TAU);
-    ctx.fill();
-    ctx.shadowBlur = 0;
-    ctx.font = `${11 * dpr}px "JetBrains Mono", monospace`;
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = COLORS.text;
-    ctx.fillText(features.regime, marker.x + 13 * dpr, marker.y - 8 * dpr);
-    ctx.fillStyle = COLORS.muted;
-    ctx.fillText(`pressure ${fmt(features.pressure30)} / burst ${fmt(features.burstPressure)}`, marker.x + 13 * dpr, marker.y + 9 * dpr);
-    ctx.restore();
-
-    drawLabel('trend ridge', projectSurfacePoint(features.pressure30, 0.78, 0.4, width, height, scene), COLORS.green);
-    drawLabel('burst peak', projectSurfacePoint(Math.sign(features.pressure30 || 0.001) * 0.55, features.transitionEnergy, 0.58, width, height, scene), COLORS.amber);
-    drawLabel('chop shelf', projectSurfacePoint(0, 0.38, 0.44, width, height, scene), COLORS.cyan);
-    drawLabel('rot wall', projectSurfacePoint(-0.72, 0.58, 0.5, width, height, scene), COLORS.red);
-
-    const cx = width - 58 * dpr;
-    const cy = 48 * dpr;
-    const rx = 28 * dpr;
-    const ry = 15 * dpr;
-    const dotX = cx + Math.sin(scene.yaw) * rx;
-    const dotY = cy - scene.pitch * 38 * dpr;
-    ctx.save();
-    ctx.strokeStyle = 'rgba(168,85,255,0.36)';
-    ctx.lineWidth = 1 * dpr;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, rx, ry, 0, 0, TAU);
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(cx - rx, cy);
-    ctx.lineTo(cx + rx, cy);
-    ctx.moveTo(cx, cy - 24 * dpr);
-    ctx.lineTo(cx, cy + 24 * dpr);
-    ctx.stroke();
-    ctx.fillStyle = COLORS.cyan;
-    ctx.shadowBlur = 12 * dpr;
-    ctx.shadowColor = COLORS.cyan;
-    ctx.beginPath();
-    ctx.arc(dotX, dotY, 4 * dpr, 0, TAU);
-    ctx.fill();
-    ctx.restore();
+    return () => {
+      if (frameId) window.cancelAnimationFrame(frameId);
+    };
   }, [features, scene]);
 
   const onPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
