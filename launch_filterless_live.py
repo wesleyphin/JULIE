@@ -112,10 +112,10 @@ os.environ.setdefault("JULIE_CB_MAX_TRAILING_DD", "0")
 # OOS on April 2026 (195 trades never seen in training):
 #   Filter stack C+D+E+F:   baseline $+484 → ~$+675  (Δ ~+$191)
 #   Filter G alone:         baseline $+484 → $+2,109 (Δ +$1,625)
-# G is a separate joblib classifier at artifacts/signal_gate_2025/model.joblib
-# that predicts P(pnl <= -$100) per trade and vetoes at P >= 0.35. Trained on
-# 1669 iter-11 2025 trades. Revert by setting JULIE_SIGNAL_GATE_2025=0 and
-# re-enabling the rules via the env vars below.
+# G is a separate joblib classifier family under artifacts/signal_gate_2025/
+# that predicts large-loss risk per trade and vetoes above threshold when
+# explicitly enabled. Current handoff leaves it off by default; enable with
+# JULIE_SIGNAL_GATE_2025=1 and re-enable any archived rules via env vars below.
 #
 # Rules kept disabled as code paths (not deleted) so rollback is one env flip:
 os.environ.setdefault("JULIE_LFG_TREND_BIAS_MIN_TIER", "99")   # filter C OFF (99 = never fires)
@@ -124,28 +124,13 @@ os.environ.setdefault("JULIE_REGIME_SIZE_CAP_VALUE", "1")
 os.environ.setdefault("JULIE_REGIME_GREEN_UNLOCK_PNL", "999999")  # filter E OFF (unreachable threshold)
 os.environ.setdefault("JULIE_REGIME_GREEN_UNLOCK_SIZE", "3")
 #
-# Regime ML action-space decomposition (v5, shipped 2026-04-24):
-#   - Model A (scalp brackets): OOS April lift +$12,343 PnL AND -$2,526 DD
-#     at ship threshold 0.70. Decouples bracket geometry from size/BE so
-#     scalp rewrite can apply on any vol regime without breaking safety.
-#   - Model B (size reduction): passed individual gates but combined-PnL
-#     regressed by $11k when stacked with A → kept on RULE.
-#   - Model C (BE-arm disable): killed on own gates → kept on RULE.
-# Disable individually with: export JULIE_REGIME_ML_BRACKETS=0
-os.environ.setdefault("JULIE_REGIME_ML_BRACKETS", "1")   # Model A v5 SHIPPED (HGB-only, thr=0.50)
-os.environ.setdefault("JULIE_REGIME_ML_SIZE", "1")       # Model B v6 SHIPPED (A-conditional, thr=0.70, lift +$9,188)
-os.environ.setdefault("JULIE_REGIME_ML_BE", "1")         # Model C v6 SHIPPED (A-conditional, thr=0.60, lift +$2,452)
-#
-# SameSide stack-or-suppress ML (shipped 2026-04-24):
-#   Replaces the hard same-side suppression rule at julie001.py:14659
-#   with an HGB-gated decision. OOS on 913-event April 2026 holdout:
-#   +$3,320 PnL, 58.1% WR, $590 DD (17.8% DD/PnL ratio), 23.4% oracle
-#   capture. Hard cap: max 2 contracts total on same-family same-side.
-#   Respects existing CircuitBreaker / LossFactorGuard / regime_veto gates.
-#   Gate 2 redefined from 'DD ≤ 110% × baseline=$0 (unsatisfiable)' to
-#   'DD/PnL ratio ≤ 30% (risk-adjusted equivalent)' — documented in
-#   scripts/regime_ml/train_sameside.py docstring.
-os.environ.setdefault("JULIE_SAMESIDE_ML", "1")                        # Model SHIPPED
+# Wesley/Claude regime-ML and same-side ML layers remain importable, but the
+# current live handoff does not list them as active. Keep them shadow/manual
+# until they are revalidated against the current DE3 + AetherFlow live stack.
+os.environ.setdefault("JULIE_REGIME_ML_BRACKETS", "0")
+os.environ.setdefault("JULIE_REGIME_ML_SIZE", "0")
+os.environ.setdefault("JULIE_REGIME_ML_BE", "0")
+os.environ.setdefault("JULIE_SAMESIDE_ML", "0")
 os.environ.setdefault("JULIE_SAMESIDE_ML_MAX_CONTRACTS", "2")          # hard cap
 #
 # Auto-write kill switches (2026-04-24): disable every path that
@@ -231,17 +216,9 @@ os.environ.setdefault("JULIE_ML_RL_MGMT_ACTIVE", "1")
 os.environ.setdefault("JULIE_RL_REGIME_GATE_ACTIVE", "1")
 os.environ.setdefault("JULIE_RL_MIN_MFE_FRAC_FOR_TIGHTEN", "0.50")
 
-# --- Kalshi CM-breakout gate v2 (direction-specific ML, AUC 0.77) ---
-# Two GBT classifiers (LONG / SHORT) trained on 125,678 aligned
-# MES+MNQ+VIX 1-min bars with a direct price-direction target
-# ("does MES move ≥5 pts in 30 min in side direction?"). Rolling-origin
-# AUC 0.776 LONG / 0.764 SHORT; p≥0.60 bucket hits 71–74% vs 31% base.
-# When active, v2 replaces both the hand-tuned VIX/MNQ rule and the
-# v1 CM gate for Kalshi override decisions. Guarded by
-# entry_support_score ≥ 0.15 (never overrides catastrophic blocks) and
-# only fires in non-background roles. Set to "0" to demote to
-# shadow-only ([CM_GATE_V2] log lines still emit for observation).
-os.environ.setdefault("JULIE_KALSHI_CM_GATE_V2_ACTIVE", "1")
+# Kalshi rule overlay is live, scoped to DE3 in config. The CM-breakout ML v2
+# replacement is kept shadow/manual so the hand-tuned rule remains authority.
+os.environ.setdefault("JULIE_KALSHI_CM_GATE_V2_ACTIVE", "0")
 
 # Legacy same-side loss-cluster blocker from the Wesley/Claude branch.
 # Keep the module importable, but leave it disabled by default until it is
@@ -257,37 +234,11 @@ os.environ.setdefault("JULIE_ANTI_FLIP_BLOCKER_ACTIVE", "0")
 os.environ.setdefault("JULIE_ANTI_FLIP_WINDOW_MIN", "30")
 os.environ.setdefault("JULIE_ANTI_FLIP_MAX_DIST_PTS", "8.0")
 
-# Triathlon Engine — per-cell performance tracking (strategy × regime ×
-# time-bucket) with three leagues (Purity / Cash / Velocity) and a
-# medal-driven size/priority multiplier on live signals. Seeded from
-# 2025 full year + 2026 Jan-Apr historical trades. Records every live
-# signal (fired or blocked) into ai_loop_data/triathlon/ledger.db so
-# the medals stay refreshed as live data accumulates.
-# Disable for a single session with: export JULIE_TRIATHLON_ACTIVE=0
-os.environ.setdefault("JULIE_TRIATHLON_ACTIVE", "1")
-
-# Triathlon time-decay weighted scoring (Option B, 2026-04-23).
-# Half-life (days) for the exponential per-trade weight when scoring
-# cells. A trade this many days old counts half as much as a trade at
-# the reference point. OOS sweep on April 2026 (pre-April train) vs
-# both no-medal and unweighted-medal baselines picked 120 days as the
-# clean-win configuration (+$678 vs no medals, +$475 vs unweighted
-# medals, DD slightly lower in both cases, WR unchanged). Set to 0
-# to disable decay entirely (matches pre-2026-04-23 scoring).
+# Triathlon/per-cell overlays are not part of the current live handoff.
+# Operators can opt in explicitly, but launcher defaults keep them neutral.
+os.environ.setdefault("JULIE_TRIATHLON_ACTIVE", "0")
 os.environ.setdefault("JULIE_TRIATHLON_HALFLIFE_DAYS", "120")
-
-# Filter G per-cell threshold override table (Idea 1, 2026-04-23).
-# When active, signal_gate_2025._effective_threshold looks up a
-# per-(strategy × regime × time-bucket) multiplier from
-# ai_loop_data/triathlon/filterg_threshold_overrides.json, produced by
-# scripts/idea1_filterg_per_cell_calibrate.py. Bleeding cells (avg
-# PnL < -$2 on pre-April data) tighten threshold to 0.75× base; strong
-# cells (avg PnL > +$5) loosen to 1.15× base; neutral cells unchanged.
-# OOS backtest on April 2026 showed a +$3.5k optimistic-bound lift
-# with 25% of bleeding-cell trades retroactively blocked — that's the
-# ceiling, real live effect will be smaller but directionally positive.
-# Disable with: export JULIE_FILTERG_PER_CELL_ACTIVE=0
-os.environ.setdefault("JULIE_FILTERG_PER_CELL_ACTIVE", "1")
+os.environ.setdefault("JULIE_FILTERG_PER_CELL_ACTIVE", "0")
 
 os.environ.setdefault("JULIE_REGIME_CB_WHIPSAW", "250")
 os.environ.setdefault("JULIE_REGIME_CB_NEUTRAL", "350")

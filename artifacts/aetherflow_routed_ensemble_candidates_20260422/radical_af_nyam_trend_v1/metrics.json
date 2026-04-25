@@ -1,0 +1,236 @@
+{
+  "artifact": {
+    "model_file": "C:\\Users\\timot\\OneDrive\\Desktop\\topstep2\\artifacts\\aetherflow_routed_ensemble_candidates_20260422\\radical_af_nyam_trend_v1\\model.pkl",
+    "thresholds_file": "C:\\Users\\timot\\OneDrive\\Desktop\\topstep2\\artifacts\\aetherflow_routed_ensemble_candidates_20260422\\radical_af_nyam_trend_v1\\thresholds.json",
+    "features_parquet": "C:\\Users\\timot\\OneDrive\\Desktop\\topstep2\\artifacts\\aetherflow_corrected_walkforward_fullbase\\aetherflow_features_corrected_full_2011_2026.parquet"
+  },
+  "training_rows": 227324,
+  "training_families": [
+    "aligned_flow",
+    "transition_burst",
+    "exhaustion_reversal"
+  ],
+  "blocked_regimes": [
+    "ROTATIONAL_TURBULENCE"
+  ],
+  "router": {
+    "feature_columns": [
+      "expert_0_prob",
+      "expert_1_prob",
+      "expert_prob_gap_01",
+      "expert_prob_mean",
+      "expert_prob_max",
+      "setup_strength",
+      "candidate_side",
+      "session_id",
+      "manifold_regime_id",
+      "manifold_alignment_pct",
+      "manifold_smoothness_pct",
+      "manifold_stress_pct",
+      "manifold_dispersion_pct",
+      "vwap_dist_atr",
+      "flow_mag_fast",
+      "flow_mag_slow",
+      "flow_agreement",
+      "compression_score",
+      "transition_energy",
+      "coherence",
+      "d_alignment_3",
+      "d_coherence_3",
+      "pressure_imbalance_30",
+      "phase_regime_run_bars",
+      "phase_regime_flip_count_10",
+      "phase_manifold_alignment_pct_mean_5",
+      "phase_manifold_stress_pct_mean_5",
+      "phase_d_alignment_3_mean_5",
+      "family_is_compression_release",
+      "family_is_aligned_flow",
+      "family_is_transition_burst",
+      "family_is_exhaustion_reversal",
+      "session_is_asia",
+      "session_is_london",
+      "session_is_nyam",
+      "session_is_nypm",
+      "regime_is_trend_geodesic",
+      "regime_is_chop_spiral",
+      "regime_is_dispersed",
+      "regime_is_rotational_turbulence"
+    ],
+    "fit_end": "2025-12-31 23:59",
+    "fallback_expert": "stable",
+    "router_mode": "hard_route",
+    "router_min_top_prob": 0.0,
+    "router_min_top_gap": 0.0,
+    "router_target_mode": "best_expert_logloss",
+    "utility_center_prob": 0.55,
+    "target_shares": {
+      "stable": {
+        "all": 0.9678520525769386,
+        "train": 0.9679356918045802,
+        "validation": 0.9667620215229533
+      },
+      "fullsingle_af_nyam_tg_long_v1": {
+        "all": 0.016672238742939594,
+        "train": 0.01659688288611854,
+        "validation": 0.017300095354856288
+      },
+      "fullsingle_af_nyam_tg_short_v3": {
+        "all": 0.015475708680121764,
+        "train": 0.015467425309301248,
+        "validation": 0.015937883122190438
+      }
+    },
+    "target_diagnostics": {
+      "target_mode": "best_expert_logloss",
+      "target_score_summary": {
+        "mean_best_logloss": 0.6837265943768783,
+        "mean_gap": 0.003539657179152875
+      }
+    },
+    "params": {
+      "max_depth": 4,
+      "max_iter": 250,
+      "learning_rate": 0.05,
+      "min_samples_leaf": 256,
+      "random_state": 1337
+    }
+  },
+  "split_metrics": {
+    "train_2011_2024": {
+      "stable": {
+        "rows": 211606,
+        "positive_rate": 0.37044790790431276,
+        "logloss": 0.6851818648222544,
+        "brier": 0.24610546886903154,
+        "auc": 0.5405227541914117,
+        "prob_mean": 0.4942426705568153
+      },
+      "fullsingle_af_nyam_tg_long_v1": {
+        "rows": 211606,
+        "positive_rate": 0.37044790790431276,
+        "logloss": 0.687062792033947,
+        "brier": 0.24696625523582627,
+        "auc": 0.5664576856600065,
+        "prob_mean": 0.4969159549200365
+      },
+      "fullsingle_af_nyam_tg_short_v3": {
+        "rows": 211606,
+        "positive_rate": 0.37044790790431276,
+        "logloss": 0.6829951622446162,
+        "brier": 0.24495078438674744,
+        "auc": 0.5904583861067099,
+        "prob_mean": 0.49622212128488524
+      },
+      "routed": {
+        "rows": 211606,
+        "positive_rate": 0.37044790790431276,
+        "logloss": 0.6845668806314221,
+        "brier": 0.24579963714888156,
+        "auc": 0.5452371112521517,
+        "prob_mean": 0.4940663606729211
+      }
+    },
+    "validation_2025": {
+      "stable": {
+        "rows": 14682,
+        "positive_rate": 0.3663669799754802,
+        "logloss": 0.6918618921884812,
+        "brier": 0.24931499309089983,
+        "auc": 0.5171571170961828,
+        "prob_mean": 0.4963802904957147
+      },
+      "fullsingle_af_nyam_tg_long_v1": {
+        "rows": 14682,
+        "positive_rate": 0.3663669799754802,
+        "logloss": 0.6885161657973693,
+        "brier": 0.24769026232870828,
+        "auc": 0.5165585459731619,
+        "prob_mean": 0.49134697456881543
+      },
+      "fullsingle_af_nyam_tg_short_v3": {
+        "rows": 14682,
+        "positive_rate": 0.3663669799754802,
+        "logloss": 0.6911096589491373,
+        "brier": 0.2489797485318095,
+        "auc": 0.5107981906857393,
+        "prob_mean": 0.4936174022612932
+      },
+      "routed": {
+        "rows": 14682,
+        "positive_rate": 0.3663669799754802,
+        "logloss": 0.6916346817053495,
+        "brier": 0.24920247506562818,
+        "auc": 0.5199059220372353,
+        "prob_mean": 0.49650674506021536
+      }
+    },
+    "holdout_post_validation": {
+      "stable": {
+        "rows": 1036,
+        "positive_rate": 0.3658301158301158,
+        "logloss": 0.6872550015857103,
+        "brier": 0.24706204688968564,
+        "auc": 0.5156765179535989,
+        "prob_mean": 0.4890939528140671
+      },
+      "fullsingle_af_nyam_tg_long_v1": {
+        "rows": 1036,
+        "positive_rate": 0.3658301158301158,
+        "logloss": 0.6886216595323744,
+        "brier": 0.2477414555785927,
+        "auc": 0.49305831656646704,
+        "prob_mean": 0.4881577416983335
+      },
+      "fullsingle_af_nyam_tg_short_v3": {
+        "rows": 1036,
+        "positive_rate": 0.3658301158301158,
+        "logloss": 0.6906735033105271,
+        "brier": 0.2487750469917083,
+        "auc": 0.4836046152054393,
+        "prob_mean": 0.48858383585121895
+      },
+      "routed": {
+        "rows": 1036,
+        "positive_rate": 0.3658301158301158,
+        "logloss": 0.6872404068428132,
+        "brier": 0.2470549093215606,
+        "auc": 0.514491793271567,
+        "prob_mean": 0.48880433327322825
+      }
+    },
+    "jan_2026": {
+      "stable": {
+        "rows": 1036,
+        "positive_rate": 0.3658301158301158,
+        "logloss": 0.6872550015857103,
+        "brier": 0.24706204688968564,
+        "auc": 0.5156765179535989,
+        "prob_mean": 0.4890939528140671
+      },
+      "fullsingle_af_nyam_tg_long_v1": {
+        "rows": 1036,
+        "positive_rate": 0.3658301158301158,
+        "logloss": 0.6886216595323744,
+        "brier": 0.2477414555785927,
+        "auc": 0.49305831656646704,
+        "prob_mean": 0.4881577416983335
+      },
+      "fullsingle_af_nyam_tg_short_v3": {
+        "rows": 1036,
+        "positive_rate": 0.3658301158301158,
+        "logloss": 0.6906735033105271,
+        "brier": 0.2487750469917083,
+        "auc": 0.4836046152054393,
+        "prob_mean": 0.48858383585121895
+      },
+      "routed": {
+        "rows": 1036,
+        "positive_rate": 0.3658301158301158,
+        "logloss": 0.6872404068428132,
+        "brier": 0.2470549093215606,
+        "auc": 0.514491793271567,
+        "prob_mean": 0.48880433327322825
+      }
+    }
+  }
+}
