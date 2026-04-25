@@ -1277,7 +1277,35 @@ def _apply_live_drawdown_size(
     if not isinstance(signal, dict):
         return int(requested_size)
 
-    exec_cfg = CONFIG.get("BACKTEST_EXECUTION", {}) or {}
+    exec_cfg = dict(CONFIG.get("BACKTEST_EXECUTION", {}) or {})
+    scaling_source = "backtest_execution"
+    try:
+        is_aetherflow = _live_strategy_family_name(signal.get("strategy")) == "aetherflow"
+    except Exception:
+        is_aetherflow = False
+    if is_aetherflow:
+        af_scaling_cfg = (CONFIG.get("AETHERFLOW_STRATEGY", {}) or {}).get("drawdown_size_scaling", {})
+        if isinstance(af_scaling_cfg, dict):
+            exec_cfg["drawdown_size_scaling_enabled"] = bool(
+                af_scaling_cfg.get("enabled", exec_cfg.get("drawdown_size_scaling_enabled", False))
+            )
+            exec_cfg["drawdown_size_scaling_start_usd"] = af_scaling_cfg.get(
+                "start_usd",
+                af_scaling_cfg.get("drawdown_size_scaling_start_usd", exec_cfg.get("drawdown_size_scaling_start_usd", 0.0)),
+            )
+            exec_cfg["drawdown_size_scaling_max_usd"] = af_scaling_cfg.get(
+                "max_usd",
+                af_scaling_cfg.get("drawdown_size_scaling_max_usd", exec_cfg.get("drawdown_size_scaling_max_usd", 2000.0)),
+            )
+            exec_cfg["drawdown_size_scaling_base_contracts"] = af_scaling_cfg.get(
+                "base_contracts",
+                af_scaling_cfg.get("drawdown_size_scaling_base_contracts", exec_cfg.get("drawdown_size_scaling_base_contracts", requested_size)),
+            )
+            exec_cfg["drawdown_size_scaling_min_contracts"] = af_scaling_cfg.get(
+                "min_contracts",
+                af_scaling_cfg.get("drawdown_size_scaling_min_contracts", exec_cfg.get("drawdown_size_scaling_min_contracts", 1)),
+            )
+            scaling_source = "aetherflow_strategy"
     enabled = bool(exec_cfg.get("drawdown_size_scaling_enabled", False))
     start_usd = max(0.0, _coerce_float(exec_cfg.get("drawdown_size_scaling_start_usd", 0.0), 0.0))
     max_usd = max(start_usd, _coerce_float(exec_cfg.get("drawdown_size_scaling_max_usd", 2000.0), 2000.0))
@@ -1294,6 +1322,7 @@ def _apply_live_drawdown_size(
     metrics = _current_live_drawdown_metrics(live_drawdown_state)
     current_realized_dd = max(0.0, float(metrics.get("current_drawdown_usd", 0.0) or 0.0))
     signal["drawdown_size_source"] = str(metrics.get("source", "trade_pnl_fallback") or "trade_pnl_fallback")
+    signal["drawdown_size_scaling_source"] = str(scaling_source)
     signal["drawdown_size_live_pending_balance_refresh"] = bool(
         metrics.get("balance_pending_refresh", False)
     )
@@ -14830,12 +14859,25 @@ async def run_bot():
                     # AT_LEVEL → execute immediately with a "best fill" log
                     # IMMEDIATE → proceed normally (default behaviour)
                     _lfo_decision = None
+                    _lfo_policy = "rule"
                     if (
                         level_fill_optimizer is not None
                         and not is_rescued
                         and not pending_level_fills
                         and signal.get("entry_mode") not in ("loose", "level_fill")
                     ):
+                        try:
+                            import ml_overlay_shadow as _mls
+                            _lfo_policy = _mls.get_lfo_live_policy(
+                                signal.get("strategy", strat_name)
+                            )
+                        except Exception:
+                            _mls = None
+                            _lfo_policy = "rule"
+                        if _lfo_policy == "off":
+                            signal["level_fill_policy"] = "off"
+                        else:
+                            signal["level_fill_policy"] = _lfo_policy
                         try:
                             _lfo_bar = {
                                 "open":  float(currbar["open"]),
@@ -14857,8 +14899,11 @@ async def run_bot():
                         # SHADOW ML LFO scoring — logs a parallel ML prediction
                         # alongside the rule-based decision for A/B comparison.
                         try:
-                            import ml_overlay_shadow as _mls
-                            if _mls._LFO_PAYLOAD is not None:
+                            if (
+                                _lfo_policy != "off"
+                                and _mls is not None
+                                and _mls._LFO_PAYLOAD is not None
+                            ):
                                 import signal_gate_2025 as _sg
                                 bank_base = (float(current_price) // 12.5) * 12.5
                                 _dist_below = float(current_price) - bank_base
@@ -14921,13 +14966,31 @@ async def run_bot():
                                         _rule_choice, _ml_choice, _p_wait, _thr,
                                         signal.get("strategy","?"), signal.get("side","?"),
                                     )
-                                    if _mls.is_lfo_live_active():
-                                        # Live mode: override _lfo_decision based on ML
+                                    if _lfo_policy == "ml":
+                                        if _ml_choice == "WAIT":
+                                            _lfo_decision = _mls.build_ml_wait_decision(
+                                                signal,
+                                                float(current_price),
+                                                p_wait=float(_p_wait),
+                                                threshold=float(_thr),
+                                            )
+                                        else:
+                                            _lfo_decision = {
+                                                "mode": FILL_IMMEDIATE,
+                                                "target_price": None,
+                                                "target_name": None,
+                                                "dist": None,
+                                                "reason": f"ml_lfo p_wait={_p_wait:.3f}<{_thr:.3f}",
+                                            }
+                                    elif _lfo_policy == "hybrid":
+                                        # Hybrid keeps rule WAITs only when ML agrees.
                                         if _ml_choice == "IMMEDIATE" and _lfo_decision is not None:
-                                            _lfo_decision["mode"] = "IMMEDIATE"
-                                            _lfo_decision["reason"] = f"ml_lfo p_wait={_p_wait:.3f}<{_thr}"
+                                            _lfo_decision["mode"] = FILL_IMMEDIATE
+                                            _lfo_decision["reason"] = f"ml_lfo p_wait={_p_wait:.3f}<{_thr:.3f}"
                         except Exception as _ml_exc:
                             logging.debug("shadow ML LFO scoring failed: %s", _ml_exc, exc_info=True)
+                        if _lfo_policy == "off":
+                            _lfo_decision = None
 
                     if _lfo_decision is not None and _lfo_decision.get("mode") == FILL_WAIT:
                         import uuid as _uuid_mod
