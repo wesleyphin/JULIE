@@ -539,12 +539,23 @@ function hexToRgb(hex: string): { r: number; g: number; b: number } {
 function shadedColor(hex: string, shade: number, alpha = 1): string {
   const rgb = hexToRgb(hex);
   const s = clip(shade, 0, 1.5);
-  return `rgba(${Math.round(rgb.r * s)}, ${Math.round(rgb.g * s)}, ${Math.round(rgb.b * s)}, ${alpha})`;
+  return `rgba(${clip(Math.round(rgb.r * s), 0, 255)}, ${clip(Math.round(rgb.g * s), 0, 255)}, ${clip(Math.round(rgb.b * s), 0, 255)}, ${alpha})`;
 }
 
 function alphaColor(hex: string, alpha: number): string {
   const rgb = hexToRgb(hex);
   return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+}
+
+function rgbToHex(value: number): string {
+  return clip(Math.round(value), 0, 255).toString(16).padStart(2, '0');
+}
+
+function blendHexColors(fromHex: string, toHex: string, amount: number): string {
+  const from = hexToRgb(fromHex);
+  const to = hexToRgb(toHex);
+  const mix = clip01(amount);
+  return `#${rgbToHex(from.r + ((to.r - from.r) * mix))}${rgbToHex(from.g + ((to.g - from.g) * mix))}${rgbToHex(from.b + ((to.b - from.b) * mix))}`;
 }
 
 function getPositionEntryPrice(position?: FilterlessPosition | null): number | null {
@@ -732,16 +743,32 @@ function pressurePlaneHeight(x: number, y: number, f: AetherFeatures): number {
 }
 
 function manifoldIdleWave(x: number, y: number, f: AetherFeatures, timeSeconds: number): number {
-  const amp = 0.012 + (0.02 * f.foldDepth) + (0.012 * f.transitionEnergy) + (0.008 * f.stress);
-  const stream = Math.sin((timeSeconds * 1.04) + (x * 4.8) - (y * 6.2) + (f.pressure30 * 1.7));
-  const cross = Math.sin((timeSeconds * 0.72) + ((x + y) * 5.6) + (f.directionalBias * 1.9));
-  const pulse = Math.cos((timeSeconds * 1.28) - (y * 7.4) + (f.burstPressure * 2.3));
-  return amp * ((0.58 * stream) + (0.3 * cross) + (0.12 * pulse));
+  const swellAmp = 0.01 + (0.015 * f.foldDepth) + (0.009 * f.transitionEnergy);
+  const rippleAmp = 0.005 + (0.006 * f.stress) + (0.004 * f.burstPressure);
+  const microAmp = 0.0025 + (0.004 * f.transitionEnergy) + (0.002 * f.novelty);
+  const stream = Math.sin((timeSeconds * 1.02) + (x * 4.8) - (y * 6.2) + (f.pressure30 * 1.7));
+  const cross = Math.sin((timeSeconds * 0.78) + ((x + y) * 5.8) + (f.directionalBias * 1.9));
+  const chopA = Math.sin((timeSeconds * 2.3) + (x * 13.6) + (y * 8.4) + (f.R * 2.1));
+  const chopB = Math.cos((timeSeconds * 2.9) - (x * 17.2) + (y * 11.8) + (f.stress * 2.7));
+  const chopC = Math.sin((timeSeconds * 3.7) + (x * 23.4) - (y * 19.6) + Math.sin((x - y) * 4.2));
+  const shimmer = Math.sin((timeSeconds * 4.4) + (x * 31.0) + (y * 14.5)) * Math.cos((timeSeconds * 2.6) - (x * 9.8) + (y * 21.0));
+  return (swellAmp * ((0.58 * stream) + (0.42 * cross))) + (rippleAmp * ((0.4 * chopA) + (0.35 * chopB) + (0.25 * chopC))) + (microAmp * shimmer);
 }
 
 function idleColorPulse(x: number, y: number, wave: number, f: AetherFeatures, timeSeconds: number): number {
-  const flow = 0.5 + (0.5 * Math.sin((timeSeconds * 0.92) + (x * 3.2) + (y * 4.7)));
-  return (flow * 0.08) + (wave * 1.45) + (0.035 * f.transitionEnergy);
+  const tide = 0.5 + (0.5 * Math.sin((timeSeconds * 0.58) + (x * 2.4) + (y * 3.1)));
+  const sparkle = 0.5 + (0.5 * Math.sin((timeSeconds * 2.6) + (x * 16.0) - (y * 12.0)));
+  return (tide * 0.055) + (sparkle * 0.025) + (wave * 1.1) + (0.025 * f.transitionEnergy);
+}
+
+function shiftedManifoldColor(baseHex: string, x: number, y: number, wave: number, f: AetherFeatures, timeSeconds: number, strength: number): string {
+  const drift = 0.5 + (0.5 * Math.sin((timeSeconds * 0.34) + (x * 2.2) - (y * 1.7) + f.pressure30));
+  const glint = 0.5 + (0.5 * Math.sin((timeSeconds * 1.6) + (x * 9.0) + (y * 7.2)));
+  const coolTone = blendHexColors(COLORS.cyan, COLORS.violet, 0.22 + (0.38 * drift));
+  const warmTone = blendHexColors(COLORS.green, COLORS.amber, clip01(f.burstPressure + (0.35 * glint)));
+  const coolMix = (0.06 + (0.07 * drift) + (0.04 * clip01(f.foldDepth + Math.abs(wave) * 8))) * strength;
+  const warmMix = (0.025 + (0.035 * glint * clip01(f.transitionEnergy + f.burstPressure))) * strength;
+  return blendHexColors(blendHexColors(baseHex, coolTone, coolMix), warmTone, warmMix);
 }
 
 function dominantSurface(x: number, y: number, f: AetherFeatures): string {
@@ -1201,13 +1228,14 @@ const AetherflowCanvas: React.FC<{ features: AetherFeatures }> = ({ features }) 
         const center = face.pts.reduce((acc, point) => ({ x: acc.x + point.x, y: acc.y + point.y }), { x: 0, y: 0 });
         const colorPulse = idleColorPulse(center.x / 4, center.y / 4, face.wave, features, timeSeconds) * waveStrength;
         const shade = clip(0.42 + ((v10Height + 0.28) * 0.54) + (((face.depth + 2) / 8) * 0.22) + colorPulse, 0.22, 1.28);
+        const fillColor = shiftedManifoldColor(dominantColor(face.dominant), center.x / 4, center.y / 4, face.wave, features, timeSeconds, waveStrength);
         ctx.beginPath();
         face.pts.forEach((point, index) => {
           if (index === 0) ctx.moveTo(point.p.x, point.p.y);
           else ctx.lineTo(point.p.x, point.p.y);
         });
         ctx.closePath();
-        ctx.fillStyle = shadedColor(dominantColor(face.dominant), shade, 0.7 + (0.06 * waveStrength));
+        ctx.fillStyle = shadedColor(fillColor, shade, 0.7 + (0.06 * waveStrength));
         ctx.fill();
         ctx.strokeStyle = v10Height > 0.78 ? 'rgba(255,255,255,0.16)' : `rgba(168,85,255,${0.12 + (0.05 * waveStrength)})`;
         ctx.lineWidth = 0.68 * dpr;
