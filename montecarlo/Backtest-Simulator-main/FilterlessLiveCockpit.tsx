@@ -1,4 +1,4 @@
-import React, { startTransition, useEffect, useMemo, useRef, useState } from 'react';
+import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   FilterlessEvent,
   FilterlessKalshiMetrics,
@@ -13,6 +13,7 @@ const REFRESH_MS = 3000;
 const FEED_STALE_SECONDS = 90;
 const FEED_OFFLINE_SECONDS = 300;
 const MANIFOLD_IDLE_FPS = 24;
+const OPERATOR_CONTROL_URL = 'http://127.0.0.1:3011';
 const TAU = Math.PI * 2;
 
 const COLORS = {
@@ -33,6 +34,24 @@ type ScreenId = 'overview' | 'aetherflow' | 'kalshi' | 'news' | 'strategies' | '
 
 type ManifoldRegime = 'TREND_GEODESIC' | 'CHOP_SPIRAL' | 'DISPERSED' | 'ROTATIONAL_TURBULENCE';
 type BadgeTone = 'live' | 'watch' | 'block' | 'info';
+type OperatorCommandAction = 'restart_bot' | 'restart_bridge' | 'restart_frontend';
+
+interface OperatorProcessStatus {
+  name: string;
+  pid?: number | null;
+  running: boolean;
+  exit_code?: number | null;
+  restart_count?: number | null;
+  watch_age_seconds?: number | null;
+}
+
+interface OperatorControlStatus {
+  ok: boolean;
+  generated_at: string;
+  dashboard_state_age_seconds?: number | null;
+  dashboard_state_path?: string | null;
+  processes: OperatorProcessStatus[];
+}
 
 interface AetherFeatures {
   pressure10: number;
@@ -272,6 +291,10 @@ h1, h2, h3, p { margin: 0; }
 .command-tile small { min-width: 0; color: var(--muted); font-family: var(--mono); font-size: 10px; }
 .control-tile { cursor: pointer; color: inherit; text-align: left; }
 .control-tile:hover { border-color: var(--line-strong); background: rgba(168, 85, 255, 0.1); }
+.control-tile:disabled { cursor: not-allowed; opacity: 0.48; }
+.operator-footer { min-width: 0; margin-top: 9px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.operator-note { min-height: 34px; padding: 8px 10px; border: 1px solid rgba(155, 86, 255, 0.16); background: rgba(4, 1, 8, 0.68); color: var(--muted); font-family: var(--mono); font-size: 10px; }
+.operator-note strong { display: block; color: var(--text); font-size: 10px; }
 .up { color: var(--green) !important; }
 .down { color: var(--red) !important; }
 .info { color: var(--cyan) !important; }
@@ -289,7 +312,7 @@ h1, h2, h3, p { margin: 0; }
 }
 @media (max-width: 820px) {
   .deck { padding: 10px; }
-  .top, .ticker, .cols-2, .cols-3, .cols-4, .mini-grid, .state-matrix, .truth-grid, .command-grid, .scene-hud { grid-template-columns: 1fr; }
+  .top, .ticker, .cols-2, .cols-3, .cols-4, .mini-grid, .state-matrix, .truth-grid, .command-grid, .scene-hud, .operator-footer { grid-template-columns: 1fr; }
   .nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .nav button { height: 34px; }
   .actions { justify-content: flex-start; }
@@ -351,6 +374,24 @@ function formatRelativeTime(value?: string | null): string {
   if (diffSeconds < 60) return `${diffSeconds}s ago`;
   if (diffSeconds < 3600) return `${Math.round(diffSeconds / 60)}m ago`;
   return `${Math.round(diffSeconds / 3600)}h ago`;
+}
+
+function formatAgeSeconds(value?: number | null): string {
+  if (value == null || Number.isNaN(value)) return '--';
+  if (value < 60) return `${Math.round(value)}s`;
+  if (value < 3600) return `${Math.round(value / 60)}m`;
+  return `${Math.round(value / 3600)}h`;
+}
+
+function findOperatorProcess(status: OperatorControlStatus | null, token: string): OperatorProcessStatus | null {
+  const needle = token.toLowerCase();
+  return status?.processes.find((process) => process.name.toLowerCase().includes(needle)) ?? null;
+}
+
+function processTone(process?: OperatorProcessStatus | null): BadgeTone {
+  if (!process) return 'watch';
+  if (!process.running) return 'block';
+  return 'live';
 }
 
 function kalshiEventHour(metrics?: FilterlessKalshiMetrics | null): number | null {
@@ -1351,10 +1392,42 @@ function FilterlessLiveCockpit() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeScreen, setActiveScreen] = useState<ScreenId>('overview');
+  const [pollingPaused, setPollingPaused] = useState(false);
+  const [refreshNonce, setRefreshNonce] = useState(0);
+  const [controlStatus, setControlStatus] = useState<OperatorControlStatus | null>(null);
+  const [controlError, setControlError] = useState<string | null>(null);
+  const [controlMessage, setControlMessage] = useState<string | null>(null);
   const inFlightRef = useRef(false);
   const abortRef = useRef<AbortController | null>(null);
   const lastGeneratedAtRef = useRef<string | null>(null);
   const lastGoodSentimentRef = useRef<FilterlessSentimentMetrics>(DEFAULT_SENTIMENT_METRICS);
+
+  const fetchControlStatus = useCallback(async () => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 1800);
+    try {
+      const response = await fetch(`${OPERATOR_CONTROL_URL}/status?ts=${Date.now()}`, {
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = (await response.json()) as OperatorControlStatus;
+      startTransition(() => {
+        setControlStatus(payload);
+        setControlError(null);
+      });
+    } catch (err) {
+      const isAbortError =
+        (err instanceof DOMException && err.name === 'AbortError') ||
+        (err instanceof Error && err.name === 'AbortError');
+      startTransition(() => {
+        setControlStatus(null);
+        setControlError(isAbortError ? 'launcher controls timeout' : err instanceof Error ? err.message : String(err));
+      });
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1406,6 +1479,12 @@ function FilterlessLiveCockpit() {
     };
 
     void loadState();
+    if (pollingPaused) {
+      return () => {
+        cancelled = true;
+        abortRef.current?.abort();
+      };
+    }
     const timer = window.setInterval(loadState, REFRESH_MS);
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') void loadState();
@@ -1417,7 +1496,13 @@ function FilterlessLiveCockpit() {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []);
+  }, [pollingPaused, refreshNonce]);
+
+  useEffect(() => {
+    void fetchControlStatus();
+    const timer = window.setInterval(fetchControlStatus, 5000);
+    return () => window.clearInterval(timer);
+  }, [fetchControlStatus]);
 
   const effectiveStatus = computeFeedStatus(state.bot.status, state.generated_at);
   const openPositions = useMemo(() => {
@@ -1464,6 +1549,106 @@ function FilterlessLiveCockpit() {
     }
     return warnings;
   }, [effectiveStatus, state.bot.status, state.bot.warnings, state.generated_at]);
+  const botProcess = findOperatorProcess(controlStatus, 'filterless bot');
+  const bridgeProcess = findOperatorProcess(controlStatus, 'dashboard bridge');
+  const frontendProcess = findOperatorProcess(controlStatus, 'live ui');
+  const controlOnline = Boolean(controlStatus?.ok);
+
+  const forceFeedRefresh = () => {
+    setControlMessage('Feed refresh queued');
+    setRefreshNonce((value) => value + 1);
+    void fetchControlStatus();
+  };
+
+  const copyOperatorSnapshot = async () => {
+    const snapshot = {
+      captured_at: new Date().toISOString(),
+      feed: {
+        status: effectiveStatus,
+        generated_at: state.generated_at,
+        error,
+        warnings: feedWarnings,
+      },
+      bot: {
+        status: state.bot.status,
+        session: state.bot.session,
+        price: state.bot.price,
+        last_heartbeat_time: state.bot.last_heartbeat_time,
+        last_bar_time: state.bot.last_bar_time,
+        position_sync_status: state.bot.position_sync_status,
+        daily_pnl: state.bot.risk.daily_pnl,
+        circuit_tripped: state.bot.risk.circuit_tripped,
+      },
+      exposure: {
+        open_positions: openPositions,
+        total_lots: totalLots,
+        total_open_pnl: totalOpenPnl,
+      },
+      manifold: {
+        regime: features.regime,
+        pressure30: features.pressure30,
+        fold_depth: features.foldDepth,
+        risk_mult: features.riskMult,
+        no_trade: features.noTrade,
+      },
+      kalshi: {
+        healthy: kalshi?.healthy,
+        event_ticker: kalshi?.event_ticker,
+        status_reason: kalshi?.status_reason,
+        probability_60m: kalshi?.probability_60m,
+      },
+      truth: {
+        healthy: sentiment.healthy,
+        label: sentiment.sentiment_label,
+        score: sentiment.sentiment_score,
+        trigger_reason: sentiment.trigger_reason,
+        last_error: sentiment.last_error,
+      },
+      recent_events: state.events.slice(0, 12),
+    };
+    const text = JSON.stringify(snapshot, null, 2);
+    try {
+      await navigator.clipboard.writeText(text);
+      setControlMessage('Snapshot copied');
+    } catch {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+      setControlMessage('Snapshot copied');
+    }
+  };
+
+  const sendOperatorCommand = async (action: OperatorCommandAction, label: string) => {
+    if (!controlOnline) {
+      setControlMessage('Launcher controls offline');
+      return;
+    }
+    if (action === 'restart_bot' && openPositions.length > 0) {
+      const ok = window.confirm('Restart the bot while a broker position is active? Exits are broker-side, but the runtime loop will reconnect.');
+      if (!ok) return;
+    }
+    try {
+      setControlMessage(`${label} requested`);
+      const response = await fetch(`${OPERATOR_CONTROL_URL}/command`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setControlMessage(`${label} queued`);
+      window.setTimeout(() => {
+        void fetchControlStatus();
+        setRefreshNonce((value) => value + 1);
+      }, 1000);
+    } catch (err) {
+      setControlMessage(`${label} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
 
   const logicRows = [
     ['FEED', `status ${effectiveStatus}, heartbeat ${formatRelativeTime(state.bot.last_heartbeat_time)}`, effectiveStatus === 'online' ? 'pass' : 'block'],
@@ -1779,34 +1964,65 @@ function FilterlessLiveCockpit() {
           </div>
         </Panel>
       ) : null}
-      <Panel title="Operator Controls" subtitle="High-level runtime controls and status lanes." badge={<Badge tone="live">operator</Badge>} className="mt-panel">
+      <Panel title="Operator Controls" subtitle="Live runtime actions for the bot loop, bridge, UI feed, and operator journal." badge={<Badge tone={controlOnline ? 'live' : 'watch'}>{controlOnline ? 'control online' : 'local only'}</Badge>} className="mt-panel">
         <div className="panel-body">
           <div className="command-grid">
-            <button className="command-tile control-tile" type="button">
-              <strong className="truncate">Freeze Entries</strong>
-              <small className="truncate">keep exits live</small>
-              <Badge tone="watch">ready</Badge>
+            <button className="command-tile control-tile" type="button" onClick={forceFeedRefresh}>
+              <strong className="truncate">Refresh Feed</strong>
+              <small className="truncate">{error ? 'endpoint check' : formatRelativeTime(state.generated_at)}</small>
+              <Badge tone={error ? 'block' : statusBadge(effectiveStatus)}>fetch</Badge>
             </button>
-            <button className="command-tile control-tile" type="button">
-              <strong className="truncate">Replay Window</strong>
-              <small className="truncate">last 180 bars</small>
-              <Badge tone="info">queued</Badge>
+            <button className="command-tile control-tile" type="button" onClick={() => setPollingPaused((value) => !value)}>
+              <strong className="truncate">{pollingPaused ? 'Resume Polling' : 'Pause Polling'}</strong>
+              <small className="truncate">{pollingPaused ? 'manual refresh only' : `${Math.round(REFRESH_MS / 1000)}s dashboard cadence`}</small>
+              <Badge tone={pollingPaused ? 'watch' : 'live'}>{pollingPaused ? 'paused' : 'live'}</Badge>
             </button>
-            <button className="command-tile control-tile" type="button">
-              <strong className="truncate">Kalshi Guard</strong>
-              <small className="truncate">book edge pass</small>
-              <Badge tone="live">online</Badge>
+            <button className="command-tile control-tile" type="button" disabled={!controlOnline} onClick={() => void sendOperatorCommand('restart_bridge', 'Bridge restart')}>
+              <strong className="truncate">Restart Bridge</strong>
+              <small className="truncate">dashboard JSON writer</small>
+              <Badge tone={processTone(bridgeProcess)}>{bridgeProcess?.running ? 'running' : controlOnline ? 'down' : 'offline'}</Badge>
             </button>
-            <button className="command-tile control-tile" type="button">
-              <strong className="truncate">Truth Exit</strong>
-              <small className="truncate">sentiment guard</small>
-              <Badge tone="watch">auto</Badge>
+            <button className="command-tile control-tile" type="button" disabled={!controlOnline} onClick={() => void sendOperatorCommand('restart_bot', 'Bot restart')}>
+              <strong className="truncate">Restart Bot</strong>
+              <small className="truncate">{openPositions.length ? `${openPositions.length} position${openPositions.length === 1 ? '' : 's'} active` : 'flat runtime'}</small>
+              <Badge tone={openPositions.length ? 'watch' : processTone(botProcess)}>{botProcess?.running ? 'loop' : controlOnline ? 'down' : 'offline'}</Badge>
             </button>
-            <button className="command-tile control-tile" type="button">
-              <strong className="truncate">Journal Pin</strong>
-              <small className="truncate">state snapshot</small>
-              <Badge tone="info">armed</Badge>
+            <button className="command-tile control-tile" type="button" disabled={!controlOnline} onClick={() => void sendOperatorCommand('restart_frontend', 'UI restart')}>
+              <strong className="truncate">Restart UI</strong>
+              <small className="truncate">live cockpit server</small>
+              <Badge tone={processTone(frontendProcess)}>{frontendProcess?.running ? 'serving' : controlOnline ? 'down' : 'offline'}</Badge>
             </button>
+            <button className="command-tile control-tile" type="button" onClick={() => setActiveScreen('kalshi')}>
+              <strong className="truncate">Kalshi Gate</strong>
+              <small className="truncate">{kalshi?.status_reason || kalshi?.event_ticker || 'no ladder'}</small>
+              <Badge tone={kalshi?.healthy ? 'live' : 'watch'}>{kalshi?.healthy ? 'online' : 'review'}</Badge>
+            </button>
+            <button className="command-tile control-tile" type="button" onClick={() => setActiveScreen('news')}>
+              <strong className="truncate">Truth Monitor</strong>
+              <small className="truncate">{sentiment.trigger_reason || sentiment.sentiment_label || 'neutral'}</small>
+              <Badge tone={sentiment.last_error ? 'block' : features.truthRiskWatch ? 'watch' : 'info'}>{sentiment.last_error ? 'issue' : features.truthRiskWatch ? 'watch' : 'clear'}</Badge>
+            </button>
+            <button className="command-tile control-tile" type="button" onClick={() => setActiveScreen(primaryPosition ? 'overview' : 'journal')}>
+              <strong className="truncate">Position Review</strong>
+              <small className="truncate">{primaryPosition ? `${primaryPosition.side} ${primaryPosition.size ?? '--'} @ ${formatPrice(entry)}` : 'flat journal'}</small>
+              <Badge tone={primaryPosition ? 'watch' : 'info'}>{primaryPosition ? 'active' : 'flat'}</Badge>
+            </button>
+            <button className="command-tile control-tile" type="button" onClick={() => setActiveScreen('aetherflow')}>
+              <strong className="truncate">Manifold Check</strong>
+              <small className="truncate">{features.regime}</small>
+              <Badge tone={features.noTrade ? 'block' : 'info'}>{features.noTrade ? 'lockout' : 'clear'}</Badge>
+            </button>
+            <button className="command-tile control-tile" type="button" onClick={() => void copyOperatorSnapshot()}>
+              <strong className="truncate">Copy Snapshot</strong>
+              <small className="truncate">state, risk, gates, events</small>
+              <Badge tone="info">journal</Badge>
+            </button>
+          </div>
+          <div className="operator-footer">
+            <div className="operator-note"><strong className="truncate">control</strong><span className="truncate">{controlOnline ? 'launcher API online' : controlError || 'launcher controls unavailable'}</span></div>
+            <div className="operator-note"><strong className="truncate">state file</strong><span className="truncate">{formatAgeSeconds(controlStatus?.dashboard_state_age_seconds)} old</span></div>
+            <div className="operator-note"><strong className="truncate">bot pid</strong><span className="truncate">{botProcess?.pid ?? '--'} / {botProcess?.running ? 'running' : 'stopped'}</span></div>
+            <div className="operator-note"><strong className="truncate">last action</strong><span className="truncate">{controlMessage || 'none'}</span></div>
           </div>
         </div>
       </Panel>
@@ -1859,11 +2075,11 @@ function FilterlessLiveCockpit() {
             <div className="actions">
               <span className="chip"><span className={`dot ${effectiveStatus === 'online' ? '' : 'down-dot'}`} />live</span>
               <span className="chip">{new Date().toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour12: false })} ET</span>
-              <button className="command primary" type="button" onClick={() => setActiveScreen('command')}>Arm Guard</button>
+              <button className="command primary" type="button" onClick={() => setActiveScreen('command')}>Command Center</button>
             </div>
           </header>
 
-          {error ? <div className="notice">Dashboard feed error: {error}</div> : null}
+          {error ? <div className="notice">Dashboard feed endpoint error: {error}</div> : null}
           {loading ? <div className="notice">Loading filterless dashboard state...</div> : null}
 
           <section className="ticker" aria-label="Session metrics">

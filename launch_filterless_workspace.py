@@ -8,8 +8,10 @@ from __future__ import annotations
 import atexit
 import argparse
 import ctypes
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+import queue
 import shutil
 import socket
 import subprocess
@@ -38,6 +40,8 @@ WORKSPACE_STATUS_LOG_PATH = ROOT / "logs" / "filterless_workspace_launcher.statu
 WORKSPACE_PID_PATH = ROOT / "logs" / "filterless_workspace_pids.json"
 WORKSPACE_LOCK_PATH = ROOT / "logs" / "filterless_workspace.lock"
 VITE_PORT = 3000
+OPERATOR_CONTROL_HOST = "127.0.0.1"
+OPERATOR_CONTROL_PORT = 3011
 FILTERLESS_URL = f"http://localhost:{VITE_PORT}/filterless-live.html"
 DASHBOARD_STATE_PATH = MONTE_CARLO_DIR / "public" / "filterless_live_state.json"
 BOT_STALE_TIMEOUT_SECONDS = 180.0
@@ -643,6 +647,149 @@ def restart_managed_process(entry: dict[str, object]) -> None:
     entry["restart_count"] = int(entry.get("restart_count") or 0) + 1
 
 
+def operator_process_snapshot(entry: dict[str, object]) -> dict[str, object]:
+    name = str(entry.get("name") or "process")
+    process = entry.get("process")
+    exit_code: int | None = None
+    running = False
+    pid: int | None = None
+    if isinstance(process, subprocess.Popen):
+        exit_code = process.poll()
+        running = exit_code is None
+        pid = process.pid
+    watch_path = entry.get("watch_path")
+    watch_age = file_age_seconds(watch_path) if isinstance(watch_path, Path) else None
+    return {
+        "name": name,
+        "pid": pid,
+        "running": running,
+        "exit_code": exit_code,
+        "restart_count": int(entry.get("restart_count") or 0),
+        "watch_path": str(watch_path) if isinstance(watch_path, Path) else None,
+        "watch_age_seconds": round(watch_age, 1) if watch_age is not None else None,
+    }
+
+
+def operator_status_payload(managed: list[dict[str, object]], managed_lock: threading.Lock) -> dict[str, object]:
+    with managed_lock:
+        processes = [operator_process_snapshot(entry) for entry in managed]
+    dashboard_age = file_age_seconds(DASHBOARD_STATE_PATH)
+    return {
+        "ok": True,
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "control_host": OPERATOR_CONTROL_HOST,
+        "control_port": OPERATOR_CONTROL_PORT,
+        "dashboard_state_path": str(DASHBOARD_STATE_PATH),
+        "dashboard_state_age_seconds": round(dashboard_age, 1) if dashboard_age is not None else None,
+        "processes": processes,
+    }
+
+
+def find_managed_entry(managed: list[dict[str, object]], target_name: str) -> dict[str, object] | None:
+    target = target_name.lower()
+    for entry in managed:
+        name = str(entry.get("name") or "").lower()
+        if name == target or target in name:
+            return entry
+    return None
+
+
+def process_operator_actions(
+    action_queue: "queue.Queue[str]",
+    managed: list[dict[str, object]],
+    managed_lock: threading.Lock,
+) -> bool:
+    action_targets = {
+        "restart_bot": "filterless bot",
+        "restart_bridge": "filterless dashboard bridge",
+        "restart_frontend": "filterless live ui",
+    }
+    handled = False
+    while True:
+        try:
+            action = action_queue.get_nowait()
+        except queue.Empty:
+            return handled
+        target = action_targets.get(action)
+        if not target:
+            log_workspace_status(f"Ignoring unknown operator action: {action}")
+            continue
+        with managed_lock:
+            entry = find_managed_entry(managed, target)
+            if entry is None:
+                log_workspace_status(f"Operator action {action} failed: target {target!r} not managed")
+                continue
+            log_workspace_status(f"Operator action requested: {action}")
+            restart_managed_process(entry)
+            record_managed_processes(managed)
+        handled = True
+
+
+def start_operator_control_server(
+    managed: list[dict[str, object]],
+    managed_lock: threading.Lock,
+    action_queue: "queue.Queue[str]",
+) -> ThreadingHTTPServer | None:
+    class OperatorControlHandler(BaseHTTPRequestHandler):
+        server_version = "JulieOperatorControl/1.0"
+
+        def log_message(self, format: str, *args: object) -> None:
+            return
+
+        def _send_json(self, status: int, payload: dict[str, object]) -> None:
+            body = json.dumps(payload).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_OPTIONS(self) -> None:  # noqa: N802
+            self._send_json(200, {"ok": True})
+
+        def do_GET(self) -> None:  # noqa: N802
+            path = self.path.split("?", 1)[0]
+            if path != "/status":
+                self._send_json(404, {"ok": False, "error": "not found"})
+                return
+            self._send_json(200, operator_status_payload(managed, managed_lock))
+
+        def do_POST(self) -> None:  # noqa: N802
+            path = self.path.split("?", 1)[0]
+            if path != "/command":
+                self._send_json(404, {"ok": False, "error": "not found"})
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0") or "0")
+            except ValueError:
+                length = 0
+            try:
+                raw = self.rfile.read(max(0, min(length, 4096)))
+                payload = json.loads(raw.decode("utf-8") or "{}")
+            except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+                self._send_json(400, {"ok": False, "error": "invalid json"})
+                return
+            action = str(payload.get("action") or "").strip()
+            if action not in {"restart_bot", "restart_bridge", "restart_frontend"}:
+                self._send_json(400, {"ok": False, "error": "unknown action"})
+                return
+            action_queue.put(action)
+            self._send_json(202, {"ok": True, "queued": action})
+
+    try:
+        server = ThreadingHTTPServer((OPERATOR_CONTROL_HOST, OPERATOR_CONTROL_PORT), OperatorControlHandler)
+    except OSError as exc:
+        log_workspace_status(f"Operator control server disabled: {exc}")
+        return None
+    thread = threading.Thread(target=server.serve_forever, name="operator-control-server", daemon=True)
+    thread.start()
+    log_workspace_status(f"Operator control server listening on http://{OPERATOR_CONTROL_HOST}:{OPERATOR_CONTROL_PORT}")
+    return server
+
+
 def choose_account_id(account_id_override: Optional[str]) -> Optional[str]:
     if account_id_override:
         selected = str(account_id_override).strip() or None
@@ -731,6 +878,9 @@ def main() -> int:
         return 1
 
     managed: list[dict[str, object]] = []
+    managed_lock = threading.Lock()
+    operator_actions: queue.Queue[str] = queue.Queue()
+    operator_server: ThreadingHTTPServer | None = None
 
     try:
         log_workspace_status("Starting filterless bot process")
@@ -812,11 +962,14 @@ def main() -> int:
         )
         record_managed_processes(managed)
         log_workspace_status("All workspace processes launched")
+        operator_server = start_operator_control_server(managed, managed_lock, operator_actions)
 
         if not args.no_browser:
             open_browser_tabs(args.browser_delay)
 
         while True:
+            if process_operator_actions(operator_actions, managed, managed_lock):
+                continue
             restarted = False
             for entry in managed:
                 name = str(entry.get("name") or "process")
@@ -870,6 +1023,12 @@ def main() -> int:
         print("\nShutdown requested.")
         return 0
     finally:
+        if operator_server is not None:
+            try:
+                operator_server.shutdown()
+                operator_server.server_close()
+            except Exception:
+                pass
         for entry in reversed(managed):
             process = entry.get("process")
             if isinstance(process, subprocess.Popen):
