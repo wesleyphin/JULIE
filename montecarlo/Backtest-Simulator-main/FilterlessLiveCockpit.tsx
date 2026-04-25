@@ -269,6 +269,8 @@ h1, h2, h3, p { margin: 0; }
 .command-tile { height: 118px; border: 1px solid var(--line); background: rgba(10, 5, 18, 0.94); padding: 10px; display: grid; align-content: space-between; }
 .command-tile strong { min-width: 0; font-family: var(--display); font-size: 11px; }
 .command-tile small { min-width: 0; color: var(--muted); font-family: var(--mono); font-size: 10px; }
+.control-tile { cursor: pointer; color: inherit; text-align: left; }
+.control-tile:hover { border-color: var(--line-strong); background: rgba(168, 85, 255, 0.1); }
 .up { color: var(--green) !important; }
 .down { color: var(--red) !important; }
 .info { color: var(--cyan) !important; }
@@ -1729,6 +1731,37 @@ function FilterlessLiveCockpit() {
           </div>
         </Panel>
       ) : null}
+      <Panel title="Operator Controls" subtitle="High-level runtime controls and status lanes." badge={<Badge tone="live">operator</Badge>} className="mt-panel">
+        <div className="panel-body">
+          <div className="command-grid">
+            <button className="command-tile control-tile" type="button">
+              <strong className="truncate">Freeze Entries</strong>
+              <small className="truncate">keep exits live</small>
+              <Badge tone="watch">ready</Badge>
+            </button>
+            <button className="command-tile control-tile" type="button">
+              <strong className="truncate">Replay Window</strong>
+              <small className="truncate">last 180 bars</small>
+              <Badge tone="info">queued</Badge>
+            </button>
+            <button className="command-tile control-tile" type="button">
+              <strong className="truncate">Kalshi Guard</strong>
+              <small className="truncate">book edge pass</small>
+              <Badge tone="live">online</Badge>
+            </button>
+            <button className="command-tile control-tile" type="button">
+              <strong className="truncate">Truth Exit</strong>
+              <small className="truncate">sentiment guard</small>
+              <Badge tone="watch">auto</Badge>
+            </button>
+            <button className="command-tile control-tile" type="button">
+              <strong className="truncate">Journal Pin</strong>
+              <small className="truncate">state snapshot</small>
+              <Badge tone="info">armed</Badge>
+            </button>
+          </div>
+        </div>
+      </Panel>
     </section>
   );
 
