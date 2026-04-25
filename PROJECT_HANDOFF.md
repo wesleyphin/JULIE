@@ -2,6 +2,22 @@
 
 This file is the shortest practical way to re-enter this repo on another machine or in a later session without re-discovering the whole system.
 
+## Current Live Runtime Snapshot
+
+Before trusting the older strategy history below, read:
+
+- [LIVE_RUNTIME_HANDOFF_20260424.md](./LIVE_RUNTIME_HANDOFF_20260424.md)
+
+That document is the current live/runtime source of truth for:
+
+- the actual DE3 live bundle and overlay stack
+- the actual AetherFlow canonical manifold + routed model stack
+- what was pushed to GitHub in the runtime-only sync
+- what older research numbers are *not* live-equivalent
+
+The rest of this file is still useful background, but the new live runtime
+handoff should win when the two disagree.
+
 ## What This Repo Is
 
 This is a Python trading/research repo for MES live trading and ES/MES backtesting on the TopstepX / ProjectX stack.
