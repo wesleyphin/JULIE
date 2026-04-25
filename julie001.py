@@ -716,6 +716,16 @@ class _NoOpDirectionalLossBlocker(_NoOpStatefulRuntime):
         return None
 
 
+class _NoOpCascadeLossBlocker(_NoOpStatefulRuntime):
+    def record_trade_result(self, *_args, **_kwargs):
+        return None
+
+
+class _NoOpAntiFlipBlocker(_NoOpStatefulRuntime):
+    def record_trade_close(self, *_args, **_kwargs):
+        return None
+
+
 class _NoOpImpulseFilter(_NoOpStatefulRuntime):
     def __init__(self, *args, **kwargs):
         self.wick_ratio_threshold = 0.0
@@ -7826,7 +7836,6 @@ async def run_bot():
         logging.warning(
             "[CascadeBlocker] import failed (%s) — using no-op", _cascade_exc
         )
-        from cascade_loss_blocker import _NoOpCascadeLossBlocker
         cascade_loss_blocker = _NoOpCascadeLossBlocker()
 
     # Anti-flip circuit breaker — when a stop-out on one side is followed
@@ -7843,7 +7852,6 @@ async def run_bot():
         logging.warning(
             "[AntiFlipBlocker] import failed (%s) — using no-op", _antiflip_exc
         )
-        from anti_flip_blocker import _NoOpAntiFlipBlocker
         anti_flip_blocker = _NoOpAntiFlipBlocker()
 
     impulse_filter = ImpulseFilterCls(lookback=20, impulse_multiplier=2.5)

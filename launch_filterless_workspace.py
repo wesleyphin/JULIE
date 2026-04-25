@@ -645,6 +645,19 @@ def restart_managed_process(entry: dict[str, object]) -> None:
     entry["handle"] = handle
     entry["launched_at"] = time.time()
     entry["restart_count"] = int(entry.get("restart_count") or 0) + 1
+    entry["restart_exhausted"] = False
+    entry["failure_reason"] = None
+
+
+def is_frontend_process_name(name: str) -> bool:
+    normalized = name.lower()
+    return "live ui" in normalized or "dev server" in normalized or "static server" in normalized
+
+
+def mark_restart_exhausted(entry: dict[str, object], reason: str) -> None:
+    entry["restart_exhausted"] = True
+    entry["failure_reason"] = reason
+    log_workspace_status(reason)
 
 
 def operator_process_snapshot(entry: dict[str, object]) -> dict[str, object]:
@@ -665,6 +678,8 @@ def operator_process_snapshot(entry: dict[str, object]) -> dict[str, object]:
         "running": running,
         "exit_code": exit_code,
         "restart_count": int(entry.get("restart_count") or 0),
+        "restart_exhausted": bool(entry.get("restart_exhausted")),
+        "failure_reason": entry.get("failure_reason"),
         "watch_path": str(watch_path) if isinstance(watch_path, Path) else None,
         "watch_age_seconds": round(watch_age, 1) if watch_age is not None else None,
     }
@@ -976,6 +991,8 @@ def main() -> int:
                 process = entry.get("process")
                 if not isinstance(process, subprocess.Popen):
                     continue
+                if bool(entry.get("restart_exhausted")):
+                    continue
                 exit_code = process.poll()
                 if exit_code is not None:
                     restart_count = int(entry.get("restart_count") or 0)
@@ -985,8 +1002,16 @@ def main() -> int:
                         record_managed_processes(managed)
                         restarted = True
                         break
-                    print(f"{name} exited with code {exit_code}. Restart limit reached; stopping remaining processes...")
-                    return exit_code
+                    if is_frontend_process_name(name):
+                        print(f"{name} exited with code {exit_code}. Restart limit reached; stopping remaining processes...")
+                        return exit_code
+                    reason = (
+                        f"{name} exited with code {exit_code}. Restart limit reached; "
+                        "keeping dashboard UI online for diagnostics."
+                    )
+                    print(reason)
+                    mark_restart_exhausted(entry, reason)
+                    record_managed_processes(managed)
             if restarted:
                 continue
 
@@ -1001,6 +1026,8 @@ def main() -> int:
                 launched_at = float(entry.get("launched_at") or now)
                 if not isinstance(watch_path, Path) or stale_seconds in (None, 0):
                     continue
+                if bool(entry.get("restart_exhausted")):
+                    continue
                 stale_limit = float(stale_seconds)
                 if now - launched_at < stale_limit:
                     continue
@@ -1009,8 +1036,14 @@ def main() -> int:
                     continue
                 restart_count = int(entry.get("restart_count") or 0)
                 if restart_count >= MAX_RESTARTS_PER_PROCESS:
-                    print(f"{name} watchdog detected stale output ({age:.0f}s) but restart limit is reached.")
-                    return 1
+                    reason = (
+                        f"{name} watchdog detected stale output ({age:.0f}s) but restart limit is reached; "
+                        "keeping dashboard UI online for diagnostics."
+                    )
+                    print(reason)
+                    mark_restart_exhausted(entry, reason)
+                    record_managed_processes(managed)
+                    continue
                 print(f"{name} watchdog detected stale output ({age:.0f}s). Restarting ({restart_count + 1}/{MAX_RESTARTS_PER_PROCESS})...")
                 restart_managed_process(entry)
                 record_managed_processes(managed)
