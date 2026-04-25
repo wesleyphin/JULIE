@@ -3,13 +3,24 @@ setlocal EnableDelayedExpansion
 
 cd /d "%~dp0"
 
-set "FILTERLESS_SETUP_NEEDED=0"
-if not exist ".venv\Scripts\python.exe" set "FILTERLESS_SETUP_NEEDED=1"
-if "!FILTERLESS_SETUP_NEEDED!"=="0" call :check_sentiment_runtime "%~dp0.venv\Scripts\python.exe"
+set "PYTHONUTF8=1"
+set "PYTHONIOENCODING=utf-8"
+call :prepend_local_node
 
-if "!FILTERLESS_SETUP_NEEDED!"=="1" if exist "%~dp0setup_topstep2.ps1" (
-    echo Bootstrapping workspace dependencies and sentiment runtime...
-    powershell -ExecutionPolicy Bypass -File "%~dp0setup_topstep2.ps1"
+set "FILTERLESS_HELP_REQUEST=0"
+if /I "%~1"=="--help" set "FILTERLESS_HELP_REQUEST=1"
+if /I "%~1"=="-h" set "FILTERLESS_HELP_REQUEST=1"
+if /I "%~1"=="/?" set "FILTERLESS_HELP_REQUEST=1"
+
+set "FILTERLESS_SETUP_NEEDED=0"
+if "!FILTERLESS_HELP_REQUEST!"=="0" (
+    if not exist ".venv\Scripts\python.exe" set "FILTERLESS_SETUP_NEEDED=1"
+    if "!FILTERLESS_SETUP_NEEDED!"=="0" call :check_sentiment_runtime "%~dp0.venv\Scripts\python.exe"
+
+    if "!FILTERLESS_SETUP_NEEDED!"=="1" if exist "%~dp0setup_topstep2.ps1" (
+        echo Bootstrapping workspace dependencies and sentiment runtime...
+        powershell -ExecutionPolicy Bypass -File "%~dp0setup_topstep2.ps1"
+    )
 )
 
 if defined FILTERLESS_PYTHON (
@@ -52,6 +63,15 @@ if defined FILTERLESS_LAUNCH_PYTHON (
 
 echo Could not find a usable Python interpreter for LaunchFilterlessWorkspace.bat
 exit /b 1
+
+:prepend_local_node
+if not defined FILTERLESS_NODE_DIR (
+    for /d %%D in ("%~dp0.tools\node\node-*-win-x64") do (
+        if not defined FILTERLESS_NODE_DIR if exist "%%~fD\node.exe" if exist "%%~fD\npm.cmd" set "FILTERLESS_NODE_DIR=%%~fD"
+    )
+)
+if defined FILTERLESS_NODE_DIR if exist "!FILTERLESS_NODE_DIR!\node.exe" if exist "!FILTERLESS_NODE_DIR!\npm.cmd" set "PATH=!FILTERLESS_NODE_DIR!;!PATH!"
+goto :eof
 
 :try_set_python
 if defined FILTERLESS_LAUNCH_PYTHON goto :eof

@@ -1778,7 +1778,6 @@ function FilterlessLiveCockpit() {
             <div className="actions">
               <span className="chip"><span className={`dot ${effectiveStatus === 'online' ? '' : 'down-dot'}`} />live</span>
               <span className="chip">{new Date().toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour12: false })} ET</span>
-              <a className="command" href="/">Monte Carlo</a>
               <button className="command primary" type="button" onClick={() => setActiveScreen('command')}>Arm Guard</button>
             </div>
           </header>
