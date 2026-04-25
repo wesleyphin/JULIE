@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Launch the filterless live bot, dashboard bridge, and Monte Carlo UI together.
+Launch the filterless live bot, dashboard bridge, and live UI together.
 """
 
 from __future__ import annotations
@@ -38,7 +38,6 @@ WORKSPACE_STATUS_LOG_PATH = ROOT / "logs" / "filterless_workspace_launcher.statu
 WORKSPACE_PID_PATH = ROOT / "logs" / "filterless_workspace_pids.json"
 WORKSPACE_LOCK_PATH = ROOT / "logs" / "filterless_workspace.lock"
 VITE_PORT = 3000
-MONTE_CARLO_URL = f"http://localhost:{VITE_PORT}/"
 FILTERLESS_URL = f"http://localhost:{VITE_PORT}/filterless-live.html"
 DASHBOARD_STATE_PATH = MONTE_CARLO_DIR / "public" / "filterless_live_state.json"
 BOT_STALE_TIMEOUT_SECONDS = 180.0
@@ -190,7 +189,7 @@ def log_workspace_status(message: str) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Launch the filterless bot, dashboard bridge, and Monte Carlo UI together."
+        description="Launch the filterless bot, dashboard bridge, and live UI together."
     )
     parser.add_argument(
         "--account-id",
@@ -201,7 +200,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--no-browser",
         action="store_true",
-        help="Do not open the Monte Carlo and filterless dashboard pages automatically.",
+        help="Do not open the live dashboard page automatically.",
     )
     parser.add_argument(
         "--skip-npm-install",
@@ -289,10 +288,10 @@ def build_frontend_process(
     except FileNotFoundError:
         if not MONTE_CARLO_DIST_DIR.exists():
             raise FileNotFoundError(
-                "npm was not found on PATH and the built Monte Carlo dist app is missing."
+                "npm was not found on PATH and the built live UI dist app is missing."
             )
         return (
-            "Monte Carlo static server",
+            "Filterless live UI static server",
             [
                 python_exe,
                 str(STATIC_SERVER_SCRIPT),
@@ -307,7 +306,7 @@ def build_frontend_process(
 
     ensure_node_modules(npm_exe, skip_npm_install)
     return (
-        "Monte Carlo dev server",
+        "Filterless live UI dev server",
         [
             npm_exe,
             "run",
@@ -330,7 +329,7 @@ def ensure_paths() -> None:
     if not BRIDGE_SCRIPT.exists():
         raise FileNotFoundError(f"Missing dashboard bridge: {BRIDGE_SCRIPT}")
     if not MONTE_CARLO_DIR.exists():
-        raise FileNotFoundError(f"Missing Monte Carlo app directory: {MONTE_CARLO_DIR}")
+        raise FileNotFoundError(f"Missing live UI app directory: {MONTE_CARLO_DIR}")
     if not STATIC_SERVER_SCRIPT.exists():
         raise FileNotFoundError(f"Missing static server helper: {STATIC_SERVER_SCRIPT}")
 
@@ -339,7 +338,7 @@ def ensure_node_modules(npm_exe: str, skip_install: bool) -> None:
     node_modules = MONTE_CARLO_DIR / "node_modules"
     if node_modules.exists() or skip_install:
         return
-    print("node_modules not found. Running `npm install` in Monte Carlo app...")
+    print("node_modules not found. Running `npm install` in live UI app...")
     subprocess.run([npm_exe, "install"], cwd=MONTE_CARLO_DIR, check=True)
 
 
@@ -356,9 +355,9 @@ def process_match_tokens(name: str) -> list[str]:
         return ["launch_filterless_live.py"]
     if name == "filterless dashboard bridge":
         return ["filterless_dashboard_bridge.py"]
-    if name == "Monte Carlo dev server":
+    if name == "Filterless live UI dev server":
         return ["vite", str(MONTE_CARLO_DIR).lower()]
-    if name == "Monte Carlo static server":
+    if name == "Filterless live UI static server":
         return ["filterless_static_server.py"]
     return [str(ROOT).lower()]
 
@@ -583,8 +582,6 @@ def open_browser_tabs(delay_seconds: float) -> None:
     def _worker() -> None:
         time.sleep(max(0.0, delay_seconds))
         _wait_for_port("127.0.0.1", VITE_PORT, timeout_seconds=20.0)
-        _open_url(MONTE_CARLO_URL)
-        time.sleep(0.75)
         _open_url(FILTERLESS_URL)
 
     threading.Thread(target=_worker, daemon=True).start()
@@ -724,7 +721,7 @@ def main() -> int:
         log_workspace_status(str(exc))
         return 1
     if frontend_mode == "vite-dev":
-        log_workspace_status("Monte Carlo node_modules ready")
+        log_workspace_status("Live UI node_modules ready")
     try:
         log_workspace_status("Checking workspace slots and cleaning stale processes")
         ensure_workspace_slots()
