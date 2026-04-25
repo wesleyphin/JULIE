@@ -8,17 +8,15 @@ large research/backtest numbers.
 
 ## Current GitHub Sync
 
-Runtime-only sync branch and PR:
+As of the 2026-04-25 cleanup, `main` is the live runtime source of truth.
+The old runtime-only draft PR `#206` (`codex/publish-live-ready-stack-20260424`)
+is superseded and should not be merged as-is because it was based on an older
+launcher/defaults snapshot.
 
-- Branch: `codex/publish-live-ready-stack-20260424`
-- Commit: `e594674`
-- Draft PR: `#206`
-- PR URL: <https://github.com/wesleyphin/JULIE/pull/206>
-
-That sync intentionally includes:
+The current sync intentionally includes:
 
 - live runtime code
-- promoted runtime artifacts
+- promoted runtime artifacts that are small enough to track
 - launcher defaults
 - runtime-side overlays that are actually loaded by the live bot
 
@@ -122,8 +120,21 @@ wins” behavior:
 
 Important:
 
-- this parquet is large and is tracked through **Git LFS**
-- a fresh checkout needs `git lfs pull`
+- the promoted model/threshold/metrics artifacts are tracked in Git
+- the computed manifold parquet is intentionally **not** committed because it is
+  large generated data
+- a fresh checkout must build the cache locally before relying on full-history
+  live-equivalent AetherFlow behavior
+
+Builder:
+
+```powershell
+.\.venv\Scripts\python.exe tools\build_manifold_base_cache.py `
+  --source es_master_outrights.parquet `
+  --output artifacts\aetherflow_corrected_full_2011_2026\manifold_base_outrights_2011_2026.parquet
+```
+
+See [MANIFOLD_BASE_CACHE.md](./MANIFOLD_BASE_CACHE.md) for validation details.
 
 ### Promoted routed model
 
@@ -269,9 +280,8 @@ These are the quickest checks future workers should run after touching runtime
 code or pulling onto a new machine:
 
 ```powershell
-git lfs pull
 .\.venv\Scripts\python.exe -m py_compile aetherflow_strategy.py julie001.py config.py signal_gate_2025.py
-.\.venv\Scripts\python.exe -m unittest test_ml_overlay_lfo_policy.py test_signal_gate_2025_runtime.py test_de3_percent_distance.py
+.\.venv\Scripts\python.exe -m unittest test_ml_overlay_lfo_policy.py test_signal_gate_2025_runtime.py test_aetherflow_live_runtime_cache.py test_aetherflow_cached_base_runtime.py
 @'
 from aetherflow_strategy import AetherFlowStrategy
 s = AetherFlowStrategy()
@@ -279,8 +289,9 @@ print(s.model_loaded, s._live_base_features_path, s.threshold)
 '@ | .\.venv\Scripts\python.exe -
 ```
 
-If the AetherFlow smoke load does not show the canonical full manifold path,
-stop and fix that before trusting any AF runtime results.
+If the AetherFlow smoke load does not show the canonical full manifold path, or
+that path does not exist locally, build the manifold cache before trusting any
+AF runtime results.
 
 ## What Future Workers Should Not Redo Blindly
 
@@ -295,7 +306,7 @@ Do:
 
 - start from the pinned config paths
 - verify launcher defaults
-- verify Git LFS pulled the canonical AF manifold parquet
+- verify the canonical AF manifold parquet has been built locally
 - compare against the exact current runtime baselines above before promoting changes
 
 ## Short Version
@@ -304,4 +315,4 @@ If you only remember three things:
 
 1. `DE3` live = promoted percent bundle + one narrow `06-09` repair + `ML LFO` + DE3-scoped Kalshi.
 2. `AetherFlow` live = canonical full manifold + routed promoted model, **not** the older `$271k/$294k/$332k` research/gate numbers.
-3. The GitHub runtime sync for this state is PR [#206](https://github.com/wesleyphin/JULIE/pull/206), and the AF manifold file requires `git lfs pull`.
+3. The AetherFlow model artifact is tracked; the AF manifold parquet is generated locally with the builder in `MANIFOLD_BASE_CACHE.md`.

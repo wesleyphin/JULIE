@@ -18,6 +18,32 @@ This document explains the current Julie bot from a technical perspective:
 It is intentionally focused on the current filterless live stack, because that
 is the path the bot is actually meant to run on.
 
+## Current Live Runtime Source Of Truth
+
+For live runtime behavior, `LIVE_RUNTIME_HANDOFF_20260424.md` and
+`launch_filterless_live.py` override older promotion notes in this README.
+The current launcher keeps only the handoff-listed modules active by default:
+
+| Area | Current launcher default |
+|---|---|
+| DE3 LFO | `JULIE_LFO_POLICY_DE3=ml` |
+| RegimeAdaptive LFO | `JULIE_LFO_POLICY_REGIMEADAPTIVE=rule` |
+| AetherFlow / MLPhysics LFO | `off` |
+| Global legacy LFO switch | `JULIE_ML_LFO_ACTIVE=0` |
+| Signal Gate / Filter G | `JULIE_SIGNAL_GATE_2025=0` |
+| ML PCT / Pivot / Kalshi entry / Kalshi TP | shadow-only (`0`) |
+| DE3 Kalshi rule overlay | on, scoped in config to `DynamicEngine3` |
+| Kalshi CM-breakout ML replacement | shadow/manual (`JULIE_KALSHI_CM_GATE_V2_ACTIVE=0`) |
+| RL trade management | `JULIE_ML_RL_MGMT_ACTIVE=1` |
+| Regime-ML / SameSide ML | shadow/manual (`0`) |
+| Cascade / AntiFlip blockers | importable but default off (`0`) |
+| Triathlon / per-cell overlays | manual opt-in (`0`) |
+
+AetherFlow's configured model artifact is tracked in Git. Its canonical full
+manifold base parquet is intentionally generated locally; run the builder in
+`MANIFOLD_BASE_CACHE.md` before relying on full-history live-equivalent AF
+runtime behavior on a fresh machine.
+
 ## Entry-Path Safety Filters
 
 Every strategy signal passes through a fixed chain of safety filters
@@ -29,11 +55,10 @@ signal-birth hook sites in `julie001.py` using the same
 strong cross-filter consensus can still override any individual
 block.
 
-All four filters are active by default when the bot is started via
-the launcher. Each filter has an `ACTIVE` env flag that can be set
-to `0` before launching to demote the filter to a no-op for that
-session, plus tunable parameters that the AI-loop auto-adjuster can
-move within documented bounds.
+Current live defaults are intentionally narrower than the historical filter
+inventory: `DirectionalLossBlocker` and the RL executor guards are active;
+`CascadeLossBlocker` and `AntiFlipBlocker` remain available but default off
+until revalidated against the current handoff runtime.
 
 ### Filter 1 — `DirectionalLossBlocker`
 
@@ -63,7 +88,7 @@ wins sneak between losses.
 Module: `cascade_loss_blocker.py`. Launcher defaults:
 
 ```
-JULIE_CASCADE_BLOCKER_ACTIVE=1            # default 1 (ON)
+JULIE_CASCADE_BLOCKER_ACTIVE=0            # default 0 (manual opt-in)
 JULIE_CASCADE_BLOCKER_COUNT=2             # bounds [2,4]
 JULIE_CASCADE_BLOCKER_WINDOW_MIN=30       # bounds [10,60]
 JULIE_CASCADE_BLOCKER_COOLDOWN_MIN=30     # bounds [10,60]
@@ -83,7 +108,7 @@ closes, reversals, and horizon exits never record state.
 Module: `anti_flip_blocker.py`. Launcher defaults:
 
 ```
-JULIE_ANTI_FLIP_BLOCKER_ACTIVE=1          # default 1 (ON)
+JULIE_ANTI_FLIP_BLOCKER_ACTIVE=0          # default 0 (manual opt-in)
 JULIE_ANTI_FLIP_WINDOW_MIN=30             # bounds [5,60]
 JULIE_ANTI_FLIP_MAX_DIST_PTS=8.0          # bounds [2.0,15.0]
 ```
@@ -214,9 +239,9 @@ Combined A=ML, B=rule, C=rule on April OOS: **+$35,979 PnL vs rule-all
 Env flags in `launch_filterless_live.py`:
 
 ```
-JULIE_REGIME_ML_BRACKETS=1    # Model A shipped (set to 0 to revert to rule)
-JULIE_REGIME_ML_SIZE=0        # Model B kept on rule fallback
-JULIE_REGIME_ML_BE=0          # Model C kept on rule fallback
+JULIE_REGIME_ML_BRACKETS=0    # available, current handoff default off
+JULIE_REGIME_ML_SIZE=0        # available, current handoff default off
+JULIE_REGIME_ML_BE=0          # available, current handoff default off
 ```
 
 When `JULIE_REGIME_ML_BRACKETS=1`, `apply_scalp_brackets` queries the
@@ -292,10 +317,10 @@ showed 64.5% WR on same-side blocks — real opportunity cost.
 | **DD/PnL ratio** | **17.8%** (gate ≤ 30%) |
 | Oracle capture | 23.4% (of $14,169 perfect-stack) |
 
-Safety:
+Safety and current launcher state:
 - `JULIE_SAMESIDE_ML_MAX_CONTRACTS=2` hard cap — ML never pushes beyond 2 stacked contracts
 - Existing Kalshi / CircuitBreaker / regime_veto / LossFactorGuard gates still run after ML approves the stack
-- `JULIE_SAMESIDE_ML=0` env flag restores the original hard-block rule
+- `JULIE_SAMESIDE_ML=0` is the current handoff default and restores the original hard-block rule
 
 Gate-2 documentation: the originally-specified "DD ≤ 110% × baseline_DD"
 gate was unsatisfiable because baseline suppress-all has DD=$0. User
@@ -305,7 +330,9 @@ docstring and the ship commit.
 
 Live wiring: `regime_classifier._features_with_a_pred()` runs Model A
 first, then appends `a_pred_scalp` to the feature dict before predicting
-B and C. Default all env flags enabled (`JULIE_REGIME_ML_{BRACKETS,SIZE,BE}=1`).
+B and C. Current live handoff defaults keep
+`JULIE_REGIME_ML_{BRACKETS,SIZE,BE}=0` and `JULIE_SAMESIDE_ML=0`; enable
+these only for a deliberate revalidation or live opt-in.
 
 ### 120-bar startup pre-warm
 
@@ -449,7 +476,7 @@ JULIE_LOSS_FACTOR_GUARD=1               # LossFactorGuard
 JULIE_CB_MAX_DAILY_LOSS=350             # daily-loss cap
 JULIE_CB_MAX_CONSEC_LOSSES=5            # consecutive-loss cap
 JULIE_CB_MAX_TRAILING_DD=0              # trailing DD cap (0 = off)
-JULIE_SIGNAL_GATE_2025=1                # Filter G primary veto
+JULIE_SIGNAL_GATE_2025=0                # Filter G available, default off
 ```
 
 ---
@@ -464,8 +491,9 @@ three leagues determines its **medal**, and the medal maps to a
 multiplier applied to the signal's size and a delta applied to the
 signal's priority on the rescue queue.
 
-The engine is enabled via `JULIE_TRIATHLON_ACTIVE=1` (launcher
-default). It is a non-blocking overlay — if the ledger is unavailable
+The engine is available via `JULIE_TRIATHLON_ACTIVE=1`, but the current
+launcher default is `0` because Triathlon is not part of the active live
+handoff set. It is a non-blocking overlay — if the ledger is unavailable
 or any single recording call fails, the engine fails closed (acts as
 unrated / neutral effects) and live trading continues unaffected.
 
@@ -839,7 +867,7 @@ python3 -m tools.ai_loop.run_daily --dry-run # run manually without applying
 
 ---
 
-## Machine Learning Overlay Stack — Live Layers
+## Machine Learning Overlay Stack — Live/Available Layers
 
 The bot runs a layered ensemble of machine-learning models on top of
 the rule-based strategy engines. Each layer observes a specific
@@ -856,14 +884,14 @@ rule-based engine wanted to do. Layers fall into three families:
 3. **A reinforcement-learning policy** that takes per-bar
    trade-management actions on every active position.
 
-All layers are live by default when launched via
-`launch_filterless_live.py`. The launcher uses `os.environ.setdefault`
-for every flag so per-session overrides are honored, and any individual
-layer can be demoted to shadow-only (it still logs every decision but
-takes no live action) by exporting its env flag set to `0` before
-launching.
+The current launcher does not make every model authoritative by default.
+`launch_filterless_live.py` keeps Filter G, PCT, Pivot Trail, Kalshi entry
+ML, and Kalshi TP ML shadow/manual; uses ML LFO only through DE3's scoped
+policy; and keeps RL trade management live. The launcher uses
+`os.environ.setdefault` for every flag, so per-session operator exports are
+honored.
 
-### Machine Learning G — per-strategy big-loss veto (live since prior releases)
+### Machine Learning G — per-strategy big-loss veto (available, opt-in)
 
 | Classifier | Role | Artifact |
 |---|---|---|
@@ -1029,29 +1057,30 @@ appended to the 212-dim observation). The extractor is singleton-loaded
 on first call so per-lookup cost is dominated by a small dataframe
 slice rather than a parquet read.
 
-All nine are live by default when launched via `launch_filterless_live.py`.
-Full details in **section 11 (Machine Learning Overlay Stack)** below.
+The models are available to the live runtime, but the current handoff does
+not make every ML layer authoritative by default. The launcher now keeps
+entry overlays shadow/manual, enables RL trade management, and uses ML LFO
+only through DE3's scoped policy.
 
-Env toggles — **all six ML decision layers default ON when launched via `launch_filterless_live.py`**
-(the launcher sets each with `os.environ.setdefault` so they flip to active
-automatically at startup). Any layer can be opted back OUT of active steering
-by exporting the var as `0` in the shell before running the launcher:
+Env toggles — **current launcher defaults from `launch_filterless_live.py`**:
 
 ```
-# default behavior when you run LaunchFilterlessWorkspace.bat or
-# launch_filterless_live.py — all six ML layers are ACTIVE (drive decisions):
-JULIE_ML_LFO_ACTIVE=1           # LFO fill decisions by v2 ML (64 features)
-JULIE_ML_PCT_ACTIVE=1           # PCT overlay bias by ML
-JULIE_ML_PIVOT_TRAIL_ACTIVE=1   # skip pivot ratchets when ML says "pivot won't hold"
-JULIE_ML_KALSHI_ACTIVE=1        # block signals when entry-gate ML predicts loss
-JULIE_ML_KALSHI_TP_ACTIVE=1     # block signals when TP-gate ML predicts loss
-JULIE_ML_KALSHI_TP_PNL_THR=0    # TP-gate threshold (block when pred_pnl <= $X)
-JULIE_ML_RL_MGMT_ACTIVE=1       # RL v3 actively steers stops (as of 2026-04-22)
-
-# to demote a layer back to shadow-only (logs but doesn't steer):
-export JULIE_ML_RL_MGMT_ACTIVE=0   # e.g. to revert RL to shadow after the
-                                    # 2026-04-22 flip
+JULIE_ML_LFO_ACTIVE=0           # legacy global LFO switch stays off
+JULIE_LFO_POLICY_DE3=ml         # DE3 uses ML LFO through the scoped policy
+JULIE_LFO_POLICY_REGIMEADAPTIVE=rule
+JULIE_LFO_POLICY_AETHERFLOW=off
+JULIE_LFO_POLICY_MLPHYSICS=off
+JULIE_ML_PCT_ACTIVE=0           # shadow/manual
+JULIE_ML_PIVOT_TRAIL_ACTIVE=0   # shadow/manual
+JULIE_ML_KALSHI_ACTIVE=0        # shadow/manual
+JULIE_ML_KALSHI_TP_ACTIVE=0     # shadow/manual
+JULIE_ML_KALSHI_TP_PNL_THR=0    # TP-gate threshold if explicitly enabled
+JULIE_ML_RL_MGMT_ACTIVE=1       # RL v3 actively steers stops
 ```
+
+Each flag is set with `os.environ.setdefault`, so an operator can still
+override a layer before launching, but those overrides are opt-ins rather
+than the baseline handoff state.
 
 If you import `julie001` directly without the launcher (rare — only happens in
 test scripts), all six layers default to **shadow mode** (log only, rule
@@ -2775,27 +2804,29 @@ artifacts/signal_gate_2025/
   model_mlphysics.joblib        — Machine Learning G for MLPhysics
 ```
 
-Unlike the overlay stack (which defaults to shadow mode until the launcher
-activates each layer), Machine Learning G has been **live** since it
-shipped — it directly vetoes signals whose predicted loss probability
-exceeds the per-strategy threshold. It runs independently from the
-overlay stack described above; the two systems don't share code paths or
-features.
+Machine Learning G remains available as an independent veto path, but the
+current live handoff launcher keeps it default off with
+`JULIE_SIGNAL_GATE_2025=0`. When explicitly enabled, it directly vetoes
+signals whose predicted loss probability exceeds the per-strategy threshold.
+It runs independently from the overlay stack described above; the two
+systems don't share code paths or features.
 
-Activation: the launcher sets `JULIE_SIGNAL_GATE_2025=1` by default; all
-four Machine Learning G classifiers load at bot startup and evaluate
-every candidate signal. Revert path: `export JULIE_SIGNAL_GATE_2025=0`.
+Activation: export `JULIE_SIGNAL_GATE_2025=1` before launch to load the four
+Machine Learning G classifiers at bot startup and evaluate candidate signals.
+Current baseline launcher behavior is neutral/no-op.
 
 ### 11.8 The five-layer stack, end to end
 
-A single live signal passes through all five overlays plus Machine Learning G
-in this order:
+When every optional overlay is enabled, a signal passes through the stack in
+this order. In the current handoff baseline, Machine Learning G and the ML
+entry overlays are shadow/manual unless explicitly opted in, while DE3's LFO
+policy and RL management use their live defaults:
 
 ```
   Strategy candidate (DE3 / AF / RA / MLPhysics)
             │
             ▼
-    Machine Learning G (signal_gate_2025.py)  ─── live; blocks P(big loss) > thr
+    Machine Learning G (signal_gate_2025.py)  ─── opt-in; blocks P(big loss) > thr
             │
             ▼
     Kalshi entry overlay (rule)   ─── computes support_score vs threshold
@@ -2830,7 +2861,7 @@ in this order:
 Running all five overlays simultaneously is intentional — each targets a
 different decision point and they compose rather than compete:
 
-- **Machine Learning G** (live, prior art) — per-strategy big-loss ML
+- **Machine Learning G** (available, currently opt-in) — per-strategy big-loss ML
   classifier that filters out signals the strategy shouldn't have emitted
   in the first place.
 - **Kalshi entry-gate ML** re-evaluates the rule's PASS decisions using
@@ -3053,7 +3084,7 @@ The most important technical files are:
 ### ML overlay stack (see Section 11)
 
 - `ml_overlay_shadow.py` — runtime model loader + scorer for all four overlays
-- `signal_gate_2025.py` — Machine Learning G (per-strategy big-loss veto; live, not shadow)
+- `signal_gate_2025.py` — Machine Learning G (per-strategy big-loss veto; available, launcher default off)
 - `artifacts/signal_gate_2025/` — model artifacts (joblib) + training data (parquet)
 - `scripts/signal_gate/train_lfo_ml.py`
 - `scripts/signal_gate/train_pct_overlay_ml.py`
