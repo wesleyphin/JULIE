@@ -11,6 +11,51 @@ from aetherflow_features import BASE_FEATURE_COLUMNS, FEATURE_COLUMNS
 BUNDLE_DESIGN_SINGLE = "single"
 BUNDLE_DESIGN_FAMILY_HEADS = "family_heads"
 BUNDLE_DESIGN_META_CONTEXT = "meta_context"
+BUNDLE_DESIGN_ROUTED_ENSEMBLE = "routed_ensemble"
+
+
+ROUTED_ENSEMBLE_DEFAULT_ROUTER_FEATURE_COLUMNS = [
+    "expert_0_prob",
+    "expert_1_prob",
+    "expert_prob_gap_01",
+    "expert_prob_mean",
+    "expert_prob_max",
+    "setup_strength",
+    "candidate_side",
+    "session_id",
+    "manifold_regime_id",
+    "manifold_alignment_pct",
+    "manifold_smoothness_pct",
+    "manifold_stress_pct",
+    "manifold_dispersion_pct",
+    "vwap_dist_atr",
+    "flow_mag_fast",
+    "flow_mag_slow",
+    "flow_agreement",
+    "compression_score",
+    "transition_energy",
+    "coherence",
+    "d_alignment_3",
+    "d_coherence_3",
+    "pressure_imbalance_30",
+    "phase_regime_run_bars",
+    "phase_regime_flip_count_10",
+    "phase_manifold_alignment_pct_mean_5",
+    "phase_manifold_stress_pct_mean_5",
+    "phase_d_alignment_3_mean_5",
+    "family_is_compression_release",
+    "family_is_aligned_flow",
+    "family_is_transition_burst",
+    "family_is_exhaustion_reversal",
+    "session_is_asia",
+    "session_is_london",
+    "session_is_nyam",
+    "session_is_nypm",
+    "regime_is_trend_geodesic",
+    "regime_is_chop_spiral",
+    "regime_is_dispersed",
+    "regime_is_rotational_turbulence",
+]
 
 
 _CURATED_DERIVED_BY_FAMILY = {
@@ -140,9 +185,14 @@ def _coerce_ordered_columns(raw: Any, fallback: list[str], allowed_columns: list
     requested = [str(col) for col in raw if str(col).strip()]
     if not requested:
         return list(fallback)
-    requested_set = set(requested)
-    ordered = [col for col in allowed_columns if col in requested_set]
-    return ordered or list(fallback)
+    out: list[str] = []
+    seen: set[str] = set()
+    for col in requested:
+        if col in seen:
+            continue
+        out.append(col)
+        seen.add(col)
+    return out or list(fallback)
 
 
 def _coerce_feature_columns(raw: Any, fallback: list[str]) -> list[str]:
@@ -206,6 +256,23 @@ def _coerce_upper_string_allowlist(value: Any) -> Optional[set[str]]:
     return out if out else None
 
 
+def _coerce_side_allowlist(value: Any) -> Optional[set[str]]:
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple, set)):
+        items = list(value)
+    else:
+        items = [value]
+    out: set[str] = set()
+    for item in items:
+        text = str(item).strip().upper()
+        if text in {"1", "+1", "LONG", "BUY"}:
+            out.add("LONG")
+        elif text in {"-1", "SHORT", "SELL"}:
+            out.add("SHORT")
+    return out if out else None
+
+
 def curated_family_feature_columns(family_name: str) -> list[str]:
     family_key = str(family_name or "").strip()
     derived = list(_CURATED_DERIVED_BY_FAMILY.get(family_key, []))
@@ -266,9 +333,109 @@ def family_feature_columns_map(*, families: Optional[list[str]] = None, mode: st
     return out
 
 
+def _normalize_conditional_models(bundle: dict[str, Any], raw_feature_columns: list[str]) -> list[dict[str, Any]]:
+    return [
+        {
+            "family_name": str(item.get("family_name", "") or "").strip(),
+            "model": item.get("model"),
+            "feature_columns": _coerce_feature_columns(
+                item.get("feature_columns"),
+                raw_feature_columns,
+            ),
+            "match_session_ids": _coerce_session_allowlist(item.get("match_session_ids")),
+            "match_regimes": _coerce_upper_string_allowlist(item.get("match_regimes")),
+            "match_sides": _coerce_side_allowlist(item.get("match_sides")),
+            "weight": _clamp_weight(item.get("weight", 1.0), 1.0),
+            "calibrator": item.get("calibrator"),
+        }
+        for item in (bundle.get("conditional_models", []) or [])
+        if isinstance(item, dict) and item.get("model") is not None
+    ]
+
+
+def _normalize_routed_experts(raw_experts: Any) -> list[dict[str, Any]]:
+    experts: list[dict[str, Any]] = []
+    if not isinstance(raw_experts, list):
+        return experts
+    for idx, item in enumerate(raw_experts):
+        if not isinstance(item, dict):
+            continue
+        raw_bundle = item.get("bundle")
+        if raw_bundle is None:
+            raw_bundle = item.get("model_bundle", item.get("model"))
+        if raw_bundle is None:
+            continue
+        name = str(item.get("name", "") or "").strip() or f"expert_{idx}"
+        rules = [
+            dict(rule)
+            for rule in (item.get("activation_rules", []) or [])
+            if isinstance(rule, dict)
+        ]
+        experts.append(
+            {
+                "name": name,
+                "bundle": normalize_model_bundle(raw_bundle),
+                "activation_rules": rules,
+                "override": dict(item.get("override") or {}) if isinstance(item.get("override"), dict) else None,
+            }
+        )
+    return experts
+
+
 def normalize_model_bundle(bundle: Any) -> dict[str, Any]:
     if isinstance(bundle, dict):
         raw_feature_columns = _coerce_feature_columns(bundle.get("feature_columns"), list(FEATURE_COLUMNS))
+        bundle_design = str(bundle.get("bundle_design", "") or "").strip().lower()
+        if bundle_design == BUNDLE_DESIGN_ROUTED_ENSEMBLE or bundle.get("experts") is not None:
+            experts = _normalize_routed_experts(bundle.get("experts", []) or [])
+            router_feature_columns = _coerce_ordered_columns(
+                bundle.get("router_feature_columns"),
+                list(ROUTED_ENSEMBLE_DEFAULT_ROUTER_FEATURE_COLUMNS),
+                list(ROUTED_ENSEMBLE_DEFAULT_ROUTER_FEATURE_COLUMNS),
+            )
+            router_context_source_columns = _coerce_ordered_columns(
+                bundle.get("router_context_source_columns"),
+                raw_feature_columns,
+                list(FEATURE_COLUMNS),
+            )
+            return {
+                "bundle_design": BUNDLE_DESIGN_ROUTED_ENSEMBLE,
+                "model": None,
+                "shared_model": None,
+                "shared_feature_columns": raw_feature_columns,
+                "feature_columns": raw_feature_columns,
+                "family_models": {},
+                "feature_columns_by_family": {},
+                "conditional_models": [],
+                "shared_calibrator": None,
+                "family_calibrators": {},
+                "family_feature_mode": str(bundle.get("family_feature_mode", "all") or "all"),
+                "family_head_weight": 1.0,
+                "predict_mode": str(bundle.get("predict_mode", "proba") or "proba"),
+                "edge_scale": float(bundle.get("edge_scale", 1.0) or 1.0),
+                "threshold": float(bundle.get("threshold", 0.58) or 0.58),
+                "trained_at": bundle.get("trained_at"),
+                "walkforward_fold": bundle.get("walkforward_fold"),
+                "experts": experts,
+                "router_model": bundle.get("router_model"),
+                "router_feature_columns": router_feature_columns,
+                "router_calibrator": bundle.get("router_calibrator"),
+                "router_mode": str(bundle.get("router_mode", "soft_blend") or "soft_blend").strip().lower(),
+                "router_weight_floor": _clamp_weight(bundle.get("router_weight_floor", 0.0), 0.0),
+                "router_weight_ceiling": _clamp_weight(bundle.get("router_weight_ceiling", 1.0), 1.0),
+                "router_min_top_prob": _clamp_weight(bundle.get("router_min_top_prob", 0.0), 0.0),
+                "router_min_top_gap": _clamp_weight(bundle.get("router_min_top_gap", 0.0), 0.0),
+                "router_context_source_columns": router_context_source_columns,
+                "router_activation_rules": [
+                    dict(rule)
+                    for rule in (bundle.get("router_activation_rules", []) or [])
+                    if isinstance(rule, dict)
+                ],
+                "router_fallback_expert": str(bundle.get("router_fallback_expert", "") or "").strip(),
+                "router_training_report": dict(bundle.get("router_training_report") or {})
+                if isinstance(bundle.get("router_training_report"), dict)
+                else {},
+            }
         if bundle.get("meta_model") is not None:
             meta_feature_columns = _coerce_ordered_columns(
                 bundle.get("meta_feature_columns"),
@@ -295,22 +462,7 @@ def normalize_model_bundle(bundle: Any) -> dict[str, Any]:
                 "feature_columns": raw_feature_columns,
                 "family_models": {},
                 "feature_columns_by_family": {},
-                "conditional_models": [
-                    {
-                        "family_name": str(item.get("family_name", "") or "").strip(),
-                        "model": item.get("model"),
-                        "feature_columns": _coerce_feature_columns(
-                            item.get("feature_columns"),
-                            raw_feature_columns,
-                        ),
-                        "match_session_ids": _coerce_session_allowlist(item.get("match_session_ids")),
-                        "match_regimes": _coerce_upper_string_allowlist(item.get("match_regimes")),
-                        "weight": _clamp_weight(item.get("weight", 1.0), 1.0),
-                        "calibrator": item.get("calibrator"),
-                    }
-                    for item in (bundle.get("conditional_models", []) or [])
-                    if isinstance(item, dict) and item.get("model") is not None
-                ],
+                "conditional_models": _normalize_conditional_models(bundle, raw_feature_columns),
                 "shared_calibrator": bundle.get("shared_calibrator"),
                 "family_calibrators": {},
                 "family_feature_mode": str(bundle.get("family_feature_mode", "all") or "all"),
@@ -349,22 +501,7 @@ def normalize_model_bundle(bundle: Any) -> dict[str, Any]:
                 "feature_columns": raw_feature_columns,
                 "family_models": family_models,
                 "feature_columns_by_family": feature_columns_by_family,
-                "conditional_models": [
-                    {
-                        "family_name": str(item.get("family_name", "") or "").strip(),
-                        "model": item.get("model"),
-                        "feature_columns": _coerce_feature_columns(
-                            item.get("feature_columns"),
-                            raw_feature_columns,
-                        ),
-                        "match_session_ids": _coerce_session_allowlist(item.get("match_session_ids")),
-                        "match_regimes": _coerce_upper_string_allowlist(item.get("match_regimes")),
-                        "weight": _clamp_weight(item.get("weight", 1.0), 1.0),
-                        "calibrator": item.get("calibrator"),
-                    }
-                    for item in (bundle.get("conditional_models", []) or [])
-                    if isinstance(item, dict) and item.get("model") is not None
-                ],
+                "conditional_models": _normalize_conditional_models(bundle, raw_feature_columns),
                 "shared_calibrator": bundle.get("shared_calibrator"),
                 "family_calibrators": dict(bundle.get("family_calibrators", {}) or {}),
                 "family_feature_mode": str(bundle.get("family_feature_mode", "curated") or "curated"),
@@ -388,22 +525,7 @@ def normalize_model_bundle(bundle: Any) -> dict[str, Any]:
             "feature_columns": raw_feature_columns,
             "family_models": {},
             "feature_columns_by_family": {},
-            "conditional_models": [
-                {
-                    "family_name": str(item.get("family_name", "") or "").strip(),
-                    "model": item.get("model"),
-                    "feature_columns": _coerce_feature_columns(
-                        item.get("feature_columns"),
-                        raw_feature_columns,
-                    ),
-                    "match_session_ids": _coerce_session_allowlist(item.get("match_session_ids")),
-                    "match_regimes": _coerce_upper_string_allowlist(item.get("match_regimes")),
-                    "weight": _clamp_weight(item.get("weight", 1.0), 1.0),
-                    "calibrator": item.get("calibrator"),
-                }
-                for item in (bundle.get("conditional_models", []) or [])
-                if isinstance(item, dict) and item.get("model") is not None
-            ],
+            "conditional_models": _normalize_conditional_models(bundle, raw_feature_columns),
             "shared_calibrator": bundle.get("shared_calibrator"),
             "family_calibrators": dict(bundle.get("family_calibrators", {}) or {}),
             "family_feature_mode": str(bundle.get("family_feature_mode", "all") or "all"),
@@ -444,17 +566,56 @@ def normalize_model_bundle(bundle: Any) -> dict[str, Any]:
 
 def bundle_feature_columns(bundle: Any) -> list[str]:
     normalized = normalize_model_bundle(bundle)
+    if str(normalized.get("bundle_design", "") or "").strip().lower() == BUNDLE_DESIGN_ROUTED_ENSEMBLE:
+        requested: list[str] = []
+        requested.extend(normalized.get("feature_columns", []) or [])
+        requested.extend(normalized.get("router_context_source_columns", []) or [])
+        requested.extend(normalized.get("router_feature_columns", []) or [])
+        for expert in (normalized.get("experts", []) or []):
+            requested.extend(bundle_feature_columns(expert.get("bundle")) if isinstance(expert, dict) else [])
+        requested_set = set(requested)
+        ordered = [col for col in FEATURE_COLUMNS if col in requested_set]
+        extras = [col for col in requested if col not in set(FEATURE_COLUMNS)]
+        out: list[str] = []
+        seen: set[str] = set()
+        for col in ordered + extras:
+            if col in seen:
+                continue
+            out.append(col)
+            seen.add(col)
+        return out or list(FEATURE_COLUMNS)
     if str(normalized.get("bundle_design", "") or "").strip().lower() == BUNDLE_DESIGN_META_CONTEXT:
-        base_requested = set(normalized.get("feature_columns", []) or [])
-        base_requested.update(normalized.get("base_feature_columns", []) or [])
-        return [col for col in FEATURE_COLUMNS if col in base_requested] or list(FEATURE_COLUMNS)
-    requested: set[str] = set(normalized.get("feature_columns", []) or [])
-    requested.update(normalized.get("shared_feature_columns", []) or [])
+        requested = list(normalized.get("feature_columns", []) or [])
+        requested.extend(normalized.get("base_feature_columns", []) or [])
+        requested_set = set(requested)
+        ordered = [col for col in FEATURE_COLUMNS if col in requested_set]
+        extras = [col for col in requested if col not in set(FEATURE_COLUMNS)]
+        out: list[str] = []
+        seen: set[str] = set()
+        for col in ordered + extras:
+            if col in seen:
+                continue
+            out.append(col)
+            seen.add(col)
+        return out or list(FEATURE_COLUMNS)
+    requested: list[str] = []
+    requested.extend(normalized.get("feature_columns", []) or [])
+    requested.extend(normalized.get("shared_feature_columns", []) or [])
     for family_columns in (normalized.get("feature_columns_by_family", {}) or {}).values():
-        requested.update(family_columns or [])
+        requested.extend(family_columns or [])
     for conditional in (normalized.get("conditional_models", []) or []):
-        requested.update(conditional.get("feature_columns", []) or [])
-    return [col for col in FEATURE_COLUMNS if col in requested] or list(FEATURE_COLUMNS)
+        requested.extend(conditional.get("feature_columns", []) or [])
+    requested_set = set(requested)
+    ordered = [col for col in FEATURE_COLUMNS if col in requested_set]
+    extras = [col for col in requested if col not in set(FEATURE_COLUMNS)]
+    out: list[str] = []
+    seen: set[str] = set()
+    for col in ordered + extras:
+        if col in seen:
+            continue
+        out.append(col)
+        seen.add(col)
+    return out or list(FEATURE_COLUMNS)
 
 
 def bundle_feature_columns_by_family(bundle: Any) -> dict[str, list[str]]:
@@ -477,6 +638,9 @@ def bundle_family_names(bundle: Any) -> list[str]:
 
 def bundle_has_predictor(bundle: Any) -> bool:
     normalized = normalize_model_bundle(bundle)
+    if str(normalized.get("bundle_design", "") or "").strip().lower() == BUNDLE_DESIGN_ROUTED_ENSEMBLE:
+        experts = normalized.get("experts", []) or []
+        return bool(normalized.get("router_model") is not None and experts)
     if normalized.get("shared_model") is not None:
         return True
     family_models = normalized.get("family_models", {}) or {}
@@ -534,6 +698,79 @@ def make_family_head_bundle(
     }
 
 
+def make_routed_ensemble_bundle(
+    *,
+    experts: list[dict[str, Any]],
+    router_model: Any,
+    router_feature_columns: list[str],
+    threshold: float,
+    trained_at: Optional[str] = None,
+    walkforward_fold: Optional[str] = None,
+    router_mode: str = "soft_blend",
+    router_weight_floor: float = 0.0,
+    router_weight_ceiling: float = 1.0,
+    router_training_report: Optional[dict[str, Any]] = None,
+    router_activation_rules: Optional[list[dict[str, Any]]] = None,
+    router_fallback_expert: Optional[str] = None,
+    router_min_top_prob: float = 0.0,
+    router_min_top_gap: float = 0.0,
+) -> dict[str, Any]:
+    normalized_experts: list[dict[str, Any]] = []
+    requested: list[str] = []
+    for idx, expert in enumerate(experts or []):
+        if not isinstance(expert, dict):
+            continue
+        raw_bundle = expert.get("bundle", expert.get("model_bundle", expert.get("model")))
+        if raw_bundle is None:
+            continue
+        name = str(expert.get("name", "") or "").strip() or f"expert_{idx}"
+        normalized_bundle = normalize_model_bundle(raw_bundle)
+        requested.extend(bundle_feature_columns(normalized_bundle))
+        normalized_experts.append(
+            {
+                "name": name,
+                "bundle": normalized_bundle,
+                "activation_rules": [
+                    dict(rule)
+                    for rule in (expert.get("activation_rules", []) or [])
+                    if isinstance(rule, dict)
+                ],
+                "override": dict(expert.get("override") or {}) if isinstance(expert.get("override"), dict) else None,
+            }
+        )
+    requested.extend(list(FEATURE_COLUMNS))
+    feature_columns = _coerce_ordered_columns(requested, list(FEATURE_COLUMNS), list(FEATURE_COLUMNS))
+    router_columns = _coerce_ordered_columns(
+        list(router_feature_columns or []),
+        list(ROUTED_ENSEMBLE_DEFAULT_ROUTER_FEATURE_COLUMNS),
+        list(ROUTED_ENSEMBLE_DEFAULT_ROUTER_FEATURE_COLUMNS),
+    )
+    return {
+        "bundle_design": BUNDLE_DESIGN_ROUTED_ENSEMBLE,
+        "experts": normalized_experts,
+        "router_model": router_model,
+        "router_feature_columns": router_columns,
+        "router_calibrator": None,
+        "router_mode": str(router_mode or "soft_blend").strip().lower(),
+        "router_weight_floor": _clamp_weight(router_weight_floor, 0.0),
+        "router_weight_ceiling": _clamp_weight(router_weight_ceiling, 1.0),
+        "router_min_top_prob": _clamp_weight(router_min_top_prob, 0.0),
+        "router_min_top_gap": _clamp_weight(router_min_top_gap, 0.0),
+        "router_context_source_columns": feature_columns,
+        "router_activation_rules": [
+            dict(rule)
+            for rule in (router_activation_rules or [])
+            if isinstance(rule, dict)
+        ],
+        "router_fallback_expert": str(router_fallback_expert or "").strip(),
+        "router_training_report": dict(router_training_report or {}) if isinstance(router_training_report, dict) else {},
+        "feature_columns": feature_columns,
+        "threshold": float(threshold),
+        "trained_at": trained_at,
+        "walkforward_fold": walkforward_fold,
+    }
+
+
 def _predict_with_model(model: Any, features: pd.DataFrame, feature_columns: list[str]) -> np.ndarray:
     x_all = (
         features.reindex(columns=feature_columns, fill_value=0.0)
@@ -583,6 +820,128 @@ def _regime_name_series(features: pd.DataFrame) -> pd.Series:
     return regime_id.map(mapping).fillna("")
 
 
+def _side_label_series(features: pd.DataFrame) -> pd.Series:
+    side = pd.to_numeric(features.get("candidate_side"), errors="coerce").fillna(0.0)
+    values = np.where(side.to_numpy(dtype=float) > 0.0, "LONG", np.where(side.to_numpy(dtype=float) < 0.0, "SHORT", ""))
+    return pd.Series(values, index=features.index)
+
+
+def _router_feature_column_from_suffix(suffix: str) -> str:
+    aliases = {
+        "phase_d_alignment_mean_5": "phase_d_alignment_3_mean_5",
+        "phase_alignment_mean_5": "phase_manifold_alignment_pct_mean_5",
+        "phase_stress_mean_5": "phase_manifold_stress_pct_mean_5",
+    }
+    return aliases.get(str(suffix), str(suffix))
+
+
+def _router_activation_mask(features: pd.DataFrame, rules: list[dict[str, Any]]) -> np.ndarray:
+    if features is None or features.empty:
+        return np.zeros(0, dtype=bool)
+    if not rules:
+        return np.ones(len(features), dtype=bool)
+    combined = pd.Series(False, index=features.index)
+    family = features.get("setup_family", pd.Series("", index=features.index)).astype(str)
+    session_id = pd.to_numeric(features.get("session_id"), errors="coerce").fillna(-999).round().astype(int)
+    regime_name = _regime_name_series(features)
+    side_label = _side_label_series(features)
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        mask = pd.Series(True, index=features.index)
+        match_families = _coerce_upper_string_allowlist(rule.get("match_families"))
+        if match_families:
+            mask &= family.str.upper().isin(sorted(match_families))
+        match_session_ids = _coerce_session_allowlist(rule.get("match_session_ids"))
+        if match_session_ids:
+            mask &= session_id.isin(sorted(match_session_ids))
+        match_regimes = _coerce_upper_string_allowlist(rule.get("match_regimes"))
+        if match_regimes:
+            mask &= regime_name.isin(sorted(match_regimes))
+        match_sides = _coerce_side_allowlist(rule.get("match_sides"))
+        if match_sides:
+            mask &= side_label.isin(sorted(match_sides))
+        for key, raw_value in rule.items():
+            key_text = str(key)
+            if key_text.startswith("match_min_"):
+                try:
+                    value = float(raw_value)
+                except Exception:
+                    continue
+                column = _router_feature_column_from_suffix(key_text[len("match_min_") :])
+                series = pd.to_numeric(features.get(column), errors="coerce").fillna(0.0)
+                mask &= series >= float(value)
+            elif key_text.startswith("match_max_"):
+                try:
+                    value = float(raw_value)
+                except Exception:
+                    continue
+                column = _router_feature_column_from_suffix(key_text[len("match_max_") :])
+                series = pd.to_numeric(features.get(column), errors="coerce").fillna(0.0)
+                mask &= series <= float(value)
+        combined |= mask
+    return combined.to_numpy(dtype=bool)
+
+
+def build_routed_ensemble_router_frame(
+    features: pd.DataFrame,
+    expert_probabilities: dict[str, np.ndarray],
+) -> pd.DataFrame:
+    if features is None:
+        return pd.DataFrame()
+    frame = pd.DataFrame(index=features.index.copy())
+    names = list(expert_probabilities.keys())
+    probs: list[np.ndarray] = []
+    for idx, name in enumerate(names):
+        values = np.asarray(expert_probabilities.get(name), dtype=float)
+        if len(values) != len(features):
+            values = np.resize(values, len(features)) if len(values) else np.zeros(len(features), dtype=float)
+        values = np.clip(values, 0.0, 1.0)
+        probs.append(values)
+        frame[f"expert_{idx}_prob"] = values
+        safe_name = str(name or f"expert_{idx}").strip().lower().replace(" ", "_")
+        if safe_name:
+            frame[f"expert_{safe_name}_prob"] = values
+    if probs:
+        matrix = np.vstack(probs).T
+        frame["expert_prob_mean"] = np.mean(matrix, axis=1)
+        frame["expert_prob_max"] = np.max(matrix, axis=1)
+        frame["expert_prob_min"] = np.min(matrix, axis=1)
+        frame["expert_prob_std"] = np.std(matrix, axis=1)
+        if len(probs) >= 2:
+            frame["expert_prob_gap_01"] = probs[1] - probs[0]
+            frame["expert_prob_abs_gap_01"] = np.abs(probs[1] - probs[0])
+    else:
+        frame["expert_prob_mean"] = 0.0
+        frame["expert_prob_max"] = 0.0
+        frame["expert_prob_min"] = 0.0
+        frame["expert_prob_std"] = 0.0
+
+    for col in ROUTED_ENSEMBLE_DEFAULT_ROUTER_FEATURE_COLUMNS:
+        if col in frame.columns:
+            continue
+        if col in features.columns:
+            frame[col] = features[col]
+    return frame.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+
+def _routed_expert_override_config(expert: dict[str, Any]) -> dict[str, Any]:
+    override = expert.get("override") if isinstance(expert, dict) else None
+    if not isinstance(override, dict) or not bool(override.get("enabled", False)):
+        return {}
+    out: dict[str, Any] = {"enabled": True}
+    reference = str(override.get("reference_expert", "") or "").strip()
+    if reference:
+        out["reference_expert"] = reference
+    try:
+        min_prob = float(override.get("min_prob"))
+    except Exception:
+        min_prob = float("nan")
+    if np.isfinite(min_prob):
+        out["min_prob"] = float(min_prob)
+    return out
+
+
 def predict_bundle_probabilities(bundle: Any, features: pd.DataFrame) -> np.ndarray:
     if features is None:
         return np.asarray([], dtype=float)
@@ -590,6 +949,106 @@ def predict_bundle_probabilities(bundle: Any, features: pd.DataFrame) -> np.ndar
     shared_model = normalized.get("shared_model")
     family_models = normalized.get("family_models", {}) or {}
     conditional_models = normalized.get("conditional_models", []) or []
+    if str(normalized.get("bundle_design", "") or "").strip().lower() == BUNDLE_DESIGN_ROUTED_ENSEMBLE:
+        experts = [item for item in (normalized.get("experts", []) or []) if isinstance(item, dict)]
+        router_model = normalized.get("router_model")
+        if router_model is None or not experts:
+            return np.zeros(len(features), dtype=float)
+        expert_names: list[str] = []
+        expert_probs: dict[str, np.ndarray] = {}
+        active_masks: list[np.ndarray] = []
+        override_fallback_refs: list[str] = []
+        for idx, expert in enumerate(experts):
+            name = str(expert.get("name", "") or "").strip() or f"expert_{idx}"
+            expert_names.append(name)
+            expert_probs[name] = np.clip(
+                np.asarray(predict_bundle_probabilities(expert.get("bundle"), features), dtype=float),
+                0.0,
+                1.0,
+            )
+            rules = list(expert.get("activation_rules", []) or [])
+            active_mask = (
+                np.asarray(_router_activation_mask(features, rules), dtype=bool).copy()
+                if rules
+                else np.ones(len(features), dtype=bool)
+            )
+            override = _routed_expert_override_config(expert)
+            override_fallback_refs.append(str(override.get("reference_expert", "") or "").strip())
+            if "min_prob" in override:
+                active_mask &= expert_probs[name] >= float(override["min_prob"])
+            active_masks.append(active_mask)
+        active_matrix = np.vstack(active_masks).T if active_masks else np.ones((len(features), 0), dtype=bool)
+        router_frame = build_routed_ensemble_router_frame(features, expert_probs)
+        router_columns = _coerce_ordered_columns(
+            normalized.get("router_feature_columns"),
+            list(ROUTED_ENSEMBLE_DEFAULT_ROUTER_FEATURE_COLUMNS),
+            list(ROUTED_ENSEMBLE_DEFAULT_ROUTER_FEATURE_COLUMNS),
+        )
+        x_router = (
+            router_frame.reindex(columns=router_columns, fill_value=0.0)
+            .replace([np.inf, -np.inf], np.nan)
+            .fillna(0.0)
+        )
+        raw_router = np.asarray(router_model.predict_proba(x_router), dtype=float)
+        mode = str(normalized.get("router_mode", "soft_blend") or "soft_blend").strip().lower()
+        prob_matrix = np.vstack([expert_probs[name] for name in expert_names]).T
+        if mode == "hard_route":
+            class_labels = getattr(router_model, "classes_", np.arange(raw_router.shape[1]))
+            class_labels = np.asarray(class_labels)
+            top_pos = np.argmax(raw_router, axis=1)
+            top_prob = raw_router[np.arange(len(raw_router)), top_pos]
+            if raw_router.shape[1] > 1:
+                sorted_probs = np.sort(raw_router, axis=1)
+                top_gap = sorted_probs[:, -1] - sorted_probs[:, -2]
+            else:
+                top_gap = np.ones(len(raw_router), dtype=float)
+            selected = []
+            for pos in top_pos:
+                label = class_labels[int(pos)] if int(pos) < len(class_labels) else int(pos)
+                try:
+                    selected.append(int(label))
+                except Exception:
+                    selected.append(int(pos))
+            selected = np.asarray(selected, dtype=int)
+            fallback_name = str(normalized.get("router_fallback_expert", "") or "").strip()
+            fallback_idx = expert_names.index(fallback_name) if fallback_name in expert_names else 0
+            invalid = (
+                (selected < 0)
+                | (selected >= len(expert_names))
+                | (top_prob < float(normalized.get("router_min_top_prob", 0.0) or 0.0))
+                | (top_gap < float(normalized.get("router_min_top_gap", 0.0) or 0.0))
+            )
+            valid_selected = np.clip(selected, 0, max(0, len(expert_names) - 1))
+            invalid |= ~active_matrix[np.arange(len(features)), valid_selected]
+            fallback_selected = np.full(len(features), int(fallback_idx), dtype=int)
+            for expert_idx, reference_name in enumerate(override_fallback_refs):
+                if not reference_name or reference_name not in expert_names:
+                    continue
+                fallback_selected[(selected == int(expert_idx)) & invalid] = int(expert_names.index(reference_name))
+            selected = np.where(invalid, fallback_selected, selected)
+            return prob_matrix[np.arange(len(features)), selected]
+        if raw_router.ndim == 2 and raw_router.shape[1] == len(expert_names) and len(expert_names) > 2:
+            weights = raw_router * active_matrix.astype(float)
+            row_sum = weights.sum(axis=1, keepdims=True)
+            fallback_name = str(normalized.get("router_fallback_expert", "") or "").strip()
+            fallback_idx = expert_names.index(fallback_name) if fallback_name in expert_names else 0
+            empty_rows = row_sum[:, 0] <= 1e-12
+            if bool(np.any(empty_rows)):
+                weights[empty_rows, :] = 0.0
+                weights[empty_rows, fallback_idx] = 1.0
+                row_sum = weights.sum(axis=1, keepdims=True)
+            weights = weights / np.maximum(row_sum, 1e-12)
+            return np.sum(prob_matrix * weights, axis=1)
+        if len(expert_names) >= 2:
+            router_prob = raw_router[:, -1] if raw_router.ndim == 2 else np.asarray(raw_router, dtype=float)
+            router_prob = _apply_calibrator(router_prob, normalized.get("router_calibrator"))
+            floor = float(normalized.get("router_weight_floor", 0.0) or 0.0)
+            ceiling = float(normalized.get("router_weight_ceiling", 1.0) or 1.0)
+            weight = floor + ((ceiling - floor) * np.clip(router_prob, 0.0, 1.0))
+            weight = np.where(active_matrix[:, 1], weight, 0.0)
+            weight = np.where(active_matrix[:, 0], weight, 1.0)
+            return ((1.0 - weight) * prob_matrix[:, 0]) + (weight * prob_matrix[:, 1])
+        return prob_matrix[:, 0]
     if str(normalized.get("bundle_design", "") or "").strip().lower() == BUNDLE_DESIGN_META_CONTEXT:
         base_model = normalized.get("base_model")
         meta_model = normalized.get("meta_model")
@@ -678,6 +1137,7 @@ def predict_bundle_probabilities(bundle: Any, features: pd.DataFrame) -> np.ndar
     if conditional_models:
         session_id = pd.to_numeric(features.get("session_id"), errors="coerce").fillna(-999).round().astype(int)
         regime_name = _regime_name_series(features)
+        side_label = _side_label_series(features)
         for item in conditional_models:
             model = item.get("model")
             if model is None:
@@ -692,6 +1152,9 @@ def predict_bundle_probabilities(bundle: Any, features: pd.DataFrame) -> np.ndar
             match_regimes = item.get("match_regimes")
             if match_regimes:
                 mask &= regime_name.isin(sorted(match_regimes))
+            match_sides = item.get("match_sides")
+            if match_sides:
+                mask &= side_label.isin(sorted(match_sides))
             if not bool(mask.any()):
                 continue
             positions = np.flatnonzero(mask.to_numpy(dtype=bool))
@@ -766,3 +1229,23 @@ def predict_bundle_probabilities(bundle: Any, features: pd.DataFrame) -> np.ndar
 
     output[~np.isfinite(output)] = 0.0
     return output
+
+
+def bundle_conditional_models_metadata(bundle: Any) -> list[dict[str, Any]]:
+    normalized = normalize_model_bundle(bundle)
+    out: list[dict[str, Any]] = []
+    for item in (normalized.get("conditional_models", []) or []):
+        if not isinstance(item, dict):
+            continue
+        out.append(
+            {
+                "family_name": str(item.get("family_name", "") or ""),
+                "feature_columns": list(item.get("feature_columns", []) or []),
+                "match_session_ids": sorted(int(x) for x in (item.get("match_session_ids") or [])),
+                "match_regimes": sorted(str(x).upper() for x in (item.get("match_regimes") or [])),
+                "match_sides": sorted(str(x).upper() for x in (item.get("match_sides") or [])),
+                "weight": float(item.get("weight", 1.0) or 1.0),
+                "has_calibrator": isinstance(item.get("calibrator"), dict),
+            }
+        )
+    return out

@@ -12,6 +12,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 EXPECTED_VENV = (ROOT / ".venv").resolve()
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from aetherflow_base_cache import DEFAULT_FULL_MANIFOLD_BASE_FEATURES
 
 
 def _resolve_path(path_text: str, default_relative: str = "") -> Path:
@@ -112,7 +116,7 @@ def main() -> None:
     parser.add_argument("--artifact-dir", default="artifacts/aetherflow_corrected_full_2011_2026")
     parser.add_argument(
         "--base-path",
-        default="artifacts/aetherflow_corrected_full_2011_2026/manifold_base_outrights_2011_2026.parquet",
+        default=DEFAULT_FULL_MANIFOLD_BASE_FEATURES,
     )
     parser.add_argument("--source", default="es_master_outrights.parquet")
     parser.add_argument("--train-start", default="2011-01-01")

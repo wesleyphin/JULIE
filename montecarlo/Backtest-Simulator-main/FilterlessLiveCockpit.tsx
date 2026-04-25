@@ -31,6 +31,7 @@ const COLORS = {
 type ScreenId = 'overview' | 'aetherflow' | 'kalshi' | 'news' | 'strategies' | 'journal' | 'command';
 
 type ManifoldRegime = 'TREND_GEODESIC' | 'CHOP_SPIRAL' | 'DISPERSED' | 'ROTATIONAL_TURBULENCE';
+type BadgeTone = 'live' | 'watch' | 'block' | 'info';
 
 interface AetherFeatures {
   pressure10: number;
@@ -62,9 +63,9 @@ interface AetherFeatures {
   edge: number;
   truthScore: number;
   truthConfidence: number;
-  macroRisk: number;
-  blackoutIntensity: number;
-  newsBlocked: boolean;
+  headlineRisk: number;
+  advisoryPressure: number;
+  truthRiskWatch: boolean;
   foldDepth: number;
 }
 
@@ -133,7 +134,7 @@ const NAV: Array<{ id: ScreenId; label: string; code: string; title: string; sub
   { id: 'overview', label: 'Market Core', code: '01', title: 'MARKET CORE', subtitle: 'Live execution cockpit with entry, stop, target, news, and position context.' },
   { id: 'aetherflow', label: 'AetherFlow', code: '02', title: 'AETHERFLOW MANIFOLD', subtitle: 'Rotatable folded pressure surface with state shading, depth, and route features.' },
   { id: 'kalshi', label: 'Kalshi', code: '03', title: 'KALSHI MARKET ARRAY', subtitle: 'Hourly contract routing, book edge, spread, and consensus flow.' },
-  { id: 'news', label: 'News', code: '04', title: 'NEWS AND TRUTH MONITOR', subtitle: 'Truth Social sentiment, macro tape, blackout filter, and emergency-exit state.' },
+  { id: 'news', label: 'News', code: '04', title: 'NEWS AND TRUTH MONITOR', subtitle: 'Truth Social sentiment, macro tape, advisory risk, and calendar context.' },
   { id: 'strategies', label: 'Strategies', code: '05', title: 'STRATEGY STACK', subtitle: 'Filterless strategy modules mapped to current live state.' },
   { id: 'journal', label: 'Journal', code: '06', title: 'TRACE JOURNAL', subtitle: 'Decision log with trade levels, news fields, and manifold snapshots.' },
   { id: 'command', label: 'Command', code: '07', title: 'COMMAND MATRIX', subtitle: 'Runtime controls, guard rails, and operator actions.' },
@@ -349,6 +350,130 @@ function formatRelativeTime(value?: string | null): string {
   return `${Math.round(diffSeconds / 3600)}h ago`;
 }
 
+function kalshiEventHour(metrics?: FilterlessKalshiMetrics | null): number | null {
+  const match = String(metrics?.event_ticker || '').match(/H(\d{3,4})$/i);
+  if (!match) return null;
+  const raw = Number(match[1]);
+  if (!Number.isFinite(raw)) return null;
+  const hour = Math.floor(raw / 100);
+  return hour >= 0 && hour <= 23 ? hour : null;
+}
+
+function activeKalshiGatingHour(generatedAt?: string | null): number | null {
+  if (!generatedAt) return null;
+  const date = new Date(generatedAt);
+  if (Number.isNaN(date.getTime())) return null;
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value);
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  for (const settlementHour of [12, 13, 14, 15, 16]) {
+    if (settlementHour > hour || (settlementHour === hour && minute < 5)) return settlementHour;
+  }
+  return null;
+}
+
+function kalshiRouteState(metrics?: FilterlessKalshiMetrics | null, generatedAt?: string | null): {
+  value: string;
+  row: string;
+  badge: string;
+  tone: BadgeTone;
+  color: string;
+  hint: string;
+  detail: string;
+  impact: string;
+} {
+  const statusText = String(metrics?.status_label || metrics?.status_reason || '').toLowerCase();
+  const morningStandby = statusText.includes('morning') || statusText.includes('10') || statusText.includes('11');
+  const inferredGatingHour = activeKalshiGatingHour(generatedAt);
+  const eventHour = kalshiEventHour(metrics);
+  const activeBySnapshotTime = inferredGatingHour != null && eventHour === inferredGatingHour;
+  if (!metrics?.enabled) {
+    return {
+      value: 'OFF',
+      row: 'offline',
+      badge: 'off',
+      tone: 'block',
+      color: COLORS.red,
+      hint: 'provider disabled',
+      detail: 'Kalshi provider is disabled or not requested.',
+      impact: 'No strategy impact while the provider is off.',
+    };
+  }
+  if (!metrics.healthy) {
+    return {
+      value: metrics.configured ? 'WATCH' : 'CONFIG',
+      row: 'watch',
+      badge: 'watch',
+      tone: 'watch',
+      color: COLORS.amber,
+      hint: metrics.configured ? 'waiting for healthy ladder' : 'credentials or config missing',
+      detail: metrics.status_reason || 'Kalshi is configured but the ladder is not healthy yet.',
+      impact: 'Execution falls back to ML-only behavior until Kalshi is healthy.',
+    };
+  }
+  if (metrics.trade_gating_active || activeBySnapshotTime) {
+    const activeHour = metrics.trade_gating_hour ?? inferredGatingHour;
+    const hour = activeHour == null ? 'active' : `${activeHour}:00 ET`;
+    return {
+      value: 'ARMED',
+      row: 'gate',
+      badge: 'armed',
+      tone: 'live',
+      color: COLORS.lime,
+      hint: `active ${hour}`,
+      detail: `Kalshi is actively gating the ${hour} settlement window.`,
+      impact: 'Can block entries, trim or boost size, adjust TP, trail stops, and trigger hour-turn exits.',
+    };
+  }
+  if (metrics.observer_only) {
+    return {
+      value: morningStandby ? 'MORNING' : 'STANDBY',
+      row: 'standby',
+      badge: 'standby',
+      tone: 'info',
+      color: COLORS.cyan,
+      hint: morningStandby ? 'morning data-only window' : 'arms on 12-16 ET settlements',
+      detail: morningStandby
+        ? 'Morning contracts are monitored but not used for execution because the crowd was contrarian in testing.'
+        : 'Kalshi data is live; execution overlay arms only during the 12-16 ET settlement windows.',
+      impact: 'DE3, RegimeAdaptive, and AetherFlow receive Kalshi routing when the window is armed.',
+    };
+  }
+  return {
+    value: 'READY',
+    row: 'ready',
+    badge: 'ready',
+    tone: 'watch',
+    color: COLORS.purple,
+    hint: 'live ladder available',
+    detail: metrics.status_reason || 'Kalshi ladder is live and available for the execution overlay.',
+    impact: 'Overlay impact depends on the active settlement window and strategy signal.',
+  };
+}
+
+function describeKalshiPositionImpact(position?: FilterlessPosition | null): string {
+  if (!position) return 'No active position is carrying a Kalshi overlay stamp.';
+  if (position.kalshi_trade_overlay_applied) {
+    const role = formatToken(position.kalshi_trade_overlay_role);
+    const probability = pct(position.kalshi_entry_probability, 1);
+    const support = fmt(position.kalshi_entry_support_score, 2);
+    const threshold = fmt(position.kalshi_entry_threshold, 2);
+    const trail = position.kalshi_tp_trail_enabled ? 'trail armed' : 'trail idle';
+    return `${role} overlay, entry ${probability}, score ${support}/${threshold}, ${trail}`;
+  }
+  if (position.kalshi_gate_applied) {
+    return `size gate ${fmt(position.kalshi_gate_multiplier, 2)}x, ${position.kalshi_gate_reason || 'no reason'}`;
+  }
+  const reason = position.kalshi_trade_overlay_reason || position.kalshi_gate_reason;
+  return reason ? `No active Kalshi change: ${reason}` : 'No active Kalshi change on this position.';
+}
+
 function computeFeedStatus(status: string, generatedAt?: string | null): string {
   const date = generatedAt ? new Date(generatedAt) : null;
   if (!date || Number.isNaN(date.getTime())) return status;
@@ -494,9 +619,9 @@ function deriveFeatures(
   const chopFadeEdge = clip01((regime === 'CHOP_SPIRAL' ? 1 : 0.45) * stress * (1 - Math.abs(directionalBias)) * (1 - Number(noTrade) * 0.55));
   const spread = clip01(0.026 + 0.04 * burstPressure + 0.025 * stress);
   const edge = clip01((liveState.kalshi_metrics?.probability_60m ?? 0.42) * 0.12 + 0.035 + 0.075 * alignedFlow + 0.05 * transitionBurst - 0.025 * Number(noTrade));
-  const macroRisk = clip01(0.28 + Math.abs(truthScore) * 0.24 + stress * 0.28);
-  const blackoutIntensity = clip01(Math.max(0, macroRisk - 0.58) * 1.8 + (sentiment.last_error ? 0.22 : 0));
-  const newsBlocked = blackoutIntensity > 0.62;
+  const headlineRisk = clip01(0.28 + Math.abs(truthScore) * 0.24 + stress * 0.28);
+  const advisoryPressure = clip01(Math.max(0, headlineRisk - 0.58) * 1.8 + (sentiment.last_error ? 0.22 : 0));
+  const truthRiskWatch = advisoryPressure > 0.62;
 
   const features = {
     pressure10,
@@ -528,9 +653,9 @@ function deriveFeatures(
     edge,
     truthScore,
     truthConfidence,
-    macroRisk,
-    blackoutIntensity,
-    newsBlocked,
+    headlineRisk,
+    advisoryPressure,
+    truthRiskWatch,
     foldDepth: 0,
   };
   return { ...features, foldDepth: estimateFoldDepth(features) };
@@ -686,7 +811,7 @@ const Panel: React.FC<{ title: string; subtitle?: string; badge?: React.ReactNod
   </div>
 );
 
-const Badge: React.FC<{ tone?: 'live' | 'watch' | 'block' | 'info'; children: React.ReactNode }> = ({ tone = 'info', children }) => (
+const Badge: React.FC<{ tone?: BadgeTone; children: React.ReactNode }> = ({ tone = 'info', children }) => (
   <span className={`badge ${tone}`}>{children}</span>
 );
 
@@ -1294,14 +1419,14 @@ function FilterlessLiveCockpit() {
     ['FEED', `status ${effectiveStatus}, heartbeat ${formatRelativeTime(state.bot.last_heartbeat_time)}`, effectiveStatus === 'online' ? 'pass' : 'block'],
     ['ENTRY', primaryPosition ? `${primaryPosition.side} ${primaryPosition.size ?? '--'} @ ${formatPrice(entry)}` : 'flat, no active broker position', primaryPosition ? 'live' : 'idle'],
     ['GUARD', features.noTrade ? `${features.regime} lockout / stress ${pct(features.stress)}` : `risk mult ${fmt(features.riskMult)}x inside bounds`, features.noTrade ? 'block' : 'pass'],
-    ['NEWS', features.newsBlocked ? `blackout ${pct(features.blackoutIntensity)}` : `truth ${formatSigned(features.truthScore)} / confidence ${pct(features.truthConfidence)}`, features.newsBlocked ? 'watch' : 'pass'],
+    ['TRUTH', features.truthRiskWatch ? `advisory pressure ${pct(features.advisoryPressure)}` : `score ${formatSigned(features.truthScore)} / confidence ${pct(features.truthConfidence)}`, features.truthRiskWatch ? 'watch' : 'info'],
   ];
 
   const renderOverview = () => (
     <section className="screen">
       <div className="grid overview-layout">
         <div className="stack">
-          <Panel title="Exit Logic" subtitle="Execution score, guard rails, and live bypass." badge={<Badge tone={features.noTrade ? 'block' : 'live'}>{features.noTrade ? 'guard' : 'armed'}</Badge>}>
+          <Panel title="Execution Logic" subtitle="Execution score, guard rails, and live context." badge={<Badge tone={features.noTrade ? 'block' : 'live'}>{features.noTrade ? 'guard' : 'armed'}</Badge>}>
             <div className="terminal">
               {logicRows.map(([title, text, tone]) => (
                 <TerminalRow key={title} time={state.generated_at} title={title} text={text} badge={<Badge tone={tone === 'block' ? 'block' : tone === 'watch' ? 'watch' : 'info'}>{tone}</Badge>} />
@@ -1416,16 +1541,18 @@ function FilterlessLiveCockpit() {
   const renderKalshi = () => {
     const strikes = (kalshi?.strikes || []).slice().sort((a, b) => a.strike - b.strike);
     const rows = strikes.slice(Math.max(0, Math.floor(strikes.length / 2) - 8), Math.max(0, Math.floor(strikes.length / 2) + 9));
+    const route = kalshiRouteState(kalshi, state.generated_at);
+    const primaryKalshiPosition = openPositions[0] ?? null;
     return (
       <section className="screen">
         <div className="grid cols-4">
-          <Metric label="Kalshi gate" value={kalshi?.healthy ? 'ONLINE' : kalshi?.configured ? 'WATCH' : 'OFF'} hint={kalshi?.status_label || 'available overlay'} color={COLORS.purple} />
+          <Metric label="Kalshi route" value={route.value} hint={route.hint} color={route.color} />
           <Metric label="book edge" value={fmt(features.edge * 10, 2)} hint={kalshi?.event_ticker || 'best contract'} color={COLORS.cyan} />
-          <Metric label="spread" value={fmt(features.spread, 3)} hint="pressure guarded" color={COLORS.amber} />
+          <Metric label="strategy impact" value="DE3 / RA / AF" hint="entry, size, TP, exits" color={COLORS.amber} />
           <Metric label="probability" value={pct(kalshi?.probability_60m, 1)} hint="60m contract" color={COLORS.lime} />
         </div>
         <div className="grid kalshi-layout">
-          <Panel title="Market Scanner" subtitle="Hourly ES contracts ranked by edge, pressure, and liquidity." badge={<Badge tone={kalshi?.healthy ? 'live' : 'watch'}>{rows.length} rows</Badge>}>
+          <Panel title="Market Scanner" subtitle="Hourly ES contracts ranked by edge, pressure, and liquidity." badge={<Badge tone={route.tone}>{route.badge}</Badge>}>
             <table className="table">
               <thead><tr><th>contract</th><th>probability</th><th>volume</th><th>status</th><th>route</th></tr></thead>
               <tbody>
@@ -1435,7 +1562,7 @@ function FilterlessLiveCockpit() {
                     <td>{pct(strike.probability, 2)}</td>
                     <td>{strike.volume ?? '--'}</td>
                     <td>{strike.status || strike.result || '--'}</td>
-                    <td>{kalshi?.trade_gating_active ? 'gate' : 'observe'}</td>
+                    <td>{route.row}</td>
                   </tr>
                 )) : (
                   <tr><td colSpan={5}>No Kalshi ladder is available in the current snapshot.</td></tr>
@@ -1448,7 +1575,9 @@ function FilterlessLiveCockpit() {
               <div className="terminal">
                 <TerminalRow title="EVENT" text={kalshi?.event_ticker || 'waiting for active contract'} badge={<Badge tone="info">ticker</Badge>} />
                 <TerminalRow title="REFERENCE" text={`ES ${formatPrice(kalshi?.es_reference_price ?? price)} / SPX ${formatPrice(kalshi?.spx_reference_price)}`} badge={<Badge tone="info">basis</Badge>} />
-                <TerminalRow title="GATING" text={kalshi?.trade_gating_active ? `active hour ${kalshi.trade_gating_hour}` : 'observer or standby'} badge={<Badge tone={kalshi?.trade_gating_active ? 'watch' : 'info'}>{kalshi?.trade_gating_active ? 'armed' : 'watch'}</Badge>} />
+                <TerminalRow title="ROUTE STATE" text={route.detail} badge={<Badge tone={route.tone}>{route.badge}</Badge>} />
+                <TerminalRow title="STRATEGY IMPACT" text={route.impact} badge={<Badge tone={route.tone}>{route.value.toLowerCase()}</Badge>} />
+                <TerminalRow title="LIVE POSITION" text={describeKalshiPositionImpact(primaryKalshiPosition)} badge={<Badge tone={primaryKalshiPosition?.kalshi_trade_overlay_applied || primaryKalshiPosition?.kalshi_gate_applied ? 'live' : 'info'}>{primaryKalshiPosition ? 'position' : 'flat'}</Badge>} />
               </div>
             </Panel>
             <Panel title="Spread Ladder" subtitle="Execution spread by bucket.">
@@ -1473,38 +1602,38 @@ function FilterlessLiveCockpit() {
           <Metric label="truth monitor" value={sentiment.last_error ? 'ISSUE' : sentiment.healthy ? 'HEALTHY' : 'WATCH'} hint="rss + finbert state" color={sentiment.last_error ? COLORS.red : COLORS.green} />
           <Metric label="sentiment" value={formatSigned(features.truthScore)} hint={sentiment.sentiment_label || 'neutral'} color={COLORS.purple} />
           <Metric label="last poll" value={formatRelativeTime(sentiment.last_poll_at)} hint={`@${sentiment.target_handle || 'realDonaldTrump'}`} color={COLORS.cyan} />
-          <Metric label="news block" value={String(features.newsBlocked).toUpperCase()} hint="calendar filter" color={features.newsBlocked ? COLORS.red : COLORS.amber} />
+          <Metric label="truth advisory" value={features.truthRiskWatch ? 'WATCH' : 'OBSERVE'} hint="observe-only" color={features.truthRiskWatch ? COLORS.red : COLORS.amber} />
         </div>
         <div className="grid news-layout">
           <div className="stack">
-            <Panel title="Truth Social Monitor" subtitle="Persisted sentiment snapshot and emergency-exit posture." badge={<Badge tone={sentiment.last_error ? 'block' : 'live'}>{sentiment.last_error ? 'issue' : 'healthy'}</Badge>}>
+            <Panel title="Truth Social Monitor" subtitle="Persisted sentiment snapshot for operator context." badge={<Badge tone={sentiment.last_error ? 'block' : 'live'}>{sentiment.last_error ? 'issue' : 'healthy'}</Badge>}>
               <div className="panel-body">
                 <div className="truth-grid">
                   <Tile title="latest post" text={excerpt || 'No post has been analyzed yet. Waiting for new Truth Social activity.'} color={COLORS.cyan} badge={<Badge tone="info">rss</Badge>} />
                   <Tile title="model mode" text={sentiment.quantized_8bit ? 'Quantized FinBERT path is active.' : 'FinBERT runtime path is active.'} color={COLORS.purple} badge={<Badge tone="live">finbert</Badge>} />
-                  <Tile title="long emergency" text="Negative sentiment below threshold can flatten long exposure." color={COLORS.amber} badge={<Badge tone="watch">watch</Badge>} />
-                  <Tile title="short emergency" text="Positive sentiment above threshold can flatten short exposure." color={COLORS.red} badge={<Badge tone="watch">watch</Badge>} />
+                  <Tile title="long-side watch" text="Negative sentiment is displayed only; position management remains unchanged." color={COLORS.amber} badge={<Badge tone="info">observe</Badge>} />
+                  <Tile title="short-side watch" text="Positive sentiment is displayed only; position management remains unchanged." color={COLORS.red} badge={<Badge tone="info">observe</Badge>} />
                 </div>
               </div>
             </Panel>
-            <Panel title="News Tape" subtitle="Calendar, macro, and truth-feed items ranked by trading impact." badge={<Badge tone="info">live</Badge>}>
+            <Panel title="News Tape" subtitle="Calendar, macro, and truth-feed context." badge={<Badge tone="info">live</Badge>}>
               <div className="terminal">
                 <TerminalRow time={sentiment.latest_post_created_at} title="TRUTH" text={sentiment.trigger_reason || sentiment.sentiment_label || 'neutral watch'} badge={<Badge tone="info">feed</Badge>} />
                 <TerminalRow time={sentiment.last_analysis_at} title="FINBERT" text={`score ${formatSigned(features.truthScore)} / confidence ${pct(sentiment.finbert_confidence)}`} badge={<Badge tone="live">model</Badge>} />
-                <TerminalRow time={state.generated_at} title="BLACKOUT" text={`intensity ${pct(features.blackoutIntensity)} / macro ${pct(features.macroRisk)}`} badge={<Badge tone={features.newsBlocked ? 'block' : 'watch'}>{features.newsBlocked ? 'block' : 'clear'}</Badge>} />
+                <TerminalRow time={state.generated_at} title="ADVISORY" text={`pressure ${pct(features.advisoryPressure)} / headline risk ${pct(features.headlineRisk)}`} badge={<Badge tone={features.truthRiskWatch ? 'watch' : 'info'}>{features.truthRiskWatch ? 'watch' : 'clear'}</Badge>} />
               </div>
             </Panel>
           </div>
           <div className="stack">
-            <Panel title="Sentiment Pulse" subtitle="Truth Social score, confidence, and trigger zone.">
+            <Panel title="Sentiment Pulse" subtitle="Truth Social score and confidence.">
               <SentimentCanvas sentiment={sentiment} />
             </Panel>
-            <Panel title="Filter Status" subtitle="Runtime news blackout and seasonal context.">
+            <Panel title="Monitor Status" subtitle="Observe-only sentiment health and headline-risk context.">
               <div className="panel-body">
                 <Meter label="finbert confidence" value={sentiment.finbert_confidence ?? 0} color={COLORS.purple} />
                 <Meter label="signal freshness" value={sentiment.last_analysis_at ? clip01(1 - ((Date.now() - new Date(sentiment.last_analysis_at).getTime()) / 3_600_000)) : 0} color={COLORS.cyan} />
-                <Meter label="macro risk" value={features.macroRisk} color={COLORS.amber} />
-                <Meter label="blackout intensity" value={features.blackoutIntensity} color={COLORS.red} />
+                <Meter label="headline risk" value={features.headlineRisk} color={COLORS.amber} />
+                <Meter label="advisory pressure" value={features.advisoryPressure} color={COLORS.red} />
               </div>
             </Panel>
           </div>
@@ -1518,7 +1647,7 @@ function FilterlessLiveCockpit() {
       <div className="grid cols-3">
         <Metric label="AetherFlow" value={(state.strategies.find((strategy) => strategy.id === 'aetherflow')?.status || 'READY').toUpperCase()} hint="routed ensemble" color={COLORS.green} />
         <Metric label="DE3" value={(state.strategies.find((strategy) => strategy.id === 'dynamic_engine3')?.status || 'WATCH').toUpperCase()} hint="ML LFO scoped" color={COLORS.amber} />
-        <Metric label="news overlay" value={sentiment.last_error ? 'ISSUE' : 'WATCH'} hint="truth + calendar" color={COLORS.cyan} />
+        <Metric label="truth overlay" value={sentiment.last_error ? 'ISSUE' : 'OBSERVE'} hint="sentiment context" color={COLORS.cyan} />
       </div>
       <Panel title="Strategy Stack" subtitle="Modules mapped to manifold, news, and execution state." badge={<Badge tone="live">loaded</Badge>} className="mt-panel">
         <table className="table">

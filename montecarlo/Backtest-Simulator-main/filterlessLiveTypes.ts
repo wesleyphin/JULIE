@@ -35,6 +35,18 @@ export interface FilterlessPosition {
   kalshi_gate_applied?: boolean | null;
   kalshi_gate_reason?: string | null;
   kalshi_gate_multiplier?: number | null;
+  kalshi_trade_overlay_applied?: boolean | null;
+  kalshi_trade_overlay_reason?: string | null;
+  kalshi_trade_overlay_role?: string | null;
+  kalshi_trade_overlay_mode?: string | null;
+  kalshi_trade_overlay_forward_weight?: number | null;
+  kalshi_curve_informative?: boolean | null;
+  kalshi_entry_probability?: number | null;
+  kalshi_entry_support_score?: number | null;
+  kalshi_entry_threshold?: number | null;
+  kalshi_tp_anchor_price?: number | null;
+  kalshi_tp_anchor_probability?: number | null;
+  kalshi_tp_trail_enabled?: boolean | null;
   entry_mode?: string | null;
   base_session?: string | null;
   current_session?: string | null;
@@ -76,6 +88,18 @@ export interface FilterlessStrategyState {
   kalshi_gate_applied?: boolean | null;
   kalshi_gate_reason?: string | null;
   kalshi_gate_multiplier?: number | null;
+  kalshi_trade_overlay_applied?: boolean | null;
+  kalshi_trade_overlay_reason?: string | null;
+  kalshi_trade_overlay_role?: string | null;
+  kalshi_trade_overlay_mode?: string | null;
+  kalshi_trade_overlay_forward_weight?: number | null;
+  kalshi_curve_informative?: boolean | null;
+  kalshi_entry_probability?: number | null;
+  kalshi_entry_support_score?: number | null;
+  kalshi_entry_threshold?: number | null;
+  kalshi_tp_anchor_price?: number | null;
+  kalshi_tp_anchor_probability?: number | null;
+  kalshi_tp_trail_enabled?: boolean | null;
   entry_mode?: string | null;
   base_session?: string | null;
   current_session?: string | null;
@@ -109,6 +133,14 @@ export interface FilterlessTrade {
   kalshi_gate_applied?: boolean | null;
   kalshi_gate_reason?: string | null;
   kalshi_gate_multiplier?: number | null;
+  kalshi_trade_overlay_applied?: boolean | null;
+  kalshi_trade_overlay_reason?: string | null;
+  kalshi_trade_overlay_role?: string | null;
+  kalshi_trade_overlay_mode?: string | null;
+  kalshi_entry_probability?: number | null;
+  kalshi_entry_support_score?: number | null;
+  kalshi_entry_threshold?: number | null;
+  kalshi_tp_trail_enabled?: boolean | null;
 }
 
 export interface FilterlessPricePoint {

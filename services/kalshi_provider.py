@@ -1,4 +1,5 @@
 import base64
+import asyncio
 import logging
 import threading
 import time
@@ -54,6 +55,15 @@ class KalshiProvider:
         self.last_success: Optional[float] = None
         self.is_healthy = True
         self.last_resolved_ticker: Optional[str] = None
+
+    def refresh(self) -> List[Dict]:
+        """Refresh the active event cache from a background task."""
+        if not self.enabled:
+            return []
+        return self._fetch_event_markets()
+
+    async def async_refresh(self) -> List[Dict]:
+        return await asyncio.to_thread(self.refresh)
 
     def es_to_spx(self, es_price: float) -> float:
         return float(es_price) - float(self.basis_offset)
@@ -411,6 +421,67 @@ class KalshiProvider:
             return markets[-1]["probability"]
         return None
 
+    def get_cached_event_markets(
+        self,
+        event_ticker: Optional[str] = None,
+        *,
+        max_age_seconds: Optional[float] = None,
+    ) -> List[Dict]:
+        if not self.enabled or not self.is_healthy:
+            return []
+        ticker = str(event_ticker or self.last_resolved_ticker or self._current_event_ticker() or "").strip()
+        if not ticker:
+            return []
+        with self._cache_lock:
+            cached = self._cache.get(ticker)
+            if not cached:
+                return []
+            age = time.time() - float(cached.get("ts", 0.0) or 0.0)
+            if max_age_seconds is not None and age > float(max_age_seconds):
+                return []
+            return list(cached.get("data", []) or [])
+
+    @staticmethod
+    def _interpolated_probability_from_markets(markets: List[Dict], strike_price: float) -> Optional[float]:
+        if not markets:
+            return None
+        for market in markets:
+            if abs(float(market.get("strike", 0.0)) - float(strike_price)) < 0.01:
+                return float(market.get("probability"))
+        below = [m for m in markets if float(m.get("strike", 0.0)) <= float(strike_price)]
+        above = [m for m in markets if float(m.get("strike", 0.0)) > float(strike_price)]
+        if below and above:
+            lo = below[-1]
+            hi = above[0]
+            span = float(hi["strike"]) - float(lo["strike"])
+            if span <= 0:
+                return float(lo["probability"])
+            frac = (float(strike_price) - float(lo["strike"])) / span
+            return float(lo["probability"]) * (1.0 - frac) + float(hi["probability"]) * frac
+        if not below:
+            return float(markets[0]["probability"])
+        if not above:
+            return float(markets[-1]["probability"])
+        return None
+
+    @staticmethod
+    def _implied_level_from_markets(markets: List[Dict]) -> Optional[float]:
+        if len(markets) < 2:
+            return None
+        for idx in range(len(markets) - 1):
+            p1 = markets[idx]["probability"]
+            p2 = markets[idx + 1]["probability"]
+            if p1 >= 0.5 > p2:
+                s1 = markets[idx]["strike"]
+                s2 = markets[idx + 1]["strike"]
+                frac = (0.5 - p1) / (p2 - p1)
+                return s1 + frac * (s2 - s1)
+        return None
+
+    def get_cached_probability(self, strike_price: float, *, max_age_seconds: Optional[float] = None) -> Optional[float]:
+        markets = self.get_cached_event_markets(max_age_seconds=max_age_seconds)
+        return self._interpolated_probability_from_markets(markets, strike_price)
+
     def get_probability_curve(self) -> Dict[float, float]:
         if not self.enabled or not self.is_healthy:
             return {}
@@ -447,6 +518,25 @@ class KalshiProvider:
         if not self.enabled or not self.is_healthy:
             return []
         markets = self._fetch_event_markets()
+        return self._relative_markets_for_ui_from_markets(markets, es_prices=es_prices, window_size=window_size)
+
+    def get_cached_relative_markets_for_ui(
+        self,
+        es_prices: Optional[List[float]] = None,
+        window_size: int = 30,
+        *,
+        max_age_seconds: Optional[float] = None,
+    ) -> List[Dict]:
+        markets = self.get_cached_event_markets(max_age_seconds=max_age_seconds)
+        return self._relative_markets_for_ui_from_markets(markets, es_prices=es_prices, window_size=window_size)
+
+    def _relative_markets_for_ui_from_markets(
+        self,
+        markets: List[Dict],
+        *,
+        es_prices: Optional[List[float]] = None,
+        window_size: int = 30,
+    ) -> List[Dict]:
         if not markets:
             return []
         if len(markets) <= int(window_size):
@@ -462,7 +552,7 @@ class KalshiProvider:
                 continue
 
         if not reference_spx_prices:
-            implied_level = self.get_implied_level()
+            implied_level = self._implied_level_from_markets(markets)
             if implied_level is not None:
                 reference_spx_prices.append(float(implied_level))
 
@@ -546,19 +636,18 @@ class KalshiProvider:
         if not self.enabled or not self.is_healthy:
             return None
         markets = self._fetch_event_markets()
-        if len(markets) < 2:
-            return None
-        for idx in range(len(markets) - 1):
-            p1 = markets[idx]["probability"]
-            p2 = markets[idx + 1]["probability"]
-            if p1 >= 0.5 > p2:
-                s1 = markets[idx]["strike"]
-                s2 = markets[idx + 1]["strike"]
-                frac = (0.5 - p1) / (p2 - p1)
-                return s1 + frac * (s2 - s1)
-        return None
+        return self._implied_level_from_markets(markets)
 
     def get_sentiment(self, es_price: float) -> Dict:
+        return self._sentiment_from_markets(es_price, self._fetch_event_markets())
+
+    def get_cached_sentiment(self, es_price: float, *, max_age_seconds: Optional[float] = None) -> Dict:
+        return self._sentiment_from_markets(
+            es_price,
+            self.get_cached_event_markets(max_age_seconds=max_age_seconds),
+        )
+
+    def _sentiment_from_markets(self, es_price: float, markets: List[Dict]) -> Dict:
         payload = {
             "probability": None,
             "classification": "unavailable",
@@ -575,8 +664,8 @@ class KalshiProvider:
 
         es_price = float(es_price)
         spx_price = self.es_to_spx(es_price)
-        probability = self.get_probability(spx_price)
-        implied_level_spx = self.get_implied_level()
+        probability = self._interpolated_probability_from_markets(markets, spx_price)
+        implied_level_spx = self._implied_level_from_markets(markets)
         if probability is None:
             return payload
 
@@ -660,6 +749,19 @@ class KalshiProvider:
 
     def get_sentiment_momentum(self, es_price: float, lookback: int = 3) -> Optional[float]:
         probability = self.get_probability(self.es_to_spx(es_price))
+        return self._sentiment_momentum_from_probability(probability, lookback=lookback)
+
+    def get_cached_sentiment_momentum(
+        self,
+        es_price: float,
+        lookback: int = 3,
+        *,
+        max_age_seconds: Optional[float] = None,
+    ) -> Optional[float]:
+        probability = self.get_cached_probability(self.es_to_spx(es_price), max_age_seconds=max_age_seconds)
+        return self._sentiment_momentum_from_probability(probability, lookback=lookback)
+
+    def _sentiment_momentum_from_probability(self, probability: Optional[float], lookback: int = 3) -> Optional[float]:
         if probability is None:
             return None
         self._sentiment_history.append((time.time(), probability))

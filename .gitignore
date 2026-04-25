@@ -102,3 +102,15 @@ es_master_outrights.parquet
 # and diagnostic JSON so the training pipeline is reproducible end-to-end
 # from committed artifacts. Stray debug artifacts stay ignored by default.
 ai_loop_data/
+
+# Generated manifold/AetherFlow feature caches are too large for GitHub.
+# Commit the builders; rebuild these local parquet/cache outputs when needed.
+manifold_base_*.parquet
+manifold_base_*.parquet.meta.json
+manifold_strategy_features*.parquet
+manifold_session_threshold_scan.csv
+manifold_threshold_robust_scan.csv
+aetherflow_features*.parquet
+aetherflow_*checkpoint/
+artifacts/**/manifold_base_*.parquet
+artifacts/**/manifold_base_*.parquet.meta.json

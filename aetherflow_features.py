@@ -24,6 +24,24 @@ SETUP_DEFAULTS = {
     "transition_burst": {"sl_mult": 1.20, "tp_mult": 2.10, "horizon_bars": 16},
 }
 
+SETUP_SCORE_KEYS = (
+    ("compression_release_long", "compression_release"),
+    ("compression_release_short", "compression_release"),
+    ("aligned_flow_long", "aligned_flow"),
+    ("aligned_flow_short", "aligned_flow"),
+    ("exhaustion_reversal_long", "exhaustion_reversal"),
+    ("exhaustion_reversal_short", "exhaustion_reversal"),
+    ("transition_burst_long", "transition_burst"),
+    ("transition_burst_short", "transition_burst"),
+)
+
+SETUP_THRESHOLDS = {
+    "compression_release": 0.26,
+    "aligned_flow": 0.40,
+    "exhaustion_reversal": 0.42,
+    "transition_burst": 0.42,
+}
+
 BASE_FEATURE_COLUMNS = [
     "manifold_R",
     "manifold_alignment",
@@ -235,7 +253,8 @@ def _build_from_base(
     base: pd.DataFrame,
     *,
     preferred_setup_families: Optional[set[str]] = None,
-) -> pd.DataFrame:
+    emit_family_frames: bool = False,
+) -> pd.DataFrame | dict[str, pd.DataFrame]:
     work = base.reindex(columns=BASE_FEATURE_COLUMNS, fill_value=0.0).copy()
     _require_columns(work, BASE_FEATURE_COLUMNS)
     for col in BASE_FEATURE_COLUMNS:
@@ -391,110 +410,102 @@ def _build_from_base(
         },
         index=work.index,
     )
-    setup_score_view = setup_scores
-    if preferred_setup_families:
-        preferred_keys = [
-            key
-            for key, family_name in (
-                ("compression_release_long", "compression_release"),
-                ("compression_release_short", "compression_release"),
-                ("aligned_flow_long", "aligned_flow"),
-                ("aligned_flow_short", "aligned_flow"),
-                ("exhaustion_reversal_long", "exhaustion_reversal"),
-                ("exhaustion_reversal_short", "exhaustion_reversal"),
-                ("transition_burst_long", "transition_burst"),
-                ("transition_burst_short", "transition_burst"),
-            )
-            if family_name in preferred_setup_families
-        ]
-        if preferred_keys:
-            setup_score_view = setup_scores.loc[:, preferred_keys]
+    def _keys_for_families(families: Optional[set[str]]) -> list[str]:
+        if not families:
+            return [key for key, _ in SETUP_SCORE_KEYS]
+        return [key for key, family_name in SETUP_SCORE_KEYS if family_name in families]
 
-    best_key = setup_score_view.idxmax(axis=1)
-    best_score = setup_score_view.max(axis=1).fillna(0.0)
+    def _assign_setup(keys: list[str]) -> tuple[pd.Series, pd.Series, pd.Series]:
+        setup_score_view = setup_scores.loc[:, keys] if keys else setup_scores
+        best_key = setup_score_view.idxmax(axis=1)
+        best_score = setup_score_view.max(axis=1).fillna(0.0)
+        family = pd.Series("", index=work.index, dtype=object)
+        candidate_side = pd.Series(0.0, index=work.index, dtype=float)
+        setup_strength = pd.Series(0.0, index=work.index, dtype=float)
+        key_set = set(keys)
+        for key, family_name in SETUP_SCORE_KEYS:
+            if key_set and key not in key_set:
+                continue
+            mask = (best_key == key) & (best_score >= SETUP_THRESHOLDS[family_name])
+            if not bool(mask.any()):
+                continue
+            family.loc[mask] = family_name
+            candidate_side.loc[mask] = 1.0 if key.endswith("_long") else -1.0
+            setup_strength.loc[mask] = best_score.loc[mask].astype(float)
+        return family, candidate_side, setup_strength
 
-    family = pd.Series("", index=work.index, dtype=object)
-    candidate_side = pd.Series(0.0, index=work.index, dtype=float)
-    setup_strength = pd.Series(0.0, index=work.index, dtype=float)
+    def _common_frame() -> pd.DataFrame:
+        out = work.copy()
+        out["flow_fast"] = flow_fast
+        out["flow_slow"] = flow_slow
+        out["flow_mag_fast"] = flow_mag_fast
+        out["flow_mag_slow"] = flow_mag_slow
+        out["flow_agreement"] = flow_agreement
+        out["flow_curvature"] = flow_curvature
+        out["up_pressure_10"] = up_pressure_10
+        out["down_pressure_10"] = down_pressure_10
+        out["pressure_imbalance_10"] = pressure_imbalance_10
+        out["up_pressure_30"] = up_pressure_30
+        out["down_pressure_30"] = down_pressure_30
+        out["pressure_imbalance_30"] = pressure_imbalance_30
+        out["coherence"] = coherence
+        out["compression_score"] = compression_score
+        out["expansion_score"] = expansion_score
+        out["extension_score"] = extension_score
+        out["transition_energy"] = transition_energy
+        out["novelty_score"] = novelty_score
+        out["regime_change"] = regime_change
+        out["d_alignment_3"] = d_alignment_3
+        out["d_alignment_10"] = d_alignment_10
+        out["d_stress_3"] = d_stress_3
+        out["d_stress_10"] = d_stress_10
+        out["d_dispersion_3"] = d_dispersion_3
+        out["d_dispersion_10"] = d_dispersion_10
+        out["d_r_3"] = d_r_3
+        out["d_r_10"] = d_r_10
+        out["d_coherence_3"] = d_coherence_3
+        out["skew_20"] = skew_20.clip(-10.0, 10.0)
+        out["skew_60"] = skew_60.clip(-10.0, 10.0)
+        out["kurt_20"] = kurt_20.clip(-10.0, 20.0)
+        return out
 
-    thresholds = {
-        "compression_release": 0.26,
-        "aligned_flow": 0.40,
-        "exhaustion_reversal": 0.42,
-        "transition_burst": 0.42,
-    }
+    def _finalize(family: pd.Series, candidate_side: pd.Series, setup_strength: pd.Series) -> pd.DataFrame:
+        setup_id = family.map(SETUP_TO_ID).fillna(0.0)
+        setup_sl_mult = family.map(lambda x: float(SETUP_DEFAULTS.get(str(x), {}).get("sl_mult", 0.0))).fillna(0.0)
+        setup_tp_mult = family.map(lambda x: float(SETUP_DEFAULTS.get(str(x), {}).get("tp_mult", 0.0))).fillna(0.0)
+        setup_horizon_bars = family.map(
+            lambda x: float(SETUP_DEFAULTS.get(str(x), {}).get("horizon_bars", 0.0))
+        ).fillna(0.0)
+        out = _common_frame()
+        out["setup_strength"] = setup_strength
+        out["candidate_side"] = candidate_side
+        out["setup_compression_release"] = (family == "compression_release").astype(float)
+        out["setup_aligned_flow"] = (family == "aligned_flow").astype(float)
+        out["setup_exhaustion_reversal"] = (family == "exhaustion_reversal").astype(float)
+        out["setup_transition_burst"] = (family == "transition_burst").astype(float)
+        out = _augment_interaction_features(out)
+        out["setup_family"] = family
+        out["setup_id"] = setup_id.astype(float)
+        out["setup_sl_mult"] = setup_sl_mult.astype(float)
+        out["setup_tp_mult"] = setup_tp_mult.astype(float)
+        out["setup_horizon_bars"] = setup_horizon_bars.astype(float)
+        out.loc[family == "", "setup_family"] = ""
+        numeric_cols = [col for col in EXPORT_COLUMNS if col != "setup_family"]
+        for col in numeric_cols:
+            out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0).astype(np.float32)
+        return out
 
-    for key, family_name in (
-        ("compression_release_long", "compression_release"),
-        ("compression_release_short", "compression_release"),
-        ("aligned_flow_long", "aligned_flow"),
-        ("aligned_flow_short", "aligned_flow"),
-        ("exhaustion_reversal_long", "exhaustion_reversal"),
-        ("exhaustion_reversal_short", "exhaustion_reversal"),
-        ("transition_burst_long", "transition_burst"),
-        ("transition_burst_short", "transition_burst"),
-    ):
-        mask = (best_key == key) & (best_score >= thresholds[family_name])
-        if not bool(mask.any()):
-            continue
-        family.loc[mask] = family_name
-        candidate_side.loc[mask] = 1.0 if key.endswith("_long") else -1.0
-        setup_strength.loc[mask] = best_score.loc[mask].astype(float)
+    if emit_family_frames:
+        requested_families = preferred_setup_families or {family_name for _, family_name in SETUP_SCORE_KEYS}
+        frames: dict[str, pd.DataFrame] = {}
+        for family_name in sorted(str(name) for name in requested_families if str(name).strip()):
+            keys = [key for key, score_family in SETUP_SCORE_KEYS if score_family == family_name]
+            if not keys:
+                continue
+            frames[family_name] = _finalize(*_assign_setup(keys))
+        return frames
 
-    setup_id = family.map(SETUP_TO_ID).fillna(0.0)
-    setup_sl_mult = family.map(lambda x: float(SETUP_DEFAULTS.get(str(x), {}).get("sl_mult", 0.0))).fillna(0.0)
-    setup_tp_mult = family.map(lambda x: float(SETUP_DEFAULTS.get(str(x), {}).get("tp_mult", 0.0))).fillna(0.0)
-    setup_horizon_bars = family.map(lambda x: float(SETUP_DEFAULTS.get(str(x), {}).get("horizon_bars", 0.0))).fillna(0.0)
-
-    out = work
-    out["flow_fast"] = flow_fast
-    out["flow_slow"] = flow_slow
-    out["flow_mag_fast"] = flow_mag_fast
-    out["flow_mag_slow"] = flow_mag_slow
-    out["flow_agreement"] = flow_agreement
-    out["flow_curvature"] = flow_curvature
-    out["up_pressure_10"] = up_pressure_10
-    out["down_pressure_10"] = down_pressure_10
-    out["pressure_imbalance_10"] = pressure_imbalance_10
-    out["up_pressure_30"] = up_pressure_30
-    out["down_pressure_30"] = down_pressure_30
-    out["pressure_imbalance_30"] = pressure_imbalance_30
-    out["coherence"] = coherence
-    out["compression_score"] = compression_score
-    out["expansion_score"] = expansion_score
-    out["extension_score"] = extension_score
-    out["transition_energy"] = transition_energy
-    out["novelty_score"] = novelty_score
-    out["regime_change"] = regime_change
-    out["d_alignment_3"] = d_alignment_3
-    out["d_alignment_10"] = d_alignment_10
-    out["d_stress_3"] = d_stress_3
-    out["d_stress_10"] = d_stress_10
-    out["d_dispersion_3"] = d_dispersion_3
-    out["d_dispersion_10"] = d_dispersion_10
-    out["d_r_3"] = d_r_3
-    out["d_r_10"] = d_r_10
-    out["d_coherence_3"] = d_coherence_3
-    out["skew_20"] = skew_20.clip(-10.0, 10.0)
-    out["skew_60"] = skew_60.clip(-10.0, 10.0)
-    out["kurt_20"] = kurt_20.clip(-10.0, 20.0)
-    out = _augment_interaction_features(out)
-    out["setup_strength"] = setup_strength
-    out["candidate_side"] = candidate_side
-    out["setup_compression_release"] = (family == "compression_release").astype(float)
-    out["setup_aligned_flow"] = (family == "aligned_flow").astype(float)
-    out["setup_exhaustion_reversal"] = (family == "exhaustion_reversal").astype(float)
-    out["setup_transition_burst"] = (family == "transition_burst").astype(float)
-    out["setup_family"] = family
-    out["setup_id"] = setup_id.astype(float)
-    out["setup_sl_mult"] = setup_sl_mult.astype(float)
-    out["setup_tp_mult"] = setup_tp_mult.astype(float)
-    out["setup_horizon_bars"] = setup_horizon_bars.astype(float)
-    out.loc[family == "", "setup_family"] = ""
-    numeric_cols = [col for col in EXPORT_COLUMNS if col != "setup_family"]
-    for col in numeric_cols:
-        out[col] = pd.to_numeric(out[col], errors="coerce").fillna(0.0).astype(np.float32)
-    return out
+    return _finalize(*_assign_setup(_keys_for_families(preferred_setup_families)))
 
 
 def build_feature_frame(
@@ -516,6 +527,29 @@ def build_feature_frame(
         base_features,
         preferred_setup_families=preferred_setup_families,
     )
+
+
+def build_feature_frames_by_family(
+    df: Optional[pd.DataFrame] = None,
+    *,
+    base_features: Optional[pd.DataFrame] = None,
+    preferred_setup_families: Optional[set[str]] = None,
+    manifold_cfg: Optional[Dict] = None,
+    log_every: int = 0,
+) -> dict[str, pd.DataFrame]:
+    if base_features is None:
+        if df is None or df.empty:
+            return {}
+        logging.info("AetherFlow feature build: deriving manifold base frame first")
+        base_features = build_manifold_feature_frame(df, manifold_cfg=manifold_cfg, log_every=log_every)
+    if base_features is None or base_features.empty:
+        return {}
+    frames = _build_from_base(
+        base_features,
+        preferred_setup_families=preferred_setup_families,
+        emit_family_frames=True,
+    )
+    return frames if isinstance(frames, dict) else {}
 
 
 def build_feature_frame_from_parquet(path: str | PathLike[str]) -> pd.DataFrame:

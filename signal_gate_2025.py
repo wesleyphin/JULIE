@@ -30,6 +30,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
+import pandas as pd
 
 
 _ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts" / "signal_gate_2025"
@@ -45,6 +46,11 @@ _STRATEGY_MODEL_MAP = {
 # In-memory loaded models keyed by family name. Empty when init_gate not yet
 # called. None entry means "tried to load, no file" → no-op gate for that family.
 _GATES: Dict[str, Optional[Dict[str, Any]]] = {}
+
+_DYNAMIC_THRESHOLD_ENABLED = (
+    os.environ.get("JULIE_GATE_DYNAMIC_THRESHOLD", "0").strip().lower()
+    in {"1", "true", "yes", "on"}
+)
 
 
 def _strategy_family(name: str) -> str:
@@ -182,6 +188,7 @@ def _score_with_gate(
     *,
     side: str,
     regime: str,
+    mkt_regime: str = "",
     et_hour: int,
     bar_features: Dict[str, float],
 ) -> Optional[float]:
@@ -193,7 +200,8 @@ def _score_with_gate(
         numeric = payload.get("numeric_features", [])
         cat_values = {
             "side": str(side or "").upper(),
-            "regime": str(regime or "").lower(),
+            "regime": str(regime or ""),
+            "mkt_regime": str(mkt_regime or ""),
             "session": _session_bucket(int(et_hour)),
         }
         row = {c: 0.0 for c in feature_names}
@@ -211,11 +219,11 @@ def _score_with_gate(
             val = cat_values.get(cat_col, "")
             for kv in known:
                 name = f"{cat_col}__{kv}"
-                if name in row and val == kv:
+                if name in row and str(val).lower() == str(kv).lower():
                     row[name] = 1
         if "et_hour" in row:
             row["et_hour"] = float(et_hour)
-        X = np.array([[row[c] for c in feature_names]])
+        X = pd.DataFrame([[row[c] for c in feature_names]], columns=feature_names)
         return float(payload["model"].predict_proba(X)[0, 1])
     except Exception:
         logging.debug("gate scoring failed", exc_info=True)
@@ -365,6 +373,8 @@ def _effective_threshold(base_thr: float, regime: str = "",
     cells get 1.0 and behave exactly as before. Disable with
     JULIE_FILTERG_PER_CELL_ACTIVE=0. The floor still applies.
     """
+    if not _DYNAMIC_THRESHOLD_ENABLED:
+        return float(base_thr), 1.0
     regime_mult = _REGIME_THR_MULT.get(str(regime or "").lower(), 1.0)
     session_mult = _session_multiplier(cum_day_pnl)
     per_cell_mult = _per_cell_multiplier(strategy, regime, et_hour) if strategy else 1.0
@@ -401,8 +411,14 @@ def should_veto_signal(
     payload = _GATES.get(family)
     if payload is None:
         return False, ""
-    p = _score_with_gate(payload, side=side, regime=regime, et_hour=et_hour,
-                         bar_features=bar_features)
+    p = _score_with_gate(
+        payload,
+        side=side,
+        regime=regime,
+        mkt_regime=mkt_regime,
+        et_hour=et_hour,
+        bar_features=bar_features,
+    )
     if p is None:
         return False, ""
     base_thr = float(payload.get("veto_threshold", 0.35))

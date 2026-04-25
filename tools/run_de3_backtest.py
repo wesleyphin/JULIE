@@ -226,6 +226,94 @@ def main() -> None:
         help="Add an extra DE3_V4.runtime.excluded_variant_patterns entry for this run. Repeatable.",
     )
     parser.add_argument(
+        "--family-profile-veto-enabled",
+        choices=["default", "true", "false"],
+        default="default",
+        help="Optionally override DE3_V4.runtime.family_profile_veto.enabled for this run.",
+    )
+    parser.add_argument(
+        "--only-family-profile-veto-rule",
+        action="append",
+        default=[],
+        help="Enable only the named DE3 family-profile veto rule(s) for this run. Repeatable.",
+    )
+    parser.add_argument(
+        "--live-drawdown-quarantine-enabled",
+        choices=["default", "true", "false"],
+        default="default",
+        help="Optionally override DE3_V4.runtime.live_drawdown_quarantine.enabled for this run.",
+    )
+    parser.add_argument(
+        "--live-drawdown-quarantine-max-drawdown-usd",
+        type=float,
+        default=None,
+        help="Optionally override DE3_V4.runtime.live_drawdown_quarantine.max_drawdown_usd for this run.",
+    )
+    parser.add_argument(
+        "--live-drawdown-quarantine-exclude-variant-pattern",
+        action="append",
+        default=[],
+        help=(
+            "Add a post-trigger variant substring quarantine pattern for "
+            "DE3_V4.runtime.live_drawdown_quarantine. Repeatable."
+        ),
+    )
+    parser.add_argument(
+        "--live-drawdown-quarantine-allow-rules-json",
+        default="",
+        help=(
+            "Optional JSON file containing a list of allow_rules for "
+            "DE3_V4.runtime.live_drawdown_quarantine."
+        ),
+    )
+    parser.add_argument(
+        "--trade-day-cluster-lockout-enabled",
+        choices=["default", "true", "false"],
+        default="default",
+        help="Optionally override DE3_V4.runtime.backtest_trade_day_cluster_lockout.enabled for this run.",
+    )
+    parser.add_argument(
+        "--only-trade-day-cluster-lockout-rule",
+        action="append",
+        default=[],
+        help="Enable only the named DE3 trade-day cluster-lockout rule(s) for this run. Repeatable.",
+    )
+    parser.add_argument(
+        "--drawdown-breaker-enabled",
+        choices=["default", "true", "false"],
+        default="default",
+        help="Optionally override DE3_V4.runtime.backtest_drawdown_breaker.enabled for this run.",
+    )
+    parser.add_argument(
+        "--drawdown-breaker-max-drawdown-usd",
+        type=float,
+        default=None,
+        help="Optionally override DE3_V4.runtime.backtest_drawdown_breaker.max_drawdown_usd for this run.",
+    )
+    parser.add_argument(
+        "--drawdown-breaker-mode",
+        default="",
+        help="Optionally override DE3_V4.runtime.backtest_drawdown_breaker.mode for this run.",
+    )
+    parser.add_argument(
+        "--drawdown-breaker-post-trigger-exclude-variant-pattern",
+        action="append",
+        default=[],
+        help=(
+            "Add a post-trigger variant substring quarantine pattern for "
+            "DE3_V4.runtime.backtest_drawdown_breaker. Repeatable."
+        ),
+    )
+    parser.add_argument(
+        "--drawdown-breaker-allow-rules-json",
+        default="",
+        help=(
+            "Optional JSON file containing a list of "
+            "post_trigger_allow_family_profile_rules for "
+            "DE3_V4.runtime.backtest_drawdown_breaker."
+        ),
+    )
+    parser.add_argument(
         "--set-variant-size-multiplier",
         action="append",
         default=[],
@@ -322,7 +410,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--intraday-regime-mode",
-        choices=["default", "block", "defensive", "block_defensive"],
+        choices=["default", "block", "defensive", "block_defensive", "observe"],
         default="default",
         help="Optionally override DE3_V4.runtime.backtest_intraday_regime_controller.mode for this run.",
     )
@@ -337,6 +425,18 @@ def main() -> None:
         action="append",
         default=[],
         help="Override DE3_V4.runtime.backtest_intraday_regime_controller.apply_lanes for this run. Repeatable.",
+    )
+    parser.add_argument(
+        "--intraday-regime-apply-variant",
+        action="append",
+        default=[],
+        help="Override DE3_V4.runtime.backtest_intraday_regime_controller.apply_variants for this run. Repeatable.",
+    )
+    parser.add_argument(
+        "--intraday-regime-exclude-variant",
+        action="append",
+        default=[],
+        help="Override DE3_V4.runtime.backtest_intraday_regime_controller.exclude_variants for this run. Repeatable.",
     )
     parser.add_argument(
         "--intraday-regime-enable-bullish-mirror",
@@ -373,6 +473,36 @@ def main() -> None:
         type=float,
         default=None,
         help="Optional block-dominance threshold override for the DE3 intraday regime controller.",
+    )
+    parser.add_argument(
+        "--experimental-modifiers-enabled",
+        choices=["default", "true", "false"],
+        default="default",
+        help="Optionally override BACKTEST_EXPERIMENTAL_MODIFIERS.enabled for this run.",
+    )
+    parser.add_argument(
+        "--experimental-level-fill-enabled",
+        choices=["default", "true", "false"],
+        default="default",
+        help="Optionally override BACKTEST_EXPERIMENTAL_MODIFIERS.level_fill_optimizer.enabled for this run.",
+    )
+    parser.add_argument(
+        "--experimental-ml-lfo-enabled",
+        choices=["default", "true", "false"],
+        default="default",
+        help="Optionally override BACKTEST_EXPERIMENTAL_MODIFIERS.ml_lfo.enabled for this run.",
+    )
+    parser.add_argument(
+        "--experimental-ml-lfo-policy",
+        choices=["", "live_default", "off", "rule", "ml", "hybrid"],
+        default="",
+        help="Optionally override BACKTEST_EXPERIMENTAL_MODIFIERS.ml_lfo.policy for this run.",
+    )
+    parser.add_argument(
+        "--experimental-kalshi-overlay-enabled",
+        choices=["default", "true", "false"],
+        default="default",
+        help="Optionally override BACKTEST_EXPERIMENTAL_MODIFIERS.kalshi_overlay.enabled for this run.",
     )
     args = parser.parse_args()
 
@@ -447,6 +577,205 @@ def main() -> None:
                 if pattern not in merged_patterns:
                     merged_patterns.append(pattern)
             runtime_cfg["excluded_variant_patterns"] = merged_patterns
+        if str(args.family_profile_veto_enabled).strip().lower() != "default":
+            family_profile_veto_cfg = (
+                ((CONFIG.get("DE3_V4") or {}).get("runtime") or {}).get("family_profile_veto")
+            )
+            if not isinstance(family_profile_veto_cfg, dict):
+                raise SystemExit("DE3_V4.runtime.family_profile_veto is missing.")
+            family_profile_veto_cfg["enabled"] = (
+                str(args.family_profile_veto_enabled).strip().lower() == "true"
+            )
+        only_family_profile_veto_rules = {
+            str(v or "").strip()
+            for v in (args.only_family_profile_veto_rule or [])
+            if str(v or "").strip()
+        }
+        if only_family_profile_veto_rules:
+            family_profile_veto_cfg = (
+                ((CONFIG.get("DE3_V4") or {}).get("runtime") or {}).get("family_profile_veto")
+            )
+            if not isinstance(family_profile_veto_cfg, dict):
+                raise SystemExit("DE3_V4.runtime.family_profile_veto is missing.")
+            rules = family_profile_veto_cfg.get("rules", [])
+            if not isinstance(rules, list):
+                raise SystemExit("DE3_V4.runtime.family_profile_veto.rules is not a list.")
+            family_profile_veto_cfg["enabled"] = True
+            for rule in rules:
+                if not isinstance(rule, dict):
+                    continue
+                rule["enabled"] = str(rule.get("name") or "").strip() in only_family_profile_veto_rules
+        if str(args.live_drawdown_quarantine_enabled).strip().lower() != "default":
+            live_drawdown_quarantine_cfg = (
+                ((CONFIG.get("DE3_V4") or {}).get("runtime") or {}).get(
+                    "live_drawdown_quarantine"
+                )
+            )
+            if not isinstance(live_drawdown_quarantine_cfg, dict):
+                raise SystemExit("DE3_V4.runtime.live_drawdown_quarantine is missing.")
+            live_drawdown_quarantine_cfg["enabled"] = (
+                str(args.live_drawdown_quarantine_enabled).strip().lower() == "true"
+            )
+        if args.live_drawdown_quarantine_max_drawdown_usd is not None:
+            live_drawdown_quarantine_cfg = (
+                ((CONFIG.get("DE3_V4") or {}).get("runtime") or {}).get(
+                    "live_drawdown_quarantine"
+                )
+            )
+            if not isinstance(live_drawdown_quarantine_cfg, dict):
+                raise SystemExit("DE3_V4.runtime.live_drawdown_quarantine is missing.")
+            live_drawdown_quarantine_cfg["max_drawdown_usd"] = float(
+                args.live_drawdown_quarantine_max_drawdown_usd
+            )
+        if args.live_drawdown_quarantine_exclude_variant_pattern:
+            live_drawdown_quarantine_cfg = (
+                ((CONFIG.get("DE3_V4") or {}).get("runtime") or {}).get(
+                    "live_drawdown_quarantine"
+                )
+            )
+            if not isinstance(live_drawdown_quarantine_cfg, dict):
+                raise SystemExit("DE3_V4.runtime.live_drawdown_quarantine is missing.")
+            existing_patterns = live_drawdown_quarantine_cfg.get(
+                "post_trigger_excluded_variant_patterns", []
+            )
+            if not isinstance(existing_patterns, list):
+                existing_patterns = []
+            existing_patterns.extend(
+                [
+                    str(v).strip()
+                    for v in (args.live_drawdown_quarantine_exclude_variant_pattern or [])
+                    if str(v).strip()
+                ]
+            )
+            live_drawdown_quarantine_cfg["post_trigger_excluded_variant_patterns"] = (
+                existing_patterns
+            )
+        if str(args.live_drawdown_quarantine_allow_rules_json or "").strip():
+            live_drawdown_quarantine_cfg = (
+                ((CONFIG.get("DE3_V4") or {}).get("runtime") or {}).get(
+                    "live_drawdown_quarantine"
+                )
+            )
+            if not isinstance(live_drawdown_quarantine_cfg, dict):
+                raise SystemExit("DE3_V4.runtime.live_drawdown_quarantine is missing.")
+            allow_rules_path = _resolve_optional_path(
+                args.live_drawdown_quarantine_allow_rules_json
+            )
+            allow_rules_payload = json.loads(
+                allow_rules_path.read_text(encoding="utf-8-sig")
+            )
+            if not isinstance(allow_rules_payload, list):
+                raise SystemExit(
+                    "--live-drawdown-quarantine-allow-rules-json must point to a JSON list of rules."
+                )
+            live_drawdown_quarantine_cfg["allow_rules"] = [
+                dict(rule) for rule in allow_rules_payload if isinstance(rule, dict)
+            ]
+        if str(args.trade_day_cluster_lockout_enabled).strip().lower() != "default":
+            cluster_lockout_cfg = (
+                ((CONFIG.get("DE3_V4") or {}).get("runtime") or {}).get(
+                    "backtest_trade_day_cluster_lockout"
+                )
+            )
+            if not isinstance(cluster_lockout_cfg, dict):
+                raise SystemExit("DE3_V4.runtime.backtest_trade_day_cluster_lockout is missing.")
+            cluster_lockout_cfg["enabled"] = (
+                str(args.trade_day_cluster_lockout_enabled).strip().lower() == "true"
+            )
+        only_trade_day_cluster_lockout_rules = {
+            str(v or "").strip()
+            for v in (args.only_trade_day_cluster_lockout_rule or [])
+            if str(v or "").strip()
+        }
+        if only_trade_day_cluster_lockout_rules:
+            cluster_lockout_cfg = (
+                ((CONFIG.get("DE3_V4") or {}).get("runtime") or {}).get(
+                    "backtest_trade_day_cluster_lockout"
+                )
+            )
+            if not isinstance(cluster_lockout_cfg, dict):
+                raise SystemExit("DE3_V4.runtime.backtest_trade_day_cluster_lockout is missing.")
+            rules = cluster_lockout_cfg.get("rules", [])
+            if not isinstance(rules, list):
+                raise SystemExit(
+                    "DE3_V4.runtime.backtest_trade_day_cluster_lockout.rules is not a list."
+                )
+            cluster_lockout_cfg["enabled"] = True
+            for rule in rules:
+                if not isinstance(rule, dict):
+                    continue
+                rule["enabled"] = (
+                    str(rule.get("name") or "").strip() in only_trade_day_cluster_lockout_rules
+                )
+        if str(args.drawdown_breaker_enabled).strip().lower() != "default":
+            drawdown_breaker_cfg = (
+                ((CONFIG.get("DE3_V4") or {}).get("runtime") or {}).get(
+                    "backtest_drawdown_breaker"
+                )
+            )
+            if not isinstance(drawdown_breaker_cfg, dict):
+                raise SystemExit("DE3_V4.runtime.backtest_drawdown_breaker is missing.")
+            drawdown_breaker_cfg["enabled"] = (
+                str(args.drawdown_breaker_enabled).strip().lower() == "true"
+            )
+        if args.drawdown_breaker_max_drawdown_usd is not None:
+            drawdown_breaker_cfg = (
+                ((CONFIG.get("DE3_V4") or {}).get("runtime") or {}).get(
+                    "backtest_drawdown_breaker"
+                )
+            )
+            if not isinstance(drawdown_breaker_cfg, dict):
+                raise SystemExit("DE3_V4.runtime.backtest_drawdown_breaker is missing.")
+            drawdown_breaker_cfg["max_drawdown_usd"] = float(
+                args.drawdown_breaker_max_drawdown_usd
+            )
+        if str(args.drawdown_breaker_mode or "").strip():
+            drawdown_breaker_cfg = (
+                ((CONFIG.get("DE3_V4") or {}).get("runtime") or {}).get(
+                    "backtest_drawdown_breaker"
+                )
+            )
+            if not isinstance(drawdown_breaker_cfg, dict):
+                raise SystemExit("DE3_V4.runtime.backtest_drawdown_breaker is missing.")
+            drawdown_breaker_cfg["mode"] = str(args.drawdown_breaker_mode).strip()
+        if args.drawdown_breaker_post_trigger_exclude_variant_pattern:
+            drawdown_breaker_cfg = (
+                ((CONFIG.get("DE3_V4") or {}).get("runtime") or {}).get(
+                    "backtest_drawdown_breaker"
+                )
+            )
+            if not isinstance(drawdown_breaker_cfg, dict):
+                raise SystemExit("DE3_V4.runtime.backtest_drawdown_breaker is missing.")
+            existing_patterns = drawdown_breaker_cfg.get(
+                "post_trigger_excluded_variant_patterns", []
+            )
+            if not isinstance(existing_patterns, list):
+                existing_patterns = []
+            existing_patterns.extend(
+                [
+                    str(v).strip()
+                    for v in (args.drawdown_breaker_post_trigger_exclude_variant_pattern or [])
+                    if str(v).strip()
+                ]
+            )
+            drawdown_breaker_cfg["post_trigger_excluded_variant_patterns"] = existing_patterns
+        if str(args.drawdown_breaker_allow_rules_json or "").strip():
+            drawdown_breaker_cfg = (
+                ((CONFIG.get("DE3_V4") or {}).get("runtime") or {}).get(
+                    "backtest_drawdown_breaker"
+                )
+            )
+            if not isinstance(drawdown_breaker_cfg, dict):
+                raise SystemExit("DE3_V4.runtime.backtest_drawdown_breaker is missing.")
+            allow_rules_path = _resolve_optional_path(args.drawdown_breaker_allow_rules_json)
+            allow_rules_payload = json.loads(allow_rules_path.read_text(encoding="utf-8-sig"))
+            if not isinstance(allow_rules_payload, list):
+                raise SystemExit(
+                    "--drawdown-breaker-allow-rules-json must point to a JSON list of rules."
+                )
+            drawdown_breaker_cfg["post_trigger_allow_family_profile_rules"] = [
+                dict(rule) for rule in allow_rules_payload if isinstance(rule, dict)
+            ]
         variant_multiplier_overrides = {}
         for raw_item in (args.set_variant_size_multiplier or []):
             text = str(raw_item or "").strip()
@@ -573,6 +902,20 @@ def main() -> None:
         ]
         if intraday_regime_lanes:
             intraday_regime_cfg["apply_lanes"] = intraday_regime_lanes
+        intraday_regime_variants = [
+            str(v or "").strip()
+            for v in (args.intraday_regime_apply_variant or [])
+            if str(v or "").strip()
+        ]
+        if intraday_regime_variants:
+            intraday_regime_cfg["apply_variants"] = intraday_regime_variants
+        intraday_regime_excluded_variants = [
+            str(v or "").strip()
+            for v in (args.intraday_regime_exclude_variant or [])
+            if str(v or "").strip()
+        ]
+        if intraday_regime_excluded_variants:
+            intraday_regime_cfg["exclude_variants"] = intraday_regime_excluded_variants
         if str(args.intraday_regime_enable_bullish_mirror).strip().lower() != "default":
             intraday_regime_cfg["enable_bullish_mirror"] = (
                 str(args.intraday_regime_enable_bullish_mirror).strip().lower() == "true"
@@ -596,6 +939,64 @@ def main() -> None:
         if args.intraday_regime_block_dominance_threshold is not None:
             intraday_regime_cfg["block_dominance_threshold"] = float(
                 args.intraday_regime_block_dominance_threshold
+            )
+        experimental_modifiers_cfg = CONFIG.setdefault(
+            "BACKTEST_EXPERIMENTAL_MODIFIERS",
+            {},
+        )
+        if not isinstance(experimental_modifiers_cfg, dict):
+            raise SystemExit("BACKTEST_EXPERIMENTAL_MODIFIERS is not a dict.")
+        experimental_level_fill_cfg = experimental_modifiers_cfg.setdefault(
+            "level_fill_optimizer",
+            {},
+        )
+        experimental_ml_lfo_cfg = experimental_modifiers_cfg.setdefault("ml_lfo", {})
+        experimental_kalshi_cfg = experimental_modifiers_cfg.setdefault(
+            "kalshi_overlay",
+            {},
+        )
+        if not isinstance(experimental_level_fill_cfg, dict):
+            raise SystemExit(
+                "BACKTEST_EXPERIMENTAL_MODIFIERS.level_fill_optimizer is not a dict."
+            )
+        if not isinstance(experimental_ml_lfo_cfg, dict):
+            raise SystemExit("BACKTEST_EXPERIMENTAL_MODIFIERS.ml_lfo is not a dict.")
+        if not isinstance(experimental_kalshi_cfg, dict):
+            raise SystemExit(
+                "BACKTEST_EXPERIMENTAL_MODIFIERS.kalshi_overlay is not a dict."
+            )
+
+        explicit_experimental_subtoggle = False
+        if str(args.experimental_modifiers_enabled).strip().lower() != "default":
+            experimental_modifiers_cfg["enabled"] = (
+                str(args.experimental_modifiers_enabled).strip().lower() == "true"
+            )
+        if str(args.experimental_level_fill_enabled).strip().lower() != "default":
+            experimental_level_fill_cfg["enabled"] = (
+                str(args.experimental_level_fill_enabled).strip().lower() == "true"
+            )
+            explicit_experimental_subtoggle = True
+        if str(args.experimental_ml_lfo_enabled).strip().lower() != "default":
+            experimental_ml_lfo_cfg["enabled"] = (
+                str(args.experimental_ml_lfo_enabled).strip().lower() == "true"
+            )
+            explicit_experimental_subtoggle = True
+        if str(args.experimental_ml_lfo_policy or "").strip():
+            experimental_ml_lfo_cfg["policy"] = str(args.experimental_ml_lfo_policy).strip()
+            explicit_experimental_subtoggle = True
+        if str(args.experimental_kalshi_overlay_enabled).strip().lower() != "default":
+            experimental_kalshi_cfg["enabled"] = (
+                str(args.experimental_kalshi_overlay_enabled).strip().lower() == "true"
+            )
+            explicit_experimental_subtoggle = True
+        if (
+            explicit_experimental_subtoggle
+            and str(args.experimental_modifiers_enabled).strip().lower() == "default"
+        ):
+            experimental_modifiers_cfg["enabled"] = (
+                bool(experimental_level_fill_cfg.get("enabled", False))
+                or bool(experimental_ml_lfo_cfg.get("enabled", False))
+                or bool(experimental_kalshi_cfg.get("enabled", False))
             )
         adaptive_policy_cfg = CONFIG.setdefault("DE3_ADAPTIVE_POLICY", {})
         if str(args.adaptive_policy_mode).strip().lower() != "default":
@@ -711,6 +1112,8 @@ def main() -> None:
     print(f"intraday_regime_mode_override={args.intraday_regime_mode}")
     print(f"intraday_regime_sessions_override={args.intraday_regime_session}")
     print(f"intraday_regime_apply_lanes_override={args.intraday_regime_apply_lane}")
+    print(f"intraday_regime_apply_variants_override={args.intraday_regime_apply_variant}")
+    print(f"intraday_regime_exclude_variants_override={args.intraday_regime_exclude_variant}")
     print(f"intraday_regime_enable_bullish_mirror_override={args.intraday_regime_enable_bullish_mirror}")
     print(
         "intraday_regime_threshold_overrides="
@@ -720,6 +1123,11 @@ def main() -> None:
         f"'dominance_threshold': {args.intraday_regime_dominance_threshold}, "
         f"'block_dominance_threshold': {args.intraday_regime_block_dominance_threshold}}}"
     )
+    print(f"experimental_modifiers_enabled_override={args.experimental_modifiers_enabled}")
+    print(f"experimental_level_fill_enabled_override={args.experimental_level_fill_enabled}")
+    print(f"experimental_ml_lfo_enabled_override={args.experimental_ml_lfo_enabled}")
+    print(f"experimental_ml_lfo_policy_override={args.experimental_ml_lfo_policy}")
+    print(f"experimental_kalshi_overlay_enabled_override={args.experimental_kalshi_overlay_enabled}")
     print(f"adaptive_policy_mode_override={args.adaptive_policy_mode}")
     print(f"adaptive_policy_model_path_override={args.adaptive_policy_model_path}")
     print(f"prefer_policy_ev_lcb_override={args.prefer_policy_ev_lcb}")

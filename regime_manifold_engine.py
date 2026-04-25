@@ -176,10 +176,16 @@ def apply_kalshi_gate(signal_direction: int, es_price: float, kalshi, config: Di
     if settlement_hour in (10, 11):
         return True, f"MORNING SKIP: Crowd unreliable for {settlement_hour}:00 ET settlement — ML-only", 1.0
 
-    sentiment = kalshi.get_sentiment(es_price)
+    use_cached_only = bool(config.get("live_signal_cached_only", True))
+    max_cache_age = float(config.get("live_signal_max_cache_age_sec", config.get("cache_ttl", 120)) or 120)
+    if use_cached_only and hasattr(kalshi, "get_cached_sentiment"):
+        sentiment = kalshi.get_cached_sentiment(es_price, max_age_seconds=max_cache_age)
+    else:
+        sentiment = kalshi.get_sentiment(es_price)
     probability = sentiment.get("probability")
     if probability is None:
-        return True, "Kalshi data unavailable — ML-only mode", 1.0
+        reason = "Kalshi cache unavailable — ML-only mode" if use_cached_only else "Kalshi data unavailable — ML-only mode"
+        return True, reason, 1.0
 
     thresholds = dict(config.get("sentiment_thresholds", {}))
     # Confidence = distance from 0.50 midpoint, doubled to get percentage
@@ -391,6 +397,7 @@ class RegimeManifoldEngine:
             "phi": self.phi.tolist(),
             "prev_dir": self.prev_dir.tolist() if isinstance(self.prev_dir, np.ndarray) else None,
             "stress_ewma": float(self.stress_ewma),
+            "rng_state": self.rng.bit_generator.state,
         }
 
     def load_state(self, state: Optional[Dict]) -> None:
@@ -409,6 +416,9 @@ class RegimeManifoldEngine:
                     self.prev_dir = prev
             self.t = int(state.get("t", self.t) or self.t)
             self.stress_ewma = float(state.get("stress_ewma", self.stress_ewma) or self.stress_ewma)
+            rng_state = state.get("rng_state")
+            if isinstance(rng_state, dict):
+                self.rng.bit_generator.state = rng_state
         except Exception:
             return
 
