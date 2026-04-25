@@ -45,9 +45,42 @@ def _resolve_path(path_text: str, default_relative: str) -> Path:
     return path.resolve()
 
 
-def _load_walkforward_data(path: Path) -> pd.DataFrame:
+_REGIME_NAME_TO_ID = {
+    "TREND_GEODESIC": 0,
+    "CHOP_SPIRAL": 1,
+    "DISPERSED": 2,
+    "ROTATIONAL_TURBULENCE": 3,
+}
+
+
+def _load_walkforward_data(
+    path: Path,
+    *,
+    allowed_setup_families: Optional[set[str]] = None,
+    allowed_session_ids: Optional[set[int]] = None,
+    allowed_regimes: Optional[set[str]] = None,
+) -> pd.DataFrame:
     required = set(FEATURE_COLUMNS) | {"label", "net_points", "candidate_side", "setup_family"}
-    data = pd.read_parquet(path)
+    filters = []
+    if allowed_setup_families:
+        filters.append(("setup_family", "in", sorted(str(item) for item in allowed_setup_families)))
+    if allowed_session_ids:
+        filters.append(("session_id", "in", sorted(int(item) for item in allowed_session_ids)))
+    if allowed_regimes:
+        normalized_regimes = [
+            str(regime_name).strip().upper()
+            for regime_name in allowed_regimes
+            if str(regime_name).strip()
+        ]
+        allowed_regime_ids = [
+            int(_REGIME_NAME_TO_ID[regime_name])
+            for regime_name in sorted(normalized_regimes)
+            if regime_name in _REGIME_NAME_TO_ID
+        ]
+        if allowed_regime_ids:
+            filters.append(("manifold_regime_id", "in", allowed_regime_ids))
+    read_kwargs = {"filters": filters} if filters else {}
+    data = pd.read_parquet(path, **read_kwargs)
     data = ensure_feature_columns(data)
     missing = sorted(col for col in required if col not in data.columns)
     if missing:
@@ -230,6 +263,23 @@ def _coerce_upper_string_allowlist(value) -> Optional[set[str]]:
     return out if out else None
 
 
+def _coerce_side_allowlist(value) -> Optional[set[str]]:
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple, set)):
+        items = list(value)
+    else:
+        items = [value]
+    out: set[str] = set()
+    for item in items:
+        text = str(item).strip().upper()
+        if text in {"1", "+1", "LONG", "BUY"}:
+            out.add("LONG")
+        elif text in {"-1", "SHORT", "SELL"}:
+            out.add("SHORT")
+    return out if out else None
+
+
 def _coerce_optional_float(value) -> Optional[float]:
     if value is None:
         return None
@@ -250,12 +300,20 @@ def _normalize_train_policy_mapping(raw_policy, *, allow_match_fields: bool, all
         "max_abs_vwap_dist_atr",
         "max_directional_vwap_dist_atr",
         "min_d_alignment_3",
+        "min_signed_d_alignment_3",
         "min_d_coherence_3",
         "min_setup_strength",
         "min_alignment_pct",
         "min_smoothness_pct",
         "max_stress_pct",
+        "min_flow_agreement",
+        "min_flow_mag_slow",
         "max_flow_mag_slow",
+        "min_pressure_imbalance_30",
+        "min_signed_pressure_30",
+        "min_coherence_pct",
+        "min_phase_regime_run_bars",
+        "min_phase_d_alignment_mean_5",
     ):
         if key in policy:
             out[key] = _coerce_optional_float(policy.get(key))
@@ -265,11 +323,15 @@ def _normalize_train_policy_mapping(raw_policy, *, allow_match_fields: bool, all
         out["allowed_regimes"] = _coerce_upper_string_allowlist(policy.get("allowed_regimes"))
     if "blocked_regimes" in policy:
         out["blocked_regimes"] = _coerce_upper_string_allowlist(policy.get("blocked_regimes"))
+    if "allowed_sides" in policy:
+        out["allowed_sides"] = _coerce_side_allowlist(policy.get("allowed_sides"))
     if allow_match_fields:
         if "match_session_ids" in policy:
             out["match_session_ids"] = _coerce_session_allowlist(policy.get("match_session_ids"))
         if "match_regimes" in policy:
             out["match_regimes"] = _coerce_upper_string_allowlist(policy.get("match_regimes"))
+        if "match_sides" in policy:
+            out["match_sides"] = _coerce_side_allowlist(policy.get("match_sides"))
     if allow_rules:
         raw_rules = policy.get("policy_rules", policy.get("rules"))
         if isinstance(raw_rules, list):
@@ -287,7 +349,7 @@ def _merge_train_policy_layers(*layers: dict) -> dict:
         if not isinstance(layer, dict):
             continue
         for key, value in layer.items():
-            if key in {"policy_rules", "rules", "match_session_ids", "match_regimes", "name"}:
+            if key in {"policy_rules", "rules", "match_session_ids", "match_regimes", "match_sides", "name"}:
                 continue
             if isinstance(value, set):
                 merged[key] = set(value)
@@ -307,12 +369,19 @@ def _regime_name_series(frame: pd.DataFrame) -> pd.Series:
     return regime_id.map(mapping).fillna("")
 
 
+def _side_label_series(frame: pd.DataFrame) -> pd.Series:
+    side = pd.to_numeric(frame.get("candidate_side"), errors="coerce").fillna(0.0)
+    values = np.where(side.to_numpy(dtype=float) > 0.0, "LONG", np.where(side.to_numpy(dtype=float) < 0.0, "SHORT", ""))
+    return pd.Series(values, index=frame.index)
+
+
 def _apply_train_policy_constraints(frame: pd.DataFrame, policy: dict) -> pd.Series:
     if frame.empty:
         return pd.Series(dtype=bool, index=frame.index)
     mask = pd.Series(True, index=frame.index)
     session_id = pd.to_numeric(frame.get("session_id"), errors="coerce").fillna(-999).round().astype(int)
     regime_name = _regime_name_series(frame)
+    side_label = _side_label_series(frame)
 
     allowed_sessions = policy.get("allowed_session_ids")
     if allowed_sessions:
@@ -323,6 +392,9 @@ def _apply_train_policy_constraints(frame: pd.DataFrame, policy: dict) -> pd.Ser
     blocked_regimes = policy.get("blocked_regimes")
     if blocked_regimes:
         mask &= ~regime_name.isin(sorted(blocked_regimes))
+    allowed_sides = policy.get("allowed_sides")
+    if allowed_sides:
+        mask &= side_label.isin(sorted(allowed_sides))
 
     max_abs_vwap_dist_atr = policy.get("max_abs_vwap_dist_atr")
     if max_abs_vwap_dist_atr is not None:
@@ -343,12 +415,34 @@ def _apply_train_policy_constraints(frame: pd.DataFrame, policy: dict) -> pd.Ser
         "min_setup_strength": "setup_strength",
         "min_alignment_pct": "manifold_alignment_pct",
         "min_smoothness_pct": "manifold_smoothness_pct",
+        "min_flow_agreement": "flow_agreement",
+        "min_flow_mag_slow": "flow_mag_slow",
+        "min_pressure_imbalance_30": "pressure_imbalance_30",
+        "min_coherence_pct": "coherence",
+        "min_phase_regime_run_bars": "phase_regime_run_bars",
+        "min_phase_d_alignment_mean_5": "phase_d_alignment_3_mean_5",
     }
     for policy_key, column_name in min_checks.items():
         min_value = policy.get(policy_key)
         if min_value is not None:
             values = pd.to_numeric(frame.get(column_name), errors="coerce").fillna(0.0)
             mask &= values >= float(min_value)
+
+    min_signed_d_alignment_3 = policy.get("min_signed_d_alignment_3")
+    if min_signed_d_alignment_3 is not None:
+        signed_alignment = (
+            pd.to_numeric(frame.get("candidate_side"), errors="coerce").fillna(0.0)
+            * pd.to_numeric(frame.get("d_alignment_3"), errors="coerce").fillna(0.0)
+        )
+        mask &= signed_alignment >= float(min_signed_d_alignment_3)
+
+    min_signed_pressure_30 = policy.get("min_signed_pressure_30")
+    if min_signed_pressure_30 is not None:
+        signed_pressure = (
+            pd.to_numeric(frame.get("candidate_side"), errors="coerce").fillna(0.0)
+            * pd.to_numeric(frame.get("pressure_imbalance_30"), errors="coerce").fillna(0.0)
+        )
+        mask &= signed_pressure >= float(min_signed_pressure_30)
 
     max_stress_pct = policy.get("max_stress_pct")
     if max_stress_pct is not None:
@@ -363,13 +457,21 @@ def _apply_train_policy_constraints(frame: pd.DataFrame, policy: dict) -> pd.Ser
     return mask
 
 
-def _row_match_mask(frame: pd.DataFrame, *, match_session_ids: Optional[set[int]], match_regimes: Optional[set[str]]) -> pd.Series:
+def _row_match_mask(
+    frame: pd.DataFrame,
+    *,
+    match_session_ids: Optional[set[int]],
+    match_regimes: Optional[set[str]],
+    match_sides: Optional[set[str]] = None,
+) -> pd.Series:
     mask = pd.Series(True, index=frame.index)
     if match_session_ids:
         session_id = pd.to_numeric(frame.get("session_id"), errors="coerce").fillna(-999).round().astype(int)
         mask &= session_id.isin(sorted(match_session_ids))
     if match_regimes:
         mask &= _regime_name_series(frame).isin(sorted(match_regimes))
+    if match_sides:
+        mask &= _side_label_series(frame).isin(sorted(match_sides))
     return mask
 
 
@@ -394,6 +496,7 @@ def _apply_family_train_rule_filter(
             frame,
             match_session_ids=rule.get("match_session_ids"),
             match_regimes=rule.get("match_regimes"),
+            match_sides=rule.get("match_sides"),
         )
         if not bool(match_mask.any()):
             rule_hits.append({"index": int(idx), "matched_rows": 0, "kept_rows": 0})
@@ -1013,6 +1116,7 @@ def main() -> None:
     parser.add_argument("--objective-std-penalty", type=float, default=0.15)
     parser.add_argument("--allowed-session-ids", default=None)
     parser.add_argument("--allowed-setup-family", action="append", default=None)
+    parser.add_argument("--allowed-regimes", default=None)
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -1026,10 +1130,17 @@ def main() -> None:
     if bool(args.save_fold_artifacts):
         fold_artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-    data = _load_walkforward_data(features_path).sort_index()
     allowed_setups = _parse_allowed_setups(args.allowed_setup_family)
     head_setups = _parse_allowed_setups(args.family_head_setup_family)
     family_train_rules = _load_family_train_rules(args.family_head_train_rules_file)
+    allowed_session_ids = _parse_allowed_sessions(args.allowed_session_ids)
+    allowed_regimes = _coerce_upper_string_allowlist(args.allowed_regimes)
+    data = _load_walkforward_data(
+        features_path,
+        allowed_setup_families=allowed_setups,
+        allowed_session_ids=allowed_session_ids,
+        allowed_regimes=allowed_regimes,
+    ).sort_index()
     if allowed_setups:
         data = data.loc[data["setup_family"].astype(str).isin(sorted(allowed_setups))].copy()
         logging.info("Setup filter enabled: %s rows=%d", sorted(allowed_setups), len(data))
@@ -1037,11 +1148,14 @@ def main() -> None:
         logging.info("Family-head override enabled: %s", sorted(head_setups))
     if family_train_rules:
         logging.info("Family head train rules enabled for: %s", sorted(family_train_rules.keys()))
-    allowed_session_ids = _parse_allowed_sessions(args.allowed_session_ids)
     if allowed_session_ids:
         session_series = pd.to_numeric(data.get("session_id"), errors="coerce").fillna(-999).round().astype(int)
         data = data.loc[session_series.isin(sorted(allowed_session_ids))].copy()
         logging.info("Session filter enabled: %s rows=%d", sorted(allowed_session_ids), len(data))
+    if allowed_regimes:
+        regime_series = _regime_name_series(data)
+        data = data.loc[regime_series.isin(sorted(allowed_regimes))].copy()
+        logging.info("Regime filter enabled: %s rows=%d", sorted(allowed_regimes), len(data))
     if data.empty:
         raise RuntimeError(f"No rows found in {features_path}")
 

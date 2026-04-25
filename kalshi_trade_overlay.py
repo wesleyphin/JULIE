@@ -376,8 +376,17 @@ def _extract_curve_markets(
         return []
 
     window_size = max(20, _coerce_int(overlay_cfg.get("strike_window_size"), 120))
+    cached_only = bool(overlay_cfg.get("live_signal_cached_only", True))
+    max_cache_age = _coerce_float(overlay_cfg.get("live_signal_max_cache_age_sec"), 120.0)
     try:
-        rows = kalshi.get_relative_markets_for_ui([float(reference_es_price)], window_size=window_size)
+        if cached_only and hasattr(kalshi, "get_cached_relative_markets_for_ui"):
+            rows = kalshi.get_cached_relative_markets_for_ui(
+                [float(reference_es_price)],
+                window_size=window_size,
+                max_age_seconds=max_cache_age,
+            )
+        else:
+            rows = kalshi.get_relative_markets_for_ui([float(reference_es_price)], window_size=window_size)
     except Exception:
         return []
 
@@ -503,6 +512,8 @@ def build_trade_plan(
         inputs are absent, so older callers continue to work unchanged.
     """
     config = _merge_overlay_config(overlay_cfg)
+    cached_only = bool(config.get("live_signal_cached_only", True))
+    max_cache_age = _coerce_float(config.get("live_signal_max_cache_age_sec"), 120.0)
     role = str((price_action_profile or {}).get("role") or "background")
     mode = str((price_action_profile or {}).get("mode") or "level")
     forward_weight = _coerce_float(
@@ -583,7 +594,10 @@ def build_trade_plan(
 
     sentiment = {}
     try:
-        sentiment = kalshi.get_sentiment(entry_price) if kalshi is not None else {}
+        if cached_only and kalshi is not None and hasattr(kalshi, "get_cached_sentiment"):
+            sentiment = kalshi.get_cached_sentiment(entry_price, max_age_seconds=max_cache_age)
+        else:
+            sentiment = kalshi.get_sentiment(entry_price) if kalshi is not None else {}
     except Exception:
         sentiment = {}
     directional_distance = _coerce_float(sentiment.get("distance_es"), 0.0)
@@ -591,7 +605,14 @@ def build_trade_plan(
         directional_distance = -directional_distance
 
     try:
-        raw_momentum = kalshi.get_sentiment_momentum(entry_price, lookback=3) if kalshi is not None else None
+        if cached_only and kalshi is not None and hasattr(kalshi, "get_cached_sentiment_momentum"):
+            raw_momentum = kalshi.get_cached_sentiment_momentum(
+                entry_price,
+                lookback=3,
+                max_age_seconds=max_cache_age,
+            )
+        else:
+            raw_momentum = kalshi.get_sentiment_momentum(entry_price, lookback=3) if kalshi is not None else None
     except Exception:
         raw_momentum = None
     signed_momentum = _coerce_float(raw_momentum, 0.0)

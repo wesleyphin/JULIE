@@ -12,6 +12,7 @@ JULIE_ML_PCT_ACTIVE=1 to let ML take over.
 from __future__ import annotations
 
 import logging
+import math
 import os
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -431,8 +432,122 @@ def score_kalshi(
     return p_win, pred_pnl, (p_win >= thr)
 
 
-def is_lfo_live_active() -> bool:
+def _normalize_lfo_policy(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    aliases = {
+        "": "",
+        "0": "off",
+        "false": "off",
+        "no": "off",
+        "off": "off",
+        "none": "off",
+        "disabled": "off",
+        "rule": "rule",
+        "rule_lfo": "rule",
+        "rules": "rule",
+        "ml": "ml",
+        "ml_lfo": "ml",
+        "model": "ml",
+        "hybrid": "hybrid",
+    }
+    return aliases.get(text, "")
+
+
+def _strategy_lfo_policy_env(strategy_name: Any) -> Optional[str]:
+    name = str(strategy_name or "").strip().lower()
+    compact = "".join(ch for ch in name if ch.isalnum())
+    if not compact:
+        return None
+    if compact.startswith("dynamicengine3") or compact.startswith("de3"):
+        return "JULIE_LFO_POLICY_DE3"
+    if compact.startswith("regimeadaptive") or compact.startswith("ra"):
+        return "JULIE_LFO_POLICY_REGIMEADAPTIVE"
+    if compact.startswith("aetherflow") or compact.startswith("af"):
+        return "JULIE_LFO_POLICY_AETHERFLOW"
+    if compact.startswith("mlphysics"):
+        return "JULIE_LFO_POLICY_MLPHYSICS"
+    return None
+
+
+def get_lfo_live_policy(strategy_name: Any = None) -> str:
+    """Return the live LFO steering policy for a strategy.
+
+    Defaults mirror LIVE_RUNTIME_HANDOFF_20260424.md:
+    DE3 uses ML LFO, RegimeAdaptive keeps the rule, and AetherFlow/MLPhysics
+    do not use LFO steering. The legacy global JULIE_ML_LFO_ACTIVE=1 still
+    maps to hybrid for strategies without an explicit family policy.
+    """
+    policy_env = _strategy_lfo_policy_env(strategy_name)
+    explicit = _normalize_lfo_policy(os.environ.get(policy_env)) if policy_env else ""
+    if explicit:
+        return explicit
+
+    if os.environ.get("JULIE_ML_LFO_ACTIVE", "0").strip().lower() in {"1", "true", "yes", "on"}:
+        return "hybrid"
+
+    defaults = {
+        "JULIE_LFO_POLICY_DE3": "ml",
+        "JULIE_LFO_POLICY_REGIMEADAPTIVE": "rule",
+        "JULIE_LFO_POLICY_AETHERFLOW": "off",
+        "JULIE_LFO_POLICY_MLPHYSICS": "off",
+    }
+    if policy_env:
+        return defaults.get(policy_env, "rule")
+    return "rule"
+
+
+def is_lfo_live_active(strategy_name: Any = None) -> bool:
+    if strategy_name is not None:
+        return get_lfo_live_policy(strategy_name) in {"ml", "hybrid"}
     return os.environ.get("JULIE_ML_LFO_ACTIVE", "0").strip() == "1"
+
+
+def build_ml_wait_decision(
+    signal: Dict[str, Any],
+    current_price: float,
+    *,
+    p_wait: Optional[float] = None,
+    threshold: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Build a LevelFillOptimizer-compatible WAIT decision from ML output."""
+    try:
+        price = float(current_price)
+    except Exception:
+        price = float("nan")
+    if not math.isfinite(price):
+        return {
+            "mode": "IMMEDIATE",
+            "target_price": None,
+            "target_name": None,
+            "dist": None,
+            "reason": "ml_lfo invalid current_price",
+        }
+
+    side = str((signal or {}).get("side", "")).upper()
+    is_long = side == "LONG"
+    grid = 12.5
+    eps = 1e-9
+    if is_long:
+        base = math.floor((price + eps) / grid) * grid
+        target_price = base - grid if abs(price - base) <= eps else base
+        target_name = f"MLBankBelow_{target_price:.2f}"
+    else:
+        base = math.ceil((price - eps) / grid) * grid
+        target_price = base + grid if abs(price - base) <= eps else base
+        target_name = f"MLBankAbove_{target_price:.2f}"
+
+    dist = abs(price - target_price)
+    reason_bits = ["ml_lfo wait"]
+    if p_wait is not None and threshold is not None:
+        reason_bits.append(f"p_wait={float(p_wait):.3f}>={float(threshold):.3f}")
+    return {
+        "mode": "WAIT",
+        "target_price": float(target_price),
+        "target_name": target_name,
+        "dist": float(dist),
+        "max_bars": 3,
+        "reason": " ".join(reason_bits),
+    }
 
 
 def is_pct_live_active() -> bool:

@@ -15,6 +15,14 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 from config import CONFIG
+from de3_distance_utils import (
+    DEFAULT_DISTANCE_MODE,
+    DEFAULT_DISTANCE_ROUNDING,
+    convert_distance_pair_to_points,
+    distance_mode_uses_percent,
+    normalize_distance_mode,
+    normalize_distance_rounding,
+)
 
 
 class DynamicSignalEngine3:
@@ -227,6 +235,55 @@ class DynamicSignalEngine3:
             return int(value)
         except Exception:
             return int(fallback)
+
+    @staticmethod
+    def _timeframe_minutes(timeframe: str) -> int:
+        text = str(timeframe or "").strip().lower()
+        if text.endswith("min"):
+            text = text[:-3]
+        try:
+            minutes = int(float(text))
+        except Exception:
+            minutes = 1
+        return max(1, int(minutes))
+
+    @classmethod
+    def _horizon_bars(cls, horizon_minutes, timeframe: str) -> int:
+        try:
+            minutes = int(float(horizon_minutes))
+        except Exception:
+            return 0
+        if minutes <= 0:
+            return 0
+        return int(math.ceil(minutes / cls._timeframe_minutes(timeframe)))
+
+    def _strategy_id_for_runtime(
+        self,
+        *,
+        timeframe: str,
+        session: str,
+        strategy_type: str,
+        thresh: float,
+        raw_sl: float,
+        raw_tp: float,
+        sl_points: float,
+        tp_points: float,
+        distance_mode: str,
+        horizon_minutes: int,
+    ) -> str:
+        if distance_mode_uses_percent(distance_mode):
+            sl_token = f"SLPCT{self._fmt_num(raw_sl)}"
+            tp_token = f"TPPCT{self._fmt_num(raw_tp)}"
+        else:
+            sl_token = f"SL{self._fmt_num(sl_points)}"
+            tp_token = f"TP{self._fmt_num(tp_points)}"
+        out = (
+            f"{timeframe}_{session}_{strategy_type}"
+            f"_T{self._fmt_num(thresh)}_{sl_token}_{tp_token}"
+        )
+        if int(horizon_minutes or 0) > 0:
+            out += f"_HZ{int(horizon_minutes)}"
+        return out
 
     @staticmethod
     def _clip01(value: float) -> float:
@@ -506,6 +563,7 @@ class DynamicSignalEngine3:
                 continue
 
             prev_candle = df.iloc[-2]
+            current_candle = df.iloc[-1]
             col_map = {col.lower(): col for col in df.columns}
             open_col = col_map.get("open")
             close_col = col_map.get("close")
@@ -573,7 +631,79 @@ class DynamicSignalEngine3:
                         continue
                     min_cfg = CONFIG.get("SLTP_MIN", {}) or {}
                     min_sl = float(min_cfg.get("sl", 1.25))
-                    sl_value = max(min_sl, float(strategy["Best_SL"]))
+                    raw_sl = float(strategy["Best_SL"])
+                    raw_tp = float(strategy["Best_TP"])
+                    distance_mode = normalize_distance_mode(
+                        strategy.get("DistanceMode", strategy.get("distance_mode", DEFAULT_DISTANCE_MODE))
+                    )
+                    distance_rounding = normalize_distance_rounding(
+                        strategy.get(
+                            "DistanceRounding",
+                            strategy.get("distance_rounding", DEFAULT_DISTANCE_ROUNDING),
+                        )
+                    )
+                    distance_reference_price_strategy = self._safe_float(
+                        strategy.get(
+                            "DistanceReferencePrice",
+                            strategy.get("distance_reference_price", 0.0),
+                        ),
+                        0.0,
+                    )
+                    runtime_reference_price = 0.0
+                    if distance_mode_uses_percent(distance_mode):
+                        runtime_reference_price = self._safe_float(
+                            current_candle.get(open_col), 0.0
+                        )
+                        if runtime_reference_price <= 0.0:
+                            runtime_reference_price = self._safe_float(
+                                current_candle.get(close_col), 0.0
+                            )
+                        if runtime_reference_price <= 0.0:
+                            runtime_reference_price = distance_reference_price_strategy
+                    sl_points, tp_points = convert_distance_pair_to_points(
+                        sl_value=raw_sl,
+                        tp_value=raw_tp,
+                        distance_mode=distance_mode,
+                        reference_price=runtime_reference_price
+                        if runtime_reference_price > 0.0
+                        else distance_reference_price_strategy,
+                        tick_size=0.25,
+                        rounding=distance_rounding,
+                    )
+                    if sl_points <= 0.0:
+                        sl_points = self._safe_float(
+                            strategy.get(
+                                "Best_SL_Points_Ref",
+                                strategy.get("best_sl_points_ref", raw_sl),
+                            ),
+                            raw_sl,
+                        )
+                    if tp_points <= 0.0:
+                        tp_points = self._safe_float(
+                            strategy.get(
+                                "Best_TP_Points_Ref",
+                                strategy.get("best_tp_points_ref", raw_tp),
+                            ),
+                            raw_tp,
+                        )
+                    sl_value = max(min_sl, float(sl_points))
+                    tp_value = float(tp_points)
+                    horizon_minutes = self._safe_int(
+                        strategy.get("HorizonMinutes", strategy.get("horizon_minutes", 0)),
+                        0,
+                    )
+                    horizon_bars = self._safe_int(
+                        strategy.get("HorizonBars", strategy.get("horizon_bars", 0)),
+                        0,
+                    )
+                    if horizon_bars <= 0:
+                        horizon_bars = self._horizon_bars(horizon_minutes, timeframe_str)
+                    use_horizon_time_stop = bool(
+                        strategy.get(
+                            "UseHorizonTimeStop",
+                            strategy.get("use_horizon_time_stop", horizon_minutes > 0),
+                        )
+                    )
                     metrics = strategy.get("_runtime_metrics")
                     if not isinstance(metrics, dict):
                         metrics = self._runtime_metrics_from_strategy(strategy)
@@ -637,7 +767,7 @@ class DynamicSignalEngine3:
                         {
                             "signal": signal,
                             "sl": sl_value,
-                            "tp": float(strategy["Best_TP"]),
+                            "tp": tp_value,
                             "opt_wr": opt_wr_raw,
                             "score_raw": score_raw,
                             "trades": trades_raw,
@@ -653,12 +783,51 @@ class DynamicSignalEngine3:
                                 "strategy_id",
                                 strategy.get(
                                     "id",
-                                    f"{timeframe_str}_{session}_{strategy_type}"
-                                    f"_T{self._fmt_num(thresh)}"
-                                    f"_SL{self._fmt_num(sl_value)}"
-                                    f"_TP{self._fmt_num(float(strategy['Best_TP']))}",
+                                    self._strategy_id_for_runtime(
+                                        timeframe=timeframe_str,
+                                        session=session,
+                                        strategy_type=strategy_type,
+                                        thresh=thresh,
+                                        raw_sl=raw_sl,
+                                        raw_tp=raw_tp,
+                                        sl_points=sl_value,
+                                        tp_points=tp_value,
+                                        distance_mode=distance_mode,
+                                        horizon_minutes=horizon_minutes,
+                                    ),
                                 ),
                             ),
+                            "distance_mode": distance_mode,
+                            "distance_rounding": distance_rounding,
+                            "distance_reference_price_strategy": float(
+                                distance_reference_price_strategy
+                            ),
+                            "distance_reference_price_runtime": float(
+                                runtime_reference_price
+                                if runtime_reference_price > 0.0
+                                else distance_reference_price_strategy
+                            ),
+                            "distance_sl_points_ref": float(
+                                self._safe_float(
+                                    strategy.get(
+                                        "Best_SL_Points_Ref",
+                                        strategy.get("best_sl_points_ref", sl_points),
+                                    ),
+                                    sl_points,
+                                )
+                            ),
+                            "distance_tp_points_ref": float(
+                                self._safe_float(
+                                    strategy.get(
+                                        "Best_TP_Points_Ref",
+                                        strategy.get("best_tp_points_ref", tp_points),
+                                    ),
+                                    tp_points,
+                                )
+                            ),
+                            "horizon_minutes": int(horizon_minutes),
+                            "horizon_bars": int(horizon_bars),
+                            "use_horizon_time_stop": bool(use_horizon_time_stop),
                             "close_pos1": float(close_pos1) if close_pos1 is not None else None,
                             "body1_ratio": float(body_ratio) if body_ratio is not None else None,
                             "upper_wick_ratio": float(upper_wick_ratio) if upper_wick_ratio is not None else None,

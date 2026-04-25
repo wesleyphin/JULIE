@@ -1,16 +1,17 @@
-"""Pull Kalshi KXINXU all-strikes snapshots for a date range via API.
+"""Fetch Kalshi KXINXU hourly ladders over a date range into local daily parquet files.
 
-Generalizes fetch_kalshi_today.py: accepts --start and --end (ISO dates)
-and writes one parquet per calendar day using the same schema the post-
-hoc blocker expects. Idempotent: skips days that already exist on disk
-unless --overwrite.
+This is a local, repo-safe replacement for the older upstream helper that was
+hard-wired to Wesley's filesystem. It pulls one parquet per trade date using
+the same compact schema the replay-time overlay evaluator expects.
 
 Usage:
-    python fetch_kalshi_range.py --start 2026-04-06 --end 2026-04-17
+    .venv\\Scripts\\python.exe tools\\fetch_kalshi_range.py --start 2025-01-01 --end 2026-04-21
 """
 from __future__ import annotations
 
 import argparse
+import calendar
+import re
 import sys
 import time
 from datetime import date, timedelta
@@ -19,171 +20,332 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-ROOT = Path("/Users/wes/Downloads/JULIE001")
+ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "tools"))
 
-from config import CONFIG
-from services.kalshi_provider import KalshiProvider
-from fetch_kxinxu_2025 import parse_market_row, extract_markets, HOURLY_TICKER_RE
+from config import CONFIG  # noqa: E402
+from services.kalshi_provider import KalshiProvider  # noqa: E402
 
 SERIES = "KXINXU"
+SETTLEMENT_HOURS_ET = [10, 11, 12, 13, 14, 15, 16]
 OUT_DIR = ROOT / "data" / "kalshi" / "kxinxu_2025_daily"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
-
+EVENT_TICKER_RE = re.compile(rf"^{SERIES}-(?P<yy>\d{{2}})(?P<mon>[A-Z]{{3}})(?P<dd>\d{{2}})H(?P<hhmm>\d{{4}})$")
 
 def build_provider() -> KalshiProvider:
-    cfg = dict(CONFIG.get("KALSHI", {}) or {})
-    p = KalshiProvider(cfg)
-    if not p.enabled:
-        raise SystemExit("Kalshi provider disabled — missing credentials")
-    return p
+    provider = KalshiProvider(dict(CONFIG.get("KALSHI", {}) or {}))
+    if not provider.enabled:
+        raise SystemExit("Kalshi provider disabled - missing or invalid credentials")
+    return provider
 
 
-def enumerate_events_for_date(provider: KalshiProvider, date_str: str,
-                              statuses=("active", "settled")) -> List[Dict[str, Any]]:
-    events: List[Dict[str, Any]] = []
-    for status in statuses:
-        cursor: Optional[str] = None
-        while True:
-            params: Dict[str, Any] = {"series_ticker": SERIES, "limit": 200, "status": status}
-            if cursor:
-                params["cursor"] = cursor
-            resp = provider._get("/events", params)
-            if not isinstance(resp, dict):
-                break
-            batch = resp.get("events", []) or []
-            if not batch:
-                break
-            for evt in batch:
-                ticker = str(evt.get("event_ticker", "") or "")
-                sd = str(evt.get("strike_date", "") or "")
-                if not HOURLY_TICKER_RE.match(ticker):
-                    continue
-                if not sd.startswith(date_str):
-                    continue
-                events.append(evt)
-            cursor = resp.get("cursor") or None
-            if not cursor:
-                break
-    # Dedupe (active/settled overlap)
-    seen = set()
-    out = []
-    for e in events:
-        t = e.get("event_ticker")
-        if t in seen:
-            continue
-        seen.add(t)
-        out.append(e)
-    out.sort(key=lambda e: str(e.get("strike_date", "") or ""))
-    return out
+def event_ticker_for(trade_date: date, settlement_hour_et: int) -> str:
+    return f"{SERIES}-{trade_date.strftime('%y%b%d').upper()}H{int(settlement_hour_et) * 100}"
 
 
-def fetch_event_rows(provider: KalshiProvider, evt: Dict[str, Any]) -> List[Dict[str, Any]]:
-    ticker = str(evt.get("event_ticker", ""))
-    m = HOURLY_TICKER_RE.match(ticker)
-    hour_et = int(int(m.group(1)) / 100) if m else 0
-    strike_date = str(evt.get("strike_date", "") or "")
-    event_date = strike_date[:10] if strike_date else ""
-    resp = provider._get(f"/events/{ticker}", {"with_nested_markets": "true"})
-    markets = extract_markets(resp)
-    rows: List[Dict[str, Any]] = []
-    for mk in markets:
-        parsed = parse_market_row(ticker, event_date, hour_et, mk)
-        if parsed is not None:
-            rows.append(parsed)
-    return rows
-
-
-def to_cents(v):
-    if v is None:
+def _coerce_float(value: Any) -> Optional[float]:
+    if value is None:
         return None
     try:
-        f = float(v)
-    except Exception:
+        number = float(value)
+    except (TypeError, ValueError):
         return None
-    if f != f:
+    if number != number:
         return None
-    return int(round(max(0.0, min(1.0, f)) * 100))
+    return float(number)
 
 
-def pick_snapshot_cents(row):
+def _to_cents(probability: Any) -> Optional[int]:
+    value = _coerce_float(probability)
+    if value is None:
+        return None
+    return int(round(max(0.0, min(1.0, value)) * 100))
+
+
+def _pick_snapshot_cents(row: pd.Series) -> Optional[int]:
     status = str(row.get("status", "") or "").lower()
     if status in {"finalized", "settled", "closed"}:
-        c = to_cents(row.get("last_price"))
-        if c is not None:
-            return c
-    c = to_cents(row.get("yes_mid"))
-    if c is not None:
-        return c
-    yb, ya = to_cents(row.get("yes_bid")), to_cents(row.get("yes_ask"))
-    if yb is not None and ya is not None:
-        if (yb == 0 and ya == 100):
+        cents = _to_cents(row.get("last_price"))
+        if cents is not None:
+            return cents
+    yes_mid = row.get("yes_mid")
+    cents = _to_cents(yes_mid)
+    if cents is not None:
+        return cents
+    yes_bid = _to_cents(row.get("yes_bid"))
+    yes_ask = _to_cents(row.get("yes_ask"))
+    if yes_bid is not None and yes_ask is not None:
+        if yes_bid == 0 and yes_ask == 100:
             return None
-        return int(round((yb + ya) / 2))
-    return yb if yb is not None else (ya if ya is not None else None)
+        return int(round((yes_bid + yes_ask) / 2))
+    return yes_bid if yes_bid is not None else yes_ask
 
 
-def pull_day(p: KalshiProvider, target_date: str, overwrite: bool = False) -> int:
-    out_path = OUT_DIR / f"{target_date}.parquet"
+def _format_strike(strike: float) -> str:
+    text = f"{float(strike):.4f}"
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return text
+
+
+def _parse_event_ticker(event_ticker: str) -> Optional[tuple[date, int]]:
+    match = EVENT_TICKER_RE.match(str(event_ticker or "").strip().upper())
+    if not match:
+        return None
+    month_lookup = {calendar.month_abbr[i].upper(): i for i in range(1, 13)}
+    month = month_lookup.get(match.group("mon"))
+    if not month:
+        return None
+    trade_date = date(int("20" + match.group("yy")), int(month), int(match.group("dd")))
+    hour = int(match.group("hhmm")) // 100
+    return trade_date, int(hour)
+
+
+def fetch_event_rows(
+    provider: KalshiProvider,
+    trade_date: date,
+    settlement_hour_et: int,
+) -> List[Dict[str, Any]]:
+    ticker = event_ticker_for(trade_date, settlement_hour_et)
+    parsed: List[Dict[str, Any]] = []
+    for market in provider._fetch_single_event(ticker) or []:  # noqa: SLF001 - provider already owns the fallback logic
+        strike = _coerce_float(market.get("strike"))
+        probability = _coerce_float(market.get("probability"))
+        if strike is None or probability is None:
+            continue
+        parsed.append(
+            {
+                "snapshot_date": trade_date.isoformat(),
+                "event_ticker": ticker,
+                "event_date": trade_date.isoformat(),
+                "settlement_hour_et": int(settlement_hour_et),
+                "market_ticker": f"{ticker}-T{_format_strike(strike)}",
+                "strike": float(strike),
+                "yes_bid": probability,
+                "yes_ask": probability,
+                "yes_mid": probability,
+                "last_price": probability,
+                "open_interest": None,
+                "volume_24h": _coerce_float(market.get("volume")),
+                "status": str(market.get("status", "") or ""),
+            }
+        )
+    return parsed
+
+
+def pull_day(provider: KalshiProvider, trade_date: date, overwrite: bool = False) -> int:
+    out_path = OUT_DIR / f"{trade_date.isoformat()}.parquet"
     if out_path.exists() and not overwrite:
         existing = pd.read_parquet(out_path)
-        return len(existing)
-
-    events = enumerate_events_for_date(p, target_date)
-    if not events:
-        return 0
+        return int(len(existing))
 
     all_rows: List[Dict[str, Any]] = []
-    for evt in events:
-        all_rows.extend(fetch_event_rows(p, evt))
+    for hour in SETTLEMENT_HOURS_ET:
+        all_rows.extend(fetch_event_rows(provider, trade_date, hour))
     if not all_rows:
         return 0
 
     df = pd.DataFrame(all_rows)
-    df["snapshot_cents"] = df.apply(pick_snapshot_cents, axis=1)
+    df["snapshot_cents"] = df.apply(_pick_snapshot_cents, axis=1)
     df["high"] = df["snapshot_cents"]
     df["low"] = df["snapshot_cents"]
-    df["snapshot_date"] = target_date
-    df["daily_volume"] = df.get("volume_24h").fillna(0).astype("Int64") if "volume_24h" in df else 0
+    df["daily_volume"] = pd.to_numeric(df.get("volume_24h"), errors="coerce").fillna(0).astype("Int64")
     df["block_volume"] = 0
-    df = df[["snapshot_date","event_ticker","event_date","settlement_hour_et",
-             "market_ticker","strike","high","low","open_interest","daily_volume",
-             "block_volume","status"]]
+    df = df[
+        [
+            "snapshot_date",
+            "event_ticker",
+            "event_date",
+            "settlement_hour_et",
+            "market_ticker",
+            "strike",
+            "high",
+            "low",
+            "open_interest",
+            "daily_volume",
+            "block_volume",
+            "status",
+        ]
+    ].copy()
     df.to_parquet(out_path)
-    return len(df)
+    return int(len(df))
 
 
-def daterange(start: str, end: str):
-    d0 = date.fromisoformat(start)
-    d1 = date.fromisoformat(end)
-    while d0 <= d1:
-        yield d0.isoformat()
-        d0 += timedelta(days=1)
+def iter_dates(start: date, end: date):
+    current = start
+    while current <= end:
+        yield current
+        current += timedelta(days=1)
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--start", required=True)
-    ap.add_argument("--end", required=True)
-    ap.add_argument("--overwrite", action="store_true")
-    args = ap.parse_args()
+def _write_rows_for_day(date_str: str, rows: List[Dict[str, Any]], overwrite: bool = False) -> int:
+    out_path = OUT_DIR / f"{date_str}.parquet"
+    if out_path.exists() and not overwrite:
+        existing = pd.read_parquet(out_path)
+        return int(len(existing))
+    if not rows:
+        return 0
+    df = pd.DataFrame(rows)
+    df["snapshot_cents"] = df.apply(_pick_snapshot_cents, axis=1)
+    df["high"] = df["snapshot_cents"]
+    df["low"] = df["snapshot_cents"]
+    df["daily_volume"] = pd.to_numeric(df.get("volume_24h"), errors="coerce").fillna(0).astype("Int64")
+    df["block_volume"] = 0
+    df = df[
+        [
+            "snapshot_date",
+            "event_ticker",
+            "event_date",
+            "settlement_hour_et",
+            "market_ticker",
+            "strike",
+            "high",
+            "low",
+            "open_interest",
+            "daily_volume",
+            "block_volume",
+            "status",
+        ]
+    ].copy()
+    df = df.drop_duplicates(subset=["market_ticker"], keep="first").sort_values(
+        ["event_ticker", "strike"], kind="stable"
+    )
+    df.to_parquet(out_path)
+    return int(len(df))
 
-    p = build_provider()
-    t0 = time.time()
-    days_done = 0
-    rows_total = 0
-    for d in daterange(args.start, args.end):
-        # skip weekends (no KXINXU events)
-        wd = date.fromisoformat(d).weekday()
-        if wd >= 5:
+
+def pull_range_bulk_settled(
+    provider: KalshiProvider,
+    start_date: date,
+    end_date: date,
+    overwrite: bool = False,
+    limit: int = 1000,
+) -> tuple[int, int]:
+    rows_by_day: Dict[str, List[Dict[str, Any]]] = {}
+    cutoff_resp = provider._get("/historical/cutoff", {})
+    cutoff_raw = str((cutoff_resp or {}).get("market_settled_ts", "") or "")
+    cutoff_date = date.fromisoformat(cutoff_raw[:10]) if cutoff_raw else None
+
+    def scan_endpoint(endpoint: str, base_params: Dict[str, Any], segment_start: date, segment_end: date, label: str) -> None:
+        cursor: Optional[str] = None
+        pages = 0
+        while True:
+            params = dict(base_params)
+            params["limit"] = int(limit)
+            if cursor:
+                params["cursor"] = cursor
+            response = provider._get(endpoint, params)
+            markets = response.get("markets", []) if isinstance(response, dict) else []
+            if not markets:
+                break
+            pages += 1
+            page_dates: List[date] = []
+            for market in markets:
+                if not isinstance(market, dict):
+                    continue
+                event_ticker = str(market.get("event_ticker", "") or "")
+                parsed = _parse_event_ticker(event_ticker)
+                if parsed is None:
+                    continue
+                trade_date, settlement_hour_et = parsed
+                page_dates.append(trade_date)
+                if trade_date < segment_start or trade_date > segment_end:
+                    continue
+                strike = _coerce_float(market.get("floor_strike"))
+                probability = _coerce_float(market.get("last_price_dollars", market.get("last_price")))
+                if strike is None or probability is None:
+                    continue
+                date_str = trade_date.isoformat()
+                rows_by_day.setdefault(date_str, []).append(
+                    {
+                        "snapshot_date": date_str,
+                        "event_ticker": event_ticker,
+                        "event_date": date_str,
+                        "settlement_hour_et": int(settlement_hour_et),
+                        "market_ticker": str(market.get("ticker", f"{event_ticker}-T{_format_strike(strike)}")),
+                        "strike": float(strike),
+                        "yes_bid": probability,
+                        "yes_ask": probability,
+                        "yes_mid": probability,
+                        "last_price": probability,
+                        "open_interest": _coerce_float(market.get("open_interest_fp", market.get("open_interest"))),
+                        "volume_24h": _coerce_float(market.get("volume_24h_fp", market.get("volume_24h", market.get("volume_fp")))),
+                        "status": str(market.get("status", "") or ""),
+                    }
+                )
+            if page_dates and max(page_dates) < segment_start:
+                break
+            cursor = response.get("cursor") if isinstance(response, dict) else None
+            if not cursor:
+                break
+            if pages % 25 == 0:
+                newest = max(page_dates).isoformat() if page_dates else "?"
+                oldest = min(page_dates).isoformat() if page_dates else "?"
+                print(f"[{label}] page {pages}  newest={newest}  oldest={oldest}  covered_days={len(rows_by_day)}")
+
+    if cutoff_date is None:
+        scan_endpoint("/historical/markets", {"series_ticker": SERIES}, start_date, end_date, "historical")
+        scan_endpoint("/markets", {"series_ticker": SERIES, "status": "settled"}, start_date, end_date, "live")
+    else:
+        historical_end = min(end_date, cutoff_date - timedelta(days=1))
+        live_start = max(start_date, cutoff_date)
+        if start_date <= historical_end:
+            scan_endpoint("/historical/markets", {"series_ticker": SERIES}, start_date, historical_end, "historical")
+        if live_start <= end_date:
+            scan_endpoint("/markets", {"series_ticker": SERIES, "status": "settled"}, live_start, end_date, "live")
+
+    day_count = 0
+    row_count = 0
+    for trade_date in iter_dates(start_date, end_date):
+        if trade_date.weekday() >= 5:
             continue
-        n = pull_day(p, d, overwrite=args.overwrite)
-        status = "wrote" if n else "no data"
-        print(f"  {d}  {status:<10}  {n:>5} rows")
-        days_done += 1
-        rows_total += n
-    print(f"\nDone: {days_done} days, {rows_total} rows, {time.time()-t0:.1f}s")
+        date_str = trade_date.isoformat()
+        rows = rows_by_day.get(date_str, [])
+        written = _write_rows_for_day(date_str, rows, overwrite=overwrite)
+        status = "wrote" if written else "no data"
+        print(f"{date_str}  {status:<8}  {written:>5} rows")
+        day_count += 1
+        row_count += written
+    return day_count, row_count
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--start", required=True, help="YYYY-MM-DD")
+    parser.add_argument("--end", required=True, help="YYYY-MM-DD")
+    parser.add_argument("--overwrite", action="store_true")
+    parser.add_argument(
+        "--bulk-settled",
+        action="store_true",
+        help="Use paginated /markets settled archive feed instead of per-event requests",
+    )
+    args = parser.parse_args()
+
+    start_date = date.fromisoformat(args.start)
+    end_date = date.fromisoformat(args.end)
+    provider = build_provider()
+
+    day_count = 0
+    row_count = 0
+    t0 = time.time()
+    if bool(args.bulk_settled):
+        day_count, row_count = pull_range_bulk_settled(
+            provider,
+            start_date,
+            end_date,
+            overwrite=bool(args.overwrite),
+        )
+    else:
+        for trade_date in iter_dates(start_date, end_date):
+            if trade_date.weekday() >= 5:
+                continue
+            rows = pull_day(provider, trade_date, overwrite=bool(args.overwrite))
+            status = "wrote" if rows else "no data"
+            print(f"{trade_date.isoformat()}  {status:<8}  {rows:>5} rows")
+            day_count += 1
+            row_count += rows
+
+    print(f"\nDone: {day_count} weekdays checked, {row_count} rows, {time.time() - t0:.1f}s")
 
 
 if __name__ == "__main__":

@@ -217,17 +217,38 @@ def build_training_feature_frame(
     manifold_cfg: Optional[Dict] = None,
     log_every: int = 0,
 ) -> pd.DataFrame:
+    features, _, _ = build_training_feature_frame_with_state(
+        df,
+        manifold_cfg=manifold_cfg,
+        log_every=log_every,
+    )
+    return features
+
+
+def build_training_feature_frame_with_state(
+    df: pd.DataFrame,
+    manifold_cfg: Optional[Dict] = None,
+    log_every: int = 0,
+    initial_state: Optional[Dict] = None,
+    start_after: Optional[pd.Timestamp] = None,
+) -> Tuple[pd.DataFrame, Dict, int]:
     work = _normalize_ohlcv(df)
     if work.empty:
-        return pd.DataFrame(columns=EXPORT_COLUMNS)
+        engine = RegimeManifoldEngine(manifold_cfg)
+        if isinstance(initial_state, dict):
+            engine.load_state(initial_state)
+        return pd.DataFrame(columns=EXPORT_COLUMNS), engine.get_state(), _manifold_lookback(engine.cfg)
 
     merged_cfg = dict(DEFAULT_MANIFOLD_CONFIG)
     if isinstance(manifold_cfg, dict):
         merged_cfg.update(manifold_cfg)
     engine = RegimeManifoldEngine(merged_cfg)
+    if isinstance(initial_state, dict):
+        engine.load_state(initial_state)
     lookback = _manifold_lookback(merged_cfg)
     aux = build_aux_features(work)
     progress_every = int(log_every) if int(log_every) > 0 else max(1000, len(work) // 20)
+    start_after_ts = pd.Timestamp(start_after) if start_after is not None else None
     logging.info(
         "Manifold feature build start: bars=%d lookback=%d progress_every=%d",
         len(work),
@@ -241,6 +262,8 @@ def build_training_feature_frame(
         start = 0 if i < lookback else (i - lookback + 1)
         hist = work.iloc[start : i + 1]
         ts = work.index[i]
+        if start_after_ts is not None and pd.Timestamp(ts) <= start_after_ts:
+            continue
         meta = engine.update(hist, ts=ts, session=get_session_name(pd.Timestamp(ts)))
         reason = None
         debug = meta.get("debug")
@@ -261,11 +284,11 @@ def build_training_feature_frame(
             logging.info("Manifold feature build progress: %d/%d (%.1f%%)", i, len(work), pct)
 
     if not rows:
-        return pd.DataFrame(columns=EXPORT_COLUMNS)
+        return pd.DataFrame(columns=EXPORT_COLUMNS), engine.get_state(), int(lookback)
 
     out = pd.DataFrame(rows, index=pd.DatetimeIndex(row_index))
     out = out.reindex(columns=EXPORT_COLUMNS).replace([np.inf, -np.inf], np.nan).fillna(0.0)
-    return out
+    return out, engine.get_state(), int(lookback)
 
 
 def build_live_feature_row(

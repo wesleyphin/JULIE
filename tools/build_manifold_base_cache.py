@@ -12,7 +12,7 @@ if str(ROOT) not in sys.path:
 
 from aetherflow_base_cache import DEFAULT_FULL_MANIFOLD_BASE_FEATURES
 from config import CONFIG
-from manifold_strategy_features import build_training_feature_frame
+from manifold_strategy_features import build_training_feature_frame_with_state
 from train_manifold_strategy import (
     DEFAULT_OUTRIGHT_SYMBOL_REGEX,
     _filter_range,
@@ -68,8 +68,10 @@ def main() -> None:
         symbol_regex=str(args.symbol_regex or "").strip() or None,
         min_valid_price=float(args.min_valid_price),
     ).sort_index()
-    start_ts = _parse_date(str(args.start), is_end=False)
-    end_ts = _parse_date(str(args.end), is_end=True)
+    start_text = str(args.start).strip() if args.start is not None else ""
+    end_text = str(args.end).strip() if args.end is not None else ""
+    start_ts = _parse_date(start_text, is_end=False) if start_text else None
+    end_ts = _parse_date(end_text, is_end=True) if end_text else None
     bars = _filter_range(bars, start_ts, end_ts)
     if bars.empty:
         raise RuntimeError("No bars available after applying the requested range.")
@@ -81,7 +83,7 @@ def main() -> None:
         f"Building manifold base cache from {source_path} rows={len(bars)} "
         f"range={bars.index.min()} -> {bars.index.max()}"
     )
-    features = build_training_feature_frame(
+    features, final_state, lookback_bars = build_training_feature_frame_with_state(
         bars,
         manifold_cfg=manifold_cfg,
         log_every=int(args.log_every or 0),
@@ -102,6 +104,10 @@ def main() -> None:
             "start": features.index.min().isoformat(),
             "end": features.index.max().isoformat(),
         },
+        "continuation_mode": "engine_state_exact",
+        "engine_state_end": pd.Timestamp(features.index.max()).isoformat(),
+        "engine_lookback_bars": int(lookback_bars),
+        "engine_state": final_state,
         "built_at": pd.Timestamp.now("UTC").isoformat(),
     }
     metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")

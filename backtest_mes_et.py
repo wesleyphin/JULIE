@@ -40,6 +40,7 @@ from dynamic_structure_blocker import (
     PenaltyBoxBlocker,
 )
 from bank_level_quarter_filter import BankLevelQuarterFilter
+from level_fill_optimizer import FILL_AT_LEVEL, FILL_IMMEDIATE, FILL_WAIT, LevelFillOptimizer
 from memory_sr_filter import MemorySRFilter
 from ml_physics_strategy import MLPhysicsStrategy
 import ml_physics_pipeline as ml_physics_pipeline
@@ -67,6 +68,15 @@ from de3_walkforward_gate import (
     load_model_bundle as load_de3_walkforward_model_bundle,
 )
 from event_logger import event_logger
+from de3_anti_flip_guard import de3_flip_flop_guard_reason
+from opposite_reversal_policy import opposite_reversal_gate_reason
+from de3_shock_context import compute_shock_context
+from structural_level_tracker import StructuralLevelTracker
+from regime_classifier import RegimeClassifier
+import signal_gate_2025 as sg
+import ml_overlay_shadow as ml_overlay_shadow
+from kalshi_trade_overlay import analyze_recent_price_action, build_trade_plan
+from kalshi_history_provider import HistoricalKalshiProvider, resolve_daily_dirs as resolve_kalshi_daily_dirs
 
 
 def safe_float(value, default=0.0):
@@ -228,6 +238,25 @@ TREND_UP_ATR_EXP = 1.4
 TREND_UP_ABOVE_EMA50_WINDOW = 10
 TREND_UP_ABOVE_EMA50_COUNT = 8
 TREND_UP_HL_SEGMENT = 5
+
+
+def _backtest_strategy_family_name(value: Optional[str]) -> str:
+    strategy_name = str(value or "").strip()
+    if strategy_name.startswith("DynamicEngine3") or strategy_name in {
+        "DynamicEngine",
+        "DynamicEngineStrategy",
+    }:
+        return "de3"
+    if strategy_name in {
+        "RegimeAdaptive",
+        "RegimeAdaptiveStrategy",
+        "AuctionReversion",
+        "SmoothTrendAsia",
+    }:
+        return "regimeadaptive"
+    if strategy_name == "AetherFlowStrategy":
+        return "aetherflow"
+    return str(strategy_name).casefold()
 TREND_DOWN_EMA_SLOPE_BARS = 20
 TREND_DOWN_ATR_EXP = 1.4
 TREND_DOWN_BELOW_EMA50_WINDOW = 10
@@ -2770,8 +2799,9 @@ class ContinuationRescueManager:
         current_price: Optional[float] = None,
         trend_day_series: Optional[dict] = None,
         signal_mode: Optional[str] = None,
+        respect_runtime_toggle: bool = False,
     ):
-        if not CONFIG.get("CONTINUATION_ENABLED", True):
+        if respect_runtime_toggle and not CONFIG.get("CONTINUATION_ENABLED", True):
             return None
         if df.empty:
             return None
@@ -2942,6 +2972,47 @@ def _match_de3_rule_values(raw_values, value: str, *, lower: bool = False) -> bo
         return True
     key = str(value or "").strip().lower() if lower else str(value or "").strip()
     return key in normalized
+
+
+def _match_de3_context_profile_filters_with_prefix(
+    profile: Optional[dict],
+    payload: Optional[dict],
+    *,
+    prefix: str = "apply_",
+) -> bool:
+    if not isinstance(profile, dict) or not isinstance(payload, dict):
+        return True
+    prefix_text = str(prefix or "apply_").strip().lower()
+    filter_pairs = (
+        (f"{prefix_text}day_profiles", "de3_ctx_day_profile"),
+        (f"{prefix_text}day_types", "de3_ctx_day_type"),
+        (f"{prefix_text}day_expansion_regimes", "de3_ctx_day_expansion_regime"),
+        (f"{prefix_text}day_direction_regimes", "de3_ctx_day_direction_regime"),
+        (f"{prefix_text}day_opening_regimes", "de3_ctx_day_opening_regime"),
+        (f"{prefix_text}day_flow_regimes", "de3_ctx_day_flow_regime"),
+        (f"{prefix_text}day_gap_regimes", "de3_ctx_day_gap_regime"),
+        (f"{prefix_text}shock_score_buckets", "de3_ctx_shock_score_bucket"),
+        (f"{prefix_text}shock_direction_buckets", "de3_ctx_shock_direction_bucket"),
+    )
+    for profile_key, payload_key in filter_pairs:
+        if not _match_de3_rule_values(
+            profile.get(profile_key, []),
+            str(payload.get(payload_key, "") or ""),
+            lower=True,
+        ):
+            return False
+    return True
+
+
+def _match_de3_context_profile_filters(
+    profile: Optional[dict],
+    payload: Optional[dict],
+) -> bool:
+    return _match_de3_context_profile_filters_with_prefix(
+        profile,
+        payload,
+        prefix="apply_",
+    )
 
 
 def _apply_de3_v4_confidence_tier_size(signal: dict, base_size: int) -> int:
@@ -4674,12 +4745,15 @@ def save_backtest_report(
         "market_conditions_summary": stats.get("market_conditions_summary", {}),
         "ml_diagnostics": stats.get("ml_diagnostics", []),
         "ml_diagnostics_summary": stats.get("ml_diagnostics_summary", {}),
+        "experimental_modifiers": stats.get("experimental_modifiers", {}),
         "flip_confidence": stats.get("flip_confidence", {}),
         "de3_veto_summary": stats.get("de3_veto_summary"),
         "de3_veto_counterfactual": stats.get("de3_veto_counterfactual"),
         "de3_meta_summary": stats.get("de3_meta_summary"),
         "de3_manifold_adaptation_summary": stats.get("de3_manifold_adaptation_summary"),
         "de3_backtest_admission_summary": stats.get("de3_backtest_admission_summary"),
+        "de3_trade_day_cluster_lockout_summary": stats.get("de3_trade_day_cluster_lockout_summary"),
+        "de3_drawdown_breaker_summary": stats.get("de3_drawdown_breaker_summary"),
         "de3_variant_adaptation_summary": stats.get("de3_variant_adaptation_summary"),
         "de3_meta_counterfactual": stats.get("de3_meta_counterfactual"),
         "de3_decisions_export": stats.get("de3_decisions_export"),
@@ -4687,7 +4761,10 @@ def save_backtest_report(
         "baseline_comparison": baseline_comparison_summary,
         "gemini_recommendation": gemini_recommendation_summary,
     }
-    report_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True), encoding="utf-8")
+    report_path.write_text(
+        json.dumps(_serialize_json_value(payload), indent=2, ensure_ascii=True),
+        encoding="utf-8",
+    )
     return report_path
 
 
@@ -5033,6 +5110,49 @@ def run_backtest(
         "decision_side_model_prior_component_total",
     ]
     for _field in de3_v4_decision_fieldnames:
+        if _field not in de3_decision_fieldnames:
+            de3_decision_fieldnames.append(_field)
+    de3_intraday_regime_decision_fieldnames = [
+        "de3_intraday_regime_enabled",
+        "de3_intraday_regime_requested_size",
+        "de3_intraday_regime_final_size",
+        "de3_intraday_regime_blocked",
+        "de3_intraday_regime_applied",
+        "de3_intraday_regime_action",
+        "de3_intraday_regime_state",
+        "de3_intraday_regime_session",
+        "de3_intraday_regime_lane",
+        "de3_intraday_regime_variant_id",
+        "de3_intraday_regime_signal_weak",
+        "de3_intraday_regime_execution_quality_score",
+        "de3_intraday_regime_entry_model_margin",
+        "de3_intraday_regime_route_confidence",
+        "de3_intraday_regime_edge_points",
+        "de3_intraday_regime_bearish_score",
+        "de3_intraday_regime_bullish_score",
+        "de3_intraday_regime_bias_gap",
+        "de3_intraday_regime_countertrend_pressure",
+        "de3_intraday_regime_strong_signal_relief",
+        "de3_intraday_regime_vwap_dist_atr",
+        "de3_intraday_regime_vwap_slope_atr",
+        "de3_intraday_regime_session_move_atr",
+        "de3_intraday_regime_gap_location",
+        "de3_intraday_regime_gap_below_atr",
+        "de3_intraday_regime_gap_above_atr",
+        "de3_intraday_regime_pressure_balance",
+        "de3_intraday_regime_net_return_atr",
+        "de3_intraday_regime_route_bias",
+        "de3_intraday_regime_session_range_ratio",
+        "de3_intraday_regime_session_volume_ratio",
+        "de3_intraday_regime_recent_bar_range_ratio",
+        "de3_intraday_regime_recent_bar_volume_ratio",
+        "de3_intraday_regime_shock_score",
+        "de3_intraday_regime_bearish_shock_hits",
+        "de3_intraday_regime_bullish_shock_hits",
+        "de3_intraday_regime_route_long_score",
+        "de3_intraday_regime_route_short_score",
+    ]
+    for _field in de3_intraday_regime_decision_fieldnames:
         if _field not in de3_decision_fieldnames:
             de3_decision_fieldnames.append(_field)
     de3_entry_decision_fieldnames = [
@@ -6355,6 +6475,59 @@ def run_backtest(
     )
     rejection_filter = RejectionFilter()
     bank_filter = BankLevelQuarterFilter()
+    experimental_mod_cfg = (
+        CONFIG.get("BACKTEST_EXPERIMENTAL_MODIFIERS", {})
+        if isinstance(CONFIG.get("BACKTEST_EXPERIMENTAL_MODIFIERS", {}), dict)
+        else {}
+    )
+    experimental_modifiers_enabled = bool(experimental_mod_cfg.get("enabled", False))
+    experimental_structural_cfg = (
+        experimental_mod_cfg.get("structural_levels", {})
+        if isinstance(experimental_mod_cfg.get("structural_levels", {}), dict)
+        else {}
+    )
+    experimental_level_fill_cfg = (
+        experimental_mod_cfg.get("level_fill_optimizer", {})
+        if isinstance(experimental_mod_cfg.get("level_fill_optimizer", {}), dict)
+        else {}
+    )
+    experimental_ml_lfo_cfg = (
+        experimental_mod_cfg.get("ml_lfo", {})
+        if isinstance(experimental_mod_cfg.get("ml_lfo", {}), dict)
+        else {}
+    )
+    experimental_kalshi_cfg = (
+        experimental_mod_cfg.get("kalshi_overlay", {})
+        if isinstance(experimental_mod_cfg.get("kalshi_overlay", {}), dict)
+        else {}
+    )
+    experimental_structural_levels_enabled = bool(
+        experimental_modifiers_enabled
+        and experimental_structural_cfg.get(
+            "enabled",
+            bool(experimental_level_fill_cfg.get("enabled", True)),
+        )
+    )
+    experimental_level_fill_enabled = bool(
+        experimental_modifiers_enabled
+        and experimental_level_fill_cfg.get("enabled", True)
+    )
+    experimental_ml_lfo_enabled = bool(
+        experimental_modifiers_enabled
+        and experimental_ml_lfo_cfg.get("enabled", False)
+    )
+    experimental_kalshi_overlay_enabled = bool(
+        experimental_modifiers_enabled
+        and experimental_kalshi_cfg.get("enabled", False)
+    )
+    structural_level_tracker = (
+        StructuralLevelTracker() if experimental_structural_levels_enabled else None
+    )
+    level_fill_optimizer = (
+        LevelFillOptimizer()
+        if (experimental_level_fill_enabled or experimental_ml_lfo_enabled)
+        else None
+    )
     chop_filter = ChopFilter(lookback=20)
     extension_filter = ExtensionFilter()
     trend_filter = TrendFilter()
@@ -6391,6 +6564,46 @@ def run_backtest(
     legacy_load_news = bool(CONFIG.get("BACKTEST_LEGACY_LOAD_NEWS", False))
     legacy_filters = LegacyFilterSystem(load_news=legacy_load_news)
     filter_arbitrator = FilterArbitrator(confidence_threshold=0.6)
+    experimental_ml_lfo_policy_mode = str(
+        experimental_ml_lfo_cfg.get("policy", "live_default") or "live_default"
+    ).strip().lower()
+    if experimental_ml_lfo_policy_mode not in {
+        "live_default",
+        "off",
+        "rule",
+        "ml",
+        "hybrid",
+    }:
+        experimental_ml_lfo_policy_mode = "live_default"
+    experimental_ml_lfo_payload_ready = False
+    if experimental_ml_lfo_enabled:
+        try:
+            ml_overlay_shadow.init_ml_overlays()
+            experimental_ml_lfo_payload_ready = bool(
+                getattr(ml_overlay_shadow, "_LFO_PAYLOAD", None) is not None
+            )
+        except Exception as exc:
+            logging.warning("Backtest ML LFO init failed: %s", exc)
+            experimental_ml_lfo_payload_ready = False
+    experimental_ml_lfo_regime_classifier = (
+        RegimeClassifier() if experimental_ml_lfo_payload_ready else None
+    )
+    experimental_ml_lfo_current_regime = ""
+    experimental_kalshi_provider = None
+    if experimental_kalshi_overlay_enabled:
+        try:
+            experimental_kalshi_dirs = resolve_kalshi_daily_dirs()
+            if experimental_kalshi_dirs:
+                experimental_kalshi_provider = HistoricalKalshiProvider(
+                    experimental_kalshi_dirs
+                )
+            else:
+                logging.warning(
+                    "Backtest Kalshi overlay requested but no historical daily cache was found."
+                )
+        except Exception as exc:
+            logging.warning("Backtest Kalshi provider init failed: %s", exc)
+            experimental_kalshi_provider = None
 
     # Keep trend-filter inputs bounded so per-bar runtime stays flat as history grows.
     # These filters only need recent structure around slow EMA windows.
@@ -6485,6 +6698,13 @@ def run_backtest(
             int(WARMUP_BARS),
             int(warmup_bars),
         )
+    elif aetherflow_only_fast_mode and aetherflow_fast_history_bars > 0:
+        warmup_bars = max(1, min(int(WARMUP_BARS), int(aetherflow_fast_history_bars)))
+        logging.info(
+            "AetherFlow fast backtest detected: warmup bars reduced from %s to %s.",
+            int(WARMUP_BARS),
+            int(warmup_bars),
+        )
 
     warmup_df = df[df.index < start_time].tail(warmup_bars)
     test_df = df[(df.index >= start_time) & (df.index <= end_time)]
@@ -6540,13 +6760,20 @@ def run_backtest(
         try:
             emit_init_status("AetherFlowStrategy: precomputing backtest signals...")
             aetherflow_precompute_t0 = time.perf_counter()
-            aetherflow_precomputed_df = aetherflow_strategy.build_precomputed_backtest_df(full_df)
+            aetherflow_precomputed_df = aetherflow_strategy.build_precomputed_backtest_df(
+                df,
+                start_time=start_time,
+                end_time=end_time,
+            )
             if isinstance(aetherflow_precomputed_df, pd.DataFrame) and not aetherflow_precomputed_df.empty:
                 aetherflow_precomputed_df = aetherflow_precomputed_df.loc[
                     (aetherflow_precomputed_df.index >= start_time)
                     & (aetherflow_precomputed_df.index <= end_time)
                 ]
-            aetherflow_strategy.set_precomputed_backtest_df(aetherflow_precomputed_df)
+            aetherflow_strategy.set_precomputed_backtest_df(
+                aetherflow_precomputed_df,
+                known_index=test_df.index,
+            )
             aetherflow_rows = (
                 int(len(aetherflow_precomputed_df))
                 if isinstance(aetherflow_precomputed_df, pd.DataFrame)
@@ -6847,6 +7074,7 @@ def run_backtest(
     de3_prior_session_low_arr = np.full(len(full_df), np.nan, dtype=float)
     de3_prior_session_close_arr = np.full(len(full_df), np.nan, dtype=float)
     de3_session_vwap_arr = np.full(len(full_df), np.nan, dtype=float)
+    de3_session_volume_arr = np.full(len(full_df), np.nan, dtype=float)
     ny_orh_arr = np.full(len(full_df), np.nan, dtype=float)
     ny_orl_arr = np.full(len(full_df), np.nan, dtype=float)
     ny_am_high_arr = np.full(len(full_df), np.nan, dtype=float)
@@ -6932,6 +7160,72 @@ def run_backtest(
         _de3_den += float(w)
         if _de3_den > 0.0:
             de3_session_vwap_arr[j] = _de3_num / _de3_den
+            de3_session_volume_arr[j] = _de3_den
+    de3_session_range_arr = np.maximum(0.0, de3_session_high_arr - de3_session_low_arr)
+    de3_bar_range_series = pd.Series(
+        np.maximum(0.0, high_arr - low_arr),
+        index=full_df.index,
+        dtype=float,
+    )
+    de3_bar_volume_series = pd.Series(
+        np.where(np.isfinite(volume_arr), volume_arr, 0.0),
+        index=full_df.index,
+        dtype=float,
+    )
+    de3_bar_range_median_arr = (
+        de3_bar_range_series.rolling(240, min_periods=60).median().shift(1).to_numpy(dtype=float)
+    )
+    de3_bar_volume_median_arr = (
+        de3_bar_volume_series.rolling(240, min_periods=60).median().shift(1).to_numpy(dtype=float)
+    )
+    de3_recent_max_bar_range_arr = (
+        de3_bar_range_series.rolling(5, min_periods=1).max().to_numpy(dtype=float)
+    )
+    de3_recent_max_bar_volume_arr = (
+        de3_bar_volume_series.rolling(5, min_periods=1).max().to_numpy(dtype=float)
+    )
+    de3_recent_max_bar_range_ratio_arr = np.divide(
+        de3_recent_max_bar_range_arr,
+        de3_bar_range_median_arr,
+        out=np.full(len(full_df), np.nan, dtype=float),
+        where=np.isfinite(de3_bar_range_median_arr) & (de3_bar_range_median_arr > 1e-9),
+    )
+    de3_recent_max_bar_volume_ratio_arr = np.divide(
+        de3_recent_max_bar_volume_arr,
+        de3_bar_volume_median_arr,
+        out=np.full(len(full_df), np.nan, dtype=float),
+        where=np.isfinite(de3_bar_volume_median_arr) & (de3_bar_volume_median_arr > 1e-9),
+    )
+    de3_intraday_shock_df = pd.DataFrame(
+        {
+            "minute_of_day": ny_minute_of_day_arr,
+            "session_range": de3_session_range_arr,
+            "session_volume": de3_session_volume_arr,
+        },
+        index=full_df.index,
+    )
+    de3_session_range_median_arr = (
+        de3_intraday_shock_df.groupby("minute_of_day", sort=False)["session_range"]
+        .transform(lambda s: s.shift(1).rolling(20, min_periods=5).median())
+        .to_numpy(dtype=float)
+    )
+    de3_session_volume_median_arr = (
+        de3_intraday_shock_df.groupby("minute_of_day", sort=False)["session_volume"]
+        .transform(lambda s: s.shift(1).rolling(20, min_periods=5).median())
+        .to_numpy(dtype=float)
+    )
+    de3_session_range_ratio_arr = np.divide(
+        de3_session_range_arr,
+        de3_session_range_median_arr,
+        out=np.full(len(full_df), np.nan, dtype=float),
+        where=np.isfinite(de3_session_range_median_arr) & (de3_session_range_median_arr > 1e-9),
+    )
+    de3_session_volume_ratio_arr = np.divide(
+        de3_session_volume_arr,
+        de3_session_volume_median_arr,
+        out=np.full(len(full_df), np.nan, dtype=float),
+        where=np.isfinite(de3_session_volume_median_arr) & (de3_session_volume_median_arr > 1e-9),
+    )
     de3_close_series = pd.Series(close_arr, index=full_df.index, dtype=float)
     de3_ret1_series = de3_close_series.diff().fillna(0.0)
     de3_up_pressure_arr = (
@@ -6961,33 +7255,53 @@ def run_backtest(
         except Exception:
             pass
 
-    trend_day_context_required = bool(TREND_DAY_ENABLED and enabled_filter_trend_day_tier)
+    backtest_de3_anti_flip_cfg = CONFIG.get("BACKTEST_DE3_ANTI_FLIP", {}) or {}
+    backtest_de3_anti_flip_enabled = bool(backtest_de3_anti_flip_cfg.get("enabled", False))
+    opposite_reversal_runtime_cfg = CONFIG.get("LIVE_OPPOSITE_REVERSAL", {}) or {}
+    opposite_reversal_trend_context_required = bool(
+        (opposite_reversal_runtime_cfg or {}).get("block_countertrend_in_trend_day", False)
+    )
+
+    trend_day_context_required = bool(
+        TREND_DAY_ENABLED
+        and (
+            enabled_filter_trend_day_tier
+            or backtest_de3_anti_flip_enabled
+            or opposite_reversal_trend_context_required
+        )
+    )
     if trend_day_context_required:
-        emit_init_status("Computing trend-day context...")
+        if enabled_filter_trend_day_tier:
+            emit_init_status("Computing trend-day context...")
+        else:
+            emit_init_status(
+                "Computing trend-day context for backtest reversal research..."
+            )
         trend_day_source_df = full_df
         if TREND_DAY_TIMEFRAME_MINUTES > 1:
             trend_day_source_df = resample_dataframe(full_df, TREND_DAY_TIMEFRAME_MINUTES)
         trend_day_series_raw = compute_trend_day_series(trend_day_source_df)
-        trend_day_series = align_trend_day_series(trend_day_series_raw, full_df.index)
-        td_ema50 = trend_day_series["ema50"]
-        td_ema200 = trend_day_series["ema200"]
-        td_atr_exp = trend_day_series["atr_expansion"]
-        td_vwap = trend_day_series["vwap"]
-        td_vwap_sigma = trend_day_series["vwap_sigma_dist"]
-        td_reclaim_down = trend_day_series["reclaim_down"]
-        td_reclaim_up = trend_day_series["reclaim_up"]
-        td_no_reclaim_down_t1 = trend_day_series["no_reclaim_down_t1"]
-        td_no_reclaim_up_t1 = trend_day_series["no_reclaim_up_t1"]
-        td_no_reclaim_down_t2 = trend_day_series["no_reclaim_down_t2"]
-        td_no_reclaim_up_t2 = trend_day_series["no_reclaim_up_t2"]
-        td_session_open = trend_day_series["session_open"]
-        td_prior_session_low = trend_day_series["prior_session_low"]
-        td_prior_session_high = trend_day_series["prior_session_high"]
-        td_trend_up_alt = trend_day_series["trend_up_alt"]
-        td_trend_down_alt = trend_day_series["trend_down_alt"]
-        td_adx_strong_up = trend_day_series["adx_strong_up"]
-        td_adx_strong_down = trend_day_series["adx_strong_down"]
-        td_day_index = trend_day_series["day_index"]
+        trend_day_context_series = align_trend_day_series(trend_day_series_raw, full_df.index)
+        trend_day_series = trend_day_context_series if enabled_filter_trend_day_tier else None
+        td_ema50 = trend_day_context_series["ema50"]
+        td_ema200 = trend_day_context_series["ema200"]
+        td_atr_exp = trend_day_context_series["atr_expansion"]
+        td_vwap = trend_day_context_series["vwap"]
+        td_vwap_sigma = trend_day_context_series["vwap_sigma_dist"]
+        td_reclaim_down = trend_day_context_series["reclaim_down"]
+        td_reclaim_up = trend_day_context_series["reclaim_up"]
+        td_no_reclaim_down_t1 = trend_day_context_series["no_reclaim_down_t1"]
+        td_no_reclaim_up_t1 = trend_day_context_series["no_reclaim_up_t1"]
+        td_no_reclaim_down_t2 = trend_day_context_series["no_reclaim_down_t2"]
+        td_no_reclaim_up_t2 = trend_day_context_series["no_reclaim_up_t2"]
+        td_session_open = trend_day_context_series["session_open"]
+        td_prior_session_low = trend_day_context_series["prior_session_low"]
+        td_prior_session_high = trend_day_context_series["prior_session_high"]
+        td_trend_up_alt = trend_day_context_series["trend_up_alt"]
+        td_trend_down_alt = trend_day_context_series["trend_down_alt"]
+        td_adx_strong_up = trend_day_context_series["adx_strong_up"]
+        td_adx_strong_down = trend_day_context_series["adx_strong_down"]
+        td_day_index = trend_day_context_series["day_index"]
         td_ema50_arr = td_ema50.to_numpy()
         td_ema200_arr = td_ema200.to_numpy()
         td_atr_exp_arr = td_atr_exp.to_numpy()
@@ -7391,6 +7705,79 @@ def run_backtest(
     de3_admission_blocked = 0
     de3_admission_state_counts = Counter()
     de3_admission_key_actions = Counter()
+    de3_cluster_lockout_cfg = (
+        de3_runtime_cfg.get("backtest_trade_day_cluster_lockout", {}) or {}
+    )
+    if not isinstance(de3_cluster_lockout_cfg, dict):
+        de3_cluster_lockout_cfg = {}
+    de3_cluster_lockout_rules_raw = de3_cluster_lockout_cfg.get("rules", [])
+    if not isinstance(de3_cluster_lockout_rules_raw, list):
+        de3_cluster_lockout_rules_raw = []
+    de3_cluster_lockout_rules = [
+        dict(rule)
+        for rule in de3_cluster_lockout_rules_raw
+        if isinstance(rule, dict) and bool(rule.get("enabled", False))
+    ]
+    de3_cluster_lockout_enabled = bool(
+        de3_cluster_lockout_cfg.get("enabled", False)
+    ) and bool(de3_cluster_lockout_rules)
+    de3_cluster_lockout_roll_hour_et = max(
+        0,
+        min(
+            23,
+            _coerce_int(de3_cluster_lockout_cfg.get("trade_day_roll_hour_et"), 18),
+        ),
+    )
+    de3_cluster_lockout_state: defaultdict[str, defaultdict[str, defaultdict[str, dict]]] = (
+        defaultdict(lambda: defaultdict(lambda: defaultdict(dict)))
+    )
+    de3_cluster_lockout_loss_days: defaultdict[str, defaultdict[str, set[dt.date]]] = (
+        defaultdict(lambda: defaultdict(set))
+    )
+    de3_cluster_lockout_active_until: defaultdict[str, dict[str, dt.date]] = defaultdict(dict)
+    de3_cluster_lockout_last_trigger_meta: defaultdict[str, dict[str, dict]] = defaultdict(dict)
+    de3_cluster_lockout_checked = 0
+    de3_cluster_lockout_blocked = 0
+    de3_cluster_lockout_triggered = 0
+    de3_cluster_lockout_rule_block_counts = Counter()
+    de3_cluster_lockout_rule_trigger_counts = Counter()
+    de3_drawdown_breaker_cfg = (
+        de3_runtime_cfg.get("backtest_drawdown_breaker", {}) or {}
+    )
+    if not isinstance(de3_drawdown_breaker_cfg, dict):
+        de3_drawdown_breaker_cfg = {}
+    de3_drawdown_breaker_enabled = bool(de3_drawdown_breaker_cfg.get("enabled", False))
+    de3_drawdown_breaker_max_dd = max(
+        0.0,
+        _coerce_float(de3_drawdown_breaker_cfg.get("max_drawdown_usd", 0.0), 0.0),
+    )
+    de3_drawdown_breaker_mode = str(
+        de3_drawdown_breaker_cfg.get("mode", "permanent_block")
+    ).strip().lower() or "permanent_block"
+    de3_drawdown_breaker_post_trigger_patterns = tuple(
+        str(v).strip().lower()
+        for v in (de3_drawdown_breaker_cfg.get("post_trigger_excluded_variant_patterns", []) or [])
+        if str(v).strip()
+    )
+    de3_drawdown_breaker_allow_rules = [
+        dict(rule)
+        for rule in (
+            de3_drawdown_breaker_cfg.get("post_trigger_allow_family_profile_rules", [])
+            or []
+        )
+        if isinstance(rule, dict)
+    ]
+    de3_drawdown_breaker_checked = 0
+    de3_drawdown_breaker_blocked = 0
+    de3_drawdown_breaker_triggered = 0
+    de3_drawdown_breaker_realized_net = 0.0
+    de3_drawdown_breaker_peak_net = 0.0
+    de3_drawdown_breaker_current_dd = 0.0
+    de3_drawdown_breaker_trigger_meta: dict[str, object] = {}
+    de3_drawdown_breaker_is_active = False
+    de3_drawdown_breaker_quarantine_passed = 0
+    de3_drawdown_breaker_pattern_block_counts = Counter()
+    de3_drawdown_breaker_allow_rule_pass_counts = Counter()
     de3_intraday_regime_cfg = (
         de3_runtime_cfg.get("backtest_intraday_regime_controller", {}) or {}
     )
@@ -7400,7 +7787,7 @@ def run_backtest(
     de3_intraday_regime_mode = str(
         de3_intraday_regime_cfg.get("mode", "block_defensive") or "block_defensive"
     ).strip().lower()
-    if de3_intraday_regime_mode not in {"block", "defensive", "block_defensive"}:
+    if de3_intraday_regime_mode not in {"block", "defensive", "block_defensive", "observe"}:
         de3_intraday_regime_mode = "block_defensive"
     de3_intraday_regime_apply_sessions = {
         str(item).strip().upper()
@@ -7412,6 +7799,16 @@ def run_backtest(
         for item in (de3_intraday_regime_cfg.get("apply_lanes", []) or [])
         if str(item).strip()
     }
+    de3_intraday_regime_apply_variants = [
+        str(item).strip()
+        for item in (de3_intraday_regime_cfg.get("apply_variants", []) or [])
+        if str(item).strip()
+    ]
+    de3_intraday_regime_exclude_variants = [
+        str(item).strip()
+        for item in (de3_intraday_regime_cfg.get("exclude_variants", []) or [])
+        if str(item).strip()
+    ]
     de3_intraday_regime_enable_bullish_mirror = bool(
         de3_intraday_regime_cfg.get("enable_bullish_mirror", True)
     )
@@ -7583,6 +7980,46 @@ def run_backtest(
     de3_intraday_regime_or_weight = max(
         0.0,
         _coerce_float(de3_intraday_regime_cfg.get("opening_range_weight", 1.10), 1.10),
+    )
+    de3_intraday_regime_shock_session_range_min = max(
+        1.0,
+        _coerce_float(de3_intraday_regime_cfg.get("shock_session_range_ratio_min", 1.30), 1.30),
+    )
+    de3_intraday_regime_shock_session_range_weight = max(
+        0.0,
+        _coerce_float(de3_intraday_regime_cfg.get("shock_session_range_weight", 1.20), 1.20),
+    )
+    de3_intraday_regime_shock_session_volume_min = max(
+        1.0,
+        _coerce_float(de3_intraday_regime_cfg.get("shock_session_volume_ratio_min", 1.25), 1.25),
+    )
+    de3_intraday_regime_shock_session_volume_weight = max(
+        0.0,
+        _coerce_float(de3_intraday_regime_cfg.get("shock_session_volume_weight", 0.65), 0.65),
+    )
+    de3_intraday_regime_shock_recent_bar_range_min = max(
+        1.0,
+        _coerce_float(de3_intraday_regime_cfg.get("shock_recent_bar_range_ratio_min", 1.85), 1.85),
+    )
+    de3_intraday_regime_shock_recent_bar_range_weight = max(
+        0.0,
+        _coerce_float(de3_intraday_regime_cfg.get("shock_recent_bar_range_weight", 0.95), 0.95),
+    )
+    de3_intraday_regime_shock_recent_bar_volume_min = max(
+        1.0,
+        _coerce_float(de3_intraday_regime_cfg.get("shock_recent_bar_volume_ratio_min", 2.20), 2.20),
+    )
+    de3_intraday_regime_shock_recent_bar_volume_weight = max(
+        0.0,
+        _coerce_float(de3_intraday_regime_cfg.get("shock_recent_bar_volume_weight", 0.55), 0.55),
+    )
+    de3_intraday_regime_shock_direction_min_atr = max(
+        0.0,
+        _coerce_float(de3_intraday_regime_cfg.get("shock_direction_min_atr", 0.55), 0.55),
+    )
+    de3_intraday_regime_shock_alignment_hits_min = max(
+        1,
+        _coerce_int(de3_intraday_regime_cfg.get("shock_alignment_hits_min", 2), 2),
     )
     de3_intraday_regime_checked = 0
     de3_intraday_regime_applied = 0
@@ -7896,11 +8333,56 @@ def run_backtest(
 
     regime_meta = None
     active_trade = None
+    parallel_active_trades: list[dict] = []
     pending_entry = None
+    experimental_level_fill_uid = "primary" if level_fill_optimizer is not None else None
     pending_exit = False
     pending_exit_reason = None
+    pending_exit_target_family = None
     pending_loose_signals = {}
     opposite_signal_count = 0
+    opposite_reversal_cfg = CONFIG.get("LIVE_OPPOSITE_REVERSAL", {}) or {}
+    opposite_signal_threshold = int(
+        max(
+            1,
+            _coerce_int(
+                opposite_reversal_cfg.get("required_confirmations"),
+                OPPOSITE_SIGNAL_THRESHOLD,
+            ),
+        )
+    )
+    opposite_reversal_require_same_strategy_family = bool(
+        opposite_reversal_cfg.get("require_same_strategy_family", False)
+    )
+    opposite_reversal_require_same_active_trade_family = bool(
+        opposite_reversal_cfg.get("require_same_active_trade_family", False)
+    )
+    opposite_signal_family = None
+    opposite_reversal_policy_checked = 0
+    opposite_reversal_policy_blocked = 0
+    opposite_reversal_policy_reason_counts = Counter()
+    backtest_de3_anti_flip_checked = 0
+    backtest_de3_anti_flip_blocked = 0
+    backtest_de3_anti_flip_reason_counts = Counter()
+    experimental_level_fill_waits = 0
+    experimental_level_fill_fires = 0
+    experimental_level_fill_aborts = 0
+    experimental_level_fill_immediate = 0
+    experimental_level_fill_at_level = 0
+    experimental_ml_lfo_scores = 0
+    experimental_ml_lfo_wait_decisions = 0
+    experimental_kalshi_checked = 0
+    experimental_kalshi_applied = 0
+    experimental_kalshi_blocked = 0
+    experimental_kalshi_trimmed = 0
+    experimental_kalshi_tp_adjusted = 0
+    experimental_kalshi_trail_enabled = 0
+    recent_closed_de3_trades: deque[dict] = deque(
+        maxlen=max(
+            16,
+            _coerce_int(backtest_de3_anti_flip_cfg.get("stop_reentry_cooldown_bars"), 0) + 8,
+        )
+    )
     bar_count = 0
     processed_bars = 0
     cancelled = False
@@ -7926,6 +8408,8 @@ def run_backtest(
 
     trend_day_tier = 0
     trend_day_dir = None
+    trend_day_context_tier = 0
+    trend_day_context_dir = None
     trend_day_max_sigma = 0.0
     impulse_day = None
     impulse_active = False
@@ -8138,7 +8622,7 @@ def run_backtest(
     def _resolve_runtime_vol_regime(signal_payload: Optional[dict], _bar_index: Optional[int]) -> Optional[str]:
         if isinstance(signal_payload, dict):
             signal_regime = signal_payload.get("vol_regime")
-            if signal_regime not in (None, "", "UNKNOWN"):
+            if signal_regime not in (None, "", "UNKNOWN", "BYPASS"):
                 return str(signal_regime)
         if vol_regime_current not in (None, "", "UNKNOWN"):
             return str(vol_regime_current)
@@ -8318,33 +8802,89 @@ def run_backtest(
             return None
         return int(start_index + int(hit_positions[0]))
 
+    def reset_opposite_signal_confirmation() -> None:
+        nonlocal opposite_signal_count, opposite_signal_family
+        opposite_signal_count = 0
+        opposite_signal_family = None
+
+    def _sync_active_trade_view() -> None:
+        nonlocal active_trade
+        active_trade = parallel_active_trades[0] if parallel_active_trades else None
+
+    def _active_trades_snapshot() -> list[dict]:
+        return [trade for trade in parallel_active_trades if isinstance(trade, dict)]
+
+    def _active_trade_count() -> int:
+        return len(_active_trades_snapshot())
+
+    def _active_side_name() -> Optional[str]:
+        side_names = {
+            str(trade.get("side", "") or "").upper()
+            for trade in _active_trades_snapshot()
+            if str(trade.get("side", "") or "").upper() in {"LONG", "SHORT"}
+        }
+        if len(side_names) == 1:
+            return next(iter(side_names))
+        return None
+
+    def _active_trade_family_set(*, include_unknown: bool = False) -> set[str]:
+        families: set[str] = set()
+        for trade in _active_trades_snapshot():
+            family_name = _backtest_strategy_family_name(trade.get("strategy"))
+            if family_name:
+                families.add(family_name)
+            elif include_unknown:
+                families.add("UNKNOWN")
+        return families
+
+    def _has_active_trade_for_family(signal_family: Optional[str]) -> bool:
+        if not signal_family:
+            return False
+        for trade in _active_trades_snapshot():
+            if _backtest_strategy_family_name(trade.get("strategy")) == signal_family:
+                return True
+        return False
+
+    def _append_active_trade(trade: dict) -> None:
+        parallel_active_trades.append(trade)
+        _sync_active_trade_view()
+
+    def _remove_active_trade(trade: dict) -> None:
+        try:
+            parallel_active_trades.remove(trade)
+        except ValueError:
+            pass
+        _sync_active_trade_view()
+
     def close_trade(
         exit_price: float,
         exit_time: dt.datetime,
         exit_reason: str = "unknown",
         bar_index: Optional[int] = None,
+        trade: Optional[dict] = None,
     ) -> None:
-        nonlocal equity, peak, max_dd, trades, wins, losses, active_trade, opposite_signal_count
+        nonlocal equity, peak, max_dd, trades, wins, losses, active_trade
         nonlocal sl_cap_shadow_lock_until_index, sl_cap_shadow_lock_trigger_count
         nonlocal de3_early_exit_close_count
         nonlocal de3_entry_trade_day_extreme_early_exit_close_profile_hits
-        if active_trade is None:
+        trade_to_close = trade if isinstance(trade, dict) else active_trade
+        if not isinstance(trade_to_close, dict):
             return
-        side = active_trade["side"]
-        entry_price = active_trade["entry_price"]
-        final_leg_size = _coerce_int(active_trade.get("size", CONTRACTS), CONTRACTS)
+        side = trade_to_close["side"]
+        entry_price = trade_to_close["entry_price"]
+        final_leg_size = _coerce_int(trade_to_close.get("size", CONTRACTS), CONTRACTS)
         if final_leg_size < 1:
             final_leg_size = 1
         original_size = max(
             final_leg_size,
-            _coerce_int(active_trade.get("original_size", final_leg_size), final_leg_size),
+            _coerce_int(trade_to_close.get("original_size", final_leg_size), final_leg_size),
         )
         pnl_points = compute_pnl_points(side, entry_price, exit_price)
         final_leg_pnl_dollars = pnl_points * POINT_VALUE * final_leg_size
         final_leg_fee_paid = FEE_PER_CONTRACT_RT * final_leg_size
-        partial_pnl_dollars = _coerce_float(active_trade.get("de3_partial_realized_pnl_dollars"), 0.0)
-        partial_fee_paid = _coerce_float(active_trade.get("de3_partial_realized_fee_paid"), 0.0)
-        partial_pnl_net = _coerce_float(active_trade.get("de3_partial_realized_pnl_net"), 0.0)
+        partial_pnl_dollars = _coerce_float(trade_to_close.get("de3_partial_realized_pnl_dollars"), 0.0)
+        partial_fee_paid = _coerce_float(trade_to_close.get("de3_partial_realized_fee_paid"), 0.0)
+        partial_pnl_net = _coerce_float(trade_to_close.get("de3_partial_realized_pnl_net"), 0.0)
         pnl_dollars = float(partial_pnl_dollars + final_leg_pnl_dollars)
         fee_paid = float(partial_fee_paid + final_leg_fee_paid)
         pnl_net = float(partial_pnl_net + (final_leg_pnl_dollars - final_leg_fee_paid))
@@ -8360,26 +8900,26 @@ def run_backtest(
         if drawdown > max_dd:
             max_dd = drawdown
         if (
-            _is_de3_v4_trade_management_payload(active_trade)
+            _is_de3_v4_trade_management_payload(trade_to_close)
             and str(exit_reason) == "early_exit"
         ):
             de3_early_exit_close_count += 1
             if bool(
-                active_trade.get(
+                trade_to_close.get(
                     "de3_entry_trade_day_extreme_early_exit_profile_active",
                     False,
                 )
             ):
                 profile_name = str(
-                    active_trade.get("de3_early_exit_profile_name", "")
+                    trade_to_close.get("de3_early_exit_profile_name", "")
                     or "entry_trade_day_extreme_early_exit"
                 )
                 de3_entry_trade_day_extreme_early_exit_close_profile_hits[
                     profile_name
                 ] += 1
-        entry_time = active_trade.get("entry_time")
+        entry_time = trade_to_close.get("entry_time")
         exit_market_conditions = _snapshot_market_conditions(
-            active_trade,
+            trade_to_close,
             exit_time,
             phase="exit",
             bar_index=bar_index,
@@ -8387,8 +8927,8 @@ def run_backtest(
         )
         trade_record = {
             "trade_id": int(trades),
-            "strategy": active_trade.get("strategy", "Unknown"),
-            "sub_strategy": active_trade.get("sub_strategy"),
+            "strategy": trade_to_close.get("strategy", "Unknown"),
+            "sub_strategy": trade_to_close.get("sub_strategy"),
             "side": side,
             "entry_time": entry_time,
             "exit_time": exit_time,
@@ -8405,35 +8945,35 @@ def run_backtest(
             "de3_partial_realized_pnl_dollars": partial_pnl_dollars,
             "de3_partial_realized_fee_paid": partial_fee_paid,
             "de3_partial_realized_pnl_net": partial_pnl_net,
-            "sl_dist": active_trade.get("sl_dist", MIN_SL),
-            "tp_dist": active_trade.get("tp_dist", MIN_TP),
-            "mfe_points": active_trade.get("mfe_points", 0.0),
-            "mae_points": active_trade.get("mae_points", 0.0),
-            "entry_mode": active_trade.get("entry_mode", "standard"),
-            "vol_regime": active_trade.get("vol_regime", "UNKNOWN"),
+            "sl_dist": trade_to_close.get("sl_dist", MIN_SL),
+            "tp_dist": trade_to_close.get("tp_dist", MIN_TP),
+            "mfe_points": trade_to_close.get("mfe_points", 0.0),
+            "mae_points": trade_to_close.get("mae_points", 0.0),
+            "entry_mode": trade_to_close.get("entry_mode", "standard"),
+            "vol_regime": trade_to_close.get("vol_regime", "UNKNOWN"),
             "exit_reason": exit_reason,
-            "bars_held": active_trade.get("bars_held", 0),
-            "horizon_bars": active_trade.get("horizon_bars", 0),
-            "use_horizon_time_stop": bool(active_trade.get("use_horizon_time_stop", False)),
+            "bars_held": trade_to_close.get("bars_held", 0),
+            "horizon_bars": trade_to_close.get("horizon_bars", 0),
+            "use_horizon_time_stop": bool(trade_to_close.get("use_horizon_time_stop", False)),
             "session": get_session_name(entry_time) if entry_time else "OFF",
-            "rescue_from_strategy": active_trade.get("rescue_from_strategy"),
-            "rescue_from_sub_strategy": active_trade.get("rescue_from_sub_strategy"),
-            "rescue_trigger": active_trade.get("rescue_trigger"),
-            "consensus_contributors": active_trade.get("consensus_contributors"),
-            "bypassed_filters": active_trade.get("bypassed_filters"),
-            "trend_day_tier": active_trade.get("trend_day_tier"),
-            "trend_day_dir": active_trade.get("trend_day_dir"),
-            "market_conditions": active_trade.get("market_conditions", {}),
-            "decision_market_conditions": active_trade.get("decision_market_conditions", {}),
+            "rescue_from_strategy": trade_to_close.get("rescue_from_strategy"),
+            "rescue_from_sub_strategy": trade_to_close.get("rescue_from_sub_strategy"),
+            "rescue_trigger": trade_to_close.get("rescue_trigger"),
+            "consensus_contributors": trade_to_close.get("consensus_contributors"),
+            "bypassed_filters": trade_to_close.get("bypassed_filters"),
+            "trend_day_tier": trade_to_close.get("trend_day_tier"),
+            "trend_day_dir": trade_to_close.get("trend_day_dir"),
+            "market_conditions": trade_to_close.get("market_conditions", {}),
+            "decision_market_conditions": trade_to_close.get("decision_market_conditions", {}),
             "exit_market_conditions": exit_market_conditions,
-            "effective_stop_price": active_trade.get("current_stop_price"),
+            "effective_stop_price": trade_to_close.get("current_stop_price"),
         }
         initial_stop_price = (
-            entry_price - _coerce_float(active_trade.get("sl_dist", MIN_SL), MIN_SL)
+            entry_price - _coerce_float(trade_to_close.get("sl_dist", MIN_SL), MIN_SL)
             if side == "LONG"
-            else entry_price + _coerce_float(active_trade.get("sl_dist", MIN_SL), MIN_SL)
+            else entry_price + _coerce_float(trade_to_close.get("sl_dist", MIN_SL), MIN_SL)
         )
-        effective_stop_price = _coerce_float(active_trade.get("current_stop_price"), math.nan)
+        effective_stop_price = _coerce_float(trade_to_close.get("current_stop_price"), math.nan)
         if (
             str(exit_reason) in {"stop", "stop_gap"}
             and math.isfinite(effective_stop_price)
@@ -8444,47 +8984,62 @@ def run_backtest(
             )
         ):
             trade_record["de3_break_even_stop_hit"] = True
-        for key, value in active_trade.items():
+        for key, value in trade_to_close.items():
             if str(key).startswith(("ml_", "vab_", "de3_", "regime_manifold_")):
                 trade_record[key] = value
         for key in ("combo_key", "reverted", "original_signal"):
-            if key in active_trade:
-                trade_record[key] = active_trade.get(key)
+            if key in trade_to_close:
+                trade_record[key] = trade_to_close.get(key)
         tracker.record_trade(trade_record)
+        if str(trade_record.get("strategy", "")).startswith("DynamicEngine3"):
+            recent_closed_de3_trades.append(
+                {
+                    "strategy": trade_record.get("strategy"),
+                    "side": trade_record.get("side"),
+                    "sub_strategy": trade_record.get("sub_strategy"),
+                    "combo_key": trade_record.get("combo_key"),
+                    "exit_time": trade_record.get("exit_time"),
+                    "exit_reason": trade_record.get("exit_reason"),
+                    "de3_management_close_reason": trade_record.get("de3_management_close_reason"),
+                    "close_source": trade_record.get("close_source"),
+                }
+            )
         _record_de3_variant_adaptation_outcome(trade_record)
         _record_de3_backtest_walkforward_gate_outcome(trade_record)
         _record_de3_backtest_admission_outcome(trade_record)
+        _record_de3_backtest_trade_day_cluster_lockout_outcome(trade_record)
+        _record_de3_backtest_drawdown_breaker_outcome(trade_record)
         update_mom_rescue_score(trade_record, pnl_net, exit_time)
         update_hostile_day_on_close(trade_record.get("strategy"), pnl_points, exit_time)
         if enabled_filter_directional_loss:
             directional_loss_blocker.record_trade_result(side, pnl_points, exit_time)
         if (
             de3_runtime_is_v2
-            and str(active_trade.get("strategy", "")).startswith("DynamicEngine3")
+            and str(trade_to_close.get("strategy", "")).startswith("DynamicEngine3")
             and str(exit_reason) in {"stop", "stop_gap"}
-            and bool(active_trade.get("sl_cap_applied", False))
-            and _coerce_int(active_trade.get("size", CONTRACTS), CONTRACTS) >= CONTRACTS
+            and bool(trade_to_close.get("sl_cap_applied", False))
+            and _coerce_int(trade_to_close.get("size", CONTRACTS), CONTRACTS) >= CONTRACTS
             and bar_index is not None
         ):
             req_sl = round_points_to_tick(
                 max(
                     _coerce_float(
-                        active_trade.get("requested_sl_dist"),
-                        _coerce_float(active_trade.get("sl_dist", MIN_SL), MIN_SL),
+                        trade_to_close.get("requested_sl_dist"),
+                        _coerce_float(trade_to_close.get("sl_dist", MIN_SL), MIN_SL),
                     ),
                     MIN_SL,
                 )
             )
-            cap_sl = round_points_to_tick(max(_coerce_float(active_trade.get("sl_dist", MIN_SL), MIN_SL), MIN_SL))
+            cap_sl = round_points_to_tick(max(_coerce_float(trade_to_close.get("sl_dist", MIN_SL), MIN_SL), MIN_SL))
             if req_sl > cap_sl:
-                entry_index = _safe_idx(active_trade.get("entry_index"))
+                entry_index = _safe_idx(trade_to_close.get("entry_index"))
                 exit_index = _safe_idx(bar_index)
                 if entry_index is not None and exit_index is not None and entry_index <= exit_index:
-                    entry_price = _coerce_float(active_trade.get("entry_price"), math.nan)
+                    entry_price = _coerce_float(trade_to_close.get("entry_price"), math.nan)
                     tp_dist = round_points_to_tick(
-                        max(_coerce_float(active_trade.get("tp_dist", MIN_TP), MIN_TP), MIN_TP)
+                        max(_coerce_float(trade_to_close.get("tp_dist", MIN_TP), MIN_TP), MIN_TP)
                     )
-                    side_name = str(active_trade.get("side", "")).upper()
+                    side_name = str(trade_to_close.get("side", "")).upper()
                     if math.isfinite(entry_price) and tp_dist > 0 and side_name in {"LONG", "SHORT"}:
                         stop_price = entry_price - req_sl if side_name == "LONG" else entry_price + req_sl
                         take_price = entry_price + tp_dist if side_name == "LONG" else entry_price - tp_dist
@@ -8512,8 +9067,32 @@ def run_backtest(
                                 int(uncapped_exit_index),
                             )
                             sl_cap_shadow_lock_trigger_count += 1
-        active_trade = None
-        opposite_signal_count = 0
+        _remove_active_trade(trade_to_close)
+        reset_opposite_signal_confirmation()
+
+    def close_active_trades(
+        exit_price: float,
+        exit_time: dt.datetime,
+        exit_reason: str = "unknown",
+        bar_index: Optional[int] = None,
+        *,
+        target_family: Optional[str] = None,
+    ) -> int:
+        closed = 0
+        for trade in list(_active_trades_snapshot()):
+            if target_family:
+                trade_family = _backtest_strategy_family_name(trade.get("strategy"))
+                if trade_family != target_family:
+                    continue
+            close_trade(
+                exit_price,
+                exit_time,
+                exit_reason,
+                bar_index=bar_index,
+                trade=trade,
+            )
+            closed += 1
+        return closed
 
     def _cached_recent_trades() -> list[str]:
         nonlocal progress_recent_trades_cache, progress_recent_trades_last_trade_count
@@ -8545,21 +9124,22 @@ def run_backtest(
         force: bool = False,
     ) -> None:
         nonlocal live_report_last_write, live_report_write_error
-        if not live_report_enabled or live_report_path is None or live_report_write_error:
+        if not live_report_enabled or live_report_path is None:
             return
         now_ts = time.time()
         if not force and not done and (now_ts - live_report_last_write) < live_report_every_sec:
             return
         try:
             unrealized = 0.0
-            if active_trade is not None and current_price is not None:
-                size = active_trade.get("size", CONTRACTS)
-                unrealized_points = compute_pnl_points(
-                    active_trade["side"],
-                    active_trade["entry_price"],
-                    float(current_price),
-                )
-                unrealized = float(unrealized_points * POINT_VALUE * size)
+            if current_price is not None:
+                for trade in _active_trades_snapshot():
+                    size = trade.get("size", CONTRACTS)
+                    unrealized_points = compute_pnl_points(
+                        trade["side"],
+                        trade["entry_price"],
+                        float(current_price),
+                    )
+                    unrealized += float(unrealized_points * POINT_VALUE * size)
             winrate_val = (wins / trades * 100.0) if trades else 0.0
             payload = {
                 "created_at": dt.datetime.now(NY_TZ).isoformat(),
@@ -8600,16 +9180,38 @@ def run_backtest(
             }
             if live_report_include_trade_log:
                 payload["trade_log"] = _cached_live_trade_log()
-            tmp_path = live_report_path.with_suffix(f"{live_report_path.suffix}.tmp")
-            tmp_path.write_text(
-                json.dumps(payload, ensure_ascii=True, separators=(",", ":")),
-                encoding="utf-8",
-            )
-            tmp_path.replace(live_report_path)
-            live_report_last_write = now_ts
-        except Exception as exc:
+            payload_json = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
+            last_write_exc: Optional[Exception] = None
+            for attempt in range(3):
+                tmp_path = live_report_path.with_name(
+                    f"{live_report_path.stem}.{int(now_ts * 1000)}.{attempt}{live_report_path.suffix}.tmp"
+                )
+                try:
+                    tmp_path.write_text(payload_json, encoding="utf-8")
+                    tmp_path.replace(live_report_path)
+                    live_report_last_write = now_ts
+                    live_report_write_error = False
+                    return
+                except Exception as exc:
+                    last_write_exc = exc
+                    try:
+                        if tmp_path.exists():
+                            tmp_path.unlink()
+                    except Exception:
+                        pass
+                    if attempt < 2:
+                        time.sleep(0.1 * (attempt + 1))
+            if not live_report_write_error and last_write_exc is not None:
+                logging.warning(
+                    "Backtest live report write failed (%s): %s",
+                    live_report_path,
+                    last_write_exc,
+                )
             live_report_write_error = True
-            logging.warning("Backtest live report write failed (%s): %s", live_report_path, exc)
+        except Exception as exc:
+            if not live_report_write_error:
+                logging.warning("Backtest live report write failed (%s): %s", live_report_path, exc)
+            live_report_write_error = True
 
     def emit_progress(
         current_time: dt.datetime,
@@ -8623,14 +9225,14 @@ def run_backtest(
         if current_time < start_time and not done:
             return
         unrealized = 0.0
-        if active_trade is not None:
-            size = active_trade.get("size", CONTRACTS)
+        for trade in _active_trades_snapshot():
+            size = trade.get("size", CONTRACTS)
             unrealized_points = compute_pnl_points(
-                active_trade["side"],
-                active_trade["entry_price"],
+                trade["side"],
+                trade["entry_price"],
                 current_price,
             )
-            unrealized = unrealized_points * POINT_VALUE * size
+            unrealized += unrealized_points * POINT_VALUE * size
         winrate = (wins / trades * 100.0) if trades else 0.0
         payload = {
             "time": current_time,
@@ -8644,7 +9246,7 @@ def run_backtest(
             "max_drawdown": max_dd,
             "bar_index": bar_count,
             "total_bars": total_bars,
-            "active_side": active_trade["side"] if active_trade else None,
+            "active_side": _active_side_name(),
             "done": done,
             "cancelled": cancelled,
         }
@@ -9371,6 +9973,11 @@ def run_backtest(
         if isinstance(de3_v4_trade_management_cfg_local.get("profit_milestone_stop", {}), dict)
         else {}
     )
+    de3_v4_trade_management_override_cfg_local = (
+        de3_v4_trade_management_cfg_local.get("profile_overrides", {})
+        if isinstance(de3_v4_trade_management_cfg_local.get("profile_overrides", {}), dict)
+        else {}
+    )
     de3_v4_entry_trade_day_extreme_cfg_local = (
         de3_v4_trade_management_cfg_local.get("entry_trade_day_extreme_stop", {})
         if isinstance(de3_v4_trade_management_cfg_local.get("entry_trade_day_extreme_stop", {}), dict)
@@ -9418,6 +10025,8 @@ def run_backtest(
     de3_entry_trade_day_extreme_early_exit_profile_trade_count = 0
     de3_entry_trade_day_extreme_early_exit_profile_hits: Counter[str] = Counter()
     de3_entry_trade_day_extreme_early_exit_close_profile_hits: Counter[str] = Counter()
+    de3_trade_management_override_trade_count = 0
+    de3_trade_management_override_profile_hits: Counter[str] = Counter()
 
     def _is_de3_v4_trade_management_payload(payload: Optional[dict]) -> bool:
         if not isinstance(payload, dict):
@@ -9555,6 +10164,8 @@ def run_backtest(
                 continue
             if not _match_de3_rule_values(profile.get("apply_sides", []), side_name):
                 continue
+            if not _match_de3_context_profile_filters(profile, payload):
+                continue
             if (
                 bool(profile.get("require_target_beyond_trade_day_extreme", False))
                 and not target_beyond
@@ -9648,6 +10259,8 @@ def run_backtest(
                 continue
             if not _match_de3_rule_values(profile.get("apply_sides", []), side_name):
                 continue
+            if not _match_de3_context_profile_filters(profile, payload):
+                continue
             if (
                 bool(profile.get("require_target_beyond_trade_day_extreme", False))
                 and not target_beyond
@@ -9731,6 +10344,8 @@ def run_backtest(
                 continue
             if not _match_de3_rule_values(profile.get("apply_sides", []), side_name):
                 continue
+            if not _match_de3_context_profile_filters(profile, payload):
+                continue
             if (
                 bool(profile.get("require_target_beyond_trade_day_extreme", False))
                 and not target_beyond
@@ -9765,6 +10380,94 @@ def run_backtest(
             result["size_multiplier"] = float(min(1.0, max(0.0, size_multiplier)))
             result["min_contracts"] = int(
                 max(1, _coerce_int(profile.get("min_contracts"), 1))
+            )
+            return result
+        return result
+
+    def _resolve_de3_trade_management_override(
+        payload: Optional[dict],
+        *,
+        tp_dist: float,
+    ) -> dict:
+        result = {
+            "active": False,
+            "profile_name": "",
+            "disable_break_even": False,
+            "disable_profit_milestone_stop": False,
+            "disable_tiered_take_profit": False,
+            "disable_early_exit": False,
+            "disable_entry_trade_day_extreme_stop": False,
+            "disable_entry_trade_day_extreme_early_exit": False,
+        }
+        if not bool(de3_v4_trade_management_override_cfg_local.get("enabled", False)):
+            return result
+        if not _is_de3_v4_trade_management_payload(payload):
+            return result
+        profiles = de3_v4_trade_management_override_cfg_local.get("profiles", [])
+        if not isinstance(profiles, (list, tuple)):
+            return result
+        side_name = str((payload or {}).get("side", "") or "").upper()
+        variant_id = _de3_variant_id_from_payload(payload)
+        tp_dist = round_points_to_tick(max(0.0, _coerce_float(tp_dist, 0.0)))
+        for index, profile in enumerate(profiles):
+            if not isinstance(profile, dict) or not bool(profile.get("enabled", True)):
+                continue
+            if not _match_de3_rule_values(profile.get("apply_variants", []), variant_id):
+                continue
+            if not _match_de3_rule_values(profile.get("apply_sides", []), side_name):
+                continue
+            if not _match_de3_context_profile_filters(profile, payload):
+                continue
+            if not _match_de3_profile_tp_dist(profile, tp_dist):
+                continue
+            disable_all_layers = bool(profile.get("disable_all_layers", False))
+            disable_break_even = bool(
+                disable_all_layers or profile.get("disable_break_even", False)
+            )
+            disable_profit_milestone_stop = bool(
+                disable_all_layers
+                or profile.get("disable_profit_milestone_stop", False)
+            )
+            disable_tiered_take_profit = bool(
+                disable_all_layers
+                or profile.get("disable_tiered_take_profit", False)
+            )
+            disable_early_exit = bool(
+                disable_all_layers or profile.get("disable_early_exit", False)
+            )
+            disable_entry_trade_day_extreme_stop = bool(
+                disable_all_layers
+                or profile.get("disable_entry_trade_day_extreme_stop", False)
+            )
+            disable_entry_trade_day_extreme_early_exit = bool(
+                disable_all_layers
+                or profile.get("disable_entry_trade_day_extreme_early_exit", False)
+            )
+            if not any(
+                (
+                    disable_break_even,
+                    disable_profit_milestone_stop,
+                    disable_tiered_take_profit,
+                    disable_early_exit,
+                    disable_entry_trade_day_extreme_stop,
+                    disable_entry_trade_day_extreme_early_exit,
+                )
+            ):
+                continue
+            result["active"] = True
+            result["profile_name"] = str(
+                profile.get("name")
+                or f"trade_management_profile_override_{index + 1}"
+            )
+            result["disable_break_even"] = disable_break_even
+            result["disable_profit_milestone_stop"] = disable_profit_milestone_stop
+            result["disable_tiered_take_profit"] = disable_tiered_take_profit
+            result["disable_early_exit"] = disable_early_exit
+            result["disable_entry_trade_day_extreme_stop"] = (
+                disable_entry_trade_day_extreme_stop
+            )
+            result["disable_entry_trade_day_extreme_early_exit"] = (
+                disable_entry_trade_day_extreme_early_exit
             )
             return result
         return result
@@ -9841,6 +10544,8 @@ def run_backtest(
             if not _match_de3_rule_values(profile.get("apply_variants", []), variant_id):
                 continue
             if not _match_de3_rule_values(profile.get("apply_sides", []), side_name):
+                continue
+            if not _match_de3_context_profile_filters(profile, payload):
                 continue
             if (
                 bool(profile.get("require_target_beyond_trade_day_extreme", False))
@@ -9929,6 +10634,8 @@ def run_backtest(
             if not _match_de3_rule_values(profile.get("apply_variants", []), variant_id):
                 continue
             if not _match_de3_rule_values(profile.get("apply_sides", []), side_name):
+                continue
+            if not _match_de3_context_profile_filters(profile, payload):
                 continue
             if not _match_de3_profile_tp_dist(profile, tp_dist):
                 continue
@@ -10399,10 +11106,62 @@ def run_backtest(
         nonlocal de3_entry_trade_day_extreme_size_adjustment_applied
         nonlocal de3_entry_trade_day_extreme_early_exit_profile_trade_count
         nonlocal de3_entry_trade_day_extreme_early_exit_profile_hits
+        nonlocal de3_trade_management_override_trade_count
+        nonlocal de3_trade_management_override_profile_hits
         requested_sl = _coerce_float(signal.get("sl_dist", MIN_SL), MIN_SL)
         requested_tp = _coerce_float(signal.get("tp_dist", MIN_TP), MIN_TP)
         sl_dist = round_points_to_tick(max(requested_sl, MIN_SL))
         tp_dist = round_points_to_tick(max(requested_tp, MIN_TP))
+        resolved_vol_regime = _resolve_runtime_vol_regime(signal, bar_index)
+        if resolved_vol_regime and signal.get("vol_regime") in (None, "", "UNKNOWN", "BYPASS"):
+            signal["vol_regime"] = str(resolved_vol_regime)
+        de3_signal_context = {}
+        if _is_de3_v4_trade_management_payload(signal) and bar_index is not None:
+            try:
+                signal_session_text = str(signal.get("session", "") or "")
+                signal_market_conditions = (
+                    signal.get("market_conditions", {})
+                    if isinstance(signal.get("market_conditions", {}), dict)
+                    else {}
+                )
+                price_loc_hint = signal_market_conditions.get("price_loc")
+                rvol_hint = signal_market_conditions.get("rvol_ratio")
+                if price_loc_hint is None:
+                    price_loc_hint = signal.get("price_loc")
+                if rvol_hint is None:
+                    rvol_hint = signal.get("rvol_ratio")
+                de3_signal_context = compute_shock_context(
+                    df,
+                    position=max(0, min(int(bar_index), len(df) - 1)),
+                    session_text=signal_session_text,
+                    price_loc=price_loc_hint,
+                    rvol_ratio=rvol_hint,
+                )
+            except Exception:
+                de3_signal_context = {}
+        signal["de3_ctx_day_type"] = str(de3_signal_context.get("ctx_day_type", "") or "").strip().lower()
+        signal["de3_ctx_day_profile"] = str(de3_signal_context.get("ctx_day_profile", "") or "").strip().lower()
+        signal["de3_ctx_day_expansion_regime"] = str(
+            de3_signal_context.get("ctx_day_expansion_regime", "") or ""
+        ).strip().lower()
+        signal["de3_ctx_day_direction_regime"] = str(
+            de3_signal_context.get("ctx_day_direction_regime", "") or ""
+        ).strip().lower()
+        signal["de3_ctx_day_opening_regime"] = str(
+            de3_signal_context.get("ctx_day_opening_regime", "") or ""
+        ).strip().lower()
+        signal["de3_ctx_day_flow_regime"] = str(
+            de3_signal_context.get("ctx_day_flow_regime", "") or ""
+        ).strip().lower()
+        signal["de3_ctx_day_gap_regime"] = str(
+            de3_signal_context.get("ctx_day_gap_regime", "") or ""
+        ).strip().lower()
+        signal["de3_ctx_shock_score_bucket"] = str(
+            de3_signal_context.get("ctx_shock_score_bucket", "") or ""
+        ).strip().lower()
+        signal["de3_ctx_shock_direction_bucket"] = str(
+            de3_signal_context.get("ctx_shock_direction_bucket", "") or ""
+        ).strip().lower()
         strategy_name = str(signal.get("strategy", "") or "")
         bypass_sl_cap_ml = bool(
             BACKTEST_DISABLE_MAX_STOPLOSS_FOR_MLPHYSICS
@@ -10478,6 +11237,13 @@ def run_backtest(
                     or "entry_trade_day_extreme_admission_block"
                 )
                 de3_entry_trade_day_extreme_admission_profile_hits[profile_name] += 1
+                return
+        signal_family = _backtest_strategy_family_name(signal.get("strategy"))
+        active_side_name = _active_side_name()
+        if _active_trade_count() > 0:
+            if active_side_name != str(signal.get("side", "") or "").upper():
+                return
+            if not signal_family or _has_active_trade_for_family(signal_family):
                 return
         side = signal["side"]
         size = _coerce_int(signal.get("size", CONTRACTS), CONTRACTS)
@@ -10643,43 +11409,126 @@ def run_backtest(
             de3_v4_trade_management_cfg_local.get("enabled", False)
             and _is_de3_v4_trade_management_payload(signal)
         )
+        de3_trade_management_override_ctx = _resolve_de3_trade_management_override(
+            signal,
+            tp_dist=tp_dist,
+        )
+        if bool(de3_trade_management_override_ctx.get("active", False)):
+            de3_trade_management_override_trade_count += 1
+            profile_name = str(
+                de3_trade_management_override_ctx.get("profile_name", "")
+                or "trade_management_profile_override"
+            )
+            de3_trade_management_override_profile_hits[profile_name] += 1
         de3_break_even_enabled = bool(
             de3_v4_trade_management_enabled
             and de3_v4_break_even_cfg_local.get("enabled", False)
+            and not bool(de3_trade_management_override_ctx.get("disable_break_even", False))
         )
         de3_tiered_take_enabled = bool(
             de3_v4_trade_management_enabled
             and de3_v4_tiered_take_cfg_local.get("enabled", False)
+            and not bool(
+                de3_trade_management_override_ctx.get("disable_tiered_take_profit", False)
+            )
         )
         de3_global_early_exit_enabled = bool(
             de3_v4_trade_management_enabled
             and de3_v4_early_exit_cfg_local.get("enabled", False)
+            and not bool(de3_trade_management_override_ctx.get("disable_early_exit", False))
         )
-        de3_profit_milestone_ctx = _resolve_de3_profit_milestone_profile(
-            signal,
-            entry_price=entry_price,
-            tp_dist=tp_dist,
-        )
+        if bool(
+            de3_trade_management_override_ctx.get("disable_profit_milestone_stop", False)
+        ):
+            de3_profit_milestone_ctx = {
+                "active": False,
+                "profile_name": "",
+                "milestone_price": None,
+                "trigger_pct": 0.0,
+                "force_break_even_on_reach": False,
+                "post_reach_trail_pct": 0.0,
+            }
+        else:
+            de3_profit_milestone_ctx = _resolve_de3_profit_milestone_profile(
+                signal,
+                entry_price=entry_price,
+                tp_dist=tp_dist,
+            )
         if bool(de3_profit_milestone_ctx.get("active", False)):
             de3_profit_milestone_profile_trade_count += 1
-        de3_entry_trade_day_extreme_ctx = _resolve_de3_entry_trade_day_extreme_profile(
-            signal,
-            entry_price=entry_price,
-            tp_dist=tp_dist,
-            entry_trade_day_high=_coerce_float(de3_trade_day_high_known, math.nan),
-            entry_trade_day_low=_coerce_float(de3_trade_day_low_known, math.nan),
-        )
-        if bool(de3_entry_trade_day_extreme_ctx.get("active", False)):
-            de3_entry_trade_day_extreme_profile_trade_count += 1
-        de3_entry_trade_day_extreme_early_exit_ctx = (
-            _resolve_de3_entry_trade_day_extreme_early_exit_profile(
+        if bool(
+            de3_trade_management_override_ctx.get(
+                "disable_entry_trade_day_extreme_stop",
+                False,
+            )
+        ):
+            de3_entry_trade_day_extreme_ctx = {
+                "active": False,
+                "profile_name": "",
+                "variant_id": "",
+                "entry_trade_day_high": (
+                    float(de3_trade_day_high_known)
+                    if math.isfinite(_coerce_float(de3_trade_day_high_known, math.nan))
+                    else None
+                ),
+                "entry_trade_day_low": (
+                    float(de3_trade_day_low_known)
+                    if math.isfinite(_coerce_float(de3_trade_day_low_known, math.nan))
+                    else None
+                ),
+                "extreme_price": None,
+                "target_beyond_trade_day_extreme": False,
+                "progress_pct": None,
+                "force_break_even_on_reach": False,
+                "post_reach_trail_pct": 0.0,
+            }
+        else:
+            de3_entry_trade_day_extreme_ctx = _resolve_de3_entry_trade_day_extreme_profile(
                 signal,
                 entry_price=entry_price,
                 tp_dist=tp_dist,
                 entry_trade_day_high=_coerce_float(de3_trade_day_high_known, math.nan),
                 entry_trade_day_low=_coerce_float(de3_trade_day_low_known, math.nan),
             )
-        )
+        if bool(de3_entry_trade_day_extreme_ctx.get("active", False)):
+            de3_entry_trade_day_extreme_profile_trade_count += 1
+        if bool(
+            de3_trade_management_override_ctx.get(
+                "disable_entry_trade_day_extreme_early_exit",
+                False,
+            )
+        ):
+            de3_entry_trade_day_extreme_early_exit_ctx = {
+                "active": False,
+                "profile_name": "",
+                "variant_id": "",
+                "entry_trade_day_high": (
+                    float(de3_trade_day_high_known)
+                    if math.isfinite(_coerce_float(de3_trade_day_high_known, math.nan))
+                    else None
+                ),
+                "entry_trade_day_low": (
+                    float(de3_trade_day_low_known)
+                    if math.isfinite(_coerce_float(de3_trade_day_low_known, math.nan))
+                    else None
+                ),
+                "extreme_price": None,
+                "target_beyond_trade_day_extreme": False,
+                "progress_pct": None,
+                "min_progress_by_bars": None,
+                "min_progress_pct": None,
+                "max_profit_crosses": None,
+            }
+        else:
+            de3_entry_trade_day_extreme_early_exit_ctx = (
+                _resolve_de3_entry_trade_day_extreme_early_exit_profile(
+                    signal,
+                    entry_price=entry_price,
+                    tp_dist=tp_dist,
+                    entry_trade_day_high=_coerce_float(de3_trade_day_high_known, math.nan),
+                    entry_trade_day_low=_coerce_float(de3_trade_day_low_known, math.nan),
+                )
+            )
         if bool(de3_entry_trade_day_extreme_early_exit_ctx.get("active", False)):
             de3_entry_trade_day_extreme_early_exit_profile_trade_count += 1
             profile_name = str(
@@ -10691,7 +11540,7 @@ def run_backtest(
             de3_global_early_exit_enabled
             or de3_entry_trade_day_extreme_early_exit_ctx.get("active", False)
         )
-        active_trade = {
+        trade = {
             "strategy": signal.get("strategy", "Unknown"),
             "sub_strategy": signal.get("sub_strategy"),
             "side": side,
@@ -10767,7 +11616,7 @@ def run_backtest(
             "profit_crosses": 0,
             "was_green": None,
             "entry_mode": signal.get("entry_mode", "standard"),
-            "vol_regime": signal.get("vol_regime", "UNKNOWN"),
+            "vol_regime": signal.get("vol_regime", resolved_vol_regime or "UNKNOWN"),
             "mfe_points": 0.0,
             "mae_points": 0.0,
             "rescue_from_strategy": signal.get("rescue_from_strategy"),
@@ -10779,7 +11628,69 @@ def run_backtest(
             "trend_day_dir": td_dir,
             "market_conditions": entry_market_conditions,
             "decision_market_conditions": decision_market_conditions,
-            "de3_trade_management_enabled": de3_v4_trade_management_enabled,
+            "de3_ctx_day_type": str(signal.get("de3_ctx_day_type", "") or ""),
+            "de3_ctx_day_profile": str(signal.get("de3_ctx_day_profile", "") or ""),
+            "de3_ctx_day_expansion_regime": str(
+                signal.get("de3_ctx_day_expansion_regime", "") or ""
+            ),
+            "de3_ctx_day_direction_regime": str(
+                signal.get("de3_ctx_day_direction_regime", "") or ""
+            ),
+            "de3_ctx_day_opening_regime": str(
+                signal.get("de3_ctx_day_opening_regime", "") or ""
+            ),
+            "de3_ctx_day_flow_regime": str(signal.get("de3_ctx_day_flow_regime", "") or ""),
+            "de3_ctx_day_gap_regime": str(signal.get("de3_ctx_day_gap_regime", "") or ""),
+            "de3_ctx_shock_score_bucket": str(
+                signal.get("de3_ctx_shock_score_bucket", "") or ""
+            ),
+            "de3_ctx_shock_direction_bucket": str(
+                signal.get("de3_ctx_shock_direction_bucket", "") or ""
+            ),
+            "de3_trade_management_enabled": bool(
+                de3_break_even_enabled
+                or de3_tiered_take_enabled
+                or bool(de3_profit_milestone_ctx.get("active", False))
+                or bool(de3_entry_trade_day_extreme_ctx.get("active", False))
+                or de3_early_exit_enabled
+            ),
+            "de3_trade_management_base_enabled": de3_v4_trade_management_enabled,
+            "de3_trade_management_override_active": bool(
+                de3_trade_management_override_ctx.get("active", False)
+            ),
+            "de3_trade_management_override_profile_name": str(
+                de3_trade_management_override_ctx.get("profile_name", "") or ""
+            ),
+            "de3_trade_management_override_disable_break_even": bool(
+                de3_trade_management_override_ctx.get("disable_break_even", False)
+            ),
+            "de3_trade_management_override_disable_profit_milestone_stop": bool(
+                de3_trade_management_override_ctx.get(
+                    "disable_profit_milestone_stop",
+                    False,
+                )
+            ),
+            "de3_trade_management_override_disable_tiered_take_profit": bool(
+                de3_trade_management_override_ctx.get(
+                    "disable_tiered_take_profit",
+                    False,
+                )
+            ),
+            "de3_trade_management_override_disable_early_exit": bool(
+                de3_trade_management_override_ctx.get("disable_early_exit", False)
+            ),
+            "de3_trade_management_override_disable_entry_trade_day_extreme_stop": bool(
+                de3_trade_management_override_ctx.get(
+                    "disable_entry_trade_day_extreme_stop",
+                    False,
+                )
+            ),
+            "de3_trade_management_override_disable_entry_trade_day_extreme_early_exit": bool(
+                de3_trade_management_override_ctx.get(
+                    "disable_entry_trade_day_extreme_early_exit",
+                    False,
+                )
+            ),
             "de3_break_even_enabled": de3_break_even_enabled,
             "de3_break_even_activate_on_next_bar": bool(
                 de3_v4_break_even_cfg_local.get("activate_on_next_bar", True)
@@ -11009,42 +11920,46 @@ def run_backtest(
         }
         for key, value in signal.items():
             if str(key).startswith("de3_variant_adapt_"):
-                active_trade[key] = value
+                trade[key] = value
         for key, value in signal.items():
             # Persist strategy-specific instrumentation fields into the trade log.
             # (Used later for report analysis/tuning; keep this lightweight.)
-            if str(key).startswith(("ml_", "vab_", "de3_", "regime_manifold_")):
-                active_trade[key] = value
+            if str(key).startswith(
+                ("ml_", "vab_", "de3_", "regime_manifold_", "experimental_")
+            ):
+                trade[key] = value
         for key in ("combo_key", "reverted", "original_signal"):
             if key in signal:
-                active_trade[key] = signal.get(key)
+                trade[key] = signal.get(key)
+        _append_active_trade(trade)
 
     def check_stop_take(
+        trade: Optional[dict],
         bar_open: float,
         bar_high: float,
         bar_low: float,
         bar_close: float,
     ) -> Optional[tuple[float, str]]:
-        if active_trade is None:
+        if not isinstance(trade, dict):
             return None
-        side = active_trade["side"]
-        entry = active_trade["entry_price"]
-        stop_price = active_trade.get("current_stop_price")
+        side = trade["side"]
+        entry = trade["entry_price"]
+        stop_price = trade.get("current_stop_price")
         if stop_price is None:
-            sl_dist = _coerce_float(active_trade.get("sl_dist", MIN_SL), MIN_SL)
+            sl_dist = _coerce_float(trade.get("sl_dist", MIN_SL), MIN_SL)
             stop_price = entry - sl_dist if side == "LONG" else entry + sl_dist
-        tp_dist = _coerce_float(active_trade.get("tp_dist", MIN_TP), MIN_TP)
+        tp_dist = _coerce_float(trade.get("tp_dist", MIN_TP), MIN_TP)
         take_price = entry + tp_dist if side == "LONG" else entry - tp_dist
         tiered_take_price = math.nan
         tiered_take_enabled = bool(
-            active_trade.get("de3_tiered_take_enabled", False)
-            and not active_trade.get("de3_tiered_take_filled", False)
-            and _coerce_de3_tiered_take_close_size(active_trade) > 0
+            trade.get("de3_tiered_take_enabled", False)
+            and not trade.get("de3_tiered_take_filled", False)
+            and _coerce_de3_tiered_take_close_size(trade) > 0
         )
         if tiered_take_enabled:
             tiered_take_trigger_pct = max(
                 0.0,
-                _coerce_float(active_trade.get("de3_tiered_take_trigger_pct"), 0.0),
+                _coerce_float(trade.get("de3_tiered_take_trigger_pct"), 0.0),
             )
             if 0.0 < tiered_take_trigger_pct < 1.0:
                 partial_tp_dist = round_points_to_tick(
@@ -11103,28 +12018,28 @@ def run_backtest(
 
     early_exit_cfg_all = CONFIG.get("EARLY_EXIT", {}) or {}
 
-    def advance_trade_management_state(current_price: float) -> None:
-        if active_trade is None:
+    def advance_trade_management_state(trade: Optional[dict], current_price: float) -> None:
+        if not isinstance(trade, dict):
             return
-        active_trade["bars_held"] = int(max(0, _coerce_int(active_trade.get("bars_held"), 0))) + 1
-        if active_trade["side"] == "LONG":
-            is_green = current_price > active_trade["entry_price"]
+        trade["bars_held"] = int(max(0, _coerce_int(trade.get("bars_held"), 0))) + 1
+        if trade["side"] == "LONG":
+            is_green = current_price > trade["entry_price"]
         else:
-            is_green = current_price < active_trade["entry_price"]
-        was_green = active_trade.get("was_green")
+            is_green = current_price < trade["entry_price"]
+        was_green = trade.get("was_green")
         if was_green is not None and is_green != was_green:
-            active_trade["profit_crosses"] = active_trade.get("profit_crosses", 0) + 1
-        active_trade["was_green"] = is_green
+            trade["profit_crosses"] = trade.get("profit_crosses", 0) + 1
+        trade["was_green"] = is_green
 
-    def check_signal_horizon_exit() -> bool:
-        if active_trade is None:
+    def check_signal_horizon_exit(trade: Optional[dict]) -> bool:
+        if not isinstance(trade, dict):
             return False
-        if not bool(active_trade.get("use_horizon_time_stop", False)):
+        if not bool(trade.get("use_horizon_time_stop", False)):
             return False
-        horizon_bars = int(max(0, _coerce_int(active_trade.get("horizon_bars"), 0)))
+        horizon_bars = int(max(0, _coerce_int(trade.get("horizon_bars"), 0)))
         if horizon_bars <= 0:
             return False
-        return int(max(0, _coerce_int(active_trade.get("bars_held"), 0))) >= horizon_bars
+        return int(max(0, _coerce_int(trade.get("bars_held"), 0))) >= horizon_bars
 
     def _current_trade_progress_pct(trade: Optional[dict], current_price: float) -> float:
         if not isinstance(trade, dict):
@@ -11143,28 +12058,28 @@ def run_backtest(
             return float("nan")
         return float(compute_pnl_points(side_name, entry_price, current_price) / tp_dist)
 
-    def check_early_exit(current_price: float) -> Optional[str]:
-        if active_trade is None:
+    def check_early_exit(trade: Optional[dict], current_price: float) -> Optional[str]:
+        if not isinstance(trade, dict):
             return None
         early_exit_config = None
-        if "early_exit_enabled" in active_trade and active_trade.get("early_exit_enabled") is not None:
-            strategy_name = active_trade.get("strategy", "")
+        if "early_exit_enabled" in trade and trade.get("early_exit_enabled") is not None:
+            strategy_name = trade.get("strategy", "")
             base_cfg = early_exit_cfg_all.get(strategy_name, {})
             if not isinstance(base_cfg, dict):
                 base_cfg = {}
             early_exit_config = {
-                "enabled": bool(active_trade.get("early_exit_enabled")),
+                "enabled": bool(trade.get("early_exit_enabled")),
                 "exit_if_not_green_by": (
                     int(
                         max(
                             0,
                             _coerce_int(
-                                active_trade.get("early_exit_exit_if_not_green_by"),
+                                trade.get("early_exit_exit_if_not_green_by"),
                                 base_cfg.get("exit_if_not_green_by", 0),
                             ),
                         )
                     )
-                    if active_trade.get("early_exit_exit_if_not_green_by") is not None
+                    if trade.get("early_exit_exit_if_not_green_by") is not None
                     or base_cfg.get("exit_if_not_green_by") is not None
                     else None
                 ),
@@ -11173,19 +12088,19 @@ def run_backtest(
                         max(
                             0,
                             _coerce_int(
-                                active_trade.get("early_exit_max_profit_crosses"),
+                                trade.get("early_exit_max_profit_crosses"),
                                 base_cfg.get("max_profit_crosses", 0),
                             ),
                         )
                     )
-                    if active_trade.get("early_exit_max_profit_crosses") is not None
+                    if trade.get("early_exit_max_profit_crosses") is not None
                     or base_cfg.get("max_profit_crosses") is not None
                     else None
                 ),
             }
         elif (
-            bool(active_trade.get("de3_early_exit_enabled", False))
-            and _is_de3_v4_trade_management_payload(active_trade)
+            bool(trade.get("de3_early_exit_enabled", False))
+            and _is_de3_v4_trade_management_payload(trade)
         ):
             early_exit_config = {
                 "enabled": True,
@@ -11194,12 +12109,12 @@ def run_backtest(
                         max(
                             0,
                             _coerce_int(
-                                active_trade.get("de3_early_exit_exit_if_not_green_by"),
+                                trade.get("de3_early_exit_exit_if_not_green_by"),
                                 0,
                             ),
                         )
                     )
-                    if active_trade.get("de3_early_exit_exit_if_not_green_by") is not None
+                    if trade.get("de3_early_exit_exit_if_not_green_by") is not None
                     else None
                 ),
                 "max_profit_crosses": (
@@ -11207,12 +12122,12 @@ def run_backtest(
                         max(
                             0,
                             _coerce_int(
-                                active_trade.get("de3_early_exit_max_profit_crosses"),
+                                trade.get("de3_early_exit_max_profit_crosses"),
                                 0,
                             ),
                         )
                     )
-                    if active_trade.get("de3_early_exit_max_profit_crosses") is not None
+                    if trade.get("de3_early_exit_max_profit_crosses") is not None
                     else None
                 ),
                 "min_progress_by_bars": (
@@ -11220,24 +12135,24 @@ def run_backtest(
                         max(
                             0,
                             _coerce_int(
-                                active_trade.get("de3_early_exit_min_progress_by_bars"),
+                                trade.get("de3_early_exit_min_progress_by_bars"),
                                 0,
                             ),
                         )
                     )
-                    if active_trade.get("de3_early_exit_min_progress_by_bars") is not None
+                    if trade.get("de3_early_exit_min_progress_by_bars") is not None
                     else None
                 ),
                 "min_progress_pct": (
                     float(
                         _coerce_float(
-                            active_trade.get("de3_early_exit_min_progress_pct"),
+                            trade.get("de3_early_exit_min_progress_pct"),
                             0.0,
                         )
                     )
                     if math.isfinite(
                         _coerce_float(
-                            active_trade.get("de3_early_exit_min_progress_pct"),
+                            trade.get("de3_early_exit_min_progress_pct"),
                             float("nan"),
                         )
                     )
@@ -11248,29 +12163,29 @@ def run_backtest(
                         max(
                             0,
                             _coerce_int(
-                                active_trade.get("de3_early_exit_profile_max_profit_crosses"),
+                                trade.get("de3_early_exit_profile_max_profit_crosses"),
                                 0,
                             ),
                         )
                     )
-                    if active_trade.get("de3_early_exit_profile_max_profit_crosses")
+                    if trade.get("de3_early_exit_profile_max_profit_crosses")
                     is not None
                     else None
                 ),
-                "profile_name": str(active_trade.get("de3_early_exit_profile_name", "") or ""),
+                "profile_name": str(trade.get("de3_early_exit_profile_name", "") or ""),
             }
         elif BACKTEST_EARLY_EXIT_ENABLED:
-            strategy_name = active_trade.get("strategy", "")
+            strategy_name = trade.get("strategy", "")
             cfg = early_exit_cfg_all.get(strategy_name, {})
             if isinstance(cfg, dict):
                 early_exit_config = cfg
         if not isinstance(early_exit_config, dict) or not early_exit_config.get("enabled", False):
             return None
 
-        if active_trade["side"] == "LONG":
-            is_green = current_price > active_trade["entry_price"]
+        if trade["side"] == "LONG":
+            is_green = current_price > trade["entry_price"]
         else:
-            is_green = current_price < active_trade["entry_price"]
+            is_green = current_price < trade["entry_price"]
 
         progress_bars = early_exit_config.get("min_progress_by_bars", None)
         min_progress_pct = early_exit_config.get("min_progress_pct", None)
@@ -11278,14 +12193,14 @@ def run_backtest(
             progress_bars is not None
             and int(progress_bars) > 0
             and min_progress_pct is not None
-            and active_trade["bars_held"] >= int(progress_bars)
+            and trade["bars_held"] >= int(progress_bars)
         ):
             threshold = float(min_progress_pct)
             if threshold <= 1e-12:
                 if not is_green:
                     return f"not_green_after_{int(progress_bars)}_bars"
             else:
-                current_progress_pct = _current_trade_progress_pct(active_trade, current_price)
+                current_progress_pct = _current_trade_progress_pct(trade, current_price)
                 if (
                     not math.isfinite(current_progress_pct)
                     or current_progress_pct + 1e-12 < threshold
@@ -11299,16 +12214,349 @@ def run_backtest(
         exit_cross = early_exit_config.get("max_profit_crosses", None)
         profile_exit_cross = early_exit_config.get("profile_max_profit_crosses", None)
 
-        if exit_time is not None and int(exit_time) > 0 and active_trade["bars_held"] >= int(exit_time) and not is_green:
+        if exit_time is not None and int(exit_time) > 0 and trade["bars_held"] >= int(exit_time) and not is_green:
             return f"not_green_after_{int(exit_time)}_bars"
-        if profile_exit_cross is not None and active_trade.get("profit_crosses", 0) > int(profile_exit_cross):
-            return f"choppy_{int(active_trade.get('profit_crosses', 0))}_crosses_gt_{int(profile_exit_cross)}"
-        if exit_cross is not None and active_trade.get("profit_crosses", 0) > int(exit_cross):
-            return f"choppy_{int(active_trade.get('profit_crosses', 0))}_crosses_gt_{int(exit_cross)}"
+        if profile_exit_cross is not None and trade.get("profit_crosses", 0) > int(profile_exit_cross):
+            return f"choppy_{int(trade.get('profit_crosses', 0))}_crosses_gt_{int(profile_exit_cross)}"
+        if exit_cross is not None and trade.get("profit_crosses", 0) > int(exit_cross):
+            return f"choppy_{int(trade.get('profit_crosses', 0))}_crosses_gt_{int(exit_cross)}"
         return None
 
+    def _normalize_backtest_lfo_policy(value: Optional[str]) -> str:
+        text = str(value or "").strip().lower()
+        aliases = {
+            "": "",
+            "off": "off",
+            "none": "off",
+            "rule": "rule",
+            "rule_lfo": "rule",
+            "ml": "ml",
+            "ml_lfo": "ml",
+            "hybrid": "hybrid",
+            "live_default": "live_default",
+        }
+        return aliases.get(text, "")
+
+    def _resolve_backtest_lfo_policy(strategy_name: Optional[str]) -> str:
+        has_rule = experimental_level_fill_enabled
+        has_ml = experimental_ml_lfo_enabled and experimental_ml_lfo_payload_ready
+        if not has_rule and not has_ml:
+            return "off"
+        if experimental_ml_lfo_enabled:
+            resolved = _normalize_backtest_lfo_policy(experimental_ml_lfo_policy_mode)
+            if resolved == "live_default":
+                resolved = _normalize_backtest_lfo_policy(
+                    ml_overlay_shadow.get_lfo_live_policy(strategy_name)
+                )
+            if resolved == "off":
+                return "off"
+            if resolved == "rule":
+                return "rule" if has_rule else "off"
+            if resolved == "ml":
+                return "ml" if has_ml else ("rule" if has_rule else "off")
+            if resolved == "hybrid":
+                if has_rule and has_ml:
+                    return "hybrid"
+                if has_ml:
+                    return "ml"
+                if has_rule:
+                    return "rule"
+                return "off"
+        return "rule" if has_rule else ("ml" if has_ml else "off")
+
+    def _build_backtest_lfo_bar_cache(history_df_local: Optional[pd.DataFrame]) -> list[tuple]:
+        if not isinstance(history_df_local, pd.DataFrame) or history_df_local.empty:
+            return []
+        required = {"open", "high", "low", "close", "volume"}
+        if not required.issubset(set(history_df_local.columns)):
+            return []
+        tail = history_df_local.loc[:, ["open", "high", "low", "close", "volume"]].tail(120)
+        out = []
+        for ts, row in tail.iterrows():
+            out.append(
+                (
+                    ts,
+                    float(row["open"]),
+                    float(row["high"]),
+                    float(row["low"]),
+                    float(row["close"]),
+                    float(row["volume"]),
+                )
+            )
+        return out
+
+    def _apply_backtest_live_lfo_to_signal(
+        signal: Optional[dict],
+        *,
+        history_df_local: Optional[pd.DataFrame],
+    ) -> bool:
+        nonlocal experimental_level_fill_waits, experimental_level_fill_immediate
+        nonlocal experimental_level_fill_at_level, experimental_ml_lfo_scores
+        nonlocal experimental_ml_lfo_wait_decisions
+        if not isinstance(signal, dict) or level_fill_optimizer is None:
+            return True
+        if experimental_level_fill_uid is None:
+            return True
+        pending_live_lfo = level_fill_optimizer.get_pending_signal(experimental_level_fill_uid)
+        if pending_live_lfo is not None:
+            signal["experimental_level_fill_blocked_by_pending"] = True
+            return False
+
+        policy = _resolve_backtest_lfo_policy(signal.get("strategy"))
+        signal["experimental_level_fill_enabled"] = bool(policy != "off")
+        signal["experimental_level_fill_policy"] = str(policy)
+        if policy == "off":
+            return True
+
+        level_fill_decision = None
+        if policy in {"rule", "hybrid"}:
+            level_fill_decision = level_fill_optimizer.evaluate(
+                signal,
+                bar_close,
+                structural_tracker=structural_level_tracker,
+                bank_filter=bank_filter,
+                bar_candle={
+                    "open": bar_open,
+                    "high": bar_high,
+                    "low": bar_low,
+                    "close": bar_close,
+                },
+            )
+
+        if policy in {"ml", "hybrid"} and experimental_ml_lfo_payload_ready:
+            bar_cache = _build_backtest_lfo_bar_cache(history_df_local)
+            bar_features = sg.compute_bar_features_from_ohlcv(bar_cache) if len(bar_cache) >= 45 else {}
+            bars_df_local = None
+            if isinstance(history_df_local, pd.DataFrame) and not history_df_local.empty:
+                required = {"open", "high", "low", "close", "volume"}
+                if required.issubset(set(history_df_local.columns)):
+                    bars_df_local = history_df_local.loc[
+                        :,
+                        ["open", "high", "low", "close", "volume"],
+                    ].tail(120).copy()
+            bank_base = (float(bar_close) // 12.5) * 12.5
+            dist_below = float(bar_close) - bank_base
+            dist_above = (bank_base + 12.5) - float(bar_close)
+            bar_range = float(bar_high) - float(bar_low)
+            body_pct = (float(bar_close) - float(bar_low)) / max(0.01, bar_range)
+            ml_score = ml_overlay_shadow.score_lfo(
+                signal=signal,
+                bar_features=bar_features,
+                dist_to_bank_below=float(dist_below),
+                dist_to_bank_above=float(dist_above),
+                bar_range_pts=float(bar_range),
+                bar_close_pct_body=float(body_pct),
+                sl_dist=float(_coerce_float(signal.get("sl_dist"), 0.0)),
+                tp_dist=float(_coerce_float(signal.get("tp_dist"), 0.0)),
+                session=str(session_name or ""),
+                mkt_regime=str(experimental_ml_lfo_current_regime or ""),
+                et_hour=int(current_hour_et),
+                bars_df=bars_df_local,
+                current_time=current_time,
+            )
+            if ml_score is not None:
+                experimental_ml_lfo_scores += 1
+                p_wait, threshold = ml_score
+                signal["experimental_ml_lfo_p_wait"] = float(p_wait)
+                signal["experimental_ml_lfo_threshold"] = float(threshold)
+                ml_wait = bool(float(p_wait) >= float(threshold))
+                signal["experimental_ml_lfo_choice"] = FILL_WAIT if ml_wait else FILL_IMMEDIATE
+                if ml_wait:
+                    experimental_ml_lfo_wait_decisions += 1
+                if policy == "ml":
+                    if ml_wait:
+                        level_fill_decision = ml_overlay_shadow.build_ml_wait_decision(
+                            signal,
+                            float(bar_close),
+                            p_wait=float(p_wait),
+                            threshold=float(threshold),
+                        )
+                    else:
+                        level_fill_decision = {
+                            "mode": FILL_IMMEDIATE,
+                            "target_price": None,
+                            "target_name": None,
+                            "dist": None,
+                            "reason": f"ml_lfo p_wait={float(p_wait):.3f}<{float(threshold):.3f}",
+                        }
+                elif policy == "hybrid" and (not ml_wait) and isinstance(level_fill_decision, dict):
+                    level_fill_decision = dict(level_fill_decision)
+                    level_fill_decision["mode"] = FILL_IMMEDIATE
+                    level_fill_decision["reason"] = (
+                        f"ml_lfo override p_wait={float(p_wait):.3f}<{float(threshold):.3f}"
+                    )
+
+        if not isinstance(level_fill_decision, dict):
+            level_fill_decision = {
+                "mode": FILL_IMMEDIATE,
+                "target_price": None,
+                "target_name": None,
+                "dist": None,
+                "reason": "no_lfo_decision",
+            }
+
+        signal["experimental_level_fill_mode"] = str(level_fill_decision.get("mode") or "")
+        signal["experimental_level_fill_reason"] = str(level_fill_decision.get("reason") or "")
+        signal["experimental_level_fill_target_price"] = level_fill_decision.get("target_price")
+        signal["experimental_level_fill_target_name"] = level_fill_decision.get("target_name")
+        signal["experimental_level_fill_dist"] = level_fill_decision.get("dist")
+
+        if signal["experimental_level_fill_mode"] == FILL_WAIT:
+            queued_signal = dict(signal)
+            queued_signal["experimental_level_fill_wait_queued"] = True
+            queued_signal["experimental_level_fill_queued_at"] = current_time.isoformat()
+            queued_signal["experimental_level_fill_policy"] = str(policy)
+            level_fill_optimizer.add_pending(
+                experimental_level_fill_uid,
+                queued_signal,
+                level_fill_decision,
+                bar_close,
+            )
+            experimental_level_fill_waits += 1
+            return False
+
+        if signal["experimental_level_fill_mode"] == FILL_AT_LEVEL:
+            experimental_level_fill_at_level += 1
+        else:
+            experimental_level_fill_immediate += 1
+        return True
+
+    def _apply_backtest_kalshi_overlay_to_signal(
+        signal: Optional[dict],
+        *,
+        current_price: float,
+        history_df_local: Optional[pd.DataFrame],
+    ) -> bool:
+        nonlocal experimental_kalshi_checked, experimental_kalshi_applied
+        nonlocal experimental_kalshi_blocked, experimental_kalshi_trimmed
+        nonlocal experimental_kalshi_tp_adjusted, experimental_kalshi_trail_enabled
+        if not experimental_kalshi_overlay_enabled or not isinstance(signal, dict):
+            return True
+        if experimental_kalshi_provider is None:
+            signal["kalshi_trade_overlay_applied"] = False
+            signal["kalshi_trade_overlay_reason"] = "provider_unavailable"
+            return True
+
+        overlay_cfg = (
+            CONFIG.get("KALSHI_TRADE_OVERLAY", {})
+            if isinstance(CONFIG.get("KALSHI_TRADE_OVERLAY", {}), dict)
+            else {}
+        )
+        if not bool((overlay_cfg or {}).get("enabled", False)):
+            signal["kalshi_trade_overlay_applied"] = False
+            signal["kalshi_trade_overlay_reason"] = "disabled"
+            return True
+
+        strat = str(signal.get("strategy", "") or "").strip()
+        apply_prefixes = (overlay_cfg or {}).get("apply_strategy_prefixes")
+        if isinstance(apply_prefixes, (list, tuple, set)) and apply_prefixes:
+            allowed = any(
+                strat.startswith(str(prefix or "").strip())
+                for prefix in apply_prefixes
+                if str(prefix or "").strip()
+            )
+            if not allowed:
+                signal["kalshi_trade_overlay_applied"] = False
+                signal["kalshi_trade_overlay_reason"] = "strategy_scoped_out"
+                signal["kalshi_entry_blocked"] = False
+                signal["kalshi_tp_trail_enabled"] = False
+                return True
+
+        signal.setdefault("entry_price", _coerce_float(signal.get("entry_price"), current_price))
+        experimental_kalshi_provider.set_context_time(pd.Timestamp(current_time))
+        settlement_hour = experimental_kalshi_provider.active_settlement_hour_et(
+            current_time,
+            rollover_minute=5,
+        )
+        if settlement_hour not in {12, 13, 14, 15, 16}:
+            signal["kalshi_trade_overlay_applied"] = False
+            signal["kalshi_trade_overlay_reason"] = "outside_gating_hours"
+            signal["kalshi_entry_blocked"] = False
+            signal["kalshi_tp_trail_enabled"] = False
+            return True
+
+        market_df_local = None
+        if isinstance(history_df_local, pd.DataFrame) and not history_df_local.empty:
+            required = {"open", "high", "low", "close"}
+            if required.issubset(set(history_df_local.columns)):
+                lookback_bars = max(
+                    100,
+                    _coerce_int((overlay_cfg or {}).get("lookback_bars"), 20000),
+                )
+                cols = [c for c in ["open", "high", "low", "close", "volume"] if c in history_df_local.columns]
+                market_df_local = history_df_local.loc[:, cols].tail(lookback_bars).copy()
+
+        price_action_profile = analyze_recent_price_action(market_df_local, overlay_cfg)
+        plan = build_trade_plan(
+            signal,
+            float(current_price),
+            experimental_kalshi_provider,
+            price_action_profile=price_action_profile,
+            overlay_cfg=overlay_cfg,
+            tick_size=TICK_SIZE,
+        )
+        experimental_kalshi_checked += 1
+
+        signal["kalshi_trade_overlay_applied"] = bool(plan.get("applied", False))
+        signal["kalshi_trade_overlay_reason"] = str(plan.get("reason", "") or "")
+        signal["kalshi_trade_overlay_role"] = str(plan.get("role", "") or "")
+        signal["kalshi_trade_overlay_mode"] = str(plan.get("mode", "") or "")
+        signal["kalshi_curve_informative"] = bool(plan.get("curve_informative", False))
+        signal["kalshi_entry_probability"] = plan.get("entry_probability")
+        signal["kalshi_probe_probability"] = plan.get("probe_probability")
+        signal["kalshi_entry_support_score"] = plan.get("entry_support_score")
+        signal["kalshi_entry_threshold"] = plan.get("entry_threshold")
+        signal["kalshi_tp_trail_enabled"] = bool(plan.get("trail_enabled", False))
+        signal["kalshi_tp_trigger_price"] = plan.get("trail_trigger_price")
+        signal["kalshi_tp_trail_buffer_ticks"] = int(
+            _coerce_int(plan.get("trail_buffer_ticks"), 0) or 0
+        )
+        signal["kalshi_tp_adjusted"] = bool(plan.get("tp_adjusted", False))
+
+        if not bool(plan.get("applied", False)):
+            return True
+
+        experimental_kalshi_applied += 1
+        if bool(plan.get("trail_enabled", False)):
+            experimental_kalshi_trail_enabled += 1
+
+        if bool(plan.get("entry_blocked", False)):
+            signal["kalshi_entry_blocked"] = True
+            experimental_kalshi_blocked += 1
+            record_filter("KalshiOverlay")
+            return False
+
+        signal["kalshi_entry_blocked"] = False
+        size_multiplier = _coerce_float(plan.get("size_multiplier"), 1.0)
+        base_size = max(1, _coerce_int(signal.get("size"), 1) or 1)
+        if size_multiplier < 0.999:
+            trimmed_size = max(
+                1,
+                int(math.floor((float(base_size) * float(size_multiplier)) + 1e-9)),
+            )
+            if trimmed_size != base_size:
+                signal["kalshi_entry_size_before"] = int(base_size)
+                signal["kalshi_entry_size_multiplier"] = float(size_multiplier)
+                signal["size"] = int(trimmed_size)
+                experimental_kalshi_trimmed += 1
+
+        adjusted_tp = _coerce_float(plan.get("tp_dist"), float("nan"))
+        old_tp = _coerce_float(signal.get("tp_dist"), float("nan"))
+        if math.isfinite(adjusted_tp) and adjusted_tp > 0.0 and math.isfinite(old_tp):
+            signal["kalshi_tp_target_price"] = plan.get("target_price")
+            if bool(plan.get("tp_adjusted", False)) and abs(old_tp - adjusted_tp) > 1e-9:
+                signal["tp_dist"] = float(adjusted_tp)
+                experimental_kalshi_tp_adjusted += 1
+        return True
+
     def handle_signal(signal: dict, bar_index: Optional[int] = None) -> None:
-        nonlocal pending_entry, pending_exit, pending_exit_reason, opposite_signal_count
+        nonlocal pending_entry, pending_exit, pending_exit_reason, pending_exit_target_family
+        nonlocal opposite_signal_count, opposite_signal_family
+        nonlocal backtest_de3_anti_flip_checked, backtest_de3_anti_flip_blocked
+        nonlocal opposite_reversal_policy_checked, opposite_reversal_policy_blocked
+        nonlocal experimental_level_fill_waits, experimental_level_fill_fires
+        nonlocal experimental_level_fill_aborts, experimental_level_fill_immediate
+        nonlocal experimental_level_fill_at_level
         if isinstance(signal, dict) and "market_conditions" not in signal:
             signal["market_conditions"] = _snapshot_market_conditions(
                 signal,
@@ -11318,35 +12566,143 @@ def run_backtest(
                 execution_price=bar_close,
             )
         if isinstance(signal, dict):
+            runtime_vol_regime = _resolve_runtime_vol_regime(signal, bar_index)
+            current_signal_regime = signal.get("vol_regime")
+            if runtime_vol_regime and current_signal_regime in (None, "", "UNKNOWN", "BYPASS"):
+                signal["vol_regime"] = str(runtime_vol_regime)
+            if trend_day_context_tier > 0 and trend_day_context_dir:
+                signal.setdefault("trend_day_tier", trend_day_context_tier)
+                signal.setdefault("trend_day_dir", trend_day_context_dir)
             if not _apply_de3_backtest_intraday_regime_control(
                 signal,
                 current_time,
                 bar_index=bar_index,
             ):
-                opposite_signal_count = 0
+                reset_opposite_signal_confirmation()
                 return
             if not _apply_de3_backtest_walkforward_gate(signal, current_time):
-                opposite_signal_count = 0
+                reset_opposite_signal_confirmation()
+                return
+            if not _apply_de3_backtest_drawdown_breaker(signal):
+                reset_opposite_signal_confirmation()
+                return
+            if not _apply_de3_backtest_trade_day_cluster_lockout(signal):
+                reset_opposite_signal_confirmation()
                 return
             if not _apply_de3_backtest_admission_control(signal):
-                opposite_signal_count = 0
+                reset_opposite_signal_confirmation()
                 return
+            if backtest_de3_anti_flip_enabled and str(signal.get("strategy", "")).startswith("DynamicEngine3"):
+                backtest_de3_anti_flip_checked += 1
+                active_trades_snapshot = _active_trades_snapshot()
+                anti_flip_reason = de3_flip_flop_guard_reason(
+                    signal,
+                    active_trades_snapshot,
+                    list(recent_closed_de3_trades),
+                    current_time,
+                    cfg=backtest_de3_anti_flip_cfg,
+                    default_tz=NY_TZ,
+                )
+                if anti_flip_reason:
+                    signal["de3_anti_flip_block_reason"] = anti_flip_reason
+                    backtest_de3_anti_flip_blocked += 1
+                    backtest_de3_anti_flip_reason_counts[anti_flip_reason] += 1
+                    record_filter("DE3AntiFlip")
+                    reset_opposite_signal_confirmation()
+                    return
 
-        if active_trade is None:
+        active_trades_snapshot = _active_trades_snapshot()
+        if not active_trades_snapshot:
+            if not _apply_backtest_live_lfo_to_signal(
+                signal,
+                history_df_local=history_df,
+            ):
+                reset_opposite_signal_confirmation()
+                return
+            if not _apply_backtest_kalshi_overlay_to_signal(
+                signal,
+                current_price=bar_close,
+                history_df_local=history_df,
+            ):
+                reset_opposite_signal_confirmation()
+                return
             if pending_entry is None:
                 pending_entry = signal
-            opposite_signal_count = 0
+            reset_opposite_signal_confirmation()
             return
-        if active_trade["side"] == signal["side"]:
-            opposite_signal_count = 0
+        active_side_name = _active_side_name()
+        signal_side = str(signal.get("side", "") or "").upper()
+        signal_family = _backtest_strategy_family_name(signal.get("strategy"))
+        if active_side_name == signal_side:
+            if signal_family and not _has_active_trade_for_family(signal_family):
+                if pending_entry is None:
+                    if not _apply_backtest_live_lfo_to_signal(
+                        signal,
+                        history_df_local=history_df,
+                    ):
+                        reset_opposite_signal_confirmation()
+                        return
+                    if not _apply_backtest_kalshi_overlay_to_signal(
+                        signal,
+                        current_price=bar_close,
+                        history_df_local=history_df,
+                    ):
+                        reset_opposite_signal_confirmation()
+                        return
+                    pending_entry = signal
+            reset_opposite_signal_confirmation()
             return
-        opposite_signal_count += 1
-        if opposite_signal_count >= OPPOSITE_SIGNAL_THRESHOLD:
+        if active_side_name not in {"LONG", "SHORT"}:
+            reset_opposite_signal_confirmation()
+            return
+        opposite_reversal_policy_checked += 1
+        opposite_reversal_gate = opposite_reversal_gate_reason(
+            signal,
+            active_trades_snapshot,
+            cfg=opposite_reversal_cfg,
+        )
+        if opposite_reversal_gate:
+            opposite_reversal_policy_blocked += 1
+            opposite_reversal_policy_reason_counts[opposite_reversal_gate] += 1
+            reset_opposite_signal_confirmation()
+            return
+        if (
+            opposite_reversal_require_same_active_trade_family
+            and (not signal_family or _active_trade_family_set() != {signal_family})
+        ):
+            reset_opposite_signal_confirmation()
+            return
+        if opposite_reversal_require_same_strategy_family:
+            if not signal_family:
+                reset_opposite_signal_confirmation()
+                return
+            if opposite_signal_family != signal_family:
+                opposite_signal_count = 1
+            else:
+                opposite_signal_count += 1
+            opposite_signal_family = signal_family
+        else:
+            opposite_signal_count += 1
+        if opposite_signal_count >= opposite_signal_threshold:
+            if pending_entry is None:
+                if not _apply_backtest_live_lfo_to_signal(
+                    signal,
+                    history_df_local=history_df,
+                ):
+                    reset_opposite_signal_confirmation()
+                    return
+                if not _apply_backtest_kalshi_overlay_to_signal(
+                    signal,
+                    current_price=bar_close,
+                        history_df_local=history_df,
+                    ):
+                        reset_opposite_signal_confirmation()
+                        return
+                pending_entry = signal
             pending_exit = True
             pending_exit_reason = "reverse"
-            if pending_entry is None:
-                pending_entry = signal
-            opposite_signal_count = 0
+            pending_exit_target_family = signal_family if signal_family else None
+            reset_opposite_signal_confirmation()
 
     mnq_pos = None
     vix_pos = None
@@ -11504,6 +12860,57 @@ def run_backtest(
             return False
         de3_manifold_adapt_shadow += 1
         return True
+
+    def _de3_cluster_lockout_scope_key(
+        rule: Optional[dict],
+        payload: Optional[dict],
+    ) -> str:
+        if not isinstance(rule, dict) or not isinstance(payload, dict):
+            return "__group__"
+        scope_mode = str(rule.get("lockout_scope", "group") or "group").strip().lower()
+        if scope_mode == "variant":
+            variant_id = _de3_variant_id_from_payload(payload)
+            return variant_id or "__missing_variant__"
+        if scope_mode == "session":
+            session_name = str(payload.get("session", "") or "").strip()
+            return session_name or "__missing_session__"
+        return "__group__"
+
+    def _de3_cluster_lockout_matches_rule(
+        rule: Optional[dict],
+        payload: Optional[dict],
+        *,
+        prefix: str,
+    ) -> bool:
+        if not isinstance(rule, dict) or not isinstance(payload, dict):
+            return False
+        prefix_text = str(prefix or "apply_").strip().lower()
+        variant_id = _de3_variant_id_from_payload(payload)
+        lane_name = str(
+            payload.get("de3_v4_selected_lane")
+            or payload.get("de3_strategy_type")
+            or ""
+        ).strip()
+        filter_pairs = (
+            (f"{prefix_text}variants", variant_id, False),
+            (f"{prefix_text}sessions", str(payload.get("session", "") or ""), True),
+            (f"{prefix_text}sides", str(payload.get("side", "") or ""), True),
+            (f"{prefix_text}lanes", lane_name, True),
+            (f"{prefix_text}timeframes", str(payload.get("de3_timeframe", "") or ""), True),
+            (
+                f"{prefix_text}lane_selection_reasons",
+                str(payload.get("de3_v4_lane_selection_reason", "") or ""),
+                True,
+            ),
+        )
+        for rule_key, payload_value, lower in filter_pairs:
+            if not _match_de3_rule_values(rule.get(rule_key, []), payload_value, lower=lower):
+                return False
+        return _match_de3_context_profile_filters_with_prefix(
+            rule,
+            payload,
+            prefix=prefix_text,
+        )
 
     def _de3_admission_key_from_payload(payload: Optional[dict]) -> str:
         if not isinstance(payload, dict):
@@ -11717,6 +13124,26 @@ def run_backtest(
             de3_intraday_regime_state_counts["lane_skip"] += 1
             signal_payload["de3_intraday_regime_state"] = "lane_skip"
             return True
+        variant_id = str(
+            signal_payload.get("de3_v4_selected_variant_id")
+            or signal_payload.get("sub_strategy")
+            or ""
+        ).strip()
+        signal_payload["de3_intraday_regime_variant_id"] = variant_id
+        if de3_intraday_regime_apply_variants and not _match_de3_rule_values(
+            de3_intraday_regime_apply_variants,
+            variant_id,
+        ):
+            de3_intraday_regime_state_counts["variant_skip"] += 1
+            signal_payload["de3_intraday_regime_state"] = "variant_skip"
+            return True
+        if de3_intraday_regime_exclude_variants and _match_de3_rule_values(
+            de3_intraday_regime_exclude_variants,
+            variant_id,
+        ):
+            de3_intraday_regime_state_counts["variant_excluded"] += 1
+            signal_payload["de3_intraday_regime_state"] = "variant_excluded"
+            return True
 
         atr20 = float(atr20_arr[idx]) if idx < len(atr20_arr) and math.isfinite(atr20_arr[idx]) else float("nan")
         if not math.isfinite(atr20) or atr20 <= 0.0:
@@ -11733,6 +13160,26 @@ def run_backtest(
         prior_low = float(de3_prior_session_low_arr[idx]) if math.isfinite(de3_prior_session_low_arr[idx]) else float("nan")
         orh_val = float(ny_orh_arr[idx]) if math.isfinite(ny_orh_arr[idx]) else float("nan")
         orl_val = float(ny_orl_arr[idx]) if math.isfinite(ny_orl_arr[idx]) else float("nan")
+        session_range_ratio = (
+            float(de3_session_range_ratio_arr[idx])
+            if idx < len(de3_session_range_ratio_arr) and math.isfinite(de3_session_range_ratio_arr[idx])
+            else float("nan")
+        )
+        session_volume_ratio = (
+            float(de3_session_volume_ratio_arr[idx])
+            if idx < len(de3_session_volume_ratio_arr) and math.isfinite(de3_session_volume_ratio_arr[idx])
+            else float("nan")
+        )
+        recent_bar_range_ratio = (
+            float(de3_recent_max_bar_range_ratio_arr[idx])
+            if idx < len(de3_recent_max_bar_range_ratio_arr) and math.isfinite(de3_recent_max_bar_range_ratio_arr[idx])
+            else float("nan")
+        )
+        recent_bar_volume_ratio = (
+            float(de3_recent_max_bar_volume_ratio_arr[idx])
+            if idx < len(de3_recent_max_bar_volume_ratio_arr) and math.isfinite(de3_recent_max_bar_volume_ratio_arr[idx])
+            else float("nan")
+        )
 
         pressure_start = idx
         while (
@@ -11973,6 +13420,96 @@ def run_backtest(
                     bullish_score += contrib
                     bullish_reasons.append(f"or_break={bull_break_atr:.2f}")
 
+        shock_session_range_score = _de3_intraday_regime_component(
+            session_range_ratio,
+            de3_intraday_regime_shock_session_range_min,
+            de3_intraday_regime_shock_session_range_weight,
+        )
+        shock_session_volume_score = _de3_intraday_regime_component(
+            session_volume_ratio,
+            de3_intraday_regime_shock_session_volume_min,
+            de3_intraday_regime_shock_session_volume_weight,
+        )
+        shock_recent_bar_range_score = _de3_intraday_regime_component(
+            recent_bar_range_ratio,
+            de3_intraday_regime_shock_recent_bar_range_min,
+            de3_intraday_regime_shock_recent_bar_range_weight,
+        )
+        shock_recent_bar_volume_score = _de3_intraday_regime_component(
+            recent_bar_volume_ratio,
+            de3_intraday_regime_shock_recent_bar_volume_min,
+            de3_intraday_regime_shock_recent_bar_volume_weight,
+        )
+        shock_total_score = float(
+            shock_session_range_score
+            + shock_session_volume_score
+            + shock_recent_bar_range_score
+            + shock_recent_bar_volume_score
+        )
+        bearish_shock_hits = 0
+        bullish_shock_hits = 0
+        shock_direction_vwap_min = max(
+            de3_intraday_regime_vwap_dist_min_atr,
+            de3_intraday_regime_shock_direction_min_atr * 0.35,
+        )
+        shock_direction_pressure_min = max(
+            de3_intraday_regime_pressure_balance_min,
+            0.18,
+        )
+        if math.isfinite(session_move_atr):
+            if session_move_atr <= -max(
+                de3_intraday_regime_session_move_min_atr,
+                de3_intraday_regime_shock_direction_min_atr,
+            ):
+                bearish_shock_hits += 1
+            elif session_move_atr >= max(
+                de3_intraday_regime_session_move_min_atr,
+                de3_intraday_regime_shock_direction_min_atr,
+            ):
+                bullish_shock_hits += 1
+        if math.isfinite(net_return_atr):
+            if net_return_atr <= -max(
+                de3_intraday_regime_net_return_min_atr,
+                de3_intraday_regime_shock_direction_min_atr,
+            ):
+                bearish_shock_hits += 1
+            elif net_return_atr >= max(
+                de3_intraday_regime_net_return_min_atr,
+                de3_intraday_regime_shock_direction_min_atr,
+            ):
+                bullish_shock_hits += 1
+        if math.isfinite(vwap_dist_atr):
+            if vwap_dist_atr <= -shock_direction_vwap_min:
+                bearish_shock_hits += 1
+            elif vwap_dist_atr >= shock_direction_vwap_min:
+                bullish_shock_hits += 1
+        if bear_pressure_balance >= shock_direction_pressure_min:
+            bearish_shock_hits += 1
+        elif bull_pressure_balance >= shock_direction_pressure_min:
+            bullish_shock_hits += 1
+        if shock_total_score > 0.0:
+            shock_reasons = []
+            if shock_session_range_score > 0.0:
+                shock_reasons.append(f"shock_range={session_range_ratio:.2f}")
+            if shock_session_volume_score > 0.0:
+                shock_reasons.append(f"shock_volume={session_volume_ratio:.2f}")
+            if shock_recent_bar_range_score > 0.0:
+                shock_reasons.append(f"shock_bar_range={recent_bar_range_ratio:.2f}")
+            if shock_recent_bar_volume_score > 0.0:
+                shock_reasons.append(f"shock_bar_volume={recent_bar_volume_ratio:.2f}")
+            if (
+                bearish_shock_hits >= de3_intraday_regime_shock_alignment_hits_min
+                and bearish_shock_hits >= (bullish_shock_hits + 1)
+            ):
+                bearish_score += shock_total_score
+                bearish_reasons.extend(shock_reasons)
+            elif (
+                bullish_shock_hits >= de3_intraday_regime_shock_alignment_hits_min
+                and bullish_shock_hits >= (bearish_shock_hits + 1)
+            ):
+                bullish_score += shock_total_score
+                bullish_reasons.extend(shock_reasons)
+
         weak_signal, weak_metrics = _de3_intraday_regime_signal_is_weak(signal_payload)
         signal_payload["de3_intraday_regime_signal_weak"] = bool(weak_signal)
         for metric_name, metric_value in weak_metrics.items():
@@ -12081,12 +13618,37 @@ def run_backtest(
         signal_payload["de3_intraday_regime_pressure_balance"] = float(bear_pressure_balance)
         signal_payload["de3_intraday_regime_net_return_atr"] = float(net_return_atr)
         signal_payload["de3_intraday_regime_route_bias"] = float(route_bias)
+        signal_payload["de3_intraday_regime_session_range_ratio"] = (
+            float(session_range_ratio) if math.isfinite(session_range_ratio) else None
+        )
+        signal_payload["de3_intraday_regime_session_volume_ratio"] = (
+            float(session_volume_ratio) if math.isfinite(session_volume_ratio) else None
+        )
+        signal_payload["de3_intraday_regime_recent_bar_range_ratio"] = (
+            float(recent_bar_range_ratio) if math.isfinite(recent_bar_range_ratio) else None
+        )
+        signal_payload["de3_intraday_regime_recent_bar_volume_ratio"] = (
+            float(recent_bar_volume_ratio) if math.isfinite(recent_bar_volume_ratio) else None
+        )
+        signal_payload["de3_intraday_regime_shock_score"] = float(shock_total_score)
+        signal_payload["de3_intraday_regime_bearish_shock_hits"] = int(bearish_shock_hits)
+        signal_payload["de3_intraday_regime_bullish_shock_hits"] = int(bullish_shock_hits)
         signal_payload["de3_intraday_regime_route_long_score"] = float(route_long_score)
         signal_payload["de3_intraday_regime_route_short_score"] = float(route_short_score)
         signal_payload["de3_intraday_regime_bearish_reasons"] = list(bearish_reasons)
         signal_payload["de3_intraday_regime_bullish_reasons"] = list(bullish_reasons)
         signal_payload["de3_intraday_regime_state"] = str(state)
         signal_payload["de3_intraday_regime_action"] = str(action)
+
+        observe_only = de3_intraday_regime_mode == "observe"
+        if observe_only:
+            signal_payload["de3_intraday_regime_action"] = "observe"
+            signal_payload["de3_intraday_regime_reasons"] = list(reasons)
+            if state == "neutral":
+                signal_payload["de3_intraday_regime_state"] = "observe_neutral"
+            else:
+                signal_payload["de3_intraday_regime_state"] = f"observe_{state}"
+            return True
 
         if block:
             de3_intraday_regime_state_counts[str(state)] += 1
@@ -12541,6 +14103,410 @@ def run_backtest(
         signal_payload["de3_signal_size_rules_final_size"] = int(current_size)
         return int(current_size)
 
+    def _record_de3_backtest_trade_day_cluster_lockout_outcome(
+        trade_payload: Optional[dict],
+    ) -> None:
+        nonlocal de3_cluster_lockout_triggered
+        if not de3_cluster_lockout_enabled or not isinstance(trade_payload, dict):
+            return
+        if not _is_de3_v4_signal_for_sizing(trade_payload):
+            return
+        size = _coerce_int(trade_payload.get("size", 0), 0)
+        pnl_net = _coerce_float(trade_payload.get("pnl_net"), float("nan"))
+        if size <= 0 or not math.isfinite(pnl_net):
+            return
+        timestamp = trade_payload.get("exit_time") or trade_payload.get("entry_time")
+        trade_day = _de3_trade_day_key(
+            timestamp,
+            roll_hour_et=de3_cluster_lockout_roll_hour_et,
+        )
+        if trade_day is None:
+            return
+        trade_day_key = str(trade_day)
+        per_contract_pnl = float(pnl_net) / float(size)
+        for index, rule in enumerate(de3_cluster_lockout_rules):
+            rule_name = str(
+                rule.get("name") or f"cluster_lockout_rule_{index + 1}"
+            ).strip() or f"cluster_lockout_rule_{index + 1}"
+            if not _de3_cluster_lockout_matches_rule(
+                rule,
+                trade_payload,
+                prefix="trigger_",
+            ):
+                continue
+            trigger_pnl_lte = _coerce_float(
+                rule.get("trigger_on_pnl_per_contract_lte_usd", -0.01),
+                -0.01,
+            )
+            if per_contract_pnl > float(trigger_pnl_lte):
+                continue
+            scope_key = _de3_cluster_lockout_scope_key(rule, trade_payload)
+            scope_state = de3_cluster_lockout_state[rule_name][trade_day_key][scope_key]
+            if not scope_state:
+                scope_state.update(
+                    {
+                        "losses": 0,
+                        "cum_pnl_per_contract": 0.0,
+                        "locked": False,
+                    }
+                )
+            if bool(scope_state.get("locked", False)):
+                continue
+            scope_state["losses"] = int(scope_state.get("losses", 0)) + 1
+            scope_state["cum_pnl_per_contract"] = float(
+                scope_state.get("cum_pnl_per_contract", 0.0)
+            ) + float(per_contract_pnl)
+            rolling_loss_days_to_lock = max(
+                0,
+                _coerce_int(rule.get("rolling_loss_days_to_lock", 0), 0),
+            )
+            rolling_loss_days_lookback = max(
+                int(rolling_loss_days_to_lock),
+                _coerce_int(
+                    rule.get("rolling_loss_days_lookback", rolling_loss_days_to_lock),
+                    int(rolling_loss_days_to_lock),
+                ),
+            )
+            rolling_loss_day_count = 0
+            if rolling_loss_days_to_lock > 0:
+                loss_days = de3_cluster_lockout_loss_days[rule_name][scope_key]
+                loss_days.add(trade_day)
+                lookback_start = trade_day - dt.timedelta(
+                    days=max(0, int(rolling_loss_days_lookback) - 1)
+                )
+                rolling_loss_day_count = sum(
+                    1 for day in loss_days if lookback_start <= day <= trade_day
+                )
+            losses_to_lock = max(1, _coerce_int(rule.get("losses_to_lock", 1), 1))
+            raw_cum_limit = rule.get("cumulative_pnl_per_contract_lte_usd")
+            cum_limit = (
+                float("nan")
+                if raw_cum_limit in (None, "")
+                else _coerce_float(raw_cum_limit, float("nan"))
+            )
+            if rolling_loss_days_to_lock > 0:
+                # Optional cluster confirmation: require multiple distinct loss
+                # trade-days inside a short window before the cooldown fires.
+                should_lock = int(rolling_loss_day_count) >= int(rolling_loss_days_to_lock)
+            else:
+                should_lock = int(scope_state["losses"]) >= int(losses_to_lock)
+                if math.isfinite(cum_limit):
+                    should_lock = should_lock and float(
+                        scope_state["cum_pnl_per_contract"]
+                    ) <= float(cum_limit)
+            if should_lock:
+                cooldown_trade_days = max(
+                    1,
+                    _coerce_int(rule.get("cooldown_trade_days", 1), 1),
+                )
+                active_until = trade_day + dt.timedelta(days=int(cooldown_trade_days) - 1)
+                scope_state["locked"] = True
+                de3_cluster_lockout_triggered += 1
+                de3_cluster_lockout_rule_trigger_counts[rule_name] += 1
+                de3_cluster_lockout_active_until[rule_name][scope_key] = active_until
+                de3_cluster_lockout_last_trigger_meta[rule_name][scope_key] = {
+                    "trade_day": trade_day_key,
+                    "active_until": active_until.isoformat(),
+                    "losses": int(scope_state["losses"]),
+                    "cum_pnl_per_contract": float(scope_state["cum_pnl_per_contract"]),
+                    "rolling_loss_days": int(rolling_loss_day_count),
+                    "rolling_loss_days_to_lock": int(rolling_loss_days_to_lock),
+                    "rolling_loss_days_lookback": int(rolling_loss_days_lookback),
+                }
+
+    def _record_de3_backtest_drawdown_breaker_outcome(
+        trade_payload: Optional[dict],
+    ) -> None:
+        nonlocal de3_drawdown_breaker_triggered
+        nonlocal de3_drawdown_breaker_realized_net
+        nonlocal de3_drawdown_breaker_peak_net
+        nonlocal de3_drawdown_breaker_current_dd
+        nonlocal de3_drawdown_breaker_trigger_meta
+        nonlocal de3_drawdown_breaker_is_active
+        if not isinstance(trade_payload, dict):
+            return
+        if not _is_de3_v4_signal_for_sizing(trade_payload):
+            return
+        pnl_net = _coerce_float(trade_payload.get("pnl_net"), float("nan"))
+        if not math.isfinite(pnl_net):
+            return
+        de3_drawdown_breaker_realized_net += float(pnl_net)
+        de3_drawdown_breaker_peak_net = max(
+            float(de3_drawdown_breaker_peak_net),
+            float(de3_drawdown_breaker_realized_net),
+        )
+        de3_drawdown_breaker_current_dd = max(
+            0.0,
+            float(de3_drawdown_breaker_peak_net) - float(de3_drawdown_breaker_realized_net),
+        )
+        if not de3_drawdown_breaker_enabled:
+            return
+        if (
+            not de3_drawdown_breaker_is_active
+            and float(de3_drawdown_breaker_max_dd) > 0.0
+            and float(de3_drawdown_breaker_current_dd) >= float(de3_drawdown_breaker_max_dd)
+        ):
+            de3_drawdown_breaker_is_active = True
+            de3_drawdown_breaker_triggered += 1
+            de3_drawdown_breaker_trigger_meta = _serialize_json_value({
+                "trade_id": trade_payload.get("trade_id"),
+                "entry_time": trade_payload.get("entry_time"),
+                "exit_time": trade_payload.get("exit_time"),
+                "sub_strategy": trade_payload.get("sub_strategy"),
+                "side": trade_payload.get("side"),
+                "pnl_net": float(pnl_net),
+                "realized_net": float(de3_drawdown_breaker_realized_net),
+                "peak_net": float(de3_drawdown_breaker_peak_net),
+                "current_drawdown_usd": float(de3_drawdown_breaker_current_dd),
+            })
+
+    def _de3_drawdown_breaker_scope_rule_match(
+        raw_values,
+        value: object,
+        *,
+        lower: bool = False,
+    ) -> bool:
+        if not isinstance(raw_values, (list, tuple, set)):
+            return True
+        normalized = {
+            (str(item).strip().lower() if lower else str(item).strip())
+            for item in raw_values
+            if str(item).strip()
+        }
+        if not normalized:
+            return True
+        key = str(value or "").strip().lower() if lower else str(value or "").strip()
+        return key in normalized
+
+    def _de3_drawdown_breaker_allow_rule_name(rule: dict, index: int) -> str:
+        name = str(rule.get("name") or "").strip()
+        return name or f"drawdown_breaker_allow_rule_{index + 1}"
+
+    def _de3_drawdown_breaker_allow_rule_reason(
+        signal_payload: Optional[dict],
+    ) -> str:
+        if not isinstance(signal_payload, dict):
+            return ""
+        if not de3_drawdown_breaker_allow_rules:
+            return ""
+        variant_id = str(
+            signal_payload.get("de3_v4_selected_variant_id")
+            or signal_payload.get("sub_strategy")
+            or ""
+        ).strip().lower()
+        session_name = str(signal_payload.get("session", "") or "").strip()
+        side_name = str(signal_payload.get("side", "") or "").strip().upper()
+        timeframe_name = str(signal_payload.get("de3_timeframe", "") or "").strip().lower()
+        day_profile = str(signal_payload.get("de3_ctx_day_profile", "") or "").strip().lower()
+        day_type = str(signal_payload.get("de3_ctx_day_type", "") or "").strip().lower()
+        for index, rule in enumerate(de3_drawdown_breaker_allow_rules):
+            if not isinstance(rule, dict) or not bool(rule.get("enabled", True)):
+                continue
+            if not _de3_drawdown_breaker_scope_rule_match(
+                rule.get("apply_variants", []),
+                variant_id,
+                lower=True,
+            ):
+                continue
+            if not _de3_drawdown_breaker_scope_rule_match(
+                rule.get("apply_sessions", []),
+                session_name,
+            ):
+                continue
+            if not _de3_drawdown_breaker_scope_rule_match(
+                rule.get("apply_sides", []),
+                side_name,
+            ):
+                continue
+            if not _de3_drawdown_breaker_scope_rule_match(
+                rule.get("apply_timeframes", []),
+                timeframe_name,
+                lower=True,
+            ):
+                continue
+            if not _de3_drawdown_breaker_scope_rule_match(
+                rule.get("apply_day_profiles", []),
+                day_profile,
+                lower=True,
+            ):
+                continue
+            if not _de3_drawdown_breaker_scope_rule_match(
+                rule.get("apply_day_types", []),
+                day_type,
+                lower=True,
+            ):
+                continue
+            return _de3_drawdown_breaker_allow_rule_name(rule, index)
+        return ""
+
+    def _apply_de3_backtest_drawdown_breaker(
+        signal_payload: Optional[dict],
+    ) -> bool:
+        nonlocal de3_drawdown_breaker_checked
+        nonlocal de3_drawdown_breaker_blocked
+        nonlocal de3_drawdown_breaker_quarantine_passed
+        nonlocal de3_drawdown_breaker_allow_rule_pass_counts
+        if not isinstance(signal_payload, dict):
+            return True
+        signal_payload["de3_drawdown_breaker_enabled"] = bool(de3_drawdown_breaker_enabled)
+        signal_payload["de3_drawdown_breaker_checked"] = False
+        signal_payload["de3_drawdown_breaker_blocked"] = False
+        signal_payload["de3_drawdown_breaker_state"] = "disabled"
+        signal_payload["de3_drawdown_breaker_max_drawdown_usd"] = (
+            float(de3_drawdown_breaker_max_dd) if de3_drawdown_breaker_enabled else None
+        )
+        signal_payload["de3_drawdown_breaker_mode"] = (
+            str(de3_drawdown_breaker_mode) if de3_drawdown_breaker_enabled else None
+        )
+        signal_payload["de3_drawdown_breaker_matched_pattern"] = ""
+        signal_payload["de3_drawdown_breaker_allow_rule_name"] = ""
+        signal_payload["de3_drawdown_breaker_realized_net_usd"] = (
+            float(de3_drawdown_breaker_realized_net) if de3_drawdown_breaker_enabled else None
+        )
+        signal_payload["de3_drawdown_breaker_peak_net_usd"] = (
+            float(de3_drawdown_breaker_peak_net) if de3_drawdown_breaker_enabled else None
+        )
+        signal_payload["de3_drawdown_breaker_current_drawdown_usd"] = (
+            float(de3_drawdown_breaker_current_dd) if de3_drawdown_breaker_enabled else None
+        )
+        if not de3_drawdown_breaker_enabled:
+            return True
+        if not _is_de3_v4_signal_for_sizing(signal_payload):
+            signal_payload["de3_drawdown_breaker_state"] = "not_de3_v4"
+            return True
+        signal_payload["de3_drawdown_breaker_checked"] = True
+        de3_drawdown_breaker_checked += 1
+        if not de3_drawdown_breaker_is_active:
+            signal_payload["de3_drawdown_breaker_state"] = "neutral"
+            return True
+        signal_payload["de3_drawdown_breaker_blocked"] = True
+        signal_payload["de3_drawdown_breaker_trigger_meta"] = _serialize_json_value(
+            dict(de3_drawdown_breaker_trigger_meta)
+        )
+        if str(de3_drawdown_breaker_mode) == "quarantine_patterns":
+            variant_id = str(
+                signal_payload.get("de3_v4_selected_variant_id")
+                or signal_payload.get("sub_strategy")
+                or ""
+            ).strip().lower()
+            matched_pattern = ""
+            for pattern in de3_drawdown_breaker_post_trigger_patterns:
+                if pattern and pattern in variant_id:
+                    matched_pattern = str(pattern)
+                    break
+            if matched_pattern:
+                allow_reason = _de3_drawdown_breaker_allow_rule_reason(signal_payload)
+                if allow_reason:
+                    signal_payload["de3_drawdown_breaker_blocked"] = False
+                    signal_payload["de3_drawdown_breaker_state"] = "quarantine_allow_rule_pass"
+                    signal_payload["de3_drawdown_breaker_matched_pattern"] = str(matched_pattern)
+                    signal_payload["de3_drawdown_breaker_allow_rule_name"] = str(allow_reason)
+                    de3_drawdown_breaker_quarantine_passed += 1
+                    de3_drawdown_breaker_allow_rule_pass_counts[str(allow_reason)] += 1
+                    return True
+                signal_payload["de3_drawdown_breaker_state"] = "blocked_quarantine_pattern"
+                signal_payload["de3_drawdown_breaker_matched_pattern"] = str(matched_pattern)
+                de3_drawdown_breaker_blocked += 1
+                de3_drawdown_breaker_pattern_block_counts[str(matched_pattern)] += 1
+                return False
+            signal_payload["de3_drawdown_breaker_blocked"] = False
+            signal_payload["de3_drawdown_breaker_state"] = "quarantine_pass"
+            de3_drawdown_breaker_quarantine_passed += 1
+            return True
+        signal_payload["de3_drawdown_breaker_state"] = "blocked"
+        de3_drawdown_breaker_blocked += 1
+        return False
+
+    def _apply_de3_backtest_trade_day_cluster_lockout(
+        signal_payload: Optional[dict],
+    ) -> bool:
+        nonlocal de3_cluster_lockout_checked
+        nonlocal de3_cluster_lockout_blocked
+        if not isinstance(signal_payload, dict):
+            return True
+        signal_payload["de3_cluster_lockout_enabled"] = bool(de3_cluster_lockout_enabled)
+        signal_payload["de3_cluster_lockout_checked"] = False
+        signal_payload["de3_cluster_lockout_blocked"] = False
+        signal_payload["de3_cluster_lockout_rule_name"] = ""
+        signal_payload["de3_cluster_lockout_scope_key"] = ""
+        signal_payload["de3_cluster_lockout_trade_day"] = ""
+        signal_payload["de3_cluster_lockout_active_until_trade_day"] = ""
+        signal_payload["de3_cluster_lockout_losses"] = None
+        signal_payload["de3_cluster_lockout_cum_pnl_per_contract_usd"] = None
+        signal_payload["de3_cluster_lockout_rolling_loss_days"] = None
+        signal_payload["de3_cluster_lockout_rolling_loss_days_to_lock"] = None
+        signal_payload["de3_cluster_lockout_rolling_loss_days_lookback"] = None
+        signal_payload["de3_cluster_lockout_state"] = "disabled"
+        if not de3_cluster_lockout_enabled:
+            return True
+        if not _is_de3_v4_signal_for_sizing(signal_payload):
+            signal_payload["de3_cluster_lockout_state"] = "not_de3_v4"
+            return True
+        trade_day = _de3_trade_day_key(
+            current_time,
+            roll_hour_et=de3_cluster_lockout_roll_hour_et,
+        )
+        signal_payload["de3_cluster_lockout_checked"] = True
+        de3_cluster_lockout_checked += 1
+        if trade_day is None:
+            signal_payload["de3_cluster_lockout_state"] = "missing_trade_day"
+            return True
+        trade_day_key = str(trade_day)
+        signal_payload["de3_cluster_lockout_trade_day"] = trade_day_key
+        for index, rule in enumerate(de3_cluster_lockout_rules):
+            rule_name = str(
+                rule.get("name") or f"cluster_lockout_rule_{index + 1}"
+            ).strip() or f"cluster_lockout_rule_{index + 1}"
+            if not _de3_cluster_lockout_matches_rule(
+                rule,
+                signal_payload,
+                prefix="apply_",
+            ):
+                continue
+            scope_key = _de3_cluster_lockout_scope_key(rule, signal_payload)
+            active_until = de3_cluster_lockout_active_until[rule_name].get(scope_key)
+            if active_until is None:
+                continue
+            if trade_day > active_until:
+                continue
+            trigger_meta = de3_cluster_lockout_last_trigger_meta[rule_name].get(
+                scope_key,
+                {},
+            )
+            signal_payload["de3_cluster_lockout_rule_name"] = rule_name
+            signal_payload["de3_cluster_lockout_scope_key"] = scope_key
+            signal_payload["de3_cluster_lockout_active_until_trade_day"] = (
+                active_until.isoformat()
+            )
+            signal_payload["de3_cluster_lockout_losses"] = int(
+                trigger_meta.get("losses", 0)
+            )
+            signal_payload["de3_cluster_lockout_cum_pnl_per_contract_usd"] = float(
+                trigger_meta.get("cum_pnl_per_contract", 0.0)
+            )
+            rolling_loss_days = trigger_meta.get("rolling_loss_days")
+            if rolling_loss_days is not None:
+                signal_payload["de3_cluster_lockout_rolling_loss_days"] = int(
+                    _coerce_int(rolling_loss_days, 0)
+                )
+            rolling_loss_days_to_lock = trigger_meta.get("rolling_loss_days_to_lock")
+            if rolling_loss_days_to_lock is not None:
+                signal_payload["de3_cluster_lockout_rolling_loss_days_to_lock"] = int(
+                    _coerce_int(rolling_loss_days_to_lock, 0)
+                )
+            rolling_loss_days_lookback = trigger_meta.get("rolling_loss_days_lookback")
+            if rolling_loss_days_lookback is not None:
+                signal_payload["de3_cluster_lockout_rolling_loss_days_lookback"] = int(
+                    _coerce_int(rolling_loss_days_lookback, 0)
+                )
+            de3_cluster_lockout_blocked += 1
+            de3_cluster_lockout_rule_block_counts[rule_name] += 1
+            signal_payload["de3_cluster_lockout_blocked"] = True
+            signal_payload["de3_cluster_lockout_state"] = "blocked"
+            return False
+        signal_payload["de3_cluster_lockout_state"] = "neutral"
+        return True
+
     def _apply_de3_backtest_admission_control(signal_payload: Optional[dict]) -> bool:
         nonlocal de3_admission_checked
         nonlocal de3_admission_applied
@@ -12994,6 +14960,16 @@ def run_backtest(
         bar_high = float(high_arr[i])
         bar_low = float(low_arr[i])
         bar_close = float(close_arr[i])
+        if experimental_ml_lfo_regime_classifier is not None:
+            try:
+                regime_label = experimental_ml_lfo_regime_classifier.update(
+                    current_time,
+                    bar_close,
+                )
+                if regime_label and str(regime_label).strip().lower() != "warmup":
+                    experimental_ml_lfo_current_regime = str(regime_label).strip().lower()
+            except Exception:
+                pass
         current_de3_trade_day_key = _de3_trade_day_key(
             current_time,
             roll_hour_et=de3_trade_day_roll_hour_et,
@@ -13043,7 +15019,7 @@ def run_backtest(
             else:
                 asia_tf_box_range_current = math.nan
 
-        if TREND_DAY_ENABLED and enabled_filter_trend_day_tier:
+        if trend_day_context_required:
             if last_trend_session != trend_session:
                 last_trend_session = trend_session
                 trend_day_tier = 0
@@ -13386,7 +15362,7 @@ def run_backtest(
                                 f"{TREND_DAY_DEACTIVATE_SIGMA_DECAY_BARS} bars)",
                                 current_time,
                             )
-            if trend_day_tier > 0 and (
+            if enabled_filter_trend_day_tier and trend_day_tier > 0 and (
                 trend_day_tier != last_trend_day_tier or trend_day_dir != last_trend_day_dir
             ):
                 if BACKTEST_TRENDDAY_VERBOSE:
@@ -13412,11 +15388,20 @@ def run_backtest(
                         f"adx_dn={adx_strong_down} adx_up={adx_strong_up} "
                         f"sticky_dir={sticky_trend_dir} computed_dir={computed_dir} computed_tier={computed_tier}"
                     )
+            trend_day_context_tier = trend_day_tier
+            trend_day_context_dir = trend_day_dir
             last_trend_day_tier = trend_day_tier
             last_trend_day_dir = trend_day_dir
+            if not enabled_filter_trend_day_tier:
+                trend_day_tier = 0
+                trend_day_dir = None
+                last_trend_day_tier = 0
+                last_trend_day_dir = None
         else:
             trend_day_tier = 0
             trend_day_dir = None
+            trend_day_context_tier = 0
+            trend_day_context_dir = None
             last_trend_day_tier = 0
             last_trend_day_dir = None
             sticky_trend_dir = None
@@ -13428,8 +15413,8 @@ def run_backtest(
         in_test_range = current_time >= start_time
 
         if in_test_range:
-            if holiday_closed_now and active_trade is not None:
-                close_trade(
+            if holiday_closed_now and _active_trade_count() > 0:
+                close_active_trades(
                     bar_open,
                     current_time,
                     "holiday_flat",
@@ -13438,11 +15423,18 @@ def run_backtest(
                 holiday_flat_closes += 1
                 pending_exit = False
                 pending_exit_reason = None
-                opposite_signal_count = 0
+                pending_exit_target_family = None
+                reset_opposite_signal_confirmation()
             if holiday_closed_now and pending_loose_signals:
                 pending_loose_signals.clear()
-            if force_flat_now and active_trade is not None:
-                close_trade(
+            if (
+                holiday_closed_now
+                and level_fill_optimizer is not None
+                and experimental_level_fill_uid is not None
+            ):
+                level_fill_optimizer.remove_pending(experimental_level_fill_uid)
+            if force_flat_now and _active_trade_count() > 0:
+                close_active_trades(
                     bar_open,
                     current_time,
                     "session_flat",
@@ -13451,16 +15443,19 @@ def run_backtest(
                 session_flat_closes += 1
                 pending_exit = False
                 pending_exit_reason = None
-                opposite_signal_count = 0
-            if pending_exit and active_trade is not None:
-                close_trade(
+                pending_exit_target_family = None
+                reset_opposite_signal_confirmation()
+            if pending_exit and _active_trade_count() > 0:
+                close_active_trades(
                     bar_open,
                     current_time,
                     pending_exit_reason or "reverse",
                     bar_index=i,
+                    target_family=pending_exit_target_family,
                 )
                 pending_exit = False
                 pending_exit_reason = None
+                pending_exit_target_family = None
             if pending_entry is not None:
                 if holiday_closed_now:
                     record_filter("HolidayClosed")
@@ -13487,60 +15482,74 @@ def run_backtest(
                     open_trade(pending_entry, bar_open, current_time, bar_index=i)
                     pending_entry = None
 
-        if active_trade is not None:
-            entry_price = active_trade["entry_price"]
-            if active_trade["side"] == "LONG":
-                mfe_points = bar_high - entry_price
-                mae_points = entry_price - bar_low
-            else:
-                mfe_points = entry_price - bar_low
-                mae_points = bar_high - entry_price
-            if (not skip_mfe_mae) or bool(active_trade.get("de3_break_even_enabled", False)):
-                active_trade["mfe_points"] = max(active_trade.get("mfe_points", 0.0), mfe_points)
-            if not skip_mfe_mae:
-                active_trade["mae_points"] = max(active_trade.get("mae_points", 0.0), mae_points)
-
-            _update_de3_profit_milestone_state(
-                active_trade,
-                bar_high=bar_high,
-                bar_low=bar_low,
-                bar_index=i,
-            )
-            _update_de3_entry_trade_day_extreme_state(
-                active_trade,
-                bar_high=bar_high,
-                bar_low=bar_low,
-                bar_index=i,
-            )
-            _apply_pending_de3_break_even_stop_update(active_trade, bar_index=i)
-            _stage_de3_break_even_stop_update(active_trade, bar_index=i)
-
-            exit_hit = check_stop_take(bar_open, bar_high, bar_low, bar_close)
-            if exit_hit is not None:
-                exit_price, exit_reason = exit_hit
-                if str(exit_reason) in {"tiered_take", "tiered_take_gap"}:
-                    _apply_de3_tiered_take_fill(
-                        active_trade,
-                        exit_price,
-                        current_time,
-                        fill_reason=str(exit_reason),
-                        bar_index=i,
-                    )
+        if _active_trade_count() > 0:
+            for trade in list(_active_trades_snapshot()):
+                entry_price = trade["entry_price"]
+                if trade["side"] == "LONG":
+                    mfe_points = bar_high - entry_price
+                    mae_points = entry_price - bar_low
                 else:
-                    close_trade(exit_price, current_time, exit_reason, bar_index=i)
-                    pending_exit = False
-                    pending_exit_reason = None
-            elif active_trade is not None:
-                advance_trade_management_state(bar_close)
-                if check_signal_horizon_exit():
-                    close_trade(bar_close, current_time, "horizon", bar_index=i)
-                    pending_exit = False
-                    pending_exit_reason = None
-                elif (early_exit_reason := check_early_exit(bar_close)) is not None:
-                    active_trade["de3_early_exit_trigger_reason"] = str(early_exit_reason)
-                    close_trade(bar_close, current_time, "early_exit", bar_index=i)
-                    pending_exit = False
-                    pending_exit_reason = None
+                    mfe_points = entry_price - bar_low
+                    mae_points = bar_high - entry_price
+                if (not skip_mfe_mae) or bool(trade.get("de3_break_even_enabled", False)):
+                    trade["mfe_points"] = max(trade.get("mfe_points", 0.0), mfe_points)
+                if not skip_mfe_mae:
+                    trade["mae_points"] = max(trade.get("mae_points", 0.0), mae_points)
+
+                _update_de3_profit_milestone_state(
+                    trade,
+                    bar_high=bar_high,
+                    bar_low=bar_low,
+                    bar_index=i,
+                )
+                _update_de3_entry_trade_day_extreme_state(
+                    trade,
+                    bar_high=bar_high,
+                    bar_low=bar_low,
+                    bar_index=i,
+                )
+                _apply_pending_de3_break_even_stop_update(trade, bar_index=i)
+                _stage_de3_break_even_stop_update(trade, bar_index=i)
+
+                exit_hit = check_stop_take(trade, bar_open, bar_high, bar_low, bar_close)
+                if exit_hit is not None:
+                    exit_price, exit_reason = exit_hit
+                    if str(exit_reason) in {"tiered_take", "tiered_take_gap"}:
+                        _apply_de3_tiered_take_fill(
+                            trade,
+                            exit_price,
+                            current_time,
+                            fill_reason=str(exit_reason),
+                            bar_index=i,
+                        )
+                    else:
+                        close_trade(
+                            exit_price,
+                            current_time,
+                            exit_reason,
+                            bar_index=i,
+                            trade=trade,
+                        )
+                    continue
+
+                advance_trade_management_state(trade, bar_close)
+                if check_signal_horizon_exit(trade):
+                    close_trade(
+                        bar_close,
+                        current_time,
+                        "horizon",
+                        bar_index=i,
+                        trade=trade,
+                    )
+                elif (early_exit_reason := check_early_exit(trade, bar_close)) is not None:
+                    trade["de3_early_exit_trigger_reason"] = str(early_exit_reason)
+                    close_trade(
+                        bar_close,
+                        current_time,
+                        "early_exit",
+                        bar_index=i,
+                        trade=trade,
+                    )
 
         if math.isfinite(bar_high):
             if math.isfinite(de3_trade_day_high_known):
@@ -13552,6 +15561,53 @@ def run_backtest(
                 de3_trade_day_low_known = min(float(de3_trade_day_low_known), float(bar_low))
             else:
                 de3_trade_day_low_known = float(bar_low)
+
+        if (
+            level_fill_optimizer is not None
+            and experimental_level_fill_uid is not None
+            and _active_trade_count() == 0
+            and pending_entry is None
+            and not pending_exit
+        ):
+            pending_level_fill = level_fill_optimizer.get_pending_signal(
+                experimental_level_fill_uid
+            )
+            if isinstance(pending_level_fill, dict):
+                pending_level_signal = pending_level_fill.get("signal")
+                pending_level_result = level_fill_optimizer.check_pending(
+                    experimental_level_fill_uid,
+                    {
+                        "open": bar_open,
+                        "high": bar_high,
+                        "low": bar_low,
+                        "close": bar_close,
+                    },
+                )
+                if bool(pending_level_result.get("abort", False)):
+                    experimental_level_fill_aborts += 1
+                elif bool(pending_level_result.get("fire", False)) and isinstance(
+                    pending_level_signal,
+                    dict,
+                ):
+                    queued_signal = dict(pending_level_signal)
+                    queued_signal["experimental_level_fill_fired"] = True
+                    queued_signal["experimental_level_fill_fire_reason"] = str(
+                        pending_level_result.get("reason") or ""
+                    )
+                    queued_signal["experimental_level_fill_fired_at"] = (
+                        current_time.isoformat()
+                    )
+                    queued_signal["experimental_level_fill_original_entry_mode"] = str(
+                        queued_signal.get("entry_mode") or ""
+                    )
+                    queued_signal["entry_mode"] = "level_fill_wait"
+                    if _apply_backtest_kalshi_overlay_to_signal(
+                        queued_signal,
+                        current_price=bar_close,
+                        history_df_local=history_df,
+                    ):
+                        pending_entry = queued_signal
+                        experimental_level_fill_fires += 1
 
         if manifold_only_fast_mode and manifold_fast_strategy is not None:
             if not in_test_range:
@@ -13853,6 +15909,14 @@ def run_backtest(
             rejection_filter.update(current_time, bar_high, bar_low, bar_close)
         if enabled_filter_bank:
             bank_filter.update(current_time, bar_high, bar_low, bar_close)
+        if structural_level_tracker is not None:
+            structural_level_tracker.update(
+                current_time,
+                bar_open,
+                bar_high,
+                bar_low,
+                bar_close,
+            )
         if enabled_filter_chop:
             chop_filter.update(bar_high, bar_low, bar_close, current_time)
         if enabled_filter_extension:
@@ -13975,10 +16039,23 @@ def run_backtest(
             chop_reason = ""
             allowed_chop_side = None
             vol_regime_current = None
+            try:
+                vol_regime_current, _, _ = volatility_filter.get_regime(history_df)
+            except Exception:
+                vol_regime_current = None
             asia_viable = True
             asia_trend_bias_side = None
             de3_signal = None
             try:
+                if hasattr(dynamic_engine3_strat, "set_runtime_context_overrides"):
+                    dynamic_engine3_strat.set_runtime_context_overrides(
+                        {
+                            "live_drawdown_usd": float(de3_drawdown_breaker_current_dd),
+                            "live_realized_pnl_usd": float(de3_drawdown_breaker_realized_net),
+                            "live_peak_realized_pnl_usd": float(de3_drawdown_breaker_peak_net),
+                            "live_drawdown_source": "backtest_realized_pnl",
+                        }
+                    )
                 de3_signal = dynamic_engine3_strat.on_bar(history_df)
             except Exception:
                 if de3_debug_exceptions:
@@ -13990,6 +16067,11 @@ def run_backtest(
             if de3_signal:
                 apply_multipliers(de3_signal, strategy_hint="DynamicEngine3Strategy")
                 de3_signal.setdefault("strategy", "DynamicEngine3Strategy")
+                if (
+                    vol_regime_current not in (None, "", "UNKNOWN")
+                    and de3_signal.get("vol_regime") in (None, "", "UNKNOWN", "BYPASS")
+                ):
+                    de3_signal["vol_regime"] = str(vol_regime_current)
                 if _de3_manifold_adaptation_allows_signal(
                     de3_signal,
                     "DynamicEngine3Strategy",
@@ -15264,6 +17346,7 @@ def run_backtest(
                             current_price=bar_close,
                             trend_day_series=trend_day_series,
                             signal_mode=continuation_signal_mode,
+                            respect_runtime_toggle=True,
                         )
                         if not continuation_rescue_allowed(
                             potential_rescue,
@@ -15506,6 +17589,7 @@ def run_backtest(
                     current_price=bar_close,
                     trend_day_series=trend_day_series,
                     signal_mode=continuation_signal_mode,
+                    respect_runtime_toggle=True,
                 )
             if not continuation_rescue_allowed(
                 potential_rescue,
@@ -16070,13 +18154,23 @@ def run_backtest(
         if in_test_range:
             emit_progress(current_time, bar_close)
 
-    if active_trade is not None and last_time is not None and last_close is not None:
+    if _active_trade_count() > 0 and last_time is not None and last_close is not None:
         if cancelled:
-            close_trade(float(last_close), last_time, "cancelled", bar_index=len(full_df) - 1)
+            close_active_trades(
+                float(last_close),
+                last_time,
+                "cancelled",
+                bar_index=len(full_df) - 1,
+            )
         elif not test_df.empty:
             final_time = test_df.index[-1]
             final_close = float(test_df.iloc[-1]["close"])
-            close_trade(final_close, final_time, "end_of_range", bar_index=len(full_df) - 1)
+            close_active_trades(
+                final_close,
+                final_time,
+                "end_of_range",
+                bar_index=len(full_df) - 1,
+            )
 
     if strategy_executor is not None:
         try:
@@ -18607,6 +20701,35 @@ def run_backtest(
                 ml_only_diag_active and bool(ml_only_diag_cfg.get("force_ml_diagnostics", True))
             ),
         },
+        "experimental_modifiers": {
+            "enabled": bool(experimental_modifiers_enabled),
+            "structural_levels_enabled": bool(structural_level_tracker is not None),
+            "level_fill_optimizer": {
+                "enabled": bool(level_fill_optimizer is not None),
+                "waits": int(experimental_level_fill_waits),
+                "fires": int(experimental_level_fill_fires),
+                "aborts": int(experimental_level_fill_aborts),
+                "immediate": int(experimental_level_fill_immediate),
+                "at_level": int(experimental_level_fill_at_level),
+            },
+            "ml_lfo": {
+                "enabled": bool(experimental_ml_lfo_enabled),
+                "policy": str(experimental_ml_lfo_policy_mode or "live_default"),
+                "payload_ready": bool(experimental_ml_lfo_payload_ready),
+                "scores": int(experimental_ml_lfo_scores),
+                "wait_decisions": int(experimental_ml_lfo_wait_decisions),
+            },
+            "kalshi_overlay": {
+                "enabled": bool(experimental_kalshi_overlay_enabled),
+                "provider_ready": bool(experimental_kalshi_provider is not None),
+                "checked": int(experimental_kalshi_checked),
+                "applied": int(experimental_kalshi_applied),
+                "blocked": int(experimental_kalshi_blocked),
+                "trimmed": int(experimental_kalshi_trimmed),
+                "tp_adjusted": int(experimental_kalshi_tp_adjusted),
+                "trail_enabled": int(experimental_kalshi_trail_enabled),
+            },
+        },
         "selection": {
             "strategies": selected_strategy_names,
             "filters": selected_filter_names,
@@ -18653,6 +20776,8 @@ def run_backtest(
             "mode": str(de3_intraday_regime_mode),
             "apply_sessions": sorted(de3_intraday_regime_apply_sessions),
             "apply_lanes": sorted(de3_intraday_regime_apply_lanes),
+            "apply_variants": list(de3_intraday_regime_apply_variants),
+            "exclude_variants": list(de3_intraday_regime_exclude_variants),
             "enable_bullish_mirror": bool(de3_intraday_regime_enable_bullish_mirror),
             "defensive_size_multiplier": float(de3_intraday_regime_defensive_mult),
             "min_contracts": int(de3_intraday_regime_min_contracts),
@@ -18661,6 +20786,16 @@ def run_backtest(
             "block_score_threshold": float(de3_intraday_regime_block_score),
             "dominance_threshold": float(de3_intraday_regime_dominance),
             "block_dominance_threshold": float(de3_intraday_regime_block_dominance),
+            "shock_session_range_ratio_min": float(de3_intraday_regime_shock_session_range_min),
+            "shock_session_range_weight": float(de3_intraday_regime_shock_session_range_weight),
+            "shock_session_volume_ratio_min": float(de3_intraday_regime_shock_session_volume_min),
+            "shock_session_volume_weight": float(de3_intraday_regime_shock_session_volume_weight),
+            "shock_recent_bar_range_ratio_min": float(de3_intraday_regime_shock_recent_bar_range_min),
+            "shock_recent_bar_range_weight": float(de3_intraday_regime_shock_recent_bar_range_weight),
+            "shock_recent_bar_volume_ratio_min": float(de3_intraday_regime_shock_recent_bar_volume_min),
+            "shock_recent_bar_volume_weight": float(de3_intraday_regime_shock_recent_bar_volume_weight),
+            "shock_direction_min_atr": float(de3_intraday_regime_shock_direction_min_atr),
+            "shock_alignment_hits_min": int(de3_intraday_regime_shock_alignment_hits_min),
             "require_signal_weakness_for_block": bool(de3_intraday_regime_require_weak_block),
             "require_signal_weakness_for_defensive": bool(de3_intraday_regime_require_weak_defensive),
             "checked": int(de3_intraday_regime_checked),
@@ -18724,6 +20859,105 @@ def run_backtest(
                 {"key": str(name), "actions": int(count)}
                 for name, count in de3_admission_key_actions.most_common(10)
             ],
+        },
+        "de3_trade_day_cluster_lockout_summary": {
+            "enabled": bool(de3_cluster_lockout_enabled),
+            "trade_day_roll_hour_et": int(de3_cluster_lockout_roll_hour_et),
+            "checked": int(de3_cluster_lockout_checked),
+            "blocked": int(de3_cluster_lockout_blocked),
+            "triggered": int(de3_cluster_lockout_triggered),
+            "rule_block_counts": {
+                str(name): int(count)
+                for name, count in de3_cluster_lockout_rule_block_counts.items()
+            },
+            "rule_trigger_counts": {
+                str(name): int(count)
+                for name, count in de3_cluster_lockout_rule_trigger_counts.items()
+            },
+        },
+        "de3_drawdown_breaker_summary": {
+            "enabled": bool(de3_drawdown_breaker_enabled),
+            "mode": str(de3_drawdown_breaker_mode),
+            "max_drawdown_usd": float(de3_drawdown_breaker_max_dd),
+            "post_trigger_excluded_variant_patterns": list(
+                de3_drawdown_breaker_post_trigger_patterns
+            ),
+            "post_trigger_allow_family_profile_rules": [
+                _serialize_json_value(dict(rule))
+                for rule in de3_drawdown_breaker_allow_rules
+                if isinstance(rule, dict)
+            ],
+            "checked": int(de3_drawdown_breaker_checked),
+            "blocked": int(de3_drawdown_breaker_blocked),
+            "triggered": int(de3_drawdown_breaker_triggered),
+            "quarantine_passed": int(de3_drawdown_breaker_quarantine_passed),
+            "realized_net_usd": float(de3_drawdown_breaker_realized_net),
+            "peak_net_usd": float(de3_drawdown_breaker_peak_net),
+            "current_drawdown_usd": float(de3_drawdown_breaker_current_dd),
+            "pattern_block_counts": {
+                str(name): int(count)
+                for name, count in de3_drawdown_breaker_pattern_block_counts.items()
+            },
+            "allow_rule_pass_counts": {
+                str(name): int(count)
+                for name, count in de3_drawdown_breaker_allow_rule_pass_counts.items()
+            },
+            "trigger_meta": _serialize_json_value(dict(de3_drawdown_breaker_trigger_meta)),
+        },
+        "de3_anti_flip_summary": {
+            "enabled": bool(backtest_de3_anti_flip_enabled),
+            "checked": int(backtest_de3_anti_flip_checked),
+            "blocked": int(backtest_de3_anti_flip_blocked),
+            "apply_vol_regimes": list(backtest_de3_anti_flip_cfg.get("apply_vol_regimes") or []),
+            "block_countertrend_reversal_in_trend_day": bool(
+                backtest_de3_anti_flip_cfg.get("block_countertrend_reversal_in_trend_day", True)
+            ),
+            "stop_reentry_cooldown_bars": int(
+                max(0, _coerce_int(backtest_de3_anti_flip_cfg.get("stop_reentry_cooldown_bars"), 0))
+            ),
+            "stop_reentry_same_sub_strategy_only": bool(
+                backtest_de3_anti_flip_cfg.get("stop_reentry_same_sub_strategy_only", True)
+            ),
+            "reason_counts": {
+                str(name): int(count)
+                for name, count in backtest_de3_anti_flip_reason_counts.items()
+            },
+        },
+        "opposite_reversal_summary": {
+            "enabled": bool(opposite_reversal_cfg.get("enabled", True)),
+            "checked": int(opposite_reversal_policy_checked),
+            "blocked": int(opposite_reversal_policy_blocked),
+            "required_confirmations": int(opposite_signal_threshold),
+            "window_bars": int(
+                max(
+                    1,
+                    _coerce_int(
+                        opposite_reversal_cfg.get("window_bars"),
+                        1,
+                    ),
+                )
+            ),
+            "require_same_strategy_family": bool(
+                opposite_reversal_require_same_strategy_family
+            ),
+            "require_same_active_trade_family": bool(
+                opposite_reversal_require_same_active_trade_family
+            ),
+            "require_same_sub_strategy": bool(
+                opposite_reversal_cfg.get("require_same_sub_strategy", False)
+            ),
+            "allowed_vol_regimes": list(
+                opposite_reversal_cfg.get("allowed_vol_regimes")
+                or opposite_reversal_cfg.get("apply_vol_regimes")
+                or []
+            ),
+            "block_countertrend_in_trend_day": bool(
+                opposite_reversal_cfg.get("block_countertrend_in_trend_day", False)
+            ),
+            "reason_counts": {
+                str(name): int(count)
+                for name, count in opposite_reversal_policy_reason_counts.items()
+            },
         },
         "de3_entry_model_margin_summary": {
             "enabled": bool(de3_entry_margin_enabled),
@@ -18894,6 +21128,14 @@ def run_backtest(
             "profit_milestone_stop_reached_count": int(
                 de3_profit_milestone_reached_count
             ),
+            "profile_overrides_enabled": bool(
+                de3_v4_trade_management_override_cfg_local.get("enabled", False)
+            ),
+            "profile_override_trade_count": int(de3_trade_management_override_trade_count),
+            "profile_override_top_profiles": [
+                {"name": str(name), "count": int(count)}
+                for name, count in de3_trade_management_override_profile_hits.most_common(10)
+            ],
             "entry_trade_day_extreme_stop_enabled": bool(
                 de3_v4_entry_trade_day_extreme_cfg_local.get("enabled", False)
             ),

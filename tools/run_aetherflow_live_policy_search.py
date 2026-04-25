@@ -12,11 +12,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import backtest_mes_et as bt
-from aetherflow_features import build_feature_frame
 from aetherflow_strategy import (
     AetherFlowStrategy,
-    _regime_name_from_row,
-    _selection_score,
     _coerce_session_allowlist,
     _coerce_string_allowlist,
     _coerce_upper_string_allowlist,
@@ -55,6 +52,7 @@ def _load_variants(path: Path) -> list[dict]:
                 "description": str(raw.get("description", "") or ""),
                 "threshold_override": raw.get("threshold_override"),
                 "min_confidence": raw.get("min_confidence"),
+                "risk_governor": dict(raw.get("risk_governor", {}) or {}) if isinstance(raw.get("risk_governor", {}), dict) else {},
                 "allowed_session_ids": _coerce_session_allowlist(raw.get("allowed_session_ids")),
                 "allowed_setup_families": _coerce_string_allowlist(raw.get("allowed_setup_families")),
                 "hazard_block_regimes": _coerce_upper_string_allowlist(raw.get("hazard_block_regimes")),
@@ -128,61 +126,21 @@ def _configure_strategy(
     return strategy
 
 
-def _build_variant_signals(strategy: AetherFlowStrategy, base_features: pd.DataFrame) -> pd.DataFrame:
-    candidate_rows: list[dict[str, Any]] = []
-    for family_name in strategy._candidate_family_names():
-        frame = build_feature_frame(
-            base_features=base_features,
-            preferred_setup_families={family_name},
-        )
-        if not isinstance(frame, pd.DataFrame) or frame.empty:
-            continue
-        frame = frame.loc[
-            (frame["setup_family"].astype(str) == str(family_name))
-            & (pd.to_numeric(frame.get("candidate_side", 0.0), errors="coerce").fillna(0.0) != 0.0)
-        ].copy()
-        if frame.empty:
-            continue
-        frame["aetherflow_confidence"] = strategy._compute_probabilities(frame)
-        for ts, row in zip(pd.DatetimeIndex(frame.index), frame.to_dict("records")):
-            row["manifold_regime_name"] = _regime_name_from_row(row)
-            policy = strategy._policy_for_family(family_name, row) or {}
-            row["selection_score"] = _selection_score(float(row.get("aetherflow_confidence", 0.0) or 0.0), policy)
-            row["entry_mode"] = str(policy.get("entry_mode", "market_next_bar") or "market_next_bar")
-            row["use_horizon_time_stop"] = bool(policy.get("use_horizon_time_stop", False))
-            if policy.get("sl_mult_override") is not None:
-                row["sl_mult_override"] = float(policy.get("sl_mult_override"))
-            if policy.get("tp_mult_override") is not None:
-                row["tp_mult_override"] = float(policy.get("tp_mult_override"))
-            if policy.get("horizon_bars_override") is not None:
-                row["horizon_bars_override"] = int(policy.get("horizon_bars_override"))
-            early_exit_cfg = dict(policy.get("early_exit", {}) or {})
-            if early_exit_cfg:
-                row["early_exit_enabled"] = bool(early_exit_cfg.get("enabled", False))
-                row["early_exit_exit_if_not_green_by"] = int(early_exit_cfg.get("exit_if_not_green_by", 0) or 0)
-                row["early_exit_max_profit_crosses"] = int(early_exit_cfg.get("max_profit_crosses", 0) or 0)
-            break_even_cfg = dict(policy.get("break_even", {}) or {})
-            if break_even_cfg:
-                row["break_even_enabled"] = bool(break_even_cfg.get("enabled", False))
-                row["break_even_trigger_pct"] = float(break_even_cfg.get("trigger_pct", 0.0) or 0.0)
-                row["break_even_buffer_ticks"] = int(break_even_cfg.get("buffer_ticks", 0) or 0)
-                row["break_even_trail_pct"] = float(break_even_cfg.get("trail_pct", 0.0) or 0.0)
-                row["break_even_activate_on_next_bar"] = bool(break_even_cfg.get("activate_on_next_bar", True))
-            if strategy._row_block_reason(row) == "":
-                row["_timestamp"] = ts
-                candidate_rows.append(row)
-    if not candidate_rows:
-        return pd.DataFrame()
-    merged = pd.DataFrame(candidate_rows)
-    merged = merged.sort_values(
-        by=["selection_score", "aetherflow_confidence", "setup_strength"],
-        ascending=[False, False, False],
-        kind="mergesort",
+def _build_variant_signals(
+    strategy: AetherFlowStrategy,
+    base_features: pd.DataFrame,
+    *,
+    start_time: pd.Timestamp | None = None,
+    end_time: pd.Timestamp | None = None,
+) -> pd.DataFrame:
+    signals = strategy.build_backtest_df_from_base_features(
+        base_features,
+        start_time=start_time,
+        end_time=end_time,
     )
-    merged = merged.drop_duplicates(subset=["_timestamp"], keep="first")
-    index = pd.DatetimeIndex(pd.to_datetime(merged.pop("_timestamp")))
-    merged.index = index
-    return merged.sort_index()
+    if not isinstance(signals, pd.DataFrame) or signals.empty:
+        return pd.DataFrame()
+    return signals.sort_index()
 
 
 def main() -> None:
@@ -261,7 +219,12 @@ def main() -> None:
         for window in eval_windows:
             label = str(window.get("label", "") or "")
             cached = window_cache[label]
-            signals = _build_variant_signals(strategy, cached["base_features"])
+            signals = _build_variant_signals(
+                strategy,
+                cached["base_features"],
+                start_time=cached["start_time"],
+                end_time=cached["end_time"],
+            )
             stats = _simulate(
                 df=cached["symbol_df"],
                 signals=signals,
@@ -270,6 +233,7 @@ def main() -> None:
                 use_horizon_time_stop=False,
                 allow_same_side_add_ons=bool(args.allow_same_side_add_ons),
                 max_same_side_legs=int(args.max_same_side_legs),
+                risk_governor_override=dict(variant.get("risk_governor", {}) or {}),
             )
             trade_log = stats.get("trade_log", []) or []
             summary = _variant_summary(stats)
@@ -333,6 +297,7 @@ def main() -> None:
                 "allowed_session_ids": sorted(int(item) for item in strategy.allowed_session_ids) if strategy.allowed_session_ids else [],
                 "allowed_setup_families": sorted(str(item) for item in strategy.allowed_setup_families) if strategy.allowed_setup_families else [],
                 "hazard_block_regimes": sorted(str(item) for item in strategy.hazard_block_regimes) if strategy.hazard_block_regimes else [],
+                "risk_governor": _json_safe_sets(_json_safe(dict(variant.get("risk_governor", {}) or {}))),
                 "family_policies": _json_safe_sets(_json_safe(dict(strategy.family_policies or {}))),
                 "aggregate": aggregate,
                 "evaluation_results": evaluation_results,
