@@ -25,12 +25,16 @@ export interface FilterlessPosition {
   target_price?: number | null;
   size?: number | null;
   order_id?: string | null;
+  entry_order_id?: string | number | null;
   opened_at?: string | null;
   rule_id?: string | null;
   combo_key?: string | null;
   early_exit_enabled?: boolean | null;
   gate_prob?: number | null;
   gate_threshold?: number | null;
+  kalshi_gate_applied?: boolean | null;
+  kalshi_gate_reason?: string | null;
+  kalshi_gate_multiplier?: number | null;
   entry_mode?: string | null;
   base_session?: string | null;
   current_session?: string | null;
@@ -69,6 +73,9 @@ export interface FilterlessStrategyState {
   early_exit_enabled?: boolean | null;
   gate_prob?: number | null;
   gate_threshold?: number | null;
+  kalshi_gate_applied?: boolean | null;
+  kalshi_gate_reason?: string | null;
+  kalshi_gate_multiplier?: number | null;
   entry_mode?: string | null;
   base_session?: string | null;
   current_session?: string | null;
@@ -97,7 +104,11 @@ export interface FilterlessTrade {
   pnl_dollars_gross?: number | null;
   pnl_dollars_net?: number | null;
   pnl_fee_dollars?: number | null;
+  size?: number | null;
   result?: string | null;
+  kalshi_gate_applied?: boolean | null;
+  kalshi_gate_reason?: string | null;
+  kalshi_gate_multiplier?: number | null;
 }
 
 export interface FilterlessPricePoint {
@@ -115,9 +126,8 @@ export interface FilterlessKalshiStrike {
 
 export interface FilterlessKalshiDailyContract {
   et_hour: number;
-  event_ticker: string;
-  settled: boolean;
   strike_count: number;
+  settled?: boolean | null;
 }
 
 export interface FilterlessKalshiMetrics {
@@ -128,8 +138,8 @@ export interface FilterlessKalshiMetrics {
   observer_only?: boolean | null;
   status_label?: string | null;
   status_reason?: string | null;
-  source?: string | null;
   updated_at?: string | null;
+  source?: string | null;
   basis_offset?: number | null;
   probability_60m?: number | null;
   probability_reference_kind?: string | null;
@@ -143,9 +153,9 @@ export interface FilterlessKalshiMetrics {
   event_ticker?: string | null;
   es_reference_price?: number | null;
   spx_reference_price?: number | null;
+  strikes: FilterlessKalshiStrike[];
   trade_gating_active?: boolean | null;
   trade_gating_hour?: number | null;
-  strikes: FilterlessKalshiStrike[];
   daily_contracts?: FilterlessKalshiDailyContract[] | null;
 }
 
@@ -192,6 +202,7 @@ export interface FilterlessLiveState {
     last_position_sync_time?: string | null;
     position_sync_status?: string | null;
     current_position?: FilterlessPosition | null;
+    current_positions?: FilterlessPosition[] | null;
     price_history: FilterlessPricePoint[];
     risk: FilterlessBotRisk;
     warnings: string[];
