@@ -30,6 +30,24 @@ montecarlo/Backtest-Simulator-main/.env.local
 
 # Claude Code worktree metadata (local only)
 .claude/
+.codex/
+.tools/
+
+# Local secrets / local-only machine files
+credentials/
+*.lnk
+
+# Scratch / probe / temp working files
+.tmp*/
+_tmp_*
+tmp_*.prof
+tmp_py_write_probe.txt
+probe_rf.txt
+rf_probe_state.txt
+import_hang_trace.txt
+importtime_v5.txt
+faulthandler*.txt
+aetherflow_load_probe.txt
 
 # Model files (large)
 *.joblib
@@ -55,13 +73,6 @@ artifacts/signal_gate_2025/model_rl_management.zip
 !artifacts/signal_gate_2025/model_kalshi_tp_gate_v2.joblib
 !artifacts/signal_gate_2025/model_pivot_trail_v2.joblib
 !artifacts/signal_gate_2025/model_pct_overlay_v2.joblib
-# Cross-market breakout gate (ML replacement for the hand-tuned VIX/MNQ rule)
-!artifacts/signal_gate_2025/model_cm_breakout_gate.joblib
-# DE3 G-gate v2 (encoder + cross-market) — NOT promoted; kept for reference
-!artifacts/signal_gate_2025/model_de3_v2.joblib
-# CM-breakout v2 — direction-specific price-move predictors (AUC ~0.80)
-!artifacts/signal_gate_2025/model_cm_breakout_long.joblib
-!artifacts/signal_gate_2025/model_cm_breakout_short.joblib
 # v2 RL policy (extended obs: encoder + cross-market — DEMOTED in favor of
 # v3; retained for future promotion once partial-close is wired)
 !artifacts/signal_gate_2025/model_rl_management_v2.zip
@@ -101,4 +112,3 @@ es_master_outrights.parquet
 # Intermediate training artifacts — keep the ML G bracket training parquet
 # and diagnostic JSON so the training pipeline is reproducible end-to-end
 # from committed artifacts. Stray debug artifacts stay ignored by default.
-ai_loop_data/

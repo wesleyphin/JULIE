@@ -292,6 +292,17 @@ class ProjectXClient:
         self._yielding_to_external_session = False
         self._yielding_to_external_session_since = 0.0
         self._yielding_to_external_session_reason = ""
+        self._order_submission_lockout_until_ts = 0.0
+        self._order_submission_lockout_reason = ""
+        self._order_submission_lockout_log_ts = 0.0
+        self._order_submission_lockout_cooldown_sec = max(
+            0.0,
+            self._coerce_float(
+                CONFIG.get("PROJECTX_ORDER_LOCKOUT_COOLDOWN_SEC", 60.0),
+                60.0,
+            )
+            or 60.0,
+        )
         self.session.hooks.setdefault("response", []).append(self._requests_response_auth_hook)
 
     def _warn_async_http_fallback_once(self) -> None:
@@ -299,6 +310,55 @@ class ProjectXClient:
             return
         self._aiohttp_fallback_warned = True
         logging.warning("aiohttp not installed; falling back to sync REST calls for async background tasks")
+
+    def _error_indicates_order_lockout(self, message: Optional[str]) -> bool:
+        text = str(message or "").strip().lower()
+        if not text:
+            return False
+        return ("locked out" in text) or ("lockout expires" in text)
+
+    def _clear_order_submission_lockout(self) -> None:
+        self._order_submission_lockout_until_ts = 0.0
+        self._order_submission_lockout_reason = ""
+        self._order_submission_lockout_log_ts = 0.0
+
+    def _arm_order_submission_lockout(self, reason: Optional[str]) -> None:
+        cooldown_sec = float(self._order_submission_lockout_cooldown_sec)
+        if cooldown_sec <= 0.0:
+            return
+        now = time.time()
+        reason_text = str(reason or "").strip() or "broker lockout"
+        new_until_ts = now + cooldown_sec
+        should_log = new_until_ts > self._order_submission_lockout_until_ts + 1e-9
+        self._order_submission_lockout_until_ts = max(
+            self._order_submission_lockout_until_ts,
+            new_until_ts,
+        )
+        self._order_submission_lockout_reason = reason_text
+        if should_log:
+            logging.warning(
+                "Broker order lockout detected; pausing new order submissions for %.0fs: %s",
+                cooldown_sec,
+                reason_text,
+            )
+            self._order_submission_lockout_log_ts = now
+
+    def _order_submission_lockout_active(self) -> bool:
+        now = time.time()
+        until_ts = float(self._order_submission_lockout_until_ts or 0.0)
+        if until_ts <= now:
+            if until_ts > 0.0:
+                self._clear_order_submission_lockout()
+            return False
+        if (now - float(self._order_submission_lockout_log_ts or 0.0)) >= 30.0:
+            remaining_sec = max(0.0, until_ts - now)
+            logging.warning(
+                "Skipping order submission for another %.0fs due to broker lockout: %s",
+                remaining_sec,
+                self._order_submission_lockout_reason or "broker lockout",
+            )
+            self._order_submission_lockout_log_ts = now
+        return True
 
     def _check_general_rate_limit(self) -> bool:
         """Check if we're within general rate limits"""
@@ -709,6 +769,22 @@ class ProjectXClient:
     def _auth_temporarily_unavailable(self) -> bool:
         return self._yielding_to_external_session and not self._external_session_retry_allowed()
 
+    def _yield_rest_auth_unavailable(self, reason: str = "") -> bool:
+        if bool(CONFIG.get("PROJECTX_USER_STREAM_ENABLED", True)):
+            return False
+        if self._session_conflict_policy != "yield":
+            return False
+        reason_text = str(reason or "REST unauthorized response")
+        self._yielding_to_external_session = True
+        self._yielding_to_external_session_since = time.time()
+        self._yielding_to_external_session_reason = reason_text
+        self._invalidate_auth_state(reason_text)
+        logging.warning(
+            "ProjectX REST auth became unavailable (%s). Staying on cached/local state without re-authenticating.",
+            reason_text,
+        )
+        return True
+
     def _yield_to_external_session(self, reason: str = "") -> bool:
         if self._session_conflict_policy != "yield":
             return False
@@ -749,6 +825,8 @@ class ProjectXClient:
     def recover_auth_sync(self, reason: str = "", *, restart_user_stream: bool = True) -> bool:
         reason_text = str(reason or "unauthorized response")
         if self._yield_to_external_session(reason_text):
+            return False
+        if self._yield_rest_auth_unavailable(reason_text):
             return False
         if self._auth_temporarily_unavailable():
             return False
@@ -1236,6 +1314,139 @@ class ProjectXClient:
             logging.error(f"Failed to fetch contracts: {e}")
             return None
 
+    def retrieve_bars_range(
+        self,
+        contract_id: str,
+        start_time: datetime.datetime,
+        end_time: datetime.datetime,
+        *,
+        minutes_per_bar: int = 1,
+        limit: int = 20000,
+        live: bool = False,
+        request_timeout_sec: float = 30.0,
+        raise_on_timeout: bool = False,
+    ) -> pd.DataFrame:
+        """
+        Fetch historical bars for an explicit contract/time window.
+
+        This is the reusable, non-cached companion to ``get_market_data`` used
+        by maintenance tools that need deterministic backfills instead of
+        "latest lookback" snapshots.
+        """
+        if self._auth_temporarily_unavailable():
+            return pd.DataFrame()
+        if not ProjectXClient._shared_check_bar_rate_limit():
+            return pd.DataFrame()
+        if self.account_id is None:
+            logging.error("No account ID set. Call fetch_accounts() first.")
+            return pd.DataFrame()
+        contract_id_text = str(contract_id or "").strip()
+        if not contract_id_text:
+            logging.error("retrieve_bars_range requires a contract_id")
+            return pd.DataFrame()
+
+        start_dt = start_time
+        end_dt = end_time
+        if start_dt.tzinfo is None:
+            start_dt = start_dt.replace(tzinfo=datetime.timezone.utc)
+        else:
+            start_dt = start_dt.astimezone(datetime.timezone.utc)
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=datetime.timezone.utc)
+        else:
+            end_dt = end_dt.astimezone(datetime.timezone.utc)
+        if end_dt <= start_dt:
+            logging.warning(
+                "retrieve_bars_range received an invalid window for %s: %s -> %s",
+                contract_id_text,
+                start_dt,
+                end_dt,
+            )
+            return pd.DataFrame()
+
+        url = f"{self.base_url}/api/History/retrieveBars"
+        payload = {
+            "accountId": self.account_id,
+            "contractId": contract_id_text,
+            "live": bool(live),
+            "limit": max(1, min(int(limit or 20000), 20000)),
+            "startTime": start_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "endTime": end_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "unit": 2,
+            "unitNumber": max(1, int(minutes_per_bar or 1)),
+        }
+
+        try:
+            resp = self.session.post(
+                url,
+                json=payload,
+                timeout=max(1.0, float(request_timeout_sec or 30.0)),
+            )
+            ProjectXClient._shared_track_bar_fetch()
+
+            if resp.status_code == 429:
+                logging.warning(
+                    "Rate limited (429) retrieving %s bars for %s. Returning empty window.",
+                    minutes_per_bar,
+                    contract_id_text,
+                )
+                time.sleep(5)
+                return pd.DataFrame()
+            if resp.status_code == 401:
+                logging.warning(
+                    "History retrieveBars returned 401 for %s; returning empty window while auth recovery runs",
+                    contract_id_text,
+                )
+                return pd.DataFrame()
+
+            resp.raise_for_status()
+            now = time.time()
+            self.bar_fetch_timestamps.append(now)
+            self.last_bar_fetch_time = now
+            data = resp.json()
+            bars = data.get("bars") or []
+            if not bars:
+                return pd.DataFrame()
+
+            df = pd.DataFrame(bars)
+            df = df.rename(
+                columns={
+                    "t": "ts",
+                    "o": "open",
+                    "h": "high",
+                    "l": "low",
+                    "c": "close",
+                    "v": "volume",
+                }
+            )
+            df["ts"] = pd.to_datetime(df["ts"], utc=True, errors="coerce")
+            df = df.dropna(subset=["ts"])
+            if df.empty:
+                return pd.DataFrame()
+            df["ts"] = df["ts"].dt.tz_convert(self.et)
+            df = df.set_index("ts").sort_index()
+            return df
+        except requests.exceptions.Timeout as exc:
+            logging.warning(
+                "Range bar fetch timed out for %s (%s -> %s)",
+                contract_id_text,
+                start_dt,
+                end_dt,
+            )
+            if raise_on_timeout:
+                raise
+            return pd.DataFrame()
+        except requests.exceptions.HTTPError as exc:
+            if hasattr(exc, "response") and exc.response is not None:
+                logging.error("Range bar fetch HTTP error for %s: %s", contract_id_text, exc)
+                logging.error("Server response: %s", exc.response.text)
+            else:
+                logging.error("Range bar fetch error for %s: %s", contract_id_text, exc)
+            return pd.DataFrame()
+        except Exception as exc:
+            logging.error("Range bar fetch error for %s: %s", contract_id_text, exc)
+            return pd.DataFrame()
+
     def get_market_data(self, lookback_minutes: int = 20000, force_fetch: bool = False) -> pd.DataFrame:
         """
         Fetch historical bars with rate limiting.
@@ -1430,6 +1641,8 @@ class ProjectXClient:
         if not self._check_general_rate_limit():
             logging.error("Rate limit reached, cannot place order")
             return
+        if self._order_submission_lockout_active():
+            return
 
         if self.account_id is None:
             logging.error("No account ID set. Call fetch_accounts() first.")
@@ -1559,6 +1772,8 @@ class ProjectXClient:
                 return None
 
             if resp.status_code != 200:
+                if self._error_indicates_order_lockout(resp.text):
+                    self._arm_order_submission_lockout(resp.text)
                 logging.error(f"HTTP Error {resp.status_code}: {resp.text[:500] if resp.text else 'Empty response'}")
                 return None
 
@@ -1572,6 +1787,8 @@ class ProjectXClient:
             # Check for business logic success
             if resp_data.get('success') is False:
                 err_msg = resp_data.get('errorMessage', 'Unknown Rejection')
+                if self._error_indicates_order_lockout(err_msg):
+                    self._arm_order_submission_lockout(err_msg)
                 logging.error(f"Order Rejected by Engine: {err_msg}")
 
                 # Enhanced event logging: Order rejected
@@ -1583,6 +1800,7 @@ class ProjectXClient:
                 )
                 return None
 
+            self._clear_order_submission_lockout()
             logging.info(f"Order Placed Successfully [{unique_order_id[:8]}]")
 
             entry_price = current_price
@@ -1890,14 +2108,9 @@ class ProjectXClient:
                 "timestamp": datetime.datetime.now(datetime.timezone.utc),
                 "method": close_method,
             }
-            logging.info(f"Position close submitted via {close_method}")
-
-            event_logger.log_trade_closed(
-                side=position['side'],
-                entry_price=position['avg_price'],
-                exit_price=close_price if close_price is not None else position['avg_price'],
-                pnl=0.0,
-                reason="Manual Close"
+            logging.info(
+                "Position close submitted via %s; awaiting confirmed close reconciliation",
+                close_method,
             )
 
             time.sleep(0.35)
@@ -1924,111 +2137,6 @@ class ProjectXClient:
         except Exception as e:
             logging.error(f"Position close exception: {e}")
             event_logger.log_error("POSITION_CLOSE_EXCEPTION", f"Exception closing position: {e}", exception=e)
-            return False
-
-    def emergency_flatten_position(self, position: Dict, reason: str = "") -> bool:
-        """
-        Emergency flatten path:
-        1. Cancel working exit orders immediately.
-        2. Submit an opposing market order.
-        3. Clean up any orphaned exit orders after the fill request.
-        """
-        if position.get('side') is None or int(position.get('size', 0) or 0) == 0:
-            return True
-
-        if not self._check_general_rate_limit():
-            logging.error("Rate limit reached, cannot emergency-flatten position")
-            return False
-
-        self._last_close_order_details = None
-        reason_text = str(reason or "emergency_exit").strip() or "emergency_exit"
-        cancelled = self.cancel_open_exit_orders(side=None, reason=f"{reason_text} pre-close")
-        if cancelled:
-            logging.info("Emergency exit cancelled %s open exit order(s) before flatten", cancelled)
-        self._order_cache = {}
-        self._order_cache_ts = 0.0
-        time.sleep(0.15)
-
-        side_name = str(position.get('side') or '').strip().upper()
-        if side_name not in {'LONG', 'SHORT'}:
-            return False
-        side_code = 1 if side_name == 'LONG' else 0
-        action = "SELL" if side_name == 'LONG' else "BUY"
-        size = int(position.get('size', 0) or 0)
-        if size <= 0:
-            return True
-
-        url = f"{self.base_url}/api/Order/place"
-        payload = {
-            "accountId": self.account_id,
-            "contractId": self.contract_id,
-            "clOrdId": str(uuid.uuid4()),
-            "type": 2,
-            "side": side_code,
-            "size": size,
-        }
-
-        try:
-            logging.warning(
-                "EMERGENCY FLATTEN: %s %s contract(s) to close %s | reason=%s",
-                action,
-                size,
-                side_name,
-                reason_text,
-            )
-            resp = self.session.post(url, json=payload)
-            self._track_general_request()
-
-            if resp.status_code == 429:
-                logging.error("Rate limited on emergency flatten!")
-                event_logger.log_error("RATE_LIMIT", "Emergency flatten rate limited")
-                return False
-            if resp.status_code != 200:
-                logging.error(
-                    "Emergency flatten HTTP Error %s: %s",
-                    resp.status_code,
-                    resp.text[:500] if resp.text else 'Empty response',
-                )
-                event_logger.log_error("EMERGENCY_FLATTEN_FAILED", f"HTTP {resp.status_code}")
-                return False
-
-            data = resp.json()
-            if not data.get('success', False):
-                logging.error("Emergency flatten rejected: %s", data)
-                event_logger.log_error("EMERGENCY_FLATTEN_FAILED", f"Failed to flatten position: {data}")
-                return False
-
-            close_price = self._extract_execution_price(data, None)
-            close_order_id = self._coerce_int(data.get('orderId', data.get('id')), None)
-            self._last_close_order_details = {
-                "order_id": close_order_id,
-                "side": side_name,
-                "size": size,
-                "exit_price": close_price,
-                "timestamp": datetime.datetime.now(datetime.timezone.utc),
-                "method": "market_emergency_exit",
-                "reason": reason_text,
-            }
-            event_logger.log_trade_closed(
-                side=side_name,
-                entry_price=position.get('avg_price', 0.0),
-                exit_price=close_price if close_price is not None else position.get('avg_price', 0.0),
-                pnl=0.0,
-                reason=f"Emergency Exit: {reason_text}",
-            )
-            time.sleep(0.35)
-            self.cancel_open_exit_orders(side=None, reason=f"{reason_text} cleanup")
-            self._local_position = {'side': None, 'size': 0, 'avg_price': 0.0}
-            self._active_stop_order_id = None
-            self._active_target_order_id = None
-            return True
-        except Exception as exc:
-            logging.error("Emergency flatten exception: %s", exc)
-            event_logger.log_error(
-                "EMERGENCY_FLATTEN_EXCEPTION",
-                f"Exception flattening position: {exc}",
-                exception=exc,
-            )
             return False
 
     def close_trade_leg(self, trade: Dict) -> bool:
@@ -2999,8 +3107,9 @@ class ProjectXClient:
                     "size": int(matched_qty),
                     "entry_price": float(entry_price) if entry_price is not None else None,
                     "entry_time": entry_time,
-                    "entry_order_id": entry_order_ids[0] if len(entry_order_ids) == 1 else (entry_order_ids[0] if entry_order_ids else None),
+                    "entry_order_id": entry_order_ids[0] if len(entry_order_ids) == 1 else None,
                     "entry_order_ids": entry_order_ids,
+                    "entry_order_ids_ambiguous": len(entry_order_ids) > 1,
                     "exit_price": float(exit_price) if exit_price is not None else None,
                     "exit_time": group.get("exit_time"),
                     "order_id": group.get("close_order_id"),
@@ -3496,13 +3605,7 @@ class ProjectXClient:
             logging.info(f"🔒 MOVING STOP: {side} -> {be_price:.2f} (Order ID: {target_stop_id})")
             if self.modify_order(target_stop_id, stop_price=be_price):
                 logging.info(f"✅ STOP UPDATED to {be_price:.2f}")
-                surviving_stop_id = self._cleanup_duplicate_stop_orders(
-                    side,
-                    expected_size=expected_size,
-                    expected_price=be_price,
-                    prefer_order_id=target_stop_id,
-                )
-                self._active_stop_order_id = surviving_stop_id or target_stop_id
+                self._active_stop_order_id = self._coerce_int(target_stop_id, None)
                 return True
             logging.warning(f"⚠️ Modify failed for {target_stop_id}. Attempting Cancel/Replace...")
 
@@ -3524,13 +3627,7 @@ class ProjectXClient:
             # Try modify against matched stop order
             if candidate_id and self.modify_order(candidate_id, stop_price=be_price):
                 logging.info(f"✅ STOP UPDATED to {be_price:.2f}")
-                surviving_stop_id = self._cleanup_duplicate_stop_orders(
-                    side,
-                    expected_size=expected_size,
-                    expected_price=be_price,
-                    prefer_order_id=self._coerce_int(candidate_id, None),
-                )
-                self._active_stop_order_id = surviving_stop_id or self._coerce_int(candidate_id, None)
+                self._active_stop_order_id = self._coerce_int(candidate_id, None)
                 return True
 
             if candidate_id:
@@ -3543,50 +3640,14 @@ class ProjectXClient:
                     logging.warning("Cancel failed; skipping new stop to avoid duplicates.")
                     return False
         else:
-            logging.warning("No matching stop order found; placing new stop.")
-
-        self._cancel_open_stop_orders(
-            side,
-            expected_size=expected_size,
-            reason="break-even stop replace cleanup",
-        )
-        remaining_stop_orders = self._list_open_stop_orders(
-            side,
-            expected_size=expected_size,
-            force_refresh=True,
-        )
-        if remaining_stop_orders:
-            retry_candidate = self._pick_preferred_stop_order(
-                remaining_stop_orders,
-                expected_price=current_stop_price,
-                prefer_order_id=target_stop_id,
+            logging.warning(
+                "No matching stop order found; placing a replacement stop without touching other same-side brackets."
             )
-            retry_order_id = self._coerce_int(retry_candidate.get("orderId"), None) if isinstance(retry_candidate, dict) else None
-            if retry_order_id is not None and self.modify_order(retry_order_id, stop_price=be_price):
-                logging.info(f"✅ STOP UPDATED to {be_price:.2f} after cleanup retry")
-                surviving_stop_id = self._cleanup_duplicate_stop_orders(
-                    side,
-                    expected_size=expected_size,
-                    expected_price=be_price,
-                    prefer_order_id=retry_order_id,
-                )
-                self._active_stop_order_id = surviving_stop_id or retry_order_id
-                return True
-            logging.warning("Open stop order(s) still present after cleanup; skipping new stop to avoid duplicates.")
-            return False
 
         # 5. FALLBACK: Place New Stop Order
         logging.info(f"🔄 PLACING NEW STOP at {be_price:.2f}...")
         if not self._place_breakeven_stop(be_price, side, position_size):
             return False
-        surviving_stop_id = self._cleanup_duplicate_stop_orders(
-            side,
-            expected_size=expected_size,
-            expected_price=be_price,
-            prefer_order_id=self._active_stop_order_id,
-        )
-        if surviving_stop_id is not None:
-            self._active_stop_order_id = surviving_stop_id
         return True
 
     def _place_breakeven_stop(self, be_price: float, side: str, size: int) -> bool:
@@ -3724,14 +3785,6 @@ class ProjectXClient:
         return await asyncio.to_thread(
             self.close_trade_leg,
             trade,
-        )
-
-    async def async_emergency_flatten_position(self, position: Dict, reason: str = "") -> bool:
-        """Async wrapper for emergency_flatten_position() to avoid blocking the event loop."""
-        return await asyncio.to_thread(
-            self.emergency_flatten_position,
-            position,
-            reason,
         )
 
     async def async_get_position(

@@ -5,6 +5,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from de3_shock_context import compute_shock_context
 from dynamic_signal_engine3 import get_signal_engine
 from de3_v4_runtime import DE3V4Runtime
 from fixed_sltp_framework import apply_fixed_sltp
@@ -107,6 +108,13 @@ DE3_V4_EXPORT_FIELDS = (
     "book_gate_reason",
     "book_gate_fallback_to_default",
     "candidate_variant_filter_book",
+    "live_drawdown_quarantine_enabled",
+    "live_drawdown_quarantine_active",
+    "live_drawdown_quarantine_state",
+    "live_drawdown_quarantine_matched_pattern",
+    "live_drawdown_quarantine_allow_rule_name",
+    "live_drawdown_quarantine_current_drawdown_usd",
+    "live_drawdown_quarantine_max_drawdown_usd",
 )
 
 
@@ -248,6 +256,7 @@ class DynamicEngine3Strategy(Strategy):
         self._de3_decision_export_sink: Optional[Callable[[dict], None]] = None
         self._de3_decision_export_seq = 0
         self._de3_v2_bucket_bracket_overrides: Dict[str, Tuple[float, float]] = {}
+        self._runtime_context_overrides: Dict[str, Any] = {}
         self._de3_v3_family_runtime: Optional[Any] = None
         self._de3_v3_family_status: Dict[str, Any] = {}
         self._de3_v4_cfg = CONFIG.get("DE3_V4", {}) or {}
@@ -3436,6 +3445,42 @@ class DynamicEngine3Strategy(Strategy):
     def get_db_version(self) -> str:
         return str(getattr(self.engine, "db_version", self.db_version) or self.db_version)
 
+    @staticmethod
+    def _sanitize_runtime_context_overrides(
+        runtime_context: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        if not isinstance(runtime_context, dict):
+            return {}
+        sanitized: Dict[str, Any] = {}
+        float_fields = (
+            "live_drawdown_usd",
+            "live_realized_pnl_usd",
+            "live_peak_realized_pnl_usd",
+        )
+        for field_name in float_fields:
+            try:
+                raw_value = runtime_context.get(field_name)
+                if raw_value is None:
+                    continue
+                value = float(raw_value)
+            except Exception:
+                continue
+            if not np.isfinite(value):
+                continue
+            sanitized[field_name] = float(value)
+        source_text = str(runtime_context.get("live_drawdown_source", "") or "").strip()
+        if source_text:
+            sanitized["live_drawdown_source"] = source_text
+        return sanitized
+
+    def set_runtime_context_overrides(
+        self,
+        runtime_context: Optional[Dict[str, Any]],
+    ) -> None:
+        self._runtime_context_overrides = self._sanitize_runtime_context_overrides(
+            runtime_context
+        )
+
     def get_runtime_metadata(self) -> dict:
         status = dict(self._de3_v3_family_status) if isinstance(self._de3_v3_family_status, dict) else {}
         v4_status = dict(self._de3_v4_status) if isinstance(self._de3_v4_status, dict) else {}
@@ -3653,6 +3698,8 @@ class DynamicEngine3Strategy(Strategy):
         vwap_dist_atr: Optional[float],
         price_loc: Optional[float],
         rvol_ratio: Optional[float],
+        shock_context: Optional[Dict[str, Any]] = None,
+        runtime_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         hour_et = int(pd.Timestamp(current_time).hour)
         vol_raw = str(vol_regime or "").strip().lower()
@@ -3747,6 +3794,12 @@ class DynamicEngine3Strategy(Strategy):
             out["atr_5m"] = float(atr_5m)
         if atr_med is not None and np.isfinite(float(atr_med)):
             out["atr_5m_median"] = float(atr_med)
+        if isinstance(shock_context, dict):
+            for key, value in shock_context.items():
+                out[str(key)] = value
+        if isinstance(runtime_context, dict):
+            for key, value in runtime_context.items():
+                out[str(key)] = value
         return out
 
     @staticmethod
@@ -4828,6 +4881,17 @@ class DynamicEngine3Strategy(Strategy):
             if feasible_candidates:
                 if selection_enabled:
                     if self._de3_v4_runtime and self._de3_v4_runtime_module is not None:
+                        shock_context = (
+                            compute_shock_context(
+                                df,
+                                position=max(0, len(df) - 1),
+                                session_text=str(engine_session or ""),
+                                price_loc=price_loc,
+                                rvol_ratio=rvol_ratio,
+                            )
+                            if context_eval_ready
+                            else {}
+                        )
                         context_inputs = self._de3_v3_context_inputs(
                             current_time=current_time,
                             engine_session=engine_session,
@@ -4838,6 +4902,8 @@ class DynamicEngine3Strategy(Strategy):
                             vwap_dist_atr=vwap_dist_atr,
                             price_loc=price_loc,
                             rvol_ratio=rvol_ratio,
+                            shock_context=shock_context,
+                            runtime_context=self._runtime_context_overrides,
                         )
                         v4_result = self._de3_v4_runtime_module.select_route_and_variant(
                             feasible_candidates=feasible_candidates,
@@ -5029,6 +5095,17 @@ class DynamicEngine3Strategy(Strategy):
                             abstain_reason="",
                         )
                     elif self._de3_v3_runtime and self._de3_v3_family_runtime is not None:
+                        shock_context = (
+                            compute_shock_context(
+                                df,
+                                position=max(0, len(df) - 1),
+                                session_text=str(engine_session or ""),
+                                price_loc=price_loc,
+                                rvol_ratio=rvol_ratio,
+                            )
+                            if context_eval_ready
+                            else {}
+                        )
                         context_inputs = self._de3_v3_context_inputs(
                             current_time=current_time,
                             engine_session=engine_session,
@@ -5039,6 +5116,8 @@ class DynamicEngine3Strategy(Strategy):
                             vwap_dist_atr=vwap_dist_atr,
                             price_loc=price_loc,
                             rvol_ratio=rvol_ratio,
+                            shock_context=shock_context,
+                            runtime_context=self._runtime_context_overrides,
                         )
                         family_result = self._de3_v3_family_runtime.select_family_and_member(
                             feasible_candidates=feasible_candidates,

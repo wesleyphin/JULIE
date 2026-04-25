@@ -1,6 +1,5 @@
-import math
 import logging
-from datetime import datetime
+import math
 from typing import Dict, Optional, Tuple
 
 import numpy as np
@@ -96,8 +95,6 @@ def apply_meta_policy(
     fallback_name: Optional[str] = None,
     default_size: int = 1,
     enforce_side_bias: bool = True,
-    kalshi_context: Optional[Dict] = None,
-    session_name: Optional[str] = None,
 ) -> Tuple[bool, str, Dict]:
     """
     Attach manifold context to a signal.
@@ -137,18 +134,6 @@ def apply_meta_policy(
         "regime_manifold_allow_raw": allow,
         "regime_manifold_risk_mult": float(meta.get("risk_mult", 1.0) or 1.0),
     }
-    kalshi_updates = {}
-    if isinstance(kalshi_context, dict):
-        prob_above = kalshi_context.get("probability")
-        if prob_above is None:
-            prob_above = kalshi_context.get("prob_above")
-        classification = str(kalshi_context.get("classification", "unavailable") or "unavailable")
-        kalshi_updates = {
-            "kalshi_prob_above": float(prob_above) if prob_above is not None else None,
-            "kalshi_classification": classification,
-            "kalshi_session": str(session_name or signal.get("session_name") or ""),
-        }
-    updates.update(kalshi_updates)
     return True, "", updates
 
 
@@ -156,11 +141,10 @@ def apply_kalshi_gate(signal_direction: int, es_price: float, kalshi, config: Di
     """
     Strategy-agnostic Kalshi crowd confirmation gate.
 
-    Data-driven thresholds (Feb-Apr 2026 KXINXU backtest):
-      - 60%+ crowd confidence → 70% directional accuracy → 3x sizing
-      - 55-60% confidence → 51.8% accuracy → 1x pass-through (no edge)
-      - <55% confidence → 45.8% accuracy → contrarian, reduce to 0.5x
-      - 10-11 AM ET → 39.5% accuracy → crowd is contrarian, skip gating
+    Data-driven thresholds from the earlier live Kalshi probe:
+    - 60%+ aligned crowd confidence can scale up to 3x
+    - 55-60% crowd confidence is effectively neutral
+    - 10-11 AM ET settlement windows stay ML-only because the crowd is contrarian
     """
     _ = es_price
     if kalshi is None:
@@ -168,7 +152,6 @@ def apply_kalshi_gate(signal_direction: int, es_price: float, kalshi, config: Di
     if not getattr(kalshi, "enabled", False) or not getattr(kalshi, "is_healthy", False):
         return True, "Kalshi unavailable — ML-only mode", 1.0
 
-    # Skip gating during the 10-11 AM ET settlement windows: crowd is contrarian.
     try:
         settlement_hour = kalshi.active_settlement_hour_et()
     except Exception:
@@ -182,10 +165,6 @@ def apply_kalshi_gate(signal_direction: int, es_price: float, kalshi, config: Di
         return True, "Kalshi data unavailable — ML-only mode", 1.0
 
     thresholds = dict(config.get("sentiment_thresholds", {}))
-    # Confidence = distance from 0.50 midpoint, doubled to get percentage
-    # prob 0.60 → confidence 60%, prob 0.70 → confidence 70%
-    confidence = abs(probability - 0.50) * 2.0  # 0.0 to 1.0 scale
-
     strong_bull = float(thresholds.get("strong_bull", 0.70))
     mild_bull = float(thresholds.get("mild_bull", 0.60))
     neutral_low = float(thresholds.get("neutral_low", 0.45))
@@ -200,17 +179,13 @@ def apply_kalshi_gate(signal_direction: int, es_price: float, kalshi, config: Di
         if probability <= extreme_hard_veto_low:
             return False, f"HARD VETO: Extreme bearish crowd divergence (prob={probability:.2f})", 0.0
         if probability < neutral_low:
-            # Crowd disagrees — when crowd is wrong, moves avg 14 pts (vs 11.5 right)
             if veto_mode == "hard":
                 return False, f"VETO: Bearish crowd divergence (prob={probability:.2f})", 0.0
             return True, f"SOFT VETO: Bearish crowd (prob={probability:.2f}), half size", 0.5
         if probability >= strong_bull:
-            # 60%+ confidence = 70% accuracy — full 3x
             return True, f"STRONG ALIGN: Bullish crowd (prob={probability:.2f}), 3x size", 3.0
         if probability >= mild_bull:
-            # 60%+ confidence = 70% accuracy — full 3x
             return True, f"ALIGNED: Crowd agrees (prob={probability:.2f}), 3x size", 3.0
-        # 55-60% range: 51.8% accuracy — no meaningful edge, pass through at 1x
         return True, f"NEUTRAL: Crowd undecided (prob={probability:.2f}), 1x", 1.0
 
     if signal_direction == -1:
@@ -234,9 +209,12 @@ def get_kalshi_gate_decision(signal_direction: int, es_price: float, kalshi, roo
     Wrapper around Kalshi gating with graceful fallback to ML-only flow.
     """
     try:
-        kalshi_cfg = dict((root_config or {}).get("KALSHI", {}))
+        root_cfg = dict(root_config or {}) if isinstance(root_config, dict) else {}
+        kalshi_cfg = dict(root_cfg.get("KALSHI", {}) or {})
         if not kalshi_cfg.get("enabled", False):
             return True, "Kalshi disabled", 1.0
+        if bool(kalshi_cfg.get("observer_only", False)) or not bool(kalshi_cfg.get("trade_gating_enabled", False)):
+            return True, "Kalshi observer-only", 1.0
         if kalshi is None or not getattr(kalshi, "is_healthy", False):
             logger.warning("Kalshi unhealthy — ML-only mode")
             return True, "Kalshi unhealthy — ML-only fallback", 1.0
@@ -387,18 +365,31 @@ class RegimeManifoldEngine:
         return {
             "version": 1,
             "t": int(self.t),
+            "phase": self.phase.tolist(),
+            "beta": self.beta.tolist(),
+            "gamma": self.gamma.tolist(),
             "theta": self.theta.tolist(),
             "phi": self.phi.tolist(),
             "prev_dir": self.prev_dir.tolist() if isinstance(self.prev_dir, np.ndarray) else None,
             "stress_ewma": float(self.stress_ewma),
+            "rng_state": self.rng.bit_generator.state,
         }
 
     def load_state(self, state: Optional[Dict]) -> None:
         if not isinstance(state, dict):
             return
         try:
+            phase = np.asarray(state.get("phase", []), dtype="float64")
+            beta = np.asarray(state.get("beta", []), dtype="float64")
+            gamma = np.asarray(state.get("gamma", []), dtype="float64")
             theta = np.asarray(state.get("theta", []), dtype="float64")
             phi = np.asarray(state.get("phi", []), dtype="float64")
+            if phase.size == self.n_probes:
+                self.phase = np.mod(phase, TWOPI)
+            if beta.size == self.n_probes:
+                self.beta = beta
+            if gamma.size == self.n_probes:
+                self.gamma = gamma
             if theta.size == self.n_probes and phi.size == self.n_probes:
                 self.theta = np.mod(theta, TWOPI)
                 self.phi = np.mod(phi, TWOPI)
@@ -409,6 +400,12 @@ class RegimeManifoldEngine:
                     self.prev_dir = prev
             self.t = int(state.get("t", self.t) or self.t)
             self.stress_ewma = float(state.get("stress_ewma", self.stress_ewma) or self.stress_ewma)
+            rng_state = state.get("rng_state")
+            if isinstance(rng_state, dict):
+                try:
+                    self.rng.bit_generator.state = rng_state
+                except Exception:
+                    pass
         except Exception:
             return
 

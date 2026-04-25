@@ -41,6 +41,8 @@ def normalize_sentiment_state(value: Any) -> Dict[str, Any]:
         return empty_sentiment_state()
     normalized = empty_sentiment_state()
     normalized.update({key: value.get(key) for key in normalized.keys()})
+    metadata = value.get("metadata")
+    normalized["metadata"] = dict(metadata) if isinstance(metadata, dict) else {}
     return normalized
 
 
@@ -81,7 +83,29 @@ def load_bot_state(path: Path = STATE_PATH) -> Dict[str, Any]:
         return {}
 
 
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, set):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, datetime.datetime):
+        return serialize_dt(value)
+    if isinstance(value, datetime.date):
+        return value.isoformat()
+    item_method = getattr(value, "item", None)
+    if callable(item_method):
+        try:
+            return _json_safe(item_method())
+        except Exception:
+            pass
+    return value
+
+
 def save_bot_state(state: Dict[str, Any], path: Path = STATE_PATH) -> None:
     tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(state, indent=2, sort_keys=True))
+    tmp_path.write_text(json.dumps(_json_safe(state), indent=2, sort_keys=True))
     tmp_path.replace(path)

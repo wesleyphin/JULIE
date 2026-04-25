@@ -10,13 +10,6 @@ except Exception:
     SECRETS = {}
 
 
-def _env_flag(name: str, default: bool = False) -> bool:
-    raw = os.environ.get(name)
-    if raw is None:
-        return default
-    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
-
-
 # Core runtime configuration for the bot. This was pulled directly from the
 # original julie001.py entrypoint so other modules can import it without
 # bringing in the full bot runtime.
@@ -37,12 +30,202 @@ CONFIG = {
     "RTC_USER_HUB": "https://rtc.topstepx.com/hubs/user",
     "RTC_MARKET_HUB": "https://rtc.topstepx.com/hubs/market",
     # ProjectX user hub: event-driven account/position/trade updates.
-    "PROJECTX_USER_STREAM_ENABLED": True,
+    # Keep this off in the retail TopstepX setup so the browser session can
+    # stay active while the bot runs on REST polling + cached local state.
+    "PROJECTX_USER_STREAM_ENABLED": False,
     "PROJECTX_USER_STREAM_TRADE_CACHE": 256,
     "PROJECTX_USER_STREAM_MAX_POSITION_AGE_SEC": 15.0,
     "PROJECTX_USER_STREAM_MAX_ACCOUNT_AGE_SEC": 300.0,
-    # Retry after external/browser session conflicts instead of yielding forever.
-    "PROJECTX_EXTERNAL_SESSION_RETRY_SEC": 20.0,
+    # TopstepX currently allows one concurrent user session. When the browser
+    # or another device takes the session, `GatewayLogout` is emitted on the
+    # API stream. `yield` prevents the bot from immediately logging back in and
+    # kicking that interactive session back out. Set to `reclaim` if the bot
+    # should take priority instead.
+    "PROJECTX_SESSION_CONFLICT_POLICY": "yield",
+    # Optional delay before auth recovery is allowed again after a known
+    # external-session takeover. Keep 0 for manual restart-only recovery.
+    "PROJECTX_EXTERNAL_SESSION_RETRY_SEC": 0.0,
+    # --- KALSHI CROWD GATING + DASHBOARD FEED ---
+    # Kalshi drives both the operator dashboard and a live sizing / veto overlay
+    # during the strong settlement windows. Morning contracts remain
+    # observation-first because the crowd is historically contrarian there.
+    "KALSHI": {
+        "key_id": str(SECRETS.get("KALSHI_KEY_ID", "") or ""),
+        "private_key_path": str(SECRETS.get("KALSHI_PRIVATE_KEY_PATH", "") or ""),
+        "base_url": "https://api.elections.kalshi.com/trade-api/v2",
+        "series": "KXINXU",
+        "polling_interval": 300,
+        "cache_ttl": 120,
+        "rate_limit_delay": 0.4,
+        "request_timeout": 15,
+        "max_retries": 3,
+        "enabled": True,
+        "observer_only": False,
+        "trade_gating_enabled": True,
+        "basis_offset": 0.0,
+        "sentiment_thresholds": {
+            "strong_bull": 0.70,
+            "mild_bull": 0.60,
+            "neutral_low": 0.45,
+            "neutral_high": 0.55,
+            "mild_bear": 0.40,
+            "strong_bear": 0.30,
+        },
+        "veto_mode": "soft",
+        "extreme_hard_veto_low": 0.10,
+        "extreme_hard_veto_high": 0.90,
+    },
+    "PCT_LEVEL_OVERLAY": {
+        "enabled": True,
+        "levels_pct": [0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 1.75, 2.00, 2.50, 3.00],
+        "proximity_pct": 0.05,
+        "breakout_extension_pct": 0.10,
+        "pivot_retrace_pct": 0.15,
+        "horizon_minutes": 30,
+        "atr_window_bars": 30,
+        "atr_q1_pct": 0.020,
+        "atr_q3_pct": 0.070,
+        "range_q1_pct": 0.30,
+        "range_q3_pct": 1.00,
+        "scout_levels": [0.25, 0.50],
+        "primary_levels": [0.75, 1.00, 1.25],
+        "exhaustion_levels": [1.50, 1.75, 2.00, 2.50, 3.00],
+        "size_tilt_conf_threshold": 0.30,
+        "max_size_tilt_pct": 0.20,
+        "min_size_tilt_pct": -0.30,
+        "trail_tp_extend_pct": 0.20,
+        "trail_tp_tighten_pct": 0.30,
+        "dead_hours_et": [1, 7, 23],
+    },
+    "ENABLE_PCT_LEVEL_OVERLAY": True,
+    "KALSHI_TRADE_OVERLAY": {
+        "enabled": True,
+        # Broad 2025-03 to 2026-04 checks only held up cleanly for DE3. Keep
+        # the rule overlay live-scoped to DE3 until AF/RA get their own
+        # validated Kalshi policies.
+        "apply_strategy_prefixes": ["DynamicEngine3"],
+        "lookback_bars": 20000,
+        "lookback_trade_days": 10,
+        "min_trade_days": 6,
+        "strike_window_size": 120,
+        "min_curve_points": 8,
+        "min_curve_range": 0.08,
+        "min_unique_probabilities": 4,
+        "max_target_window_points": 32.0,
+        "max_target_window_tp_mult": 3.5,
+        "momentum_probe_points": 5.0,
+        "fade_absolute_threshold": {
+            "background": 0.48,
+            "balanced": 0.50,
+            "forward_primary": 0.52,
+        },
+        "fade_adjacent_delta_threshold": {
+            "background": 0.20,
+            "balanced": 0.18,
+            "forward_primary": 0.16,
+        },
+        "support_probability_floor": {
+            "background": 0.46,
+            "balanced": 0.52,
+            "forward_primary": 0.57,
+        },
+        "entry_threshold": {
+            "background": 0.45,
+            "balanced": 0.50,
+            "forward_primary": 0.55,
+        },
+        "momentum_retention_floor": {
+            "background": 0.72,
+            "balanced": 0.76,
+            "forward_primary": 0.80,
+        },
+        "entry_block_buffer": {
+            "background": 1.0,
+            "balanced": 0.10,
+            "forward_primary": 0.12,
+        },
+        "entry_size_floor": {
+            "background": 0.85,
+            "balanced": 0.60,
+            "forward_primary": 0.45,
+        },
+        "forward_weight": {
+            "background": 0.20,
+            "balanced": 0.48,
+            "forward_primary": 0.78,
+        },
+        "min_tp_multiplier": 0.55,
+        "max_tp_multiplier": 1.75,
+        "breakout_max_tp_multiplier": 2.5,
+        "entry_block_exempt_strategies": ["AetherFlow"],
+        "trail_enabled_roles": ["balanced", "forward_primary"],
+        "trail_buffer_ticks": {
+            "background": 6,
+            "balanced": 4,
+            "forward_primary": 4,
+        },
+        "recent_price_action": {
+            "uncertain_mean_day_range": 85.0,
+            "outrageous_mean_day_range": 100.0,
+            "uncertain_max_day_range": 130.0,
+            "outrageous_max_day_range": 150.0,
+            "uncertain_flip_rate": 0.39,
+            "outrageous_flip_rate": 0.42,
+            "uncertain_large_bar_share": 0.14,
+            "outrageous_large_bar_share": 0.17,
+            "uncertain_mean_true_range": 1.55,
+            "outrageous_mean_true_range": 1.85,
+            "uncertain_min_score": 3,
+            "outrageous_min_score": 5,
+            "today_breakout_min_range_points": 70.0,
+            "today_breakout_min_net_ratio": 0.60,
+            "today_breakout_level_lookback_days": 3,
+            "today_breakout_level_tolerance_points": 0.75,
+            "today_chop_min_range_points": 30.0,
+            "today_chop_min_flip_rate": 0.45,
+        },
+    },
+    "TRUTH_SOCIAL_SENTIMENT": {
+        "enabled": True,
+        "poll_interval": 120,
+        "pump_threshold": 0.85,
+        "emergency_exit_threshold": -0.75,
+        "finbert_local_path": "./models/finbert",
+        "target_handle": str(
+            SECRETS.get("TRUTHSOCIAL_TARGET_HANDLE", os.environ.get("TRUTH_SOCIAL_TARGET_HANDLE", "realDonaldTrump"))
+            or "realDonaldTrump"
+        ),
+        "signal_max_age_seconds": 1800,
+        "emergency_exit_max_age_seconds": 3600,
+        "quick_pump_tp_points": 4.0,
+        "quick_pump_sl_points": 2.0,
+        "observer_only": True,
+    },
+    # Research-only execution modifiers reviewed from recent upstream work.
+    # Keep these off by default so normal backtests remain unchanged until we
+    # intentionally opt into the experiment.
+    "BACKTEST_EXPERIMENTAL_MODIFIERS": {
+        "enabled": False,
+        "structural_levels": {
+            "enabled": True,
+        },
+        "level_fill_optimizer": {
+            "enabled": True,
+        },
+        # Backtest-side replay support can now mirror the promoted live LFO
+        # policy. Leave it off by default so older DE3 studies stay stable
+        # unless a run explicitly opts into the live stack.
+        "ml_lfo": {
+            "enabled": False,
+            "policy": "live_default",
+        },
+        # Historical Kalshi crowd curves can now be replayed directly inside
+        # the normal bar backtest path using the local/upstream daily ladder
+        # cache, but keep it opt-in until a run explicitly requests it.
+        "kalshi_overlay": {
+            "enabled": False,
+        },
+    },
 
     # --- SYSTEM SETTINGS ---
     "MAX_DAILY_LOSS": 1000.0,
@@ -635,65 +818,288 @@ CONFIG = {
         "manifold_params": {},
     },
     # AetherFlow deploy candidate:
-    # corrected full-base retune that improves both recent OOS and the
-    # long corrected history. The live book keeps selective CR/TB pair
-    # coverage and adds aligned_flow in the slices that stayed profitable
-    # on corrected research: NY_AM dispersed, NY_PM dispersed, and
-    # NY_PM trend-geodesic, while requiring stronger short-horizon
-    # alignment drift across the AF slice set for better historical balance.
+    # corrected full-base hard-routed sparse-override bundle. The current
+    # promoted sparse override remains the fallback expert, but we now add
+    # two AF NY_AM TREND_GEODESIC takeovers: a v1 long specialist and a v3
+    # short specialist. This was the strongest late-stage radical change we
+    # found: it flips the fresh post-Jan-2026 window positive, keeps all
+    # short evaluation windows green, slightly improves the full 2011-2024
+    # run, and preserves the repaired 2026-04-21 behavior.
     "AETHERFLOW_STRATEGY": {
         "enabled_live": True,
         "enabled_backtest": False,
         "backtest_hard_filters_only": True,
-        "model_file": "model_aetherflow_deploy_2026oos.pkl",
-        "thresholds_file": "aetherflow_thresholds_deploy_2026oos.json",
-        "metrics_file": "aetherflow_metrics_deploy_2026oos.json",
+        # Authoritative full-range manifold base cache for AetherFlow research
+        # and validation. Backtests should anchor to this cache instead of
+        # rebuilding manifold state from raw bars.
+        # Pin this to the canonical full-history base cache so research and
+        # live use the same authoritative parquet.
+        # Canonical promoted full-range manifold cache for AF research and
+        # validation. Do not swap this to an arbitrary newer scratch cache:
+        # this pinned full file is the repo's intended complete manifold base.
+        "backtest_base_features_file": "artifacts/aetherflow_corrected_full_2011_2026/manifold_base_outrights_2011_2026.parquet",
+        # Legacy seeded candidate-feature parquet. Keep for older workflows,
+        # but current AF validation should prefer the full manifold base cache.
+        "backtest_precomputed_features_file": "aetherflow_features_fullrange_v2.parquet",
+        "backtest_precompute_overlap_bars": 1440,
+        # Live runtime should also anchor to the completed manifold-base cache
+        # instead of rebuilding manifold state from a short rolling bar window.
+        # When the feed runs a bit ahead of this cache, the strategy now only
+        # rebuilds a small overlap-plus-tail slice in memory. Pin this to the
+        # canonical full-history base cache so live never drifts onto an
+        # incidental older/newer parquet by filename or mtime.
+        # Live/runtime should seed from the same canonical promoted full-range
+        # manifold cache used in research, not from whichever scratch extension
+        # file happens to be newest on disk.
+        "live_base_features_file": "artifacts/aetherflow_corrected_full_2011_2026/manifold_base_outrights_2011_2026.parquet",
+        # Small tail-only overlay written by the live bot in the background so
+        # restarts can seed from base + live tail without waiting on a full
+        # monolithic manifold rewrite.
+        "live_base_overlay_file": "artifacts/aetherflow_live_runtime/aetherflow_manifold_runtime_tail.parquet",
+        "live_base_overlap_bars": 1440,
+        # Mirror completed live bars to the outright source and manifold tail
+        # off the hot path. The strategy keeps trading from in-memory data; this
+        # just keeps the on-disk caches fresh enough for restart continuity.
+        "live_runtime_cache_enabled": True,
+        "live_runtime_source_file": "es_master_outrights.parquet",
+        "live_runtime_source_overlay_file": "artifacts/aetherflow_live_runtime/es_master_outrights_runtime_tail.parquet",
+        "live_runtime_flush_seconds": 30,
+        # Compact the raw source overlay into the canonical outright parquet on
+        # a slower cadence so the bot does not keep rewriting a multi-gig file.
+        "live_runtime_source_compact_seconds": 900,
+        # Keep a deep enough recent tail to bridge weekends or a mildly stale
+        # completed base cache when rebuilding the manifold overlay.
+        "live_runtime_history_tail_bars": 10080,
+        "live_runtime_manifold_min_new_bars": 1,
+        "model_file": "artifacts/aetherflow_routed_ensemble_candidates_20260422/radical_af_nyam_trend_v1/model.pkl",
+        "thresholds_file": "artifacts/aetherflow_routed_ensemble_candidates_20260422/radical_af_nyam_trend_v1/thresholds.json",
+        "metrics_file": "artifacts/aetherflow_routed_ensemble_candidates_20260422/radical_af_nyam_trend_v1/metrics.json",
         "min_bars": 320,
-        # Corrected April 12-13, 2026 AF regime-aware balance retune:
-        # keep CR selective, run TB slightly tighter overall, but allow a
-        # dedicated NY_AM CHOP_SPIRAL TB slice at 0.54 for extra coverage.
-        # aligned_flow stays in the profitable NY_AM/NY_PM slices, with a mild
-        # positive d_alignment_3 filter and a tighter NY_AM directional-VWAP
-        # distance cap. On corrected data this adds both recent OOS equity and
-        # trade count while also improving long-history equity and drawdown.
+        # Keep the repaired live family/policy stack, but score it through
+        # the hard-routed multi-expert bundle instead of a single shared
+        # candidate. The router only activates the adaptive experts inside
+        # approved AF NY and TB London contexts, otherwise falling back to
+        # the stable scorer.
         "threshold_override": 0.55,
-        "min_confidence": 0.55,
+        "min_confidence": 0.50,
         "size": 5,
-        # Allow one same-direction AetherFlow add-on live, with its own bracket.
-        # Research favored a 2-leg cap over 3 legs for a cleaner risk/robustness balance.
-        "live_same_side_parallel_max_legs": 2,
-        # Let AetherFlow press when it is entering alone, but keep it at
-        # base size when it is stacking same-side alongside another live leg.
-        # This is applied in the live bot after strategy sizing and before the
-        # live drawdown cap, so existing risk guardrails still get the final say.
+        # The live same-side AetherFlow gate now supports add-on legs
+        # correctly, but keep production at a single live leg for now. On the
+        # repaired corrected-base checks, one leg already restores the
+        # expected 2025 edge, while two-leg stacking is a mixed trade-off on
+        # fresh post-Jan-2026 windows.
+        "live_same_side_parallel_max_legs": 1,
+        # Disable the live-only AetherFlow size press. We keep the same
+        # add-on-leg behavior and bracket management, but remove the solo
+        # size doubler so AetherFlow stays at its base requested size.
         "conditional_live_sizing": {
-            "enabled": True,
+            "enabled": False,
             "solo_multiplier": 2.0,
             "stacked_multiplier": 1.0,
             "max_contracts": 10,
         },
+        # 2026-04-22 risk-quality layer: protect fresh-period tail risk at
+        # the strategy level instead of amputating historically strong
+        # cohorts. This governor only blocks new AetherFlow entries for the
+        # rest of the 18:00-18:00 trading day after a sufficiently bad
+        # realized-loss day has already developed.
+        "risk_governor": {
+            "enabled": True,
+            "daily_loss_stop_usd": 300.0,
+            "min_loss_trades": 2,
+            "block_new_entries_rest_of_day": True,
+        },
         "max_feature_bars": 900,
         "allowed_session_ids": [1, 2, 3],
-        "allowed_setup_families": ["aligned_flow", "compression_release", "transition_burst"],
+        "allowed_setup_families": ["aligned_flow", "transition_burst", "exhaustion_reversal"],
         "family_policies": {
-            "compression_release": {
-                "threshold": 0.58,
-                "allowed_session_ids": [1, 2, 3],
-                "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
-            },
             "transition_burst": {
                 "threshold": 0.555,
                 "allowed_session_ids": [1, 2, 3],
                 "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                # TB labels are trained with a finite setup horizon. Respect
+                # that time stop in live/backtest management instead of
+                # letting TB positions run open-ended against only SL/TP.
+                "use_horizon_time_stop": True,
                 "policy_rules": [
                     {
-                        "name": "nyam_chop_054",
+                        # 2026-04-19 efficiency retune: the runtime session-gate
+                        # fix restored a lot of Asia TB flow, but most of the
+                        # giveback came from Asia DISPERSED longs with very high
+                        # slow-flow magnitude. Keep the stronger short pocket
+                        # fully open and only allow the calmer long pocket.
+                        "name": "asia_disp_long_054_maxslow060",
+                        "match_session_ids": [0],
+                        "match_regimes": ["DISPERSED"],
+                        "match_sides": ["LONG"],
+                        "threshold": 0.54,
+                        "allowed_session_ids": [0],
+                        "allowed_regimes": ["DISPERSED"],
+                        "allowed_sides": ["LONG"],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "max_flow_mag_slow": 0.60,
+                        "use_horizon_time_stop": True,
+                    },
+                    {
+                        # 2026-04-22 weak-period follow-up: the remaining
+                        # structural drag across corrected 2011-2024, 2025,
+                        # and fresh 2026 was TB / ASIA / DISPERSED / SHORT
+                        # when short-horizon raw alignment was too weak or
+                        # negative. Requiring d_alignment_3 >= 0.10 preserved
+                        # the Jan-2026 winner, improved 2025, and materially
+                        # reduced the fresh and April losses.
+                        "name": "asia_disp_short_054",
+                        "match_session_ids": [0],
+                        "match_regimes": ["DISPERSED"],
+                        "match_sides": ["SHORT"],
+                        "threshold": 0.54,
+                        "allowed_session_ids": [0],
+                        "allowed_regimes": ["DISPERSED"],
+                        "allowed_sides": ["SHORT"],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "min_d_alignment_3": 0.10,
+                        "min_phase_d_alignment_mean_5": 0.05,
+                        "use_horizon_time_stop": True,
+                    },
+                    {
+                        # 2026-04-21 missing-strategy follow-up: the broad
+                        # threshold audit plus the older AF/TB pocket reports
+                        # both pointed to the same gap in the live stack:
+                        # NY_AM CHOP TB longs were under-admitted when the
+                        # short-horizon alignment and flow consensus were both
+                        # strong. Opening only that quality pocket at 0.50 was
+                        # much stronger than a flat session-wide relax on the
+                        # current live bundle.
+                        "name": "nyam_tb_chop_long_quality_050",
                         "match_session_ids": [2],
                         "match_regimes": ["CHOP_SPIRAL"],
-                        "threshold": 0.54,
+                        "match_sides": ["LONG"],
+                        "threshold": 0.50,
+                        "allowed_session_ids": [2],
+                        "allowed_regimes": ["CHOP_SPIRAL"],
+                        "allowed_sides": ["LONG"],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "min_flow_agreement": 0.70,
+                        "min_signed_d_alignment_3": 0.06,
+                        "use_horizon_time_stop": True,
+                    },
+                    {
+                        # 2026-04-21 scoring follow-up: the broad threshold-only
+                        # review showed that NY_AM CHOP TB was the one relax that
+                        # improved both the Jan-2026 validation slice and the
+                        # fresh post-Jan-2026 window without reopening the
+                        # noisier AF pockets. The 0.52 probe was too loose; 0.53
+                        # kept the gain while avoiding the worst giveback.
+                        "name": "nyam_chop_053",
+                        "match_session_ids": [2],
+                        "match_regimes": ["CHOP_SPIRAL"],
+                        "threshold": 0.53,
                         "allowed_session_ids": [2],
                         "allowed_regimes": ["CHOP_SPIRAL"],
                         "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "use_horizon_time_stop": True,
+                    },
+                    {
+                        # 2026-04-22 risk-quality layer: NY_AM TB chop shorts
+                        # are historically strong overall, but the corrected
+                        # fresh-2026 drawdowns cluster in first-bar unstable
+                        # chop flips. Keep the pocket open, but cut size when
+                        # the manifold is still flipping rapidly and the short-
+                        # horizon alignment mean is not yet supportive.
+                        "name": "nyam_tb_chop_short_unstable_size050",
+                        "match_session_ids": [2],
+                        "match_regimes": ["CHOP_SPIRAL"],
+                        "match_sides": ["SHORT"],
+                        "match_max_phase_regime_run_bars": 1,
+                        "match_min_phase_regime_flip_count_10": 5,
+                        "match_max_phase_d_alignment_mean_5": 0.05,
+                        "size_multiplier": 0.50,
+                    },
+                    {
+                        # 2026-04-19 standalone follow-up: after the session-gate
+                        # repair and the NY_PM trims, the last clean drag left in
+                        # the promoted standalone mix was NY_AM TB short in
+                        # TREND_GEODESIC. Blocking just that slice improved both
+                        # 2024 and 2025 while leaving the fresh Jan-2026 window
+                        # unchanged and the later unseen post-Jan 2026 window at
+                        # zero trades for all compared variants.
+                        "name": "nyam_tb_tg_short_block",
+                        "match_session_ids": [2],
+                        "match_regimes": ["TREND_GEODESIC"],
+                        "match_sides": ["SHORT"],
+                        "blocked_regimes": ["TREND_GEODESIC", "ROTATIONAL_TURBULENCE"],
+                    },
+                    {
+                        # 2026-04-19 coverage retune: a light London-wide TB
+                        # rule at 0.54 increased London participation without
+                        # breaking the correctly recomputed manifold-base OOS.
+                        # On the proper 2011-2024 / 2025 / fresh-2026 checks it
+                        # improved 2025 net and the 2025 MC tail while keeping
+                        # the fresh 2026 slice positive.
+                        "name": "london_any_054",
+                        "match_session_ids": [1],
+                        "threshold": 0.54,
+                        "allowed_session_ids": [1],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "use_horizon_time_stop": True,
+                    },
+                    {
+                        # 2026-04-19 follow-up trim: after repairing the Asia
+                        # runtime coverage and the noisy Asia TB long pocket,
+                        # the remaining clear standalone drag was NY_PM TB in
+                        # DISPERSED. Blocking that slice improved 2025 net,
+                        # PF, DD, and MC tails while leaving fresh 2026
+                        # unchanged.
+                        "name": "nypm_tb_disp_block",
+                        "match_session_ids": [3],
+                        "match_regimes": ["DISPERSED"],
+                        "blocked_regimes": ["DISPERSED", "ROTATIONAL_TURBULENCE"],
+                    },
+                    {
+                        # 2026-04-22 risk-quality layer: NY_PM TB chop shorts
+                        # share the same unstable first-bar chop signature as
+                        # the NY_AM bucket. Risk-budget them only when the
+                        # phase is still at run length one and regime flips are
+                        # elevated.
+                        "name": "nypm_tb_chop_short_unstable_size050",
+                        "match_session_ids": [3],
+                        "match_regimes": ["CHOP_SPIRAL"],
+                        "match_sides": ["SHORT"],
+                        "match_max_phase_regime_run_bars": 1,
+                        "match_min_phase_regime_flip_count_10": 5,
+                        "match_max_phase_d_alignment_mean_5": 0.02,
+                        "size_multiplier": 0.50,
+                    },
+                    {
+                        # 2026-04-22 hypothesis follow-up: the historical
+                        # manifold audit showed that NY_PM TB shorts in
+                        # TREND_GEODESIC were almost entirely first-bar-of-run
+                        # failures. Adding a small phase-memory guard preserved
+                        # the recent validated windows unchanged while
+                        # improving the corrected 2011-2024 history.
+                        "name": "nypm_tb_tg_short_phase_run2",
+                        "match_session_ids": [3],
+                        "match_regimes": ["TREND_GEODESIC"],
+                        "match_sides": ["SHORT"],
+                        "allowed_session_ids": [3],
+                        "allowed_regimes": ["TREND_GEODESIC"],
+                        "allowed_sides": ["SHORT"],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "min_phase_regime_run_bars": 2,
+                        "use_horizon_time_stop": True,
+                    },
+                    {
+                        # 2026-04-19 standalone follow-up: after removing the
+                        # NY_PM TB DISPERSED drag, NY_PM TB longs still lagged
+                        # badly while NY_PM TB shorts remained strong. Blocking
+                        # the remaining NY_PM TB long pocket improved 2024,
+                        # 2025, and bootstrap tails. The post-Jan fresh 2026
+                        # window had zero AF trades for all compared variants,
+                        # so it did not contradict the promotion.
+                        "name": "nypm_tb_long_block",
+                        "match_session_ids": [3],
+                        "match_sides": ["LONG"],
+                        "blocked_regimes": ["CHOP_SPIRAL", "DISPERSED", "TREND_GEODESIC", "ROTATIONAL_TURBULENCE"],
                     },
                 ],
             },
@@ -710,6 +1116,37 @@ CONFIG = {
                 "entry_mode": "market_next_bar",
                 "policy_rules": [
                     {
+                        # 2026-04-21 missing-strategy follow-up: the AF issue
+                        # was not a blanket lower threshold. The current bundle
+                        # improved sharply when NY_AM DISPERSED AF switched from
+                        # a raw 0.56 gate to a quality-gated 0.54 pocket with
+                        # very high flow agreement, capped stress, and minimum
+                        # slow-flow magnitude. This behaves like a missing
+                        # sub-strategy rather than a simple score bias fix.
+                        "name": "nyam_disp_quality_054",
+                        "match_session_ids": [2],
+                        "match_regimes": ["DISPERSED"],
+                        "threshold": 0.54,
+                        "allowed_session_ids": [2],
+                        "allowed_regimes": ["DISPERSED"],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "entry_mode": "market_next_bar",
+                        "min_flow_agreement": 0.96,
+                        "max_stress_pct": 0.45,
+                        "min_flow_mag_slow": 0.70,
+                    },
+                    {
+                        # 2026-04-19 standalone follow-up: the only remaining
+                        # AF-specific leak in the current validation set was a
+                        # lone NY_PM ALIGNED_FLOW / DISPERSED trade. Blocking
+                        # that slice slightly improved aggregate net, DD, and
+                        # MC tails without creating any fresh-window conflict.
+                        "name": "nypm_disp_block",
+                        "match_session_ids": [3],
+                        "match_regimes": ["DISPERSED"],
+                        "blocked_regimes": ["DISPERSED", "ROTATIONAL_TURBULENCE"],
+                    },
+                    {
                         "name": "nypm_disp",
                         "match_session_ids": [3],
                         "match_regimes": ["DISPERSED"],
@@ -721,6 +1158,62 @@ CONFIG = {
                         "min_setup_strength": 0.0,
                         "max_directional_vwap_dist_atr": 6.0,
                         "max_flow_mag_slow": 1.0,
+                    },
+                    {
+                        # 2026-04-21 corrected-base follow-up: the remaining
+                        # missed 4/21 edge was a strong NY_PM TG aligned-flow
+                        # short that sat just under the generic 0.58 gate.
+                        # Reopen only the high-strength short continuation
+                        # pocket instead of broadly lowering NY_PM TG. On the
+                        # corrected full-history checks this rescues the day,
+                        # nearly flattens April recent, and only trims the
+                        # long history modestly. The 2026-04-22 follow-up also
+                        # found that the remaining weak historical slice had
+                        # overly negative raw pressure, so keep that pocket
+                        # above -0.50 instead of reopening the whole family.
+                        "name": "nypm_af_tg_short_quality_0526",
+                        "match_session_ids": [3],
+                        "match_regimes": ["TREND_GEODESIC"],
+                        "match_sides": ["SHORT"],
+                        "threshold": 0.526,
+                        "allowed_session_ids": [3],
+                        "allowed_regimes": ["TREND_GEODESIC"],
+                        "allowed_sides": ["SHORT"],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "entry_mode": "market_next_bar",
+                        "min_setup_strength": 0.75,
+                        "min_pressure_imbalance_30": -0.50,
+                        "max_directional_vwap_dist_atr": 6.0,
+                        "max_flow_mag_slow": 1.0,
+                    },
+                    {
+                        # 2026-04-19 remodel: open the NY_PM aligned-flow
+                        # trend-geodesic long continuation pocket with a
+                        # dedicated quality rule instead of relying on the
+                        # generic high threshold. This is a session-native
+                        # continuation map, not just a trim: it lowers the
+                        # gate for NY_PM TG longs only when flow agreement and
+                        # signed short-horizon alignment are both supportive.
+                        # On the corrected manifold-base standalone checks it
+                        # improved both 2024 and 2025, raised aggregate MC PF,
+                        # and left the fresh Jan-2026 and post-Jan-2026 slices
+                        # unchanged.
+                        "name": "nypm_af_tg_long_quality_050_mid",
+                        "match_session_ids": [3],
+                        "match_regimes": ["TREND_GEODESIC"],
+                        "match_sides": ["LONG"],
+                        "threshold": 0.50,
+                        "allowed_session_ids": [3],
+                        "allowed_regimes": ["TREND_GEODESIC"],
+                        "allowed_sides": ["LONG"],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "entry_mode": "market_next_bar",
+                        "min_setup_strength": 0.0,
+                        "max_directional_vwap_dist_atr": 6.0,
+                        "max_flow_mag_slow": 1.0,
+                        "min_flow_agreement": 0.55,
+                        "min_signed_d_alignment_3": 0.04,
+                        "size_multiplier": 0.50,
                     },
                     {
                         "name": "nypm_tg",
@@ -737,165 +1230,76 @@ CONFIG = {
                     },
                 ],
             },
+            "exhaustion_reversal": {
+                "threshold": 0.58,
+                # 2026-04-21 runtime-policy review: the fresh 2026 drag from ER
+                # came from a single NY_PM loser, while the profitable ER
+                # history stayed concentrated in ASIA plus a small NY_AM pocket.
+                # Keep the Asia/native coverage that carried 2025, but block the
+                # NY_PM extension that added downside without offsetting edge.
+                "allowed_session_ids": [0, 1, 2],
+                "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                "policy_rules": [
+                    {
+                        # 2026-04-22 drawdown cleanup: this tiny ER bucket was
+                        # negative across the corrected history and added no
+                        # recent validated edge, so block it outright.
+                        "name": "nyam_er_disp_long_block",
+                        "match_session_ids": [2],
+                        "match_regimes": ["DISPERSED"],
+                        "match_sides": ["LONG"],
+                        "blocked_regimes": ["DISPERSED", "ROTATIONAL_TURBULENCE"],
+                    },
+                    {
+                        # 2026-04-22 risk-quality layer: ER Asia chop stays
+                        # valuable over the full corrected history, but the bad
+                        # fresh-period days show up when flow agreement is still
+                        # strongly negative and the manifold has been flipping
+                        # rapidly. Throttle those unstable long fades rather
+                        # than blocking the cohort outright.
+                        "name": "asia_chop_long_unstable_size067",
+                        "match_session_ids": [0],
+                        "match_regimes": ["CHOP_SPIRAL"],
+                        "match_sides": ["LONG"],
+                        "match_max_flow_agreement": -0.20,
+                        "match_min_phase_regime_flip_count_10": 5,
+                        "match_min_phase_stress_mean_5": 0.50,
+                        "size_multiplier": 0.67,
+                    },
+                    {
+                        # 2026-04-22 risk-quality layer: same treatment for the
+                        # Asia chop short pocket. The cohort is still a strong
+                        # long-history earner, but the high-flip negative-flow
+                        # subset is where the fresh-period damage clusters.
+                        "name": "asia_chop_short_unstable_size067",
+                        "match_session_ids": [0],
+                        "match_regimes": ["CHOP_SPIRAL"],
+                        "match_sides": ["SHORT"],
+                        "match_max_flow_agreement": -0.25,
+                        "match_min_phase_regime_flip_count_10": 5,
+                        "match_min_phase_stress_mean_5": 0.50,
+                        "size_multiplier": 0.67,
+                    },
+                    {
+                        # 2026-04-22 family-specific follow-up: the remaining
+                        # ER London DISPERSED shorts in corrected history were
+                        # both low-agreement losers. Require flow agreement
+                        # before reopening that tiny counter-trend pocket.
+                        "name": "london_disp_short_flow050",
+                        "match_session_ids": [1],
+                        "match_regimes": ["DISPERSED"],
+                        "match_sides": ["SHORT"],
+                        "allowed_session_ids": [1],
+                        "allowed_regimes": ["DISPERSED"],
+                        "allowed_sides": ["SHORT"],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "min_flow_agreement": 0.50,
+                    },
+                ],
+            },
         },
         "hazard_block_regimes": ["ROTATIONAL_TURBULENCE"],
         "log_evals": True,
-    },
-    "KALSHI": {
-        "key_id": str(SECRETS.get("KALSHI_KEY_ID", "") or ""),
-        "private_key_path": str(SECRETS.get("KALSHI_PRIVATE_KEY_PATH", "") or ""),
-        "base_url": "https://api.elections.kalshi.com/trade-api/v2",
-        "series": "KXINXU",
-        "polling_interval": 300,
-        "cache_ttl": 120,
-        "rate_limit_delay": 0.4,
-        "request_timeout": 15,
-        "max_retries": 3,
-        "enabled": True,
-        "basis_offset": 0.0,
-        "sentiment_thresholds": {
-            "strong_bull": 0.70,
-            "mild_bull": 0.60,
-            "neutral_low": 0.45,
-            "neutral_high": 0.55,
-            "mild_bear": 0.40,
-            "strong_bear": 0.30,
-        },
-        "veto_mode": "soft",
-        "extreme_hard_veto_low": 0.10,
-        "extreme_hard_veto_high": 0.90,
-    },
-    "PCT_LEVEL_OVERLAY": {
-        "enabled": True,
-        "levels_pct": [0.25, 0.50, 0.75, 1.00, 1.25, 1.50, 1.75, 2.00, 2.50, 3.00],
-        "proximity_pct": 0.05,
-        "breakout_extension_pct": 0.10,
-        "pivot_retrace_pct": 0.15,
-        "horizon_minutes": 30,
-        "atr_window_bars": 30,
-        "atr_q1_pct": 0.020,
-        "atr_q3_pct": 0.070,
-        "range_q1_pct": 0.30,
-        "range_q3_pct": 1.00,
-        "scout_levels": [0.25, 0.50],
-        "primary_levels": [0.75, 1.00, 1.25],
-        "exhaustion_levels": [1.50, 1.75, 2.00, 2.50, 3.00],
-        "size_tilt_conf_threshold": 0.30,
-        "max_size_tilt_pct": 0.20,
-        "min_size_tilt_pct": -0.30,
-        "trail_tp_extend_pct": 0.20,
-        "trail_tp_tighten_pct": 0.30,
-        "dead_hours_et": [1, 7, 23],
-    },
-    "ENABLE_PCT_LEVEL_OVERLAY": True,
-    "KALSHI_TRADE_OVERLAY": {
-        "enabled": True,
-        "lookback_bars": 20000,
-        "lookback_trade_days": 10,
-        "min_trade_days": 6,
-        "strike_window_size": 120,
-        "min_curve_points": 8,
-        "min_curve_range": 0.08,
-        "min_unique_probabilities": 4,
-        "max_target_window_points": 32.0,
-        "max_target_window_tp_mult": 3.5,
-        "momentum_probe_points": 5.0,
-        "fade_absolute_threshold": {
-            "background": 0.48,
-            "balanced": 0.50,
-            "forward_primary": 0.52,
-        },
-        "fade_adjacent_delta_threshold": {
-            "background": 0.20,
-            "balanced": 0.18,
-            "forward_primary": 0.16,
-        },
-        "support_probability_floor": {
-            "background": 0.46,
-            "balanced": 0.52,
-            "forward_primary": 0.57,
-        },
-        "entry_threshold": {
-            "background": 0.45,
-            "balanced": 0.50,
-            "forward_primary": 0.55,
-        },
-        "momentum_retention_floor": {
-            "background": 0.72,
-            "balanced": 0.76,
-            "forward_primary": 0.80,
-        },
-        # Background mode trims confidence only lightly; non-background modes can block weak entries.
-        "entry_block_buffer": {
-            "background": 1.0,
-            "balanced": 0.10,
-            "forward_primary": 0.12,
-        },
-        "entry_size_floor": {
-            "background": 0.85,
-            "balanced": 0.60,
-            "forward_primary": 0.45,
-        },
-        "forward_weight": {
-            "background": 0.20,
-            "balanced": 0.48,
-            "forward_primary": 0.78,
-        },
-        "min_tp_multiplier": float(os.environ.get("JULIE_KALSHI_MIN_TP_MULT", "0.55")),
-        "max_tp_multiplier": float(os.environ.get("JULIE_KALSHI_MAX_TP_MULT", "1.75")),
-        "trail_enabled_roles": ["balanced", "forward_primary"],
-        "trail_buffer_ticks": {
-            "background": 6,
-            "balanced": 4,
-            "forward_primary": 4,
-        },
-        "recent_price_action": {
-            "uncertain_mean_day_range": 85.0,
-            "outrageous_mean_day_range": 100.0,
-            "uncertain_max_day_range": 130.0,
-            "outrageous_max_day_range": 150.0,
-            "uncertain_flip_rate": 0.39,
-            "outrageous_flip_rate": 0.42,
-            "uncertain_large_bar_share": 0.14,
-            "outrageous_large_bar_share": 0.17,
-            "uncertain_mean_true_range": 1.55,
-            "outrageous_mean_true_range": 1.85,
-            "uncertain_min_score": 3,
-            "outrageous_min_score": 5,
-            "today_breakout_min_range_points": 70.0,
-            "today_breakout_min_net_ratio": 0.60,
-            "today_breakout_level_lookback_days": 3,
-            "today_breakout_level_tolerance_points": 0.75,
-            "today_chop_min_range_points": 30.0,
-            "today_chop_min_flip_rate": 0.45,
-        },
-        "breakout_max_tp_multiplier": 2.5,
-    },
-    "TRUTH_SOCIAL_SENTIMENT": {
-        "enabled": True,
-        "poll_interval": 120,
-        "pump_threshold": 0.85,
-        "emergency_exit_threshold": -0.75,
-        "finbert_local_path": "./models/finbert",
-        "target_handle": str(
-            SECRETS.get("TRUTHSOCIAL_TARGET_HANDLE", os.environ.get("TRUTH_SOCIAL_TARGET_HANDLE", "realDonaldTrump"))
-            or "realDonaldTrump"
-        ),
-        "signal_max_age_seconds": 1800,
-        "emergency_exit_max_age_seconds": 3600,
-        "quick_pump_tp_points": 4.0,
-        "quick_pump_sl_points": 2.0,
-    },
-    # Opposite-direction reversal confirmation (env-var tunable).
-    # required_confirmations: how many consecutive opposite signals within window_bars
-    # are needed to close the active position and flip direction.
-    # Higher = fewer, slower reversals. Lower = more aggressive direction flipping.
-    "LIVE_OPPOSITE_REVERSAL": {
-        "required_confirmations": int(os.environ.get("JULIE_REVERSAL_CONFIRM", "3")),
-        "window_bars": int(os.environ.get("JULIE_REVERSAL_WINDOW", "3")),
-        "require_same_strategy_family": True,
-        "require_same_active_trade_family": False,
-        "require_same_sub_strategy": False,
     },
     # Optional macro-regime feature (disabled by default for robustness)
     "ML_PHYSICS_USE_MACRO_REGIME": False,
@@ -1361,10 +1765,12 @@ CONFIG = {
         "disable_max_stoploss_for_mlphysics": False,
         # Backtest-only: bypass global SL cap for DynamicEngine3 when runtime DB is v2.
         "disable_max_stoploss_for_de3_v2": False,
-        # Backtest-only session guard (US/Eastern):
-        # no new entries during [start_hour, end_hour), force-flat open positions at force_flat time.
-        "no_new_entries_start_hour_et": 16,
+        # Session guard (US/Eastern):
+        # no new entries during [start_time, end_time); active live trades continue to be managed.
+        "no_new_entries_start_hour_et": 15,
+        "no_new_entries_start_minute_et": 58,
         "no_new_entries_end_hour_et": 18,
+        "no_new_entries_end_minute_et": 0,
         "enforce_no_new_entries_window": True,
         "force_flat_at_time": True,
         "force_flat_hour_et": 16,
@@ -2520,7 +2926,9 @@ CONFIG = {
         # Live promotion 2026-04-08:
         # promote the 06-09 Long_Rev bracket-menu expansion bundle and
         # keep the runtime on the synced live artifact path.
-        "bundle_path": "artifacts/de3_v4_live/latest.json",
+        # Pin the promoted best percent bundle explicitly instead of relying on
+        # a moving "latest" alias.
+        "bundle_path": "artifacts/de3_v4_live/dynamic_engine3_v4_bundle.decision_side_daytype_soft_v1_20260422_promoted.json",
         "reports_dir": "reports",
         # If bundle is missing, runtime stays safe and falls back to candidate-level defaults.
         "auto_build_bundle": False,
@@ -2562,7 +2970,8 @@ CONFIG = {
             "excluded_family_ids": [
                 "5min|09-12|long|Long_Rev|T6",
             ],
-            # Baseline parity: no hard variant-pattern suppression.
+            # Live variant suppression for repeat offenders that kept showing up
+            # as drags across the repo's 2025 / early-2026 follow-up checks.
             "excluded_variant_patterns": [
                 # Persistent cross-year losers in the locked DE3v4 baseline:
                 # negative in both 2024 tune and 2025 OOS with meaningful sample size.
@@ -2581,7 +2990,852 @@ CONFIG = {
                 # remove the two exact-tested weak 12-15 short-reversion pockets.
                 "5min_12-15_Short_Rev_T6_SL8_TP12",
                 "5min_12-15_Short_Rev_T5_SL10_TP12.5",
+                # Recurrent cross-window losers:
+                # weak in the live PF audit and negative again in the follow-up
+                # 2025 / Jan 2026 trade-attribution checks.
+                "5min_03-06_Long_Rev_T3_SL10_TP25",
+                "15min_15-18_Long_Mom_T5_SL10_TP25",
             ],
+            # Research-only surgical router veto for exact
+            # family/profile pockets. Keep disabled by default so live/runtime
+            # behavior only changes when an explicit backtest or promotion
+            # turns on a proven subset of these rules.
+            "family_profile_veto": {
+                "enabled": True,
+                "rules": [
+                    {
+                        "name": "frv_06_09_long_rev_t2_expanded_trend_up_distributed_normal",
+                        "enabled": False,
+                        "apply_variants": ["15min_06-09_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "expanded|trend_up|distributed|normal_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_06_09_long_rev_t2_expanded_grind_up_distributed_normal",
+                        "enabled": False,
+                        "apply_variants": ["15min_06-09_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "expanded|grind_up|distributed|normal_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_06_09_long_rev_t2_expanded_grind_up_distributed_heavy",
+                        "enabled": False,
+                        "apply_variants": ["15min_06-09_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "expanded|grind_up|distributed|heavy_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_06_09_long_rev_t2_expanded_rotation_distributed_normal",
+                        "enabled": False,
+                        "apply_variants": ["15min_06-09_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "expanded|rotation|distributed|normal_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_12_15_long_rev_t2_shock_grind_up_late_drive_normal",
+                        "enabled": False,
+                        "apply_variants": ["15min_12-15_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "shock|grind_up|late_drive|normal_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_12_15_long_rev_t2_expanded_trend_down_late_drive_normal",
+                        "enabled": False,
+                        "apply_variants": ["15min_12-15_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "expanded|trend_down|late_drive|normal_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_12_15_long_rev_t2_expanded_trend_up_late_drive_normal",
+                        "enabled": False,
+                        "apply_variants": ["15min_12-15_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "expanded|trend_up|late_drive|normal_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_12_15_long_rev_t2_expanded_rotation_distributed_normal",
+                        "enabled": False,
+                        "apply_variants": ["15min_12-15_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "expanded|rotation|distributed|normal_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_12_15_long_rev_t2_shock_grind_down_late_drive_heavy",
+                        "enabled": False,
+                        "apply_variants": ["15min_12-15_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "shock|grind_down|late_drive|heavy_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_06_09_long_rev_t2_shock_grind_up_late_drive_heavy",
+                        "enabled": False,
+                        "apply_variants": ["5min_06-09_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "shock|grind_up|late_drive|heavy_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_06_09_long_rev_t2_normal_grind_down_distributed_heavy",
+                        "enabled": False,
+                        "apply_variants": ["5min_06-09_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "normal|grind_down|distributed|heavy_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_18_21_long_rev_t2_normal_trend_down_open_drive_heavy",
+                        "enabled": False,
+                        "apply_variants": ["5min_18-21_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "normal|trend_down|open_drive|heavy_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_06_09_long_rev_t2_shock_rotation_distributed_heavy_medium_gap",
+                        "enabled": False,
+                        "apply_variants": ["15min_06-09_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "shock|rotation|distributed|heavy_flow|medium_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_03_06_long_rev_t5_expanded_grind_up_distributed_heavy",
+                        "enabled": False,
+                        "apply_variants": ["15min_03-06_Long_Rev_T5_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "expanded|grind_up|distributed|heavy_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_12_15_long_rev_t2_shock_grind_up_distributed_heavy_medium_gap",
+                        "enabled": False,
+                        "apply_variants": ["15min_12-15_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "shock|grind_up|distributed|heavy_flow|medium_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_18_21_long_rev_t2_shock_grind_down_distributed_heavy",
+                        "enabled": False,
+                        "apply_variants": ["5min_18-21_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "shock|grind_down|distributed|heavy_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_06_09_long_rev_t2_expanded_rotation_distributed_normal_5m",
+                        "enabled": False,
+                        "apply_variants": ["5min_06-09_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "expanded|rotation|distributed|normal_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_06_09_long_rev_t2_expanded_grind_up_distributed_heavy_15m",
+                        "enabled": False,
+                        "apply_variants": ["15min_06-09_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "expanded|grind_up|distributed|heavy_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_21_24_long_rev_t2_expanded_trend_down_distributed_heavy",
+                        "enabled": False,
+                        "apply_variants": ["5min_21-24_Long_Rev_T2_SL10_TP12.5"],
+                        "apply_day_profiles": [
+                            "expanded|trend_down|distributed|heavy_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_21_24_long_rev_t2_shock_trend_down_late_drive_heavy_15m",
+                        "enabled": False,
+                        "apply_variants": ["15min_21-24_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "shock|trend_down|late_drive|heavy_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_21_24_long_rev_t2_shock_trend_down_distributed_heavy_15m",
+                        "enabled": False,
+                        "apply_variants": ["15min_21-24_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "shock|trend_down|distributed|heavy_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_18_21_long_rev_t2_shock_trend_down_open_drive_heavy",
+                        "enabled": False,
+                        "apply_variants": ["5min_18-21_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "shock|trend_down|open_drive|heavy_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_18_21_long_rev_t2_open_drive_down_cluster_core",
+                        "enabled": False,
+                        "apply_variants": ["5min_18-21_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "shock|grind_down|open_drive|normal_flow|small_gap",
+                            "shock|trend_down|open_drive|heavy_flow|small_gap",
+                            "shock|trend_down|open_drive|thin_flow|small_gap",
+                            "expanded|grind_down|open_drive|heavy_flow|small_gap",
+                            "expanded|grind_down|open_drive|normal_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_06_09_long_rev_t2_normal_grind_down_distributed_normal_15m",
+                        # Narrow DE3 live repair: this exact 15min 06-09
+                        # long-reversion pocket was one of the few surgical
+                        # family-profile vetoes that improved 2022-2023,
+                        # left 2024 unchanged, stayed nearly flat in 2025,
+                        # and improved 2026 holdout net on the raw promoted
+                        # percent bundle.
+                        "enabled": True,
+                        "apply_variants": ["15min_06-09_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "normal|grind_down|distributed|normal_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_18_21_long_rev_t2_shock_trend_up_open_drive_normal",
+                        "enabled": False,
+                        "apply_variants": ["5min_18-21_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "shock|trend_up|open_drive|normal_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_18_21_long_rev_t2_expanded_trend_down_open_drive_normal",
+                        "enabled": False,
+                        "apply_variants": ["5min_18-21_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "expanded|trend_down|open_drive|normal_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_06_09_long_rev_t2_expanded_grind_down_late_drive_heavy",
+                        "enabled": False,
+                        "apply_variants": ["5min_06-09_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "expanded|grind_down|late_drive|heavy_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_06_09_short_rev_bullclimax_t3_expanded_trend_up_late_drive_heavy",
+                        "enabled": False,
+                        "apply_variants": ["5min_06-09_Short_Rev_BullClimax_T3_SL5_TP6.25"],
+                        "apply_day_profiles": [
+                            "expanded|trend_up|late_drive|heavy_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_06_09_short_rev_bullclimax_t3_shock_trend_up_late_drive_normal",
+                        "enabled": False,
+                        "apply_variants": ["5min_06-09_Short_Rev_BullClimax_T3_SL5_TP6.25"],
+                        "apply_day_profiles": [
+                            "shock|trend_up|late_drive|normal_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_18_21_long_rev_t2_expanded_grind_down_distributed_heavy",
+                        "enabled": False,
+                        "apply_variants": ["5min_18-21_Long_Rev_T2_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "expanded|grind_down|distributed|heavy_flow|small_gap",
+                        ],
+                    },
+                    {
+                        "name": "frv_03_06_long_rev_t5_shock_trend_down_late_drive_heavy",
+                        "enabled": False,
+                        "apply_variants": ["15min_03-06_Long_Rev_T5_SL10_TP25"],
+                        "apply_day_profiles": [
+                            "shock|trend_down|late_drive|heavy_flow|small_gap",
+                        ],
+                    },
+                ],
+            },
+            # Live-safe realized-drawdown quarantine:
+            # once DE3's realized equity falls far enough from its own peak,
+            # quarantine specific variant patterns but still allow back the
+            # exact profitable variant/day-profile pockets that survive the
+            # drawdown state. Disabled by default until validated.
+            "live_drawdown_quarantine": {
+                "enabled": False,
+                "max_drawdown_usd": 0.0,
+                "post_trigger_excluded_variant_patterns": [],
+                "allow_rules": [],
+            },
+            # Backtest-only stateful trade-day cluster breaker:
+            # once a targeted DE3 long-reversion pocket realizes a qualifying
+            # loss, block the rest of that family cluster for the current
+            # futures trade day. Keep disabled until exact multi-year checks
+            # prove a rule is robust enough to consider promotion.
+            "backtest_trade_day_cluster_lockout": {
+                "enabled": False,
+                "trade_day_roll_hour_et": 18,
+                "rules": [
+                    {
+                        "name": "tdcl_core4_any_loss_group",
+                        "enabled": False,
+                        "lockout_scope": "group",
+                        "losses_to_lock": 1,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                    },
+                    {
+                        "name": "tdcl_core4_shock_expanded_down_group",
+                        "enabled": False,
+                        "lockout_scope": "group",
+                        "losses_to_lock": 1,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                        "trigger_day_expansion_regimes": ["shock", "expanded"],
+                        "trigger_day_direction_regimes": [
+                            "trend_down",
+                            "grind_down",
+                            "rotation",
+                        ],
+                        "trigger_day_opening_regimes": ["open_drive", "distributed"],
+                        "trigger_day_flow_regimes": ["heavy_flow", "normal_flow"],
+                    },
+                    {
+                        "name": "tdcl_core4_expanded_down_group",
+                        "enabled": False,
+                        "lockout_scope": "group",
+                        "losses_to_lock": 1,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                        "trigger_day_expansion_regimes": ["expanded"],
+                        "trigger_day_direction_regimes": ["trend_down", "grind_down"],
+                        "trigger_day_opening_regimes": ["open_drive", "distributed"],
+                        "trigger_day_flow_regimes": ["heavy_flow", "normal_flow"],
+                    },
+                    {
+                        "name": "tdcl_core4_down_heavy_group",
+                        "enabled": False,
+                        "lockout_scope": "group",
+                        "losses_to_lock": 1,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                        "trigger_day_expansion_regimes": ["shock", "expanded", "normal"],
+                        "trigger_day_direction_regimes": [
+                            "trend_down",
+                            "grind_down",
+                            "rotation",
+                        ],
+                        "trigger_day_opening_regimes": ["open_drive", "distributed"],
+                        "trigger_day_flow_regimes": ["heavy_flow"],
+                    },
+                    {
+                        "name": "tdcl_core4_any_loss_variant",
+                        "enabled": False,
+                        "lockout_scope": "variant",
+                        "losses_to_lock": 1,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                    },
+                    {
+                        "name": "tdcl_core4_expanded_down_group_cd2",
+                        "enabled": False,
+                        "lockout_scope": "group",
+                        "cooldown_trade_days": 2,
+                        "losses_to_lock": 1,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                        "trigger_day_expansion_regimes": ["expanded"],
+                        "trigger_day_direction_regimes": ["trend_down", "grind_down"],
+                        "trigger_day_opening_regimes": ["open_drive", "distributed"],
+                        "trigger_day_flow_regimes": ["heavy_flow", "normal_flow"],
+                    },
+                    {
+                        "name": "tdcl_core4_shock_expanded_down_group_cd3",
+                        "enabled": False,
+                        "lockout_scope": "group",
+                        "cooldown_trade_days": 3,
+                        "losses_to_lock": 1,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                        "trigger_day_expansion_regimes": ["shock", "expanded"],
+                        "trigger_day_direction_regimes": [
+                            "trend_down",
+                            "grind_down",
+                            "rotation",
+                        ],
+                        "trigger_day_opening_regimes": ["open_drive", "distributed"],
+                        "trigger_day_flow_regimes": ["heavy_flow", "normal_flow"],
+                    },
+                    {
+                        "name": "tdcl_core4_down_heavy_group_cd2",
+                        "enabled": False,
+                        "lockout_scope": "group",
+                        "cooldown_trade_days": 2,
+                        "losses_to_lock": 1,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                        "trigger_day_expansion_regimes": ["shock", "expanded", "normal"],
+                        "trigger_day_direction_regimes": [
+                            "trend_down",
+                            "grind_down",
+                            "rotation",
+                        ],
+                        "trigger_day_opening_regimes": ["open_drive", "distributed"],
+                        "trigger_day_flow_regimes": ["heavy_flow"],
+                    },
+                    {
+                        "name": "tdcl_core4_shock_expanded_down_variant_cd5",
+                        "enabled": False,
+                        "lockout_scope": "variant",
+                        "cooldown_trade_days": 5,
+                        "losses_to_lock": 1,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                        "trigger_day_expansion_regimes": ["shock", "expanded"],
+                        "trigger_day_direction_regimes": [
+                            "trend_down",
+                            "grind_down",
+                            "rotation",
+                        ],
+                        "trigger_day_opening_regimes": ["open_drive", "distributed"],
+                        "trigger_day_flow_regimes": ["heavy_flow", "normal_flow"],
+                    },
+                    {
+                        "name": "tdcl_core6_expanded_down_group_cd2",
+                        "enabled": False,
+                        "lockout_scope": "group",
+                        "cooldown_trade_days": 2,
+                        "losses_to_lock": 1,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                        "trigger_day_expansion_regimes": ["expanded"],
+                        "trigger_day_direction_regimes": ["trend_down", "grind_down"],
+                        "trigger_day_opening_regimes": ["open_drive", "distributed"],
+                        "trigger_day_flow_regimes": ["heavy_flow", "normal_flow"],
+                    },
+                    {
+                        "name": "tdcl_core6_expanded_down_group_cd3",
+                        "enabled": False,
+                        "lockout_scope": "group",
+                        "cooldown_trade_days": 3,
+                        "losses_to_lock": 1,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                        "trigger_day_expansion_regimes": ["expanded"],
+                        "trigger_day_direction_regimes": ["trend_down", "grind_down"],
+                        "trigger_day_opening_regimes": ["open_drive", "distributed"],
+                        "trigger_day_flow_regimes": ["heavy_flow", "normal_flow"],
+                    },
+                    {
+                        "name": "tdcl_core6_down_group_cd3",
+                        "enabled": False,
+                        "lockout_scope": "group",
+                        "cooldown_trade_days": 3,
+                        "losses_to_lock": 1,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                        "trigger_day_expansion_regimes": ["shock", "expanded", "normal"],
+                        "trigger_day_direction_regimes": ["trend_down", "grind_down", "rotation"],
+                        "trigger_day_opening_regimes": ["open_drive", "distributed"],
+                        "trigger_day_flow_regimes": ["heavy_flow", "normal_flow"],
+                    },
+                    {
+                        "name": "tdcl_core6_down_group_rolling2of3_cd3",
+                        "enabled": False,
+                        "lockout_scope": "group",
+                        "cooldown_trade_days": 3,
+                        "losses_to_lock": 99,
+                        "rolling_loss_days_to_lock": 2,
+                        "rolling_loss_days_lookback": 3,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                        "trigger_day_expansion_regimes": ["shock", "expanded", "normal"],
+                        "trigger_day_direction_regimes": ["trend_down", "grind_down", "rotation"],
+                        "trigger_day_opening_regimes": ["open_drive", "distributed"],
+                        "trigger_day_flow_regimes": ["heavy_flow", "normal_flow"],
+                    },
+                    {
+                        "name": "tdcl_core6_down_group_rolling2of4_cd3",
+                        "enabled": False,
+                        "lockout_scope": "group",
+                        "cooldown_trade_days": 3,
+                        "losses_to_lock": 99,
+                        "rolling_loss_days_to_lock": 2,
+                        "rolling_loss_days_lookback": 4,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                        "trigger_day_expansion_regimes": ["shock", "expanded", "normal"],
+                        "trigger_day_direction_regimes": ["trend_down", "grind_down", "rotation"],
+                        "trigger_day_opening_regimes": ["open_drive", "distributed"],
+                        "trigger_day_flow_regimes": ["heavy_flow", "normal_flow"],
+                    },
+                    {
+                        "name": "tdcl_core6_any_loss_group_cd3",
+                        "enabled": False,
+                        "lockout_scope": "group",
+                        "cooldown_trade_days": 3,
+                        "losses_to_lock": 1,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                    },
+                    {
+                        "name": "tdcl_core6_any_loss_group_cd4",
+                        "enabled": False,
+                        "lockout_scope": "group",
+                        "cooldown_trade_days": 4,
+                        "losses_to_lock": 1,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                    },
+                    {
+                        "name": "tdcl_core7_expanded_down_group_cd2",
+                        "enabled": False,
+                        "lockout_scope": "group",
+                        "cooldown_trade_days": 2,
+                        "losses_to_lock": 1,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_12-15_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_12-15_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                        "trigger_day_expansion_regimes": ["expanded"],
+                        "trigger_day_direction_regimes": ["trend_down", "grind_down"],
+                        "trigger_day_opening_regimes": ["open_drive", "distributed"],
+                        "trigger_day_flow_regimes": ["heavy_flow", "normal_flow"],
+                    },
+                    {
+                        "name": "tdcl_core7_expanded_down_group_cd3",
+                        "enabled": False,
+                        "lockout_scope": "group",
+                        "cooldown_trade_days": 3,
+                        "losses_to_lock": 1,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_12-15_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_12-15_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                        "trigger_day_expansion_regimes": ["expanded"],
+                        "trigger_day_direction_regimes": ["trend_down", "grind_down"],
+                        "trigger_day_opening_regimes": ["open_drive", "distributed"],
+                        "trigger_day_flow_regimes": ["heavy_flow", "normal_flow"],
+                    },
+                    {
+                        "name": "tdcl_core7_any_loss_group_cd3",
+                        "enabled": False,
+                        "lockout_scope": "group",
+                        "cooldown_trade_days": 3,
+                        "losses_to_lock": 1,
+                        "trigger_on_pnl_per_contract_lte_usd": -0.01,
+                        "apply_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_12-15_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "apply_sides": ["LONG"],
+                        "trigger_variants": [
+                            "5min_18-21_Long_Rev_T2_SL10_TP25",
+                            "15min_03-06_Long_Rev_T5_SL10_TP25",
+                            "5min_21-24_Long_Rev_T2_SL10_TP12.5",
+                            "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_21-24_Long_Rev_T2_SL10_TP25",
+                            "15min_06-09_Long_Rev_T2_SL10_TP25",
+                            "15min_12-15_Long_Rev_T2_SL10_TP25",
+                        ],
+                        "trigger_sides": ["LONG"],
+                    },
+                ],
+            },
+            # Backtest-only DE3 realized-equity drawdown breaker:
+            # if DE3's realized PnL falls more than the configured amount below
+            # its running realized peak, stop admitting new DE3 trades for the
+            # rest of the run. This is intentionally isolated from live until we
+            # validate the trade-off against multi-year opportunity cost.
+            "backtest_drawdown_breaker": {
+                "enabled": False,
+                "max_drawdown_usd": 1200.0,
+                "mode": "permanent_block",
+                "post_trigger_excluded_variant_patterns": [],
+                "post_trigger_allow_family_profile_rules": [],
+            },
             # v4-only pre-candidate signal gate override (applied inside DynamicSignalEngine3
             # when DE3_VERSION=v4) so non-core lanes are not hard-pruned by legacy v2/v3
             # runtime constraints before router/lane selection.
@@ -2616,8 +3870,9 @@ CONFIG = {
             #   all-or-nothing over-pruning.
             "execution_policy": {
                 "enabled": True,
-                # Binding post-lane veto: reject low-quality setups outright.
-                "enforce_veto": False,
+                # Make rejected post-lane decisions become real no-trades instead
+                # of silently degrading to conservative sizing.
+                "enforce_veto": True,
                 "soft_tier_on_reject": "conservative",
                 "hard_limits": {
                     "min_route_confidence": 0.00,
@@ -2841,14 +4096,13 @@ CONFIG = {
                 # keep the tradeable book intact, but de-emphasize variants whose
                 # 2011-2023 history was materially weaker than the rest.
                 "variant_size_multipliers": {
-                    "5min_03-06_Long_Rev_T3_SL10_TP25": 0.25,
                     "5min_09-12_Short_Rev_T6_SL10_TP12.5": 0.80,
-                    "15min_12-15_Long_Rev_T2_SL10_TP25": 0.80,
+                    # These long-reversion pockets were not consistent enough to
+                    # remove outright, but they were too fragile to leave near
+                    # baseline size.
+                    "15min_06-09_Long_Rev_T2_SL10_TP25": 0.50,
+                    "15min_12-15_Long_Rev_T2_SL10_TP25": 0.50,
                     "15min_15-18_Short_Mom_T6_SL10_TP25": 0.80,
-                    # Live promotion 2026-04-07:
-                    # keep the weak but still-positive 15-18 long momentum pocket on
-                    # a short leash instead of removing it outright.
-                    "15min_15-18_Long_Mom_T5_SL10_TP25": 0.25,
                 },
             },
             # Live-portable DE3v4 conditional size shaping:
@@ -2896,11 +4150,15 @@ CONFIG = {
                         "min_contracts": 1,
                     },
                     {
-                        "name": "live_12_15_long_rev_t2_distlow050_range400_defensive_050",
+                        "name": "live_12_15_long_rev_t2_flips1_upper020_defensive_050",
                         "enabled": True,
                         "apply_variants": ["15min_12-15_Long_Rev_T2_SL10_TP25"],
-                        "max_dist_low5_atr": 0.50,
-                        "min_range10_atr": 4.0,
+                        # The old dist-low / range rule missed the April 17 lunch
+                        # losses and mainly tagged a positive 2025 pocket. This
+                        # shape catches the weak midday continuation pattern that
+                        # stayed negative in the 2025 follow-up export.
+                        "max_flips5": 1.0,
+                        "max_upper_wick_ratio": 0.20,
                         "size_multiplier": 0.50,
                         "min_contracts": 1,
                     },
@@ -2986,6 +4244,8 @@ CONFIG = {
                 "mode": "block_defensive",
                 "apply_sessions": ["LONDON", "NY_AM", "NY_PM"],
                 "apply_lanes": [],
+                "apply_variants": [],
+                "exclude_variants": [],
                 "enable_bullish_mirror": True,
                 "defensive_size_multiplier": 0.50,
                 "min_contracts": 1,
@@ -3028,6 +4288,22 @@ CONFIG = {
                 "opening_range_minutes": 15,
                 "opening_range_break_scale_atr": 0.70,
                 "opening_range_weight": 1.10,
+                # Abnormal-day shock features:
+                # compare trade-day range/volume progress to the prior 20
+                # sessions at the same minute, then confirm with recent
+                # candle/volume spikes before strengthening the directional
+                # bias. Keep the controller disabled by default until exact
+                # validation says the combined profile is robust enough.
+                "shock_session_range_ratio_min": 1.30,
+                "shock_session_range_weight": 1.20,
+                "shock_session_volume_ratio_min": 1.25,
+                "shock_session_volume_weight": 0.65,
+                "shock_recent_bar_range_ratio_min": 1.85,
+                "shock_recent_bar_range_weight": 0.95,
+                "shock_recent_bar_volume_ratio_min": 2.20,
+                "shock_recent_bar_volume_weight": 0.55,
+                "shock_direction_min_atr": 0.55,
+                "shock_alignment_hits_min": 2,
             },
             # Backtest-only DE3v4 walk-forward gate:
             # learned skip/defensive controller trained on prior realized DE3
@@ -3426,6 +4702,15 @@ CONFIG = {
                     "exit_if_not_green_by": 30,
                     "max_profit_crosses": 4,
                 },
+                "profile_overrides": {
+                    # Surgical post-entry override layer:
+                    # keep the default TM stack globally, but allow exact
+                    # variant/day-profile pockets to opt out of specific
+                    # post-entry layers when validation shows they need more
+                    # room than the default stack allows.
+                    "enabled": False,
+                    "profiles": [],
+                },
                 "profit_milestone_stop": {
                     # Validated 2026-04-13 on es_master_outrights.parquet:
                     # promote the same late-profit ratchet to every active DE3
@@ -3579,19 +4864,32 @@ CONFIG = {
                     ],
                 },
                 "entry_trade_day_extreme_admission_block": {
-                    # Research hook only.
-                    # 2026-04-11 validation note:
-                    # a narrow Long_Rev_T3 beyond-extreme entry block improved
-                    # the January 2026 holdout, but failed the full-range
-                    # robustness + Monte Carlo check, so keep this disabled for
-                    # live/backtest runtime until a stronger candidate shows up.
-                    "enabled": False,
+                    # 2026-04-22 validation note:
+                    # keep this path extremely narrow.
+                    # A broad admission-block search kept harming 2025, but one
+                    # exact no-trade pocket survived all current checks:
+                    # 5min_06-09_Long_Rev_T2_SL10_TP25 on
+                    # normal|grind_down|distributed|normal_flow|small_gap.
+                    # On the current daytype_soft percent bundle it improved the
+                    # 2026 drawdown pocket and the full 2026 holdout while
+                    # leaving full 2025 and full 2024 unchanged in validation.
+                    "enabled": True,
                     # Same futures trade day used by the stop-management path.
                     "trade_day_roll_hour_et": 18,
                     "profiles": [
                         {
-                            "name": "block_beyond_entry_day_extreme_long_rev_t3",
+                            "name": "block_06_09_long_rev_t2_normal_grinddown_distributed",
                             "enabled": True,
+                            "apply_variants": [
+                                "5min_06-09_Long_Rev_T2_SL10_TP25",
+                            ],
+                            "apply_day_profiles": [
+                                "normal|grind_down|distributed|normal_flow|small_gap",
+                            ],
+                        },
+                        {
+                            "name": "block_beyond_entry_day_extreme_long_rev_t3",
+                            "enabled": False,
                             # Audit 2026-04-11:
                             # this variant stayed weak enough that the
                             # beyond-entry-trade-day-extreme subset is worth
@@ -3734,6 +5032,19 @@ CONFIG = {
                         "apply_variants": ["15min_12-15_Long_Rev_T2_SL10_TP25"],
                         "max_body1_ratio": 0.40,
                         "min_upper_wick_ratio": 0.30,
+                    },
+                    {
+                        "name": "live_12_15_long_rev_t2_upper020_close030",
+                        "enabled": True,
+                        # April 17 failure follow-up:
+                        # the lunchtime Long_Rev T2 policy-allow path still leaked
+                        # through a specific weak close / flat-top shape even after
+                        # soft-pass vetoing. That pocket was materially negative in
+                        # the 2025 follow-up trade book and matched two of the
+                        # April 17 lunch losses, so promote it to a real no-trade.
+                        "apply_variants": ["15min_12-15_Long_Rev_T2_SL10_TP25"],
+                        "max_upper_wick_ratio": 0.20,
+                        "max_close_pos1": 0.30,
                     },
                     {
                         "name": "live_12_15_long_rev_t2_body040_down3_2",
@@ -4658,7 +5969,10 @@ CONFIG = {
         "RegimeAdaptive": {
             "enabled": True,
             "exit_if_not_green_by": 30,   # If still red after 30 bars, bail
-            "max_profit_crosses": 8       # Allow up to 8 profit/loss crosses before we exit as chop
+            # 2026-04-16 validation: 8 chop flips kept the timeout protection
+            # while materially reducing premature exits on the all-session
+            # wildcard v2 artifact.
+            "max_profit_crosses": 8
         },
         "IntradayDip": {
             "enabled": True,
@@ -4676,7 +5990,15 @@ CONFIG = {
     # --- RegimeAdaptive Filterless Defaults ---
     "REGIME_ADAPTIVE_TUNING": {
         "mode": "filterless",
-        "artifact_path": "artifacts/regimeadaptive_v19_live/latest.json",
+        "artifact_path": "artifacts/regimeadaptive_v19_liveplus_allsession_wildcard_v2/latest.json",
+        # 2026-04-16 all-session wildcard v2:
+        # keep the strict-gated ASIA / LONDON / NY wildcard layer, then add a
+        # stricter Q2_W3_ALL_ASIA long fallback (0.62 floor) and a stricter
+        # Q1_W3_ALL_NY_PM long fallback (0.66 floor). Under the checked-in
+        # LONDON=0.51 runtime this improved the 2025 holdout from
+        # 956 / +5390.15 to 1012 / +6718.86, and improved the fresh
+        # 2026-01-01..2026-01-26 slice from 83 / +68.51 to 84 / +180.19.
+        "gate_threshold_overrides_by_session": {"LONDON": 0.51},
         "sma_fast": 20,
         "sma_slow": 200,
         "atr_period": 20,
@@ -4698,6 +6020,47 @@ CONFIG = {
         "require_low_vol_trend": False,
         "require_range_spike": False,
         "enable_signal_reversion": False,
+    },
+
+    # --- Shared Live Opposite-Side Reversal Confirmation ---
+    # Applies to the shared live reverse path across strategies, so a DE3
+    # opposite signal cannot chain with a RegimeAdaptive opposite signal and
+    # immediately flip the whole book. When same_active_trade_family is on,
+    # a strategy family can only reverse its own family's active trade.
+    "LIVE_OPPOSITE_REVERSAL": {
+        "enabled": True,
+        "required_confirmations": 3,
+        "window_bars": 3,
+        "require_same_strategy_family": True,
+        "require_same_active_trade_family": True,
+        "require_same_sub_strategy": False,
+        "require_all_active_trade_families_for_multi_strategy_reversal": True,
+        "allowed_vol_regimes": [],
+        "block_countertrend_in_trend_day": False,
+    },
+
+    # Live-only DE3 anti-whipsaw guard.
+    # Keeps filterless/high-vol sessions from immediately re-entering the same
+    # stopped setup and blocks DE3 reversals that fight the current trend day.
+    "LIVE_DE3_ANTI_FLIP": {
+        "enabled": True,
+        "apply_vol_regimes": ["high"],
+        "block_countertrend_reversal_in_trend_day": True,
+        "stop_reentry_cooldown_bars": 4,
+        "stop_reentry_same_sub_strategy_only": True,
+        "bar_seconds": 60,
+    },
+
+    # Backtest-only mirror of the live DE3 anti-whipsaw guard.
+    # Keep disabled by default so historical baselines stay comparable unless
+    # we explicitly turn the guard on for evaluation.
+    "BACKTEST_DE3_ANTI_FLIP": {
+        "enabled": False,
+        "apply_vol_regimes": ["high"],
+        "block_countertrend_reversal_in_trend_day": True,
+        "stop_reentry_cooldown_bars": 4,
+        "stop_reentry_same_sub_strategy_only": True,
+        "bar_seconds": 60,
     },
 
     # --- BREAK-EVEN LOGIC ---
@@ -4941,25 +6304,9 @@ def refresh_target_symbol():
 _apply_runtime_experimental_artifacts()
 
 
-# Initialize TARGET_SYMBOL at import time
-refresh_target_symbol()
-
-
-SENTIMENT_ENABLED = bool((CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {}).get("enabled", True))
-SENTIMENT_POLL_INTERVAL = int((CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {}).get("poll_interval", 30) or 30)
-SENTIMENT_PUMP_THRESHOLD = float((CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {}).get("pump_threshold", 0.85) or 0.85)
-EMERGENCY_EXIT_THRESHOLD = float(
-    (CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {}).get("emergency_exit_threshold", -0.75) or -0.75
-)
-FINBERT_LOCAL_PATH = str(
-    (CONFIG.get("TRUTH_SOCIAL_SENTIMENT", {}) or {}).get("finbert_local_path", "./models/finbert")
-    or "./models/finbert"
-)
-
 # --- Env-var tuning overrides for Kalshi entry block buffer ---
-# JULIE_KALSHI_BLOCK_BUF_BALANCED and JULIE_KALSHI_BLOCK_BUF_FP override the
-# entry_block_buffer for balanced and forward_primary roles respectively.
-# Higher value = fewer blocks (trades need to be more strongly opposed to be blocked).
+# Lets the live launcher tighten/loosen the balanced / forward-primary
+# entry blocks without editing the checked-in config.
 _kalshi_overlay_cfg = CONFIG.get("KALSHI_TRADE_OVERLAY") or {}
 _kalshi_block_buf = _kalshi_overlay_cfg.get("entry_block_buffer") or {}
 _bb_balanced = os.environ.get("JULIE_KALSHI_BLOCK_BUF_BALANCED")
@@ -4971,3 +6318,7 @@ if _bb_fp is not None:
 if _bb_balanced is not None or _bb_fp is not None:
     _kalshi_overlay_cfg["entry_block_buffer"] = _kalshi_block_buf
     CONFIG["KALSHI_TRADE_OVERLAY"] = _kalshi_overlay_cfg
+
+
+# Initialize TARGET_SYMBOL at import time
+refresh_target_symbol()

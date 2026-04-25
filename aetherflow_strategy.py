@@ -7,7 +7,11 @@ from typing import Dict, Optional
 import numpy as np
 import pandas as pd
 
-from aetherflow_features import FEATURE_COLUMNS, build_feature_frame, resolve_setup_params
+from aetherflow_base_cache import (
+    resolve_full_manifold_base_features_path,
+    validate_full_manifold_base_features_path,
+)
+from aetherflow_features import BASE_FEATURE_COLUMNS, FEATURE_COLUMNS, build_feature_frame, resolve_setup_params
 from aetherflow_model_bundle import (
     bundle_feature_columns,
     bundle_has_predictor,
@@ -15,6 +19,7 @@ from aetherflow_model_bundle import (
     predict_bundle_probabilities,
 )
 from config import CONFIG
+from manifold_strategy_features import build_training_feature_frame as build_manifold_base_frame
 from strategy_base import Strategy
 
 REGIME_ID_TO_NAME = {
@@ -23,6 +28,8 @@ REGIME_ID_TO_NAME = {
     2: "DISPERSED",
     3: "ROTATIONAL_TURBULENCE",
 }
+REGIME_NAME_TO_ID = {str(name).upper(): int(regime_id) for regime_id, name in REGIME_ID_TO_NAME.items()}
+DEFAULT_LIVE_BASE_OVERLAY_FILE = "artifacts/aetherflow_live_runtime/aetherflow_manifold_runtime_tail.parquet"
 
 
 def _coerce_session_allowlist(value) -> Optional[set[int]]:
@@ -63,6 +70,14 @@ def _coerce_upper_string_allowlist(value) -> Optional[set[str]]:
     return out if out else None
 
 
+def _coerce_side_allowlist(value) -> Optional[set[str]]:
+    raw = _coerce_upper_string_allowlist(value)
+    if not raw:
+        return None
+    out = {item for item in raw if item in {"LONG", "SHORT"}}
+    return out if out else None
+
+
 def _coerce_optional_float(value) -> Optional[float]:
     if value is None:
         return None
@@ -83,6 +98,12 @@ def _coerce_optional_int(value) -> Optional[int]:
 def _row_int(row: Dict, key: str, default: int = 0) -> int:
     coerced = _coerce_optional_int(row.get(key))
     return int(coerced) if coerced is not None else int(default)
+
+
+def _row_optional_float(row: Dict, key: str) -> Optional[float]:
+    if key not in row:
+        return None
+    return _coerce_optional_float(row.get(key))
 
 
 def _normalize_early_exit_policy(value) -> Optional[dict]:
@@ -107,6 +128,8 @@ def _normalize_policy_mapping(raw_policy, *, allow_match_fields: bool, allow_rul
         out["allowed_session_ids"] = _coerce_session_allowlist(policy.get("allowed_session_ids"))
     if "allowed_regimes" in policy:
         out["allowed_regimes"] = _coerce_upper_string_allowlist(policy.get("allowed_regimes"))
+    if "allowed_sides" in policy:
+        out["allowed_sides"] = _coerce_side_allowlist(policy.get("allowed_sides"))
     if "blocked_regimes" in policy:
         out["blocked_regimes"] = _coerce_upper_string_allowlist(policy.get("blocked_regimes"))
     if "max_abs_vwap_dist_atr" in policy:
@@ -115,8 +138,20 @@ def _normalize_policy_mapping(raw_policy, *, allow_match_fields: bool, allow_rul
         out["max_directional_vwap_dist_atr"] = _coerce_optional_float(policy.get("max_directional_vwap_dist_atr"))
     if "min_d_alignment_3" in policy:
         out["min_d_alignment_3"] = _coerce_optional_float(policy.get("min_d_alignment_3"))
+    if "min_signed_d_alignment_3" in policy:
+        out["min_signed_d_alignment_3"] = _coerce_optional_float(policy.get("min_signed_d_alignment_3"))
     if "min_d_coherence_3" in policy:
         out["min_d_coherence_3"] = _coerce_optional_float(policy.get("min_d_coherence_3"))
+    if "min_signed_pressure_30" in policy:
+        out["min_signed_pressure_30"] = _coerce_optional_float(policy.get("min_signed_pressure_30"))
+    if "min_pressure_imbalance_30" in policy:
+        out["min_pressure_imbalance_30"] = _coerce_optional_float(policy.get("min_pressure_imbalance_30"))
+    if "max_pressure_imbalance_30" in policy:
+        out["max_pressure_imbalance_30"] = _coerce_optional_float(policy.get("max_pressure_imbalance_30"))
+    if "min_flow_agreement" in policy:
+        out["min_flow_agreement"] = _coerce_optional_float(policy.get("min_flow_agreement"))
+    if "min_flow_mag_slow" in policy:
+        out["min_flow_mag_slow"] = _coerce_optional_float(policy.get("min_flow_mag_slow"))
     if "min_setup_strength" in policy:
         out["min_setup_strength"] = _coerce_optional_float(policy.get("min_setup_strength"))
     if "min_alignment_pct" in policy:
@@ -127,10 +162,30 @@ def _normalize_policy_mapping(raw_policy, *, allow_match_fields: bool, allow_rul
         out["max_stress_pct"] = _coerce_optional_float(policy.get("max_stress_pct"))
     if "max_flow_mag_slow" in policy:
         out["max_flow_mag_slow"] = _coerce_optional_float(policy.get("max_flow_mag_slow"))
+    if "min_phase_regime_run_bars" in policy:
+        out["min_phase_regime_run_bars"] = _coerce_optional_int(policy.get("min_phase_regime_run_bars"))
+    if "max_phase_regime_flip_count_10" in policy:
+        out["max_phase_regime_flip_count_10"] = _coerce_optional_int(policy.get("max_phase_regime_flip_count_10"))
+    if "min_phase_alignment_mean_5" in policy:
+        out["min_phase_alignment_mean_5"] = _coerce_optional_float(policy.get("min_phase_alignment_mean_5"))
+    if "max_phase_stress_mean_5" in policy:
+        out["max_phase_stress_mean_5"] = _coerce_optional_float(policy.get("max_phase_stress_mean_5"))
+    if "min_phase_alignment_trend_5" in policy:
+        out["min_phase_alignment_trend_5"] = _coerce_optional_float(policy.get("min_phase_alignment_trend_5"))
+    if "max_phase_stress_trend_5" in policy:
+        out["max_phase_stress_trend_5"] = _coerce_optional_float(policy.get("max_phase_stress_trend_5"))
+    if "min_phase_d_alignment_mean_5" in policy:
+        out["min_phase_d_alignment_mean_5"] = _coerce_optional_float(policy.get("min_phase_d_alignment_mean_5"))
+    if "max_sl_dist" in policy:
+        out["max_sl_dist"] = _coerce_optional_float(policy.get("max_sl_dist"))
+    if "max_tp_dist" in policy:
+        out["max_tp_dist"] = _coerce_optional_float(policy.get("max_tp_dist"))
     if "selection_score_bias" in policy:
         out["selection_score_bias"] = _coerce_optional_float(policy.get("selection_score_bias"))
     if "selection_score_scale" in policy:
         out["selection_score_scale"] = _coerce_optional_float(policy.get("selection_score_scale"))
+    if "size_multiplier" in policy:
+        out["size_multiplier"] = _coerce_optional_float(policy.get("size_multiplier"))
     if "entry_mode" in policy:
         out["entry_mode"] = str(policy.get("entry_mode", "market_next_bar") or "market_next_bar").strip().lower()
     if "sl_mult_override" in policy:
@@ -151,6 +206,32 @@ def _normalize_policy_mapping(raw_policy, *, allow_match_fields: bool, allow_rul
             out["match_session_ids"] = _coerce_session_allowlist(policy.get("match_session_ids"))
         if "match_regimes" in policy:
             out["match_regimes"] = _coerce_upper_string_allowlist(policy.get("match_regimes"))
+        if "match_sides" in policy:
+            out["match_sides"] = _coerce_side_allowlist(policy.get("match_sides"))
+        if "match_max_phase_regime_run_bars" in policy:
+            out["match_max_phase_regime_run_bars"] = _coerce_optional_int(policy.get("match_max_phase_regime_run_bars"))
+        if "match_min_phase_regime_flip_count_10" in policy:
+            out["match_min_phase_regime_flip_count_10"] = _coerce_optional_int(policy.get("match_min_phase_regime_flip_count_10"))
+        if "match_min_phase_regime_run_bars" in policy:
+            out["match_min_phase_regime_run_bars"] = _coerce_optional_int(policy.get("match_min_phase_regime_run_bars"))
+        if "match_max_phase_regime_flip_count_10" in policy:
+            out["match_max_phase_regime_flip_count_10"] = _coerce_optional_int(policy.get("match_max_phase_regime_flip_count_10"))
+        if "match_max_phase_alignment_mean_5" in policy:
+            out["match_max_phase_alignment_mean_5"] = _coerce_optional_float(policy.get("match_max_phase_alignment_mean_5"))
+        if "match_min_phase_stress_mean_5" in policy:
+            out["match_min_phase_stress_mean_5"] = _coerce_optional_float(policy.get("match_min_phase_stress_mean_5"))
+        if "match_min_phase_alignment_mean_5" in policy:
+            out["match_min_phase_alignment_mean_5"] = _coerce_optional_float(policy.get("match_min_phase_alignment_mean_5"))
+        if "match_max_phase_stress_mean_5" in policy:
+            out["match_max_phase_stress_mean_5"] = _coerce_optional_float(policy.get("match_max_phase_stress_mean_5"))
+        if "match_max_phase_d_alignment_mean_5" in policy:
+            out["match_max_phase_d_alignment_mean_5"] = _coerce_optional_float(policy.get("match_max_phase_d_alignment_mean_5"))
+        if "match_min_phase_d_alignment_mean_5" in policy:
+            out["match_min_phase_d_alignment_mean_5"] = _coerce_optional_float(policy.get("match_min_phase_d_alignment_mean_5"))
+        if "match_min_flow_agreement" in policy:
+            out["match_min_flow_agreement"] = _coerce_optional_float(policy.get("match_min_flow_agreement"))
+        if "match_max_flow_agreement" in policy:
+            out["match_max_flow_agreement"] = _coerce_optional_float(policy.get("match_max_flow_agreement"))
 
     if allow_rules:
         raw_rules = policy.get("policy_rules", policy.get("rules"))
@@ -170,7 +251,7 @@ def _merge_policy_layers(*layers: dict) -> dict:
         if not isinstance(layer, dict):
             continue
         for key, value in layer.items():
-            if key in {"policy_rules", "rules", "match_session_ids", "match_regimes", "name"}:
+            if key in {"policy_rules", "rules", "match_session_ids", "match_regimes", "match_sides", "name"}:
                 continue
             if key == "early_exit":
                 merged[key] = dict(value or {})
@@ -194,6 +275,72 @@ def _policy_rule_matches_row(rule: Dict, row: Dict) -> bool:
         match_regimes = rule.get("match_regimes")
         if match_regimes and regime_name not in match_regimes:
             return False
+    side_num = _row_int(row, "candidate_side", default=0)
+    side_label = "LONG" if side_num > 0 else "SHORT" if side_num < 0 else None
+    if "match_sides" in rule:
+        match_sides = rule.get("match_sides")
+        if match_sides and side_label not in match_sides:
+            return False
+    match_min_phase_run = rule.get("match_min_phase_regime_run_bars")
+    if match_min_phase_run is not None:
+        phase_run = _row_optional_float(row, "phase_regime_run_bars")
+        if phase_run is None or phase_run < float(match_min_phase_run):
+            return False
+    match_max_phase_run = rule.get("match_max_phase_regime_run_bars")
+    if match_max_phase_run is not None:
+        phase_run = _row_optional_float(row, "phase_regime_run_bars")
+        if phase_run is None or phase_run > float(match_max_phase_run):
+            return False
+    match_min_phase_flips = rule.get("match_min_phase_regime_flip_count_10")
+    if match_min_phase_flips is not None:
+        phase_flips = _row_optional_float(row, "phase_regime_flip_count_10")
+        if phase_flips is None or phase_flips < float(match_min_phase_flips):
+            return False
+    match_max_phase_flips = rule.get("match_max_phase_regime_flip_count_10")
+    if match_max_phase_flips is not None:
+        phase_flips = _row_optional_float(row, "phase_regime_flip_count_10")
+        if phase_flips is None or phase_flips > float(match_max_phase_flips):
+            return False
+    match_max_phase_alignment = rule.get("match_max_phase_alignment_mean_5")
+    if match_max_phase_alignment is not None:
+        phase_alignment = _row_optional_float(row, "phase_manifold_alignment_pct_mean_5")
+        if phase_alignment is None or phase_alignment > float(match_max_phase_alignment):
+            return False
+    match_min_phase_alignment = rule.get("match_min_phase_alignment_mean_5")
+    if match_min_phase_alignment is not None:
+        phase_alignment = _row_optional_float(row, "phase_manifold_alignment_pct_mean_5")
+        if phase_alignment is None or phase_alignment < float(match_min_phase_alignment):
+            return False
+    match_min_phase_stress = rule.get("match_min_phase_stress_mean_5")
+    if match_min_phase_stress is not None:
+        phase_stress = _row_optional_float(row, "phase_manifold_stress_pct_mean_5")
+        if phase_stress is None or phase_stress < float(match_min_phase_stress):
+            return False
+    match_max_phase_stress = rule.get("match_max_phase_stress_mean_5")
+    if match_max_phase_stress is not None:
+        phase_stress = _row_optional_float(row, "phase_manifold_stress_pct_mean_5")
+        if phase_stress is None or phase_stress > float(match_max_phase_stress):
+            return False
+    match_max_phase_d_alignment = rule.get("match_max_phase_d_alignment_mean_5")
+    if match_max_phase_d_alignment is not None:
+        phase_d_alignment = _row_optional_float(row, "phase_d_alignment_3_mean_5")
+        if phase_d_alignment is None or phase_d_alignment > float(match_max_phase_d_alignment):
+            return False
+    match_min_phase_d_alignment = rule.get("match_min_phase_d_alignment_mean_5")
+    if match_min_phase_d_alignment is not None:
+        phase_d_alignment = _row_optional_float(row, "phase_d_alignment_3_mean_5")
+        if phase_d_alignment is None or phase_d_alignment < float(match_min_phase_d_alignment):
+            return False
+    match_min_flow_agreement = rule.get("match_min_flow_agreement")
+    if match_min_flow_agreement is not None:
+        flow_agreement = _row_optional_float(row, "flow_agreement")
+        if flow_agreement is None or flow_agreement < float(match_min_flow_agreement):
+            return False
+    match_max_flow_agreement = rule.get("match_max_flow_agreement")
+    if match_max_flow_agreement is not None:
+        flow_agreement = _row_optional_float(row, "flow_agreement")
+        if flow_agreement is None or flow_agreement > float(match_max_flow_agreement):
+            return False
     return True
 
 
@@ -215,6 +362,48 @@ def _regime_name_from_row(row: Dict) -> str:
         return raw_name
     regime_id = _row_int(row, "manifold_regime_id", default=-1)
     return str(REGIME_ID_TO_NAME.get(regime_id, "") or "")
+
+
+def augment_aetherflow_phase_features(frame: pd.DataFrame) -> pd.DataFrame:
+    if not isinstance(frame, pd.DataFrame) or frame.empty:
+        return frame.copy() if isinstance(frame, pd.DataFrame) else pd.DataFrame()
+    work = frame.sort_index(kind="mergesort").copy()
+    if "manifold_regime_id" in work.columns:
+        regime_id = pd.to_numeric(work.get("manifold_regime_id"), errors="coerce")
+    else:
+        regime_name = work.get("manifold_regime_name")
+        if regime_name is None:
+            regime_name = work.get("manifold_regime")
+        regime_id = pd.Series(regime_name, index=work.index).astype(str).str.upper().map(REGIME_NAME_TO_ID)
+    regime_id = regime_id.fillna(-1).round().astype(int)
+    regime_change = regime_id.ne(regime_id.shift(1)).fillna(True)
+    group_id = regime_change.cumsum()
+    work["phase_regime_run_bars"] = group_id.groupby(group_id).cumcount() + 1
+    work["phase_regime_flip_count_10"] = regime_change.astype(int).rolling(10, min_periods=1).sum()
+
+    def _series(name: str) -> pd.Series:
+        if name in work.columns:
+            raw = work[name]
+        else:
+            raw = pd.Series(0.0, index=work.index)
+        return pd.to_numeric(raw, errors="coerce").fillna(0.0)
+
+    for col in [
+        "manifold_alignment_pct",
+        "manifold_smoothness_pct",
+        "manifold_stress_pct",
+        "manifold_dispersion_pct",
+        "d_alignment_3",
+        "d_stress_3",
+        "d_dispersion_3",
+        "flow_agreement",
+        "flow_mag_slow",
+        "pressure_imbalance_30",
+    ]:
+        series = _series(col)
+        work[f"phase_{col}_mean_5"] = series.rolling(5, min_periods=1).mean()
+        work[f"phase_{col}_trend_5"] = series - series.shift(5).fillna(series.iloc[0] if len(series) else 0.0)
+    return work
 
 
 def _row_float(row: Dict, key: str, default: float = 0.0) -> float:
@@ -250,9 +439,37 @@ def _context_block_reason(row: Dict, policy: Dict) -> str:
     if min_d_alignment_3 is not None and _row_float(row, "d_alignment_3", 0.0) < float(min_d_alignment_3):
         return "d_alignment_too_low"
 
+    min_signed_d_alignment_3 = policy.get("min_signed_d_alignment_3")
+    if min_signed_d_alignment_3 is not None:
+        signed_d_alignment = _row_float(row, "candidate_side", 0.0) * _row_float(row, "d_alignment_3", 0.0)
+        if signed_d_alignment < float(min_signed_d_alignment_3):
+            return "signed_d_alignment_too_low"
+
     min_d_coherence_3 = policy.get("min_d_coherence_3")
     if min_d_coherence_3 is not None and _row_float(row, "d_coherence_3", 0.0) < float(min_d_coherence_3):
         return "d_coherence_too_low"
+
+    min_signed_pressure_30 = policy.get("min_signed_pressure_30")
+    if min_signed_pressure_30 is not None:
+        signed_pressure = _row_float(row, "candidate_side", 0.0) * _row_float(row, "pressure_imbalance_30", 0.0)
+        if signed_pressure < float(min_signed_pressure_30):
+            return "signed_pressure_too_low"
+
+    min_pressure_imbalance_30 = policy.get("min_pressure_imbalance_30")
+    if min_pressure_imbalance_30 is not None and _row_float(row, "pressure_imbalance_30", 0.0) < float(min_pressure_imbalance_30):
+        return "pressure_imbalance_too_low"
+
+    max_pressure_imbalance_30 = policy.get("max_pressure_imbalance_30")
+    if max_pressure_imbalance_30 is not None and _row_float(row, "pressure_imbalance_30", 0.0) > float(max_pressure_imbalance_30):
+        return "pressure_imbalance_too_high"
+
+    min_flow_agreement = policy.get("min_flow_agreement")
+    if min_flow_agreement is not None and _row_float(row, "flow_agreement", 0.0) < float(min_flow_agreement):
+        return "flow_agreement_too_low"
+
+    min_flow_mag_slow = policy.get("min_flow_mag_slow")
+    if min_flow_mag_slow is not None and _row_float(row, "flow_mag_slow", 0.0) < float(min_flow_mag_slow):
+        return "flow_mag_slow_too_low"
 
     min_setup_strength = policy.get("min_setup_strength")
     if min_setup_strength is not None and _row_float(row, "setup_strength", 0.0) < float(min_setup_strength):
@@ -274,6 +491,74 @@ def _context_block_reason(row: Dict, policy: Dict) -> str:
     if max_flow_mag_slow is not None and _row_float(row, "flow_mag_slow", 0.0) > float(max_flow_mag_slow):
         return "flow_mag_slow_too_high"
 
+    min_phase_regime_run_bars = policy.get("min_phase_regime_run_bars")
+    if min_phase_regime_run_bars is not None:
+        phase_run = _row_optional_float(row, "phase_regime_run_bars")
+        if phase_run is not None and phase_run < float(min_phase_regime_run_bars):
+            return "phase_regime_run_too_short"
+
+    max_phase_regime_flip_count_10 = policy.get("max_phase_regime_flip_count_10")
+    if max_phase_regime_flip_count_10 is not None:
+        phase_flips = _row_optional_float(row, "phase_regime_flip_count_10")
+        if phase_flips is not None and phase_flips > float(max_phase_regime_flip_count_10):
+            return "phase_regime_flip_too_high"
+
+    min_phase_alignment_mean_5 = policy.get("min_phase_alignment_mean_5")
+    if min_phase_alignment_mean_5 is not None:
+        phase_alignment = _row_optional_float(row, "phase_manifold_alignment_pct_mean_5")
+        if phase_alignment is not None and phase_alignment < float(min_phase_alignment_mean_5):
+            return "phase_alignment_mean_too_low"
+
+    max_phase_stress_mean_5 = policy.get("max_phase_stress_mean_5")
+    if max_phase_stress_mean_5 is not None:
+        phase_stress = _row_optional_float(row, "phase_manifold_stress_pct_mean_5")
+        if phase_stress is not None and phase_stress > float(max_phase_stress_mean_5):
+            return "phase_stress_mean_too_high"
+
+    min_phase_alignment_trend_5 = policy.get("min_phase_alignment_trend_5")
+    if min_phase_alignment_trend_5 is not None:
+        phase_alignment_trend = _row_optional_float(row, "phase_manifold_alignment_pct_trend_5")
+        if phase_alignment_trend is not None and phase_alignment_trend < float(min_phase_alignment_trend_5):
+            return "phase_alignment_trend_too_low"
+
+    max_phase_stress_trend_5 = policy.get("max_phase_stress_trend_5")
+    if max_phase_stress_trend_5 is not None:
+        phase_stress_trend = _row_optional_float(row, "phase_manifold_stress_pct_trend_5")
+        if phase_stress_trend is not None and phase_stress_trend > float(max_phase_stress_trend_5):
+            return "phase_stress_trend_too_high"
+
+    min_phase_d_alignment_mean_5 = policy.get("min_phase_d_alignment_mean_5")
+    if min_phase_d_alignment_mean_5 is not None:
+        phase_d_alignment = _row_optional_float(row, "phase_d_alignment_3_mean_5")
+        if phase_d_alignment is not None and phase_d_alignment < float(min_phase_d_alignment_mean_5):
+            return "phase_d_alignment_mean_too_low"
+
+    return ""
+
+
+def _params_block_reason(row: Dict, policy: Dict, *, params: Optional[Dict] = None) -> str:
+    max_sl_dist = policy.get("max_sl_dist")
+    max_tp_dist = policy.get("max_tp_dist")
+    if max_sl_dist is None and max_tp_dist is None:
+        return ""
+    if params is None:
+        params_row = pd.Series(dict(row))
+        sl_mult_override = policy.get("sl_mult_override")
+        tp_mult_override = policy.get("tp_mult_override")
+        horizon_bars_override = policy.get("horizon_bars_override")
+        if sl_mult_override is not None:
+            params_row["setup_sl_mult"] = float(sl_mult_override)
+        if tp_mult_override is not None:
+            params_row["setup_tp_mult"] = float(tp_mult_override)
+        if horizon_bars_override is not None:
+            params_row["setup_horizon_bars"] = int(horizon_bars_override)
+        params = resolve_setup_params(params_row)
+    sl_points = _coerce_optional_float((params or {}).get("sl_points"))
+    if max_sl_dist is not None and sl_points is not None and sl_points > float(max_sl_dist):
+        return "sl_dist_too_wide"
+    tp_points = _coerce_optional_float((params or {}).get("tp_points"))
+    if max_tp_dist is not None and tp_points is not None and tp_points > float(max_tp_dist):
+        return "tp_dist_too_wide"
     return ""
 
 
@@ -293,6 +578,28 @@ class AetherFlowStrategy(Strategy):
         self.size = int(self.cfg.get("size", 5) or 5)
         self.log_evals = bool(self.cfg.get("log_evals", False))
         self.max_feature_bars = max(self.min_bars + 64, int(self.cfg.get("max_feature_bars", 900) or 900))
+        self.backtest_base_features_path = resolve_full_manifold_base_features_path(
+            self.cfg.get("backtest_base_features_file", "")
+        )
+        self.backtest_precomputed_features_path = self._resolve_local_path(
+            self.cfg.get("backtest_precomputed_features_file", "")
+        )
+        try:
+            overlap_bars = int(
+                self.cfg.get("backtest_precompute_overlap_bars", self.max_feature_bars + 128)
+                or (self.max_feature_bars + 128)
+            )
+        except Exception:
+            overlap_bars = self.max_feature_bars + 128
+        self.backtest_precompute_overlap_bars = max(self.max_feature_bars, overlap_bars)
+        self.live_base_history_bars = max(
+            self.max_feature_bars,
+            int(self.cfg.get("live_base_history_bars", self.max_feature_bars + 128) or (self.max_feature_bars + 128)),
+        )
+        self.live_base_overlap_bars = max(
+            self.live_base_history_bars,
+            int(self.cfg.get("live_base_overlap_bars", self.backtest_precompute_overlap_bars) or self.backtest_precompute_overlap_bars),
+        )
         self.allowed_session_ids: Optional[set[int]] = _coerce_session_allowlist(self.cfg.get("allowed_session_ids"))
         self.allowed_setup_families: Optional[set[str]] = _coerce_string_allowlist(self.cfg.get("allowed_setup_families"))
         self.hazard_block_regimes = {
@@ -309,28 +616,47 @@ class AetherFlowStrategy(Strategy):
         self._last_runtime_event_signature: Optional[tuple] = None
         self._precomputed_backtest_df: Optional[pd.DataFrame] = None
         self._precomputed_lookup: dict[int, dict] = {}
+        self._precomputed_known_timestamps: set[int] = set()
+        self._live_base_features_path: Optional[Path] = self._discover_live_base_features_path()
+        self._live_base_overlay_path: Optional[Path] = self._resolve_local_path(
+            self.cfg.get("live_base_overlay_file", DEFAULT_LIVE_BASE_OVERLAY_FILE)
+        )
+        self._live_base_features_validated = False
+        self._live_base_overlay_validated = False
+        self._live_base_window: Optional[pd.DataFrame] = None
         self._load_artifacts()
+
+    def _resolve_local_path(self, value) -> Optional[Path]:
+        text = str(value or "").strip()
+        if not text:
+            return None
+        path = Path(text).expanduser()
+        if not path.is_absolute():
+            path = Path(__file__).resolve().parent / path
+        return path.resolve()
 
     def _load_artifacts(self) -> None:
         threshold_loaded = False
+        threshold_payload: dict = {}
         if self.thresholds_path.exists():
             try:
                 payload = json.loads(self.thresholds_path.read_text())
-                self.threshold = float(payload.get("threshold", self.threshold) or self.threshold)
+                threshold_payload = payload if isinstance(payload, dict) else {}
+                self.threshold = float(threshold_payload.get("threshold", self.threshold) or self.threshold)
                 threshold_loaded = True
-                feat_cols = payload.get("feature_columns")
+                feat_cols = threshold_payload.get("feature_columns")
                 if isinstance(feat_cols, list) and feat_cols:
                     self.feature_columns = [str(col) for col in feat_cols]
                 if not self.family_policies:
-                    payload_family_policies = _normalize_family_policies(payload.get("family_policies"))
+                    payload_family_policies = _normalize_family_policies(threshold_payload.get("family_policies"))
                     if payload_family_policies:
                         self.family_policies = payload_family_policies
                 if self.allowed_setup_families is None:
-                    payload_allow = _coerce_string_allowlist(payload.get("allowed_setup_families"))
+                    payload_allow = _coerce_string_allowlist(threshold_payload.get("allowed_setup_families"))
                     if payload_allow:
                         self.allowed_setup_families = payload_allow
                 if not self.hazard_block_regimes:
-                    payload_block = payload.get("hazard_block_regimes", []) or []
+                    payload_block = threshold_payload.get("hazard_block_regimes", []) or []
                     self.hazard_block_regimes = {
                         str(item).strip().upper() for item in payload_block if str(item).strip()
                     }
@@ -359,6 +685,62 @@ class AetherFlowStrategy(Strategy):
             if not threshold_loaded:
                 self.threshold = float(self.model_bundle.get("threshold", self.threshold) or self.threshold)
             self.model_loaded = bundle_has_predictor(self.model_bundle)
+            if threshold_payload:
+                mismatch_parts: list[str] = []
+                expected_bundle_design = str(threshold_payload.get("bundle_design", "") or "").strip().lower()
+                actual_bundle_design = str(self.model_bundle.get("bundle_design", "") or "").strip().lower()
+                if expected_bundle_design and expected_bundle_design != actual_bundle_design:
+                    mismatch_parts.append(
+                        f"bundle_design thresholds={expected_bundle_design} model={actual_bundle_design}"
+                    )
+                expected_feature_mode = str(threshold_payload.get("family_feature_mode", "") or "").strip().lower()
+                actual_feature_mode = str(self.model_bundle.get("family_feature_mode", "") or "").strip().lower()
+                if expected_feature_mode and expected_feature_mode != actual_feature_mode:
+                    mismatch_parts.append(
+                        f"family_feature_mode thresholds={expected_feature_mode} model={actual_feature_mode}"
+                    )
+                expected_head_weight = threshold_payload.get("family_head_weight")
+                try:
+                    expected_head_weight = float(expected_head_weight) if expected_head_weight is not None else None
+                except Exception:
+                    expected_head_weight = None
+                actual_head_weight = float(self.model_bundle.get("family_head_weight", 1.0) or 1.0)
+                if expected_head_weight is not None and not np.isclose(expected_head_weight, actual_head_weight):
+                    mismatch_parts.append(
+                        f"family_head_weight thresholds={expected_head_weight:.3f} model={actual_head_weight:.3f}"
+                    )
+                payload_family_heads = threshold_payload.get("family_heads")
+                if isinstance(payload_family_heads, dict):
+                    payload_head_names = sorted(
+                        str(name).strip()
+                        for name in payload_family_heads.keys()
+                        if str(name).strip()
+                    )
+                    model_head_names = sorted(
+                        str(name).strip()
+                        for name in (self.model_bundle.get("family_models", {}) or {}).keys()
+                        if str(name).strip()
+                    )
+                    if payload_head_names != model_head_names:
+                        mismatch_parts.append(
+                            f"family_heads thresholds={payload_head_names or ['none']} model={model_head_names or ['none']}"
+                        )
+                payload_conditional = threshold_payload.get("conditional_models")
+                model_conditional_count = len(self.model_bundle.get("conditional_models", []) or [])
+                if isinstance(payload_conditional, list):
+                    if len(payload_conditional) != model_conditional_count:
+                        mismatch_parts.append(
+                            f"conditional_models thresholds={len(payload_conditional)} model={model_conditional_count}"
+                        )
+                elif model_conditional_count:
+                    mismatch_parts.append(
+                        f"conditional_models thresholds=missing model={model_conditional_count}"
+                    )
+                if mismatch_parts:
+                    logging.warning(
+                        "AetherFlowStrategy artifact metadata mismatch: %s",
+                        "; ".join(mismatch_parts),
+                    )
             if self.model_loaded:
                 logging.info("AetherFlowStrategy model loaded: %s", self.model_path)
         except Exception as exc:
@@ -367,14 +749,314 @@ class AetherFlowStrategy(Strategy):
             self.model_bundle = None
             self.model_loaded = False
 
-    def set_precomputed_backtest_df(self, df: Optional[pd.DataFrame]) -> None:
+    def set_precomputed_backtest_df(
+        self,
+        df: Optional[pd.DataFrame],
+        *,
+        known_index: Optional[pd.Index] = None,
+    ) -> None:
         self._precomputed_backtest_df = None if df is None else df.copy()
         self._precomputed_lookup = {}
+        self._precomputed_known_timestamps = set()
+        if known_index is not None:
+            try:
+                known_dt_index = pd.DatetimeIndex(known_index)
+                self._precomputed_known_timestamps = {
+                    int(ts.value) for ts in known_dt_index
+                }
+            except Exception:
+                self._precomputed_known_timestamps = set()
         if not isinstance(self._precomputed_backtest_df, pd.DataFrame) or self._precomputed_backtest_df.empty:
             return
         rows = self._precomputed_backtest_df.to_dict("records")
         for ts, row in zip(pd.DatetimeIndex(self._precomputed_backtest_df.index), rows):
             self._precomputed_lookup[int(ts.value)] = row
+
+    def _load_seed_features(
+        self,
+        *,
+        start_time: Optional[pd.Timestamp],
+        end_time: Optional[pd.Timestamp],
+    ) -> pd.DataFrame:
+        seed_path = self.backtest_precomputed_features_path
+        if seed_path is None or not seed_path.exists():
+            return pd.DataFrame()
+        try:
+            seed = pd.read_parquet(seed_path)
+        except Exception as exc:
+            logging.warning("AetherFlowStrategy seed feature load failed: %s", exc)
+            return pd.DataFrame()
+        if seed.empty:
+            return pd.DataFrame()
+        try:
+            seed.index = pd.DatetimeIndex(seed.index)
+        except Exception:
+            logging.warning(
+                "AetherFlowStrategy seed feature index is not datetime-like: %s",
+                seed_path,
+            )
+            return pd.DataFrame()
+        seed = seed.sort_index()
+        if start_time is not None:
+            seed = seed.loc[seed.index >= pd.Timestamp(start_time)]
+        if end_time is not None:
+            seed = seed.loc[seed.index <= pd.Timestamp(end_time)]
+        if seed.empty:
+            return pd.DataFrame()
+        return seed.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+    def _seeded_feature_window(
+        self,
+        df: pd.DataFrame,
+        *,
+        start_time: Optional[pd.Timestamp],
+        end_time: Optional[pd.Timestamp],
+    ) -> pd.DataFrame:
+        if df is None or df.empty:
+            return pd.DataFrame()
+
+        source_df = df.sort_index()
+        target_end = pd.Timestamp(end_time) if end_time is not None else pd.Timestamp(source_df.index.max())
+        source_df = source_df.loc[source_df.index <= target_end]
+        if source_df.empty:
+            return pd.DataFrame()
+
+        if start_time is not None:
+            start_pos = max(
+                0,
+                int(source_df.index.searchsorted(pd.Timestamp(start_time), side="left"))
+                - int(self.backtest_precompute_overlap_bars),
+            )
+        else:
+            start_pos = max(0, len(source_df) - int(self.backtest_precompute_overlap_bars))
+        feature_start = pd.Timestamp(source_df.index[start_pos])
+
+        seed_df = self._load_seed_features(start_time=feature_start, end_time=target_end)
+        seed_last_ts = (
+            pd.Timestamp(seed_df.index.max())
+            if isinstance(seed_df, pd.DataFrame) and not seed_df.empty
+            else None
+        )
+        if seed_last_ts is not None and seed_last_ts >= target_end:
+            logging.info(
+                "AetherFlowStrategy backtest seed fully covers requested window: rows=%s range=%s->%s",
+                len(seed_df),
+                seed_df.index.min(),
+                seed_df.index.max(),
+            )
+            return seed_df
+
+        if seed_last_ts is not None:
+            build_start_pos = max(
+                0,
+                int(source_df.index.searchsorted(seed_last_ts, side="left"))
+                - int(self.backtest_precompute_overlap_bars),
+            )
+        else:
+            build_start_pos = start_pos
+        build_source_df = source_df.iloc[build_start_pos:]
+        if build_source_df.empty:
+            return seed_df
+
+        logging.info(
+            "AetherFlowStrategy backtest seed extend: seed_rows=%s seed_end=%s build_rows=%s build_range=%s->%s",
+            int(len(seed_df)) if isinstance(seed_df, pd.DataFrame) else 0,
+            seed_last_ts,
+            int(len(build_source_df)),
+            build_source_df.index.min(),
+            build_source_df.index.max(),
+        )
+        computed_df = build_feature_frame(
+            build_source_df,
+            preferred_setup_families=self.allowed_setup_families,
+        )
+        if computed_df.empty:
+            return seed_df
+        if seed_last_ts is not None:
+            computed_df = computed_df.loc[computed_df.index > seed_last_ts]
+        if computed_df.empty:
+            return seed_df
+
+        parts = []
+        if isinstance(seed_df, pd.DataFrame) and not seed_df.empty:
+            parts.append(seed_df)
+        parts.append(computed_df)
+        combined = pd.concat(parts, axis=0).sort_index()
+        combined = combined.loc[~combined.index.duplicated(keep="last")]
+        combined = combined.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        logging.info(
+            "AetherFlowStrategy backtest seed extend complete: combined_rows=%s appended_rows=%s combined_range=%s->%s",
+            int(len(combined)),
+            int(len(computed_df)),
+            combined.index.min(),
+            combined.index.max(),
+        )
+        return combined
+
+    def _discover_live_base_features_path(self) -> Optional[Path]:
+        try:
+            resolved = resolve_full_manifold_base_features_path(
+                self.cfg.get("live_base_features_file", "")
+            )
+        except Exception:
+            resolved = None
+        return resolved if resolved is not None and resolved.exists() else None
+
+    def _load_live_base_cache_slice(
+        self,
+        *,
+        start_time: pd.Timestamp,
+        end_time: pd.Timestamp,
+    ) -> pd.DataFrame:
+        path = self._live_base_features_path
+        if path is None or not path.exists():
+            return pd.DataFrame()
+        if not self._live_base_features_validated:
+            validate_full_manifold_base_features_path(path, BASE_FEATURE_COLUMNS)
+            self._live_base_features_validated = True
+        try:
+            seed = pd.read_parquet(
+                path,
+                columns=sorted(set(BASE_FEATURE_COLUMNS)),
+                filters=[
+                    ("__index_level_0__", ">=", pd.Timestamp(start_time)),
+                    ("__index_level_0__", "<=", pd.Timestamp(end_time)),
+                ],
+            )
+        except Exception as exc:
+            logging.warning("AetherFlowStrategy live base cache slice load failed: %s", exc)
+            return pd.DataFrame()
+        if seed.empty:
+            return pd.DataFrame()
+        seed.index = pd.DatetimeIndex(seed.index)
+        seed = seed.sort_index()
+        return seed.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+    def _load_live_base_overlay_slice(
+        self,
+        *,
+        start_time: pd.Timestamp,
+        end_time: pd.Timestamp,
+    ) -> pd.DataFrame:
+        path = self._live_base_overlay_path
+        if path is None or not path.exists():
+            return pd.DataFrame()
+        if not self._live_base_overlay_validated:
+            validate_full_manifold_base_features_path(path, BASE_FEATURE_COLUMNS)
+            self._live_base_overlay_validated = True
+        try:
+            overlay = pd.read_parquet(
+                path,
+                columns=sorted(set(BASE_FEATURE_COLUMNS)),
+                filters=[
+                    ("__index_level_0__", ">=", pd.Timestamp(start_time)),
+                    ("__index_level_0__", "<=", pd.Timestamp(end_time)),
+                ],
+            )
+        except Exception as exc:
+            logging.warning("AetherFlowStrategy live base overlay slice load failed: %s", exc)
+            return pd.DataFrame()
+        if overlay.empty:
+            return pd.DataFrame()
+        overlay.index = pd.DatetimeIndex(overlay.index)
+        overlay = overlay.sort_index()
+        return overlay.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+    def _load_live_base_seed_slice(
+        self,
+        *,
+        start_time: pd.Timestamp,
+        end_time: pd.Timestamp,
+    ) -> pd.DataFrame:
+        parts = []
+        seed = self._load_live_base_cache_slice(start_time=start_time, end_time=end_time)
+        seed_end = pd.Timestamp(seed.index.max()) if not seed.empty else None
+        if not seed.empty:
+            parts.append(seed)
+        overlay = self._load_live_base_overlay_slice(start_time=start_time, end_time=end_time)
+        if seed_end is not None and not overlay.empty:
+            overlay = overlay.loc[overlay.index > seed_end]
+        if not overlay.empty:
+            parts.append(overlay)
+        if not parts:
+            return pd.DataFrame()
+        combined = pd.concat(parts, axis=0).sort_index()
+        combined = combined.loc[~combined.index.duplicated(keep="last")]
+        return combined.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+
+    def _seeded_live_base_window(
+        self,
+        df: pd.DataFrame,
+        *,
+        end_time: Optional[pd.Timestamp],
+    ) -> pd.DataFrame:
+        if df is None or df.empty:
+            return pd.DataFrame()
+        if self._live_base_features_path is None or not self._live_base_features_path.exists():
+            return pd.DataFrame()
+
+        source_df = df.sort_index()
+        target_end = pd.Timestamp(end_time) if end_time is not None else pd.Timestamp(source_df.index.max())
+        source_df = source_df.loc[source_df.index <= target_end]
+        if source_df.empty:
+            return pd.DataFrame()
+
+        window = self._live_base_window
+        if isinstance(window, pd.DataFrame) and not window.empty:
+            window = window.sort_index()
+            if pd.Timestamp(window.index.max()) >= target_end:
+                return window.loc[window.index <= target_end].tail(self.live_base_history_bars)
+
+        start_pos = max(0, len(source_df) - int(self.live_base_history_bars))
+        feature_start = pd.Timestamp(source_df.index[start_pos])
+
+        if not isinstance(window, pd.DataFrame) or window.empty:
+            seed_df = self._load_live_base_seed_slice(start_time=feature_start, end_time=target_end)
+        else:
+            seed_df = window.loc[window.index >= feature_start].copy()
+            if seed_df.empty:
+                seed_df = self._load_live_base_seed_slice(start_time=feature_start, end_time=target_end)
+
+        seed_last_ts = pd.Timestamp(seed_df.index.max()) if isinstance(seed_df, pd.DataFrame) and not seed_df.empty else None
+        if seed_last_ts is not None and seed_last_ts >= target_end:
+            self._live_base_window = seed_df.tail(self.live_base_history_bars).copy()
+            return self._live_base_window
+
+        if seed_last_ts is not None:
+            build_start_pos = max(
+                0,
+                int(source_df.index.searchsorted(seed_last_ts, side="left")) - int(self.live_base_overlap_bars),
+            )
+        else:
+            build_start_pos = max(0, len(source_df) - int(self.live_base_overlap_bars))
+        build_source_df = source_df.iloc[build_start_pos:]
+        if build_source_df.empty:
+            return seed_df.tail(self.live_base_history_bars) if isinstance(seed_df, pd.DataFrame) else pd.DataFrame()
+
+        manifold_cfg = dict(CONFIG.get("REGIME_MANIFOLD", {}) or {})
+        manifold_cfg["enabled"] = True
+        rebuilt = build_manifold_base_frame(
+            build_source_df,
+            manifold_cfg=manifold_cfg,
+            log_every=0,
+        )
+        if rebuilt.empty:
+            return seed_df.tail(self.live_base_history_bars) if isinstance(seed_df, pd.DataFrame) else pd.DataFrame()
+        if seed_last_ts is not None:
+            rebuilt = rebuilt.loc[rebuilt.index > seed_last_ts]
+        if rebuilt.empty:
+            self._live_base_window = seed_df.tail(self.live_base_history_bars).copy()
+            return self._live_base_window
+
+        combined_parts = []
+        if isinstance(seed_df, pd.DataFrame) and not seed_df.empty:
+            combined_parts.append(seed_df)
+        combined_parts.append(rebuilt)
+        combined = pd.concat(combined_parts, axis=0).sort_index()
+        combined = combined.loc[~combined.index.duplicated(keep="last")]
+        combined = combined.replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        self._live_base_window = combined.tail(self.live_base_history_bars).copy()
+        return self._live_base_window
 
     def _queue_runtime_event(
         self,
@@ -433,18 +1115,29 @@ class AetherFlowStrategy(Strategy):
             "threshold": float(self.threshold),
             "allowed_session_ids": self.allowed_session_ids,
             "allowed_regimes": None,
+            "allowed_sides": None,
             "blocked_regimes": self.hazard_block_regimes,
             "max_abs_vwap_dist_atr": None,
             "max_directional_vwap_dist_atr": None,
             "min_d_alignment_3": None,
             "min_d_coherence_3": None,
+            "min_pressure_imbalance_30": None,
+            "max_pressure_imbalance_30": None,
             "min_setup_strength": None,
             "min_alignment_pct": None,
             "min_smoothness_pct": None,
             "max_stress_pct": None,
             "max_flow_mag_slow": None,
+            "min_phase_regime_run_bars": None,
+            "max_phase_regime_flip_count_10": None,
+            "min_phase_alignment_mean_5": None,
+            "max_phase_stress_mean_5": None,
+            "min_phase_alignment_trend_5": None,
+            "max_phase_stress_trend_5": None,
+            "min_phase_d_alignment_mean_5": None,
             "selection_score_bias": 0.0,
             "selection_score_scale": 1.0,
+            "size_multiplier": 1.0,
             "entry_mode": "market_next_bar",
             "sl_mult_override": None,
             "tp_mult_override": None,
@@ -470,6 +1163,7 @@ class AetherFlowStrategy(Strategy):
         side_num = int(round(float(row.get("candidate_side", 0.0) or 0.0)))
         if side_num == 0:
             return "no_setup"
+        side_label = "LONG" if side_num > 0 else "SHORT"
         setup_family = str(row.get("setup_family", "") or "").strip()
         policy = self._policy_for_family(setup_family, row)
         if policy is None:
@@ -482,6 +1176,9 @@ class AetherFlowStrategy(Strategy):
         allowed_regimes = policy.get("allowed_regimes")
         if allowed_regimes and regime_name not in allowed_regimes:
             return "regime_not_allowed"
+        allowed_sides = policy.get("allowed_sides")
+        if allowed_sides and side_label not in allowed_sides:
+            return "side_not_allowed"
         blocked_regimes = policy.get("blocked_regimes") or set()
         if regime_name and regime_name in blocked_regimes:
             return "hazard_blocked"
@@ -492,6 +1189,9 @@ class AetherFlowStrategy(Strategy):
         context_reason = _context_block_reason(row, policy)
         if context_reason:
             return context_reason
+        params_reason = _params_block_reason(row, policy)
+        if params_reason:
+            return params_reason
         return ""
 
     def _compute_probabilities(self, features: pd.DataFrame) -> np.ndarray:
@@ -504,6 +1204,7 @@ class AetherFlowStrategy(Strategy):
         )
         if features.empty:
             return pd.DataFrame()
+        features = augment_aetherflow_phase_features(features)
         features = features.loc[
             (features["setup_family"].astype(str) == str(family_name))
             & (pd.to_numeric(features.get("candidate_side", 0.0), errors="coerce").fillna(0.0) != 0.0)
@@ -550,6 +1251,7 @@ class AetherFlowStrategy(Strategy):
         side_num = int(round(float(row.get("candidate_side", 0.0) or 0.0)))
         if side_num == 0:
             return None
+        side_label = "LONG" if side_num > 0 else "SHORT"
         setup_family = str(row.get("setup_family", "") or "").strip()
         policy = self._policy_for_family(setup_family, row)
         if policy is None:
@@ -565,6 +1267,9 @@ class AetherFlowStrategy(Strategy):
         regime_name = _regime_name_from_row(row)
         allowed_regimes = policy.get("allowed_regimes")
         if allowed_regimes and regime_name not in allowed_regimes:
+            return None
+        allowed_sides = policy.get("allowed_sides")
+        if allowed_sides and side_label not in allowed_sides:
             return None
         blocked_regimes = policy.get("blocked_regimes") or set()
         if regime_name and regime_name in blocked_regimes:
@@ -582,12 +1287,15 @@ class AetherFlowStrategy(Strategy):
         if horizon_bars_override is not None:
             params_row["setup_horizon_bars"] = int(horizon_bars_override)
         params = resolve_setup_params(params_row)
+        if _params_block_reason(row, policy, params=params):
+            return None
         signal = {
             "strategy": "AetherFlowStrategy",
-            "side": "LONG" if side_num > 0 else "SHORT",
+            "side": side_label,
             "tp_dist": float(params["tp_points"]),
             "sl_dist": float(params["sl_points"]),
             "size": int(self.size),
+            "size_multiplier": float(policy.get("size_multiplier", 1.0) or 1.0),
             "entry_mode": str(policy.get("entry_mode", "market_next_bar") or "market_next_bar"),
             "horizon_bars": int(params["horizon_bars"]),
             "use_horizon_time_stop": bool(policy.get("use_horizon_time_stop", False)),
@@ -600,6 +1308,7 @@ class AetherFlowStrategy(Strategy):
             "aetherflow_horizon_bars": int(params["horizon_bars"]),
             "aetherflow_use_horizon_time_stop": bool(policy.get("use_horizon_time_stop", False)),
             "aetherflow_regime": regime_name,
+            "aetherflow_size_multiplier": float(policy.get("size_multiplier", 1.0) or 1.0),
         }
         early_exit_cfg = dict(policy.get("early_exit", {}) or {})
         if early_exit_cfg:
@@ -612,36 +1321,114 @@ class AetherFlowStrategy(Strategy):
             )
         return signal
 
-    def build_precomputed_backtest_df(self, df: pd.DataFrame) -> pd.DataFrame:
-        if not self.model_loaded or self.model_bundle is None or df is None or df.empty:
+    def _backtest_signals_from_features(
+        self,
+        features: pd.DataFrame,
+        *,
+        start_time: Optional[pd.Timestamp] = None,
+        end_time: Optional[pd.Timestamp] = None,
+    ) -> pd.DataFrame:
+        features = augment_aetherflow_phase_features(features)
+        if features.empty:
+            return pd.DataFrame()
+        if start_time is not None:
+            features = features.loc[features.index >= pd.Timestamp(start_time)]
+        if end_time is not None:
+            features = features.loc[features.index <= pd.Timestamp(end_time)]
+        if features.empty:
             return pd.DataFrame()
         if self.family_policies:
-            candidate_frames = []
-            for family_name in self._candidate_family_names():
-                family_frame = self._build_family_candidate_frame(df, family_name)
-                if not family_frame.empty:
-                    candidate_frames.append(family_frame)
-            if not candidate_frames:
-                return pd.DataFrame()
-            merged = pd.concat(candidate_frames, axis=0).sort_index()
-            return self._select_signal_rows(merged)
+            allow_families = set(self._candidate_family_names())
+            if allow_families:
+                features = features.loc[
+                    features["setup_family"].astype(str).isin(sorted(allow_families))
+                ]
+        elif self.allowed_setup_families:
+            features = features.loc[
+                features["setup_family"].astype(str).isin(sorted(self.allowed_setup_families))
+            ]
+        if features.empty:
+            return pd.DataFrame()
+        features = features.copy()
+        if "aetherflow_confidence" not in features.columns:
+            features["aetherflow_confidence"] = self._compute_probabilities(features)
+        else:
+            features["aetherflow_confidence"] = pd.to_numeric(
+                features.get("aetherflow_confidence"),
+                errors="coerce",
+            ).fillna(0.0)
+        if self.family_policies:
+            row_dicts = features.to_dict("records")
+            features["manifold_regime_name"] = [
+                _regime_name_from_row(row_dict)
+                for row_dict in row_dicts
+            ]
+            features["selection_score"] = [
+                _selection_score(
+                    float(row_dict.get("aetherflow_confidence", 0.0) or 0.0),
+                    self._policy_for_family(
+                        str(row_dict.get("setup_family", "") or ""),
+                        row_dict,
+                    )
+                    or {},
+                )
+                for row_dict in row_dicts
+            ]
+        if self.allowed_session_ids and not self.family_policies:
+            sess = pd.to_numeric(features.get("session_id"), errors="coerce").fillna(-999).round().astype(int)
+            features = features.loc[sess.isin(sorted(self.allowed_session_ids))]
+        features = features.loc[
+            pd.to_numeric(features.get("candidate_side", 0.0), errors="coerce").fillna(0.0) != 0.0
+        ]
+        if features.empty:
+            return pd.DataFrame()
+        return self._select_signal_rows(features)
+
+    def build_backtest_df_from_base_features(
+        self,
+        base_features: pd.DataFrame,
+        *,
+        start_time: Optional[pd.Timestamp] = None,
+        end_time: Optional[pd.Timestamp] = None,
+    ) -> pd.DataFrame:
+        if not self.model_loaded or self.model_bundle is None or base_features is None or base_features.empty:
+            return pd.DataFrame()
         features = build_feature_frame(
-            df,
+            base_features=base_features,
             preferred_setup_families=self.allowed_setup_families,
         )
         if features.empty:
             return pd.DataFrame()
-        if self.allowed_session_ids:
-            sess = pd.to_numeric(features.get("session_id"), errors="coerce").fillna(-999).round().astype(int)
-            features = features.loc[sess.isin(sorted(self.allowed_session_ids))]
-        features = features.loc[pd.to_numeric(features.get("candidate_side", 0.0), errors="coerce").fillna(0.0) != 0.0]
-        if self.allowed_setup_families:
-            features = features.loc[features["setup_family"].astype(str).isin(sorted(self.allowed_setup_families))]
-        if features.empty:
+        return self._backtest_signals_from_features(
+            features,
+            start_time=start_time,
+            end_time=end_time,
+        )
+
+    def build_precomputed_backtest_df(
+        self,
+        df: pd.DataFrame,
+        *,
+        start_time: Optional[pd.Timestamp] = None,
+        end_time: Optional[pd.Timestamp] = None,
+    ) -> pd.DataFrame:
+        if not self.model_loaded or self.model_bundle is None or df is None or df.empty:
             return pd.DataFrame()
-        features = features.copy()
-        features["aetherflow_confidence"] = self._compute_probabilities(features)
-        return self._select_signal_rows(features)
+        features = self._seeded_feature_window(
+            df,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        if features.empty:
+            features = build_feature_frame(
+                df,
+                preferred_setup_families=self.allowed_setup_families,
+            )
+        return self._backtest_signals_from_features(
+            features,
+            start_time=start_time,
+            end_time=end_time,
+        )
 
     def on_bar(self, df, current_time=None) -> Optional[Dict]:
         ts = current_time
@@ -651,11 +1438,16 @@ class AetherFlowStrategy(Strategy):
             except Exception:
                 ts = None
         if ts is not None:
-            cached = self._precomputed_lookup.get(int(pd.Timestamp(ts).value))
+            ts_key = int(pd.Timestamp(ts).value)
+            cached = self._precomputed_lookup.get(ts_key)
             if cached is not None:
                 self.last_eval = dict(cached)
                 self._pending_runtime_event = None
                 return dict(cached)
+            if ts_key in self._precomputed_known_timestamps:
+                self.last_eval = None
+                self._pending_runtime_event = None
+                return None
         if not self.model_loaded or self.model_bundle is None:
             return None
         if df is None or df.empty or len(df) < self.min_bars:
@@ -663,15 +1455,27 @@ class AetherFlowStrategy(Strategy):
 
         history = df.tail(self.max_feature_bars)
         try:
+            base_history = self._seeded_live_base_window(
+                df,
+                end_time=pd.Timestamp(ts) if ts is not None else None,
+            )
             if self.family_policies:
                 candidate_payloads: list[Dict] = []
                 for family_name in self._candidate_family_names():
-                    family_features = build_feature_frame(
-                        history,
-                        preferred_setup_families={family_name},
+                    family_features = (
+                        build_feature_frame(
+                            base_features=base_history,
+                            preferred_setup_families={family_name},
+                        )
+                        if isinstance(base_history, pd.DataFrame) and not base_history.empty
+                        else build_feature_frame(
+                            history,
+                            preferred_setup_families={family_name},
+                        )
                     )
                     if family_features.empty:
                         continue
+                    family_features = augment_aetherflow_phase_features(family_features)
                     row = family_features.iloc[-1]
                     if str(row.get("setup_family", "") or "") != str(family_name):
                         continue
@@ -766,17 +1570,25 @@ class AetherFlowStrategy(Strategy):
                 )
                 return None
 
-            features = build_feature_frame(
-                history,
-                preferred_setup_families=self.allowed_setup_families,
+            features = (
+                build_feature_frame(
+                    base_features=base_history,
+                    preferred_setup_families=self.allowed_setup_families,
+                )
+                if isinstance(base_history, pd.DataFrame) and not base_history.empty
+                else build_feature_frame(
+                    history,
+                    preferred_setup_families=self.allowed_setup_families,
+                )
             )
+            features = augment_aetherflow_phase_features(features)
             if features.empty:
                 return None
             row = features.iloc[-1]
             session_id = _row_int(row, "session_id", default=-999)
             side_num = int(round(float(row.get("candidate_side", 0.0) or 0.0)))
             side_label = "LONG" if side_num > 0 else "SHORT" if side_num < 0 else None
-            if self.allowed_session_ids and session_id not in self.allowed_session_ids:
+            if self.allowed_session_ids and not self.family_policies and session_id not in self.allowed_session_ids:
                 self.last_eval = {
                     "decision": "blocked",
                     "reason": "session_not_allowed",

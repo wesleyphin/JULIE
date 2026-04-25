@@ -99,8 +99,60 @@ class DE3V4Runtime:
                     f"{str(sig.get('timeframe', '')).lower()}_{str(sig.get('session', '')).lower()}_"
                     f"{str(sig.get('strategy_type', '')).lower()}_t{str(sig.get('threshold_text', '')).lower()}"
                 )
+        family_profile_veto_cfg = (
+            dict(runtime_cfg.get("family_profile_veto", {}))
+            if isinstance(runtime_cfg.get("family_profile_veto"), dict)
+            else {}
+        )
+        family_profile_veto_rules = (
+            family_profile_veto_cfg.get("rules", [])
+            if isinstance(family_profile_veto_cfg.get("rules"), list)
+            else []
+        )
+        self.family_profile_veto_cfg = dict(family_profile_veto_cfg)
+        self.family_profile_veto_rules = [
+            dict(rule) for rule in family_profile_veto_rules if isinstance(rule, dict)
+        ]
+        self.family_profile_veto_enabled = bool(
+            self.family_profile_veto_cfg.get("enabled", False)
+        ) and bool(self.family_profile_veto_rules)
+        live_drawdown_quarantine_cfg = (
+            dict(runtime_cfg.get("live_drawdown_quarantine", {}))
+            if isinstance(runtime_cfg.get("live_drawdown_quarantine"), dict)
+            else {}
+        )
+        live_drawdown_quarantine_allow_rules = (
+            live_drawdown_quarantine_cfg.get("allow_rules", [])
+            if isinstance(live_drawdown_quarantine_cfg.get("allow_rules"), list)
+            else []
+        )
+        self.live_drawdown_quarantine_cfg = dict(live_drawdown_quarantine_cfg)
+        self.live_drawdown_quarantine_enabled = bool(
+            self.live_drawdown_quarantine_cfg.get("enabled", False)
+        )
+        self.live_drawdown_quarantine_max_drawdown_usd = max(
+            0.0,
+            safe_float(self.live_drawdown_quarantine_cfg.get("max_drawdown_usd", 0.0), 0.0),
+        )
+        self.live_drawdown_quarantine_variant_patterns = tuple(
+            str(item).strip().lower()
+            for item in (
+                self.live_drawdown_quarantine_cfg.get("post_trigger_excluded_variant_patterns", [])
+                or []
+            )
+            if str(item).strip()
+        )
+        self.live_drawdown_quarantine_allow_rules = [
+            dict(rule) for rule in live_drawdown_quarantine_allow_rules if isinstance(rule, dict)
+        ]
         self._runtime_excluded_family_count = 0
         self._runtime_excluded_variant_pattern_count = 0
+        self._family_profile_veto_count = 0
+        self._family_profile_veto_rule_counts: Counter[str] = Counter()
+        self._live_drawdown_quarantine_active_count = 0
+        self._live_drawdown_quarantine_block_count = 0
+        self._live_drawdown_quarantine_pattern_block_counts: Counter[str] = Counter()
+        self._live_drawdown_quarantine_allow_rule_pass_counts: Counter[str] = Counter()
         self._candidate_variant_filter_reject_count = 0
         self._candidate_variant_filter_reject_reason_counts: Counter[str] = Counter()
         self._book_gate_decision_count = 0
@@ -599,6 +651,126 @@ class DE3V4Runtime:
                     return "excluded_variant_pattern"
         return None
 
+    @staticmethod
+    def _candidate_scope_rule_match(raw_values: Any, value: Any, *, lower: bool = False) -> bool:
+        if not isinstance(raw_values, (list, tuple, set)):
+            return True
+        normalized = {
+            (str(item).strip().lower() if lower else str(item).strip())
+            for item in raw_values
+            if str(item).strip()
+        }
+        if not normalized:
+            return True
+        key = str(value or "").strip().lower() if lower else str(value or "").strip()
+        return key in normalized
+
+    def _candidate_matches_family_profile_veto_rule(
+        self,
+        *,
+        rule: Dict[str, Any],
+        candidate_row: Dict[str, Any],
+    ) -> bool:
+        if not isinstance(rule, dict):
+            return False
+        if not bool(rule.get("enabled", True)):
+            return False
+        filter_pairs = (
+            ("apply_variants", "variant_id", False),
+            ("apply_family_ids", "family_id", False),
+            ("apply_sessions", "session", False),
+            ("apply_lanes", "lane", True),
+            ("apply_sides", "side_considered", True),
+            ("apply_timeframes", "timeframe", True),
+            ("apply_strategy_types", "strategy_type", True),
+            ("apply_day_profiles", "ctx_day_profile", True),
+            ("apply_day_types", "ctx_day_type", True),
+            ("apply_day_expansion_regimes", "ctx_day_expansion_regime", True),
+            ("apply_day_direction_regimes", "ctx_day_direction_regime", True),
+            ("apply_day_opening_regimes", "ctx_day_opening_regime", True),
+            ("apply_day_flow_regimes", "ctx_day_flow_regime", True),
+            ("apply_day_gap_regimes", "ctx_day_gap_regime", True),
+            ("apply_shock_score_buckets", "ctx_shock_score_bucket", True),
+            ("apply_shock_direction_buckets", "ctx_shock_direction_bucket", True),
+            ("apply_session_substates", "ctx_session_substate", True),
+        )
+        for rule_key, row_key, lower in filter_pairs:
+            if not self._candidate_scope_rule_match(
+                rule.get(rule_key, []),
+                candidate_row.get(row_key, ""),
+                lower=lower,
+            ):
+                return False
+        return True
+
+    def _candidate_family_profile_veto_reason(
+        self,
+        *,
+        candidate_row: Dict[str, Any],
+    ) -> Optional[str]:
+        if not self.family_profile_veto_enabled:
+            return None
+        for index, rule in enumerate(self.family_profile_veto_rules):
+            if not self._candidate_matches_family_profile_veto_rule(
+                rule=rule,
+                candidate_row=candidate_row,
+            ):
+                continue
+            rule_name = str(rule.get("name") or f"family_profile_veto_{index + 1}").strip()
+            return rule_name or f"family_profile_veto_{index + 1}"
+        return None
+
+    def _live_drawdown_quarantine_meta(
+        self,
+        *,
+        candidate_row: Dict[str, Any],
+        current_drawdown_usd: float,
+    ) -> Dict[str, Any]:
+        meta: Dict[str, Any] = {
+            "enabled": bool(self.live_drawdown_quarantine_enabled),
+            "active": False,
+            "blocked": False,
+            "state": "disabled",
+            "matched_pattern": "",
+            "allow_rule_name": "",
+            "current_drawdown_usd": float(current_drawdown_usd),
+            "max_drawdown_usd": float(self.live_drawdown_quarantine_max_drawdown_usd),
+        }
+        if not self.live_drawdown_quarantine_enabled:
+            return meta
+        threshold = float(self.live_drawdown_quarantine_max_drawdown_usd)
+        if threshold <= 0.0 or float(current_drawdown_usd) < threshold:
+            meta["state"] = "neutral"
+            return meta
+        meta["active"] = True
+        variant_id = str(candidate_row.get("variant_id", "") or "").strip().lower()
+        matched_pattern = ""
+        for pattern in self.live_drawdown_quarantine_variant_patterns:
+            if pattern and pattern in variant_id:
+                matched_pattern = str(pattern)
+                break
+        if not matched_pattern:
+            meta["state"] = "quarantine_pass"
+            return meta
+        meta["matched_pattern"] = str(matched_pattern)
+        for index, rule in enumerate(self.live_drawdown_quarantine_allow_rules):
+            if not self._candidate_matches_family_profile_veto_rule(
+                rule=rule,
+                candidate_row=candidate_row,
+            ):
+                continue
+            rule_name = str(
+                rule.get("name") or f"live_drawdown_quarantine_allow_rule_{index + 1}"
+            ).strip()
+            meta["state"] = "quarantine_allow_rule_pass"
+            meta["allow_rule_name"] = (
+                rule_name or f"live_drawdown_quarantine_allow_rule_{index + 1}"
+            )
+            return meta
+        meta["blocked"] = True
+        meta["state"] = "blocked_quarantine_pattern"
+        return meta
+
     def _candidate_variant_filter_side(self, candidate_entry: Dict[str, Any]) -> str:
         side_raw = str(candidate_entry.get("side_considered", "") or "").strip().lower()
         if side_raw in {"long", "buy"}:
@@ -847,10 +1019,8 @@ class DE3V4Runtime:
             "sub_strategy": self._normalize_book_gate_value(ctx.get("sub_strategy")),
         }
 
-    def _book_gate_uses_row_context_fields(self) -> bool:
+    def _book_gate_scope_uses_candidate_row_fields(self) -> bool:
         if not bool(self.book_gate_enabled):
-            return False
-        if self._book_gate_supports_decision_model_switching():
             return False
         scope_priority = (
             self.book_gate_model_cfg.get("scope_priority", [])
@@ -868,6 +1038,11 @@ class DE3V4Runtime:
             if any(field in row_fields for field in fields):
                 return True
         return False
+
+    def _book_gate_uses_row_context_fields(self) -> bool:
+        if self._book_gate_supports_decision_model_switching():
+            return False
+        return self._book_gate_scope_uses_candidate_row_fields()
 
     def _book_gate_payload_for_book(self, book_name: str) -> Dict[str, Any]:
         books = (
@@ -1039,6 +1214,66 @@ class DE3V4Runtime:
             if lane_side:
                 return lane_side
         return None
+
+    def _select_book_gate_from_candidate_rows(
+        self,
+        *,
+        candidate_rows: List[Dict[str, Any]],
+        context_inputs: Optional[Dict[str, Any]],
+        default_session: str,
+        current_time: Optional[Any],
+        default_book: str,
+    ) -> Dict[str, Any]:
+        if not self._book_gate_scope_uses_candidate_row_fields():
+            return {}
+        rows = [dict(row) for row in candidate_rows if isinstance(row, dict)]
+        if not rows:
+            return {}
+
+        ranked_rows = sorted(
+            rows,
+            key=lambda row: (
+                1 if safe_int(row.get("candidate_rank_before_adjustments", 0), 0) > 0 else 0,
+                -safe_int(row.get("candidate_rank_before_adjustments", 0), 0),
+                safe_float(
+                    row.get("runtime_rank_score", row.get("edge_points", row.get("lane_score", 0.0))),
+                    0.0,
+                ),
+                safe_float(row.get("structural_score", 0.0), 0.0),
+            ),
+            reverse=True,
+        )
+        for row in ranked_rows:
+            merged_context: Dict[str, Any] = {}
+            if isinstance(context_inputs, dict):
+                merged_context.update(context_inputs)
+            row_context_fields: Dict[str, str] = {}
+            for key in ("side_considered", "timeframe", "strategy_type", "sub_strategy"):
+                value = self._candidate_row_context_value(row, key)
+                if value is None or not str(value).strip():
+                    continue
+                merged_context[key] = value
+                row_context_fields[key] = str(value)
+            if not row_context_fields:
+                continue
+            selection = self._select_book_gate(
+                context_inputs=merged_context,
+                default_session=default_session,
+                current_time=current_time,
+            )
+            selected_book = str(selection.get("selected_book", "") or default_book)
+            if not selected_book or selected_book == str(default_book):
+                continue
+            enriched = dict(selection)
+            enriched["row_context_seeded"] = True
+            enriched["row_context_source"] = "candidate_rows"
+            enriched["row_context_fields"] = dict(row_context_fields)
+            enriched["row_context_variant_id"] = str(
+                self._candidate_row_context_value(row, "sub_strategy") or ""
+            )
+            enriched["row_context_lane"] = str(row.get("lane", "") or "")
+            return enriched
+        return {}
 
     def _filter_candidate_rows_with_cfg(
         self,
@@ -1317,6 +1552,19 @@ class DE3V4Runtime:
             default_session=default_session,
             current_time=current_time,
         )
+        if (
+            self._book_gate_scope_uses_candidate_row_fields()
+            and str(selection.get("selected_book", "") or default_book) == str(default_book)
+        ):
+            row_seeded_selection = self._select_book_gate_from_candidate_rows(
+                candidate_rows=candidate_rows,
+                context_inputs=merged_context,
+                default_session=default_session,
+                current_time=current_time,
+                default_book=str(default_book),
+            )
+            if row_seeded_selection:
+                selection = row_seeded_selection
         context_signature = self._book_gate_bucket_key(
             context_values=self._resolve_book_gate_context(
                 context_inputs=merged_context,
@@ -1347,6 +1595,15 @@ class DE3V4Runtime:
                 "provisional_selection_mode": str(
                     provisional_stack.get("selection_mode", "") or ""
                 ),
+                "row_context_seeded": bool(selection.get("row_context_seeded", False)),
+                "row_context_source": str(selection.get("row_context_source", "") or ""),
+                "row_context_fields": (
+                    dict(selection.get("row_context_fields", {}))
+                    if isinstance(selection.get("row_context_fields"), dict)
+                    else {}
+                ),
+                "row_context_variant_id": str(selection.get("row_context_variant_id", "") or ""),
+                "row_context_lane": str(selection.get("row_context_lane", "") or ""),
                 "stats_recorded": False,
             }
         )
@@ -1540,8 +1797,9 @@ class DE3V4Runtime:
             if isinstance(context_inputs, dict):
                 merged_context.update(context_inputs)
             for key in ("side_considered", "timeframe", "strategy_type", "sub_strategy"):
-                if key in row:
-                    merged_context[key] = row.get(key)
+                value = self._candidate_row_context_value(row, key)
+                if value is not None and str(value).strip():
+                    merged_context[key] = value
 
             selection = self._select_book_gate(
                 context_inputs=merged_context,
@@ -2677,6 +2935,65 @@ class DE3V4Runtime:
             pos=0.10,
             strong_pos=0.28,
         )
+        def _shock_score_bucket(value: float) -> str:
+            if (not math.isfinite(value)) or value <= 0.05:
+                return "none"
+            if value < 0.60:
+                return "mild"
+            if value < 1.05:
+                return "strong"
+            return "extreme"
+
+        def _shock_ratio_bucket(value: float) -> str:
+            if (not math.isfinite(value)) or value <= 1.05:
+                return "normal"
+            if value < 1.35:
+                return "elevated"
+            if value < 1.85:
+                return "high"
+            return "extreme"
+
+        def _shock_count_bucket(value: float) -> str:
+            raw = int(max(0, round(value))) if math.isfinite(value) else 0
+            if raw <= 0:
+                return "0"
+            if raw == 1:
+                return "1"
+            if raw == 2:
+                return "2"
+            return "3p"
+
+        ir_bias_gap = self._entry_model_numeric_value(chosen_entry, "de3_intraday_regime_bias_gap")
+        ir_countertrend = self._entry_model_numeric_value(
+            chosen_entry,
+            "de3_intraday_regime_countertrend_pressure",
+        )
+        ir_route_bias = self._entry_model_numeric_value(chosen_entry, "de3_intraday_regime_route_bias")
+        ir_shock_score = self._entry_model_numeric_value(chosen_entry, "de3_intraday_regime_shock_score")
+        ir_session_range = self._entry_model_numeric_value(
+            chosen_entry,
+            "de3_intraday_regime_session_range_ratio",
+        )
+        ir_session_volume = self._entry_model_numeric_value(
+            chosen_entry,
+            "de3_intraday_regime_session_volume_ratio",
+        )
+        ir_recent_range = self._entry_model_numeric_value(
+            chosen_entry,
+            "de3_intraday_regime_recent_bar_range_ratio",
+        )
+        ir_recent_volume = self._entry_model_numeric_value(
+            chosen_entry,
+            "de3_intraday_regime_recent_bar_volume_ratio",
+        )
+        ir_bear_hits = self._entry_model_numeric_value(
+            chosen_entry,
+            "de3_intraday_regime_bearish_shock_hits",
+        )
+        ir_bull_hits = self._entry_model_numeric_value(
+            chosen_entry,
+            "de3_intraday_regime_bullish_shock_hits",
+        )
         side_pattern = str(
             chosen_entry.get("side_pattern", cand.get("side_pattern", "")) or ""
         ).strip().lower()
@@ -2715,6 +3032,48 @@ class DE3V4Runtime:
                 if ret_bucket and wick_bucket
                 else ""
             ),
+            "ir_state": str(
+                chosen_entry.get(
+                    "de3_intraday_regime_state",
+                    cand.get("de3_intraday_regime_state", ""),
+                )
+                or ""
+            ).strip().lower(),
+            "ir_action": str(
+                chosen_entry.get(
+                    "de3_intraday_regime_action",
+                    cand.get("de3_intraday_regime_action", ""),
+                )
+                or ""
+            ).strip().lower(),
+            "ir_shock_score_bucket": _shock_score_bucket(ir_shock_score),
+            "ir_session_range_bucket": _shock_ratio_bucket(ir_session_range),
+            "ir_session_volume_bucket": _shock_ratio_bucket(ir_session_volume),
+            "ir_recent_range_bucket": _shock_ratio_bucket(ir_recent_range),
+            "ir_recent_volume_bucket": _shock_ratio_bucket(ir_recent_volume),
+            "ir_direction_bucket": self._entry_model_bucket_balance(
+                ir_bias_gap,
+                strong_neg=-1.10,
+                neg=-0.35,
+                pos=0.35,
+                strong_pos=1.10,
+            ),
+            "ir_countertrend_bucket": self._entry_model_bucket_balance(
+                ir_countertrend,
+                strong_neg=-0.05,
+                neg=0.35,
+                pos=1.05,
+                strong_pos=2.20,
+            ),
+            "ir_route_bias_bucket": self._entry_model_bucket_balance(
+                ir_route_bias,
+                strong_neg=-0.40,
+                neg=-0.12,
+                pos=0.12,
+                strong_pos=0.40,
+            ),
+            "ir_bear_shock_hits_bucket": _shock_count_bucket(ir_bear_hits),
+            "ir_bull_shock_hits_bucket": _shock_count_bucket(ir_bull_hits),
         }
 
     def _entry_model_short_term_bucket_key(
@@ -3277,6 +3636,22 @@ class DE3V4Runtime:
             pos=0.35,
             strong_pos=1.25,
         )
+        for field_name in (
+            "ctx_shock_score_bucket",
+            "ctx_shock_recent_range_bucket",
+            "ctx_shock_recent_volume_bucket",
+            "ctx_shock_session_move_bucket",
+            "ctx_shock_session_range_bucket",
+            "ctx_shock_direction_bucket",
+            "ctx_day_expansion_regime",
+            "ctx_day_direction_regime",
+            "ctx_day_opening_regime",
+            "ctx_day_flow_regime",
+            "ctx_day_gap_regime",
+            "ctx_day_type",
+            "ctx_day_profile",
+        ):
+            context_row[field_name] = str(base_row.get(field_name, "") or "").strip().lower()
         long_strategy_type = str((long_row or {}).get("strategy_type", "") or "").strip().lower()
         short_strategy_type = str((short_row or {}).get("strategy_type", "") or "").strip().lower()
         long_sub_strategy = str((long_row or {}).get("sub_strategy", "") or "").strip().lower()
@@ -3373,6 +3748,21 @@ class DE3V4Runtime:
         else:
             context_row["rank_score_combo"] = ""
             context_row["score_edge_combo"] = ""
+        context_row["shock_profile_combo"] = (
+            str(context_row.get("ctx_shock_score_bucket", "") or "").strip().lower()
+            + "|"
+            + str(context_row.get("ctx_shock_direction_bucket", "") or "").strip().lower()
+        )
+        context_row["day_shock_combo"] = (
+            str(context_row.get("ctx_day_type", "") or "").strip().lower()
+            + "|"
+            + str(context_row.get("ctx_shock_score_bucket", "") or "").strip().lower()
+        )
+        context_row["day_flow_combo"] = (
+            str(context_row.get("ctx_day_flow_regime", "") or "").strip().lower()
+            + "|"
+            + str(context_row.get("ctx_day_opening_regime", "") or "").strip().lower()
+        )
         scopes = model_cfg.get("scopes", []) if isinstance(model_cfg.get("scopes"), list) else []
         max_scopes_per_row = max(1, int(safe_float(model_cfg.get("max_scopes_per_row", 3), 3)))
         matches: List[Dict[str, Any]] = []
@@ -5513,6 +5903,17 @@ class DE3V4Runtime:
     ) -> Dict[str, Any]:
         self._runtime_invocations += 1
         ctx = context_inputs if isinstance(context_inputs, dict) else {}
+        current_live_drawdown_usd = safe_float(
+            ctx.get("live_drawdown_usd", ctx.get("ctx_live_drawdown_usd", 0.0)),
+            0.0,
+        )
+        live_drawdown_quarantine_active = bool(
+            self.live_drawdown_quarantine_enabled
+            and float(self.live_drawdown_quarantine_max_drawdown_usd) > 0.0
+            and float(current_live_drawdown_usd) >= float(self.live_drawdown_quarantine_max_drawdown_usd)
+        )
+        if live_drawdown_quarantine_active:
+            self._live_drawdown_quarantine_active_count += 1
         decision_ts = (
             str(pd_ts.isoformat())
             if (pd_ts := (None if current_time is None else _to_timestamp(current_time))) is not None
@@ -5590,6 +5991,54 @@ class DE3V4Runtime:
                 "ctx_price_location",
                 cand.get("ctx_price_location", cand.get("price_location", ctx.get("price_location"))),
             )
+            row["ctx_live_drawdown_usd"] = row.get(
+                "ctx_live_drawdown_usd",
+                cand.get("ctx_live_drawdown_usd", ctx.get("live_drawdown_usd")),
+            )
+            row["ctx_live_realized_pnl_usd"] = row.get(
+                "ctx_live_realized_pnl_usd",
+                cand.get("ctx_live_realized_pnl_usd", ctx.get("live_realized_pnl_usd")),
+            )
+            row["ctx_live_peak_realized_pnl_usd"] = row.get(
+                "ctx_live_peak_realized_pnl_usd",
+                cand.get(
+                    "ctx_live_peak_realized_pnl_usd",
+                    ctx.get("live_peak_realized_pnl_usd"),
+                ),
+            )
+            row["ctx_live_drawdown_source"] = row.get(
+                "ctx_live_drawdown_source",
+                cand.get("ctx_live_drawdown_source", ctx.get("live_drawdown_source")),
+            )
+            for shock_field in (
+                "ctx_shock_score",
+                "ctx_shock_score_bucket",
+                "ctx_shock_recent_range_ratio",
+                "ctx_shock_recent_range_bucket",
+                "ctx_shock_recent_volume_ratio",
+                "ctx_shock_recent_volume_bucket",
+                "ctx_shock_session_move_norm",
+                "ctx_shock_session_move_bucket",
+                "ctx_shock_session_range_norm",
+                "ctx_shock_session_range_bucket",
+                "ctx_shock_direction_bucket",
+                "ctx_day_range_progress_ratio",
+                "ctx_day_volume_progress_ratio",
+                "ctx_day_gap_ratio",
+                "ctx_day_trend_frac",
+                "ctx_day_first60_share",
+                "ctx_day_expansion_regime",
+                "ctx_day_direction_regime",
+                "ctx_day_opening_regime",
+                "ctx_day_flow_regime",
+                "ctx_day_gap_regime",
+                "ctx_day_type",
+                "ctx_day_profile",
+            ):
+                row[shock_field] = row.get(
+                    shock_field,
+                    cand.get(shock_field, ctx.get(shock_field)),
+                )
             row["ctx_session_substate"] = str(
                 row.get("ctx_session_substate")
                 or cand.get("ctx_session_substate")
@@ -5621,6 +6070,53 @@ class DE3V4Runtime:
                 elif excluded_reason == "excluded_variant_pattern":
                     self._runtime_excluded_variant_pattern_count += 1
                 continue
+            family_profile_veto_reason = self._candidate_family_profile_veto_reason(
+                candidate_row=row,
+            )
+            if family_profile_veto_reason:
+                decision_excluded_by_runtime_filter += 1
+                self._family_profile_veto_count += 1
+                self._family_profile_veto_rule_counts[str(family_profile_veto_reason)] += 1
+                continue
+            live_drawdown_quarantine_meta = self._live_drawdown_quarantine_meta(
+                candidate_row=row,
+                current_drawdown_usd=float(current_live_drawdown_usd),
+            )
+            row["live_drawdown_quarantine_enabled"] = bool(
+                live_drawdown_quarantine_meta.get("enabled", False)
+            )
+            row["live_drawdown_quarantine_active"] = bool(
+                live_drawdown_quarantine_meta.get("active", False)
+            )
+            row["live_drawdown_quarantine_state"] = str(
+                live_drawdown_quarantine_meta.get("state", "")
+            )
+            row["live_drawdown_quarantine_matched_pattern"] = str(
+                live_drawdown_quarantine_meta.get("matched_pattern", "")
+            )
+            row["live_drawdown_quarantine_allow_rule_name"] = str(
+                live_drawdown_quarantine_meta.get("allow_rule_name", "")
+            )
+            row["live_drawdown_quarantine_current_drawdown_usd"] = float(
+                live_drawdown_quarantine_meta.get("current_drawdown_usd", 0.0) or 0.0
+            )
+            row["live_drawdown_quarantine_max_drawdown_usd"] = float(
+                live_drawdown_quarantine_meta.get("max_drawdown_usd", 0.0) or 0.0
+            )
+            if bool(live_drawdown_quarantine_meta.get("blocked", False)):
+                decision_excluded_by_runtime_filter += 1
+                self._live_drawdown_quarantine_block_count += 1
+                matched_pattern = str(
+                    live_drawdown_quarantine_meta.get("matched_pattern", "") or ""
+                )
+                if matched_pattern:
+                    self._live_drawdown_quarantine_pattern_block_counts[matched_pattern] += 1
+                continue
+            allow_rule_name = str(
+                live_drawdown_quarantine_meta.get("allow_rule_name", "") or ""
+            )
+            if allow_rule_name:
+                self._live_drawdown_quarantine_allow_rule_pass_counts[allow_rule_name] += 1
             candidate_rows.append(row)
 
         filtered_rows = self._mode_filter(candidate_rows=candidate_rows)
@@ -6725,6 +7221,28 @@ class DE3V4Runtime:
             },
             "runtime_excluded_family_count": int(self._runtime_excluded_family_count),
             "runtime_excluded_variant_pattern_count": int(self._runtime_excluded_variant_pattern_count),
+            "family_profile_veto_enabled": bool(self.family_profile_veto_enabled),
+            "family_profile_veto_count": int(self._family_profile_veto_count),
+            "family_profile_veto_rule_counts": dict(self._family_profile_veto_rule_counts),
+            "live_drawdown_quarantine_enabled": bool(self.live_drawdown_quarantine_enabled),
+            "live_drawdown_quarantine_max_drawdown_usd": float(
+                self.live_drawdown_quarantine_max_drawdown_usd
+            ),
+            "live_drawdown_quarantine_variant_patterns": list(
+                self.live_drawdown_quarantine_variant_patterns
+            ),
+            "live_drawdown_quarantine_active_count": int(
+                self._live_drawdown_quarantine_active_count
+            ),
+            "live_drawdown_quarantine_block_count": int(
+                self._live_drawdown_quarantine_block_count
+            ),
+            "live_drawdown_quarantine_pattern_block_counts": dict(
+                self._live_drawdown_quarantine_pattern_block_counts
+            ),
+            "live_drawdown_quarantine_allow_rule_pass_counts": dict(
+                self._live_drawdown_quarantine_allow_rule_pass_counts
+            ),
             "candidate_variant_filter_enabled": bool(self.candidate_variant_filter_enabled),
             "candidate_variant_filter_reject_count": int(self._candidate_variant_filter_reject_count),
             "candidate_variant_filter_reject_reason_counts": dict(

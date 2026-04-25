@@ -182,6 +182,7 @@ def _score_with_gate(
     *,
     side: str,
     regime: str,
+    mkt_regime: str = "",
     et_hour: int,
     bar_features: Dict[str, float],
 ) -> Optional[float]:
@@ -191,9 +192,13 @@ def _score_with_gate(
         feature_names = payload["feature_names"]
         cat_maps = payload.get("categorical_maps", {})
         numeric = payload.get("numeric_features", [])
+        # Training stores strategy-local regime labels exactly as produced by
+        # the source strategy (AF uses uppercase manifold labels), while the
+        # global market regime classifier is stored lowercase.
         cat_values = {
             "side": str(side or "").upper(),
-            "regime": str(regime or "").lower(),
+            "regime": str(regime or "").strip().upper(),
+            "mkt_regime": str(mkt_regime or "").strip().lower(),
             "session": _session_bucket(int(et_hour)),
         }
         row = {c: 0.0 for c in feature_names}
@@ -215,7 +220,8 @@ def _score_with_gate(
                     row[name] = 1
         if "et_hour" in row:
             row["et_hour"] = float(et_hour)
-        X = np.array([[row[c] for c in feature_names]])
+        import pandas as pd
+        X = pd.DataFrame([[row[c] for c in feature_names]], columns=feature_names)
         return float(payload["model"].predict_proba(X)[0, 1])
     except Exception:
         logging.debug("gate scoring failed", exc_info=True)
@@ -270,84 +276,12 @@ def _session_multiplier(cum_day_pnl: float) -> float:
 
 
 _EFFECTIVE_THR_FLOOR = float(os.environ.get("JULIE_GATE_EFF_THR_FLOOR", "0.25"))
-
-# Per-(strategy × regime × time-bucket) threshold overrides produced by
-# `scripts/idea1_filterg_per_cell_calibrate.py` from the seeded ledger.
-# Loaded lazily; a missing file or missing cell key yields multiplier 1.0
-# (no change from the existing regime × session behavior).
-_PER_CELL_ACTIVE = os.environ.get("JULIE_FILTERG_PER_CELL_ACTIVE", "1").strip() not in ("0", "false", "False", "")
-_PER_CELL_TABLE_PATH = Path(__file__).resolve().parent / "ai_loop_data" / "triathlon" / "filterg_threshold_overrides.json"
-_PER_CELL_CACHE: Optional[Dict[str, float]] = None
-
-
-def _load_per_cell_overrides() -> Dict[str, float]:
-    """Lazy-load the per-cell multiplier table. Returns {} on any I/O
-    or parse error (fail-closed)."""
-    global _PER_CELL_CACHE
-    if _PER_CELL_CACHE is not None:
-        return _PER_CELL_CACHE
-    if not _PER_CELL_ACTIVE:
-        _PER_CELL_CACHE = {}
-        return _PER_CELL_CACHE
-    try:
-        import json as _json
-        if _PER_CELL_TABLE_PATH.exists():
-            payload = _json.loads(_PER_CELL_TABLE_PATH.read_text())
-            mults = payload.get("runtime_multipliers", {}) or {}
-            # Keep only valid float values
-            out: Dict[str, float] = {}
-            for k, v in mults.items():
-                try:
-                    out[str(k)] = float(v)
-                except (ValueError, TypeError):
-                    continue
-            _PER_CELL_CACHE = out
-            logging.info(
-                "[signal_gate_2025] per-cell threshold overrides loaded: "
-                "%d cells from %s", len(out), _PER_CELL_TABLE_PATH,
-            )
-        else:
-            _PER_CELL_CACHE = {}
-    except Exception as exc:
-        logging.warning("[signal_gate_2025] per-cell override load failed: %s", exc)
-        _PER_CELL_CACHE = {}
-    return _PER_CELL_CACHE
-
-
-def _time_bucket_of_hour(et_hour: int) -> str:
-    """Mirrors triathlon time-bucket logic so per-cell keys match the
-    Triathlon Engine's cell coordinates."""
-    h = float(et_hour)
-    if h < 4.0:
-        h += 24.0
-    if 4.0 <= h < 9.5:   return "pre_open"
-    if 9.5 <= h < 12.0:  return "morning"
-    if 12.0 <= h < 14.0: return "lunch"
-    if 14.0 <= h < 16.0: return "afternoon"
-    if 16.0 <= h < 17.0: return "post_close"
-    return "overnight"
-
-
-def _per_cell_multiplier(strategy: str, regime: str, et_hour: int) -> float:
-    """Look up the per-cell multiplier. Returns 1.0 when inactive, missing,
-    or when the cell isn't in the override table."""
-    if not _PER_CELL_ACTIVE:
-        return 1.0
-    table = _load_per_cell_overrides()
-    if not table:
-        return 1.0
-    # Mirror the triathlon cell-key shape. Strategy is kept as-is (not
-    # normalized to family) because the Triathlon table uses full strategy
-    # labels like "DynamicEngine3" / "RegimeAdaptive".
-    tb = _time_bucket_of_hour(et_hour)
-    ck = f"{strategy}|{str(regime or '').lower()}|{tb}"
-    return float(table.get(ck, 1.0))
+_DYNAMIC_THRESHOLD_ENABLED = os.environ.get("JULIE_GATE_DYNAMIC_THRESHOLD", "0").strip() == "1"
 
 
 def _effective_threshold(base_thr: float, regime: str = "",
-                         cum_day_pnl: float = 0.0,
-                         strategy: str = "", et_hour: int = 0) -> Tuple[float, float]:
-    """Apply regime × session × per-cell multipliers to a gate's base threshold.
+                         cum_day_pnl: float = 0.0) -> Tuple[float, float]:
+    """Apply regime × session multipliers to a gate's base threshold.
     Returns (effective, combined_multiplier).
 
     v5.5: apply a floor on the EFFECTIVE threshold. Whipsaw regime mult
@@ -355,20 +289,13 @@ def _effective_threshold(base_thr: float, regime: str = "",
     over-vetoed borderline winners on high-ATR trend days. Floor at 0.25
     ensures G only fires when it's at least moderately confident
     (>= 25% P(big_loss)) regardless of regime.
-
-    v6 (per-cell, 2026-04-23): after computing the regime × session
-    multiplier, ALSO apply a per-(strategy × regime × time-bucket)
-    multiplier loaded from the Idea-1 override table. Cells classified
-    as "bleeding" in pre-April data receive a tighter threshold
-    (mult < 1.0, more aggressive veto); cells classified as "strong"
-    receive a more lenient threshold (mult > 1.0). Unrated / neutral
-    cells get 1.0 and behave exactly as before. Disable with
-    JULIE_FILTERG_PER_CELL_ACTIVE=0. The floor still applies.
     """
+    if not _DYNAMIC_THRESHOLD_ENABLED:
+        return float(base_thr), 1.0
+
     regime_mult = _REGIME_THR_MULT.get(str(regime or "").lower(), 1.0)
     session_mult = _session_multiplier(cum_day_pnl)
-    per_cell_mult = _per_cell_multiplier(strategy, regime, et_hour) if strategy else 1.0
-    mult = regime_mult * session_mult * per_cell_mult
+    mult = regime_mult * session_mult
     eff = float(base_thr) * mult
     if eff < _EFFECTIVE_THR_FLOOR:
         eff = _EFFECTIVE_THR_FLOOR
@@ -388,8 +315,12 @@ def should_veto_signal(
     """Active-veto path. Picks the per-strategy model and applies its threshold.
     No-op (returns False) if there's no model for this strategy family.
 
+    regime: strategy-local regime label. For AetherFlow this is the manifold
+    regime (e.g. TREND_GEODESIC); for strategies without a local regime pass
+    an empty string.
     mkt_regime: the GLOBAL regime classifier label ("neutral" / "whipsaw" /
-    "calm_trend") — used to adapt the veto threshold.
+    "calm_trend"). This is used both as a model feature and, when enabled, for
+    dynamic threshold adaptation.
     cum_day_pnl: cumulative realized PnL for this strategy today before this
     trade. Used for session-adaptive thresholding (v5.2) — if the strategy is
     already up $100+ today, G stands down a bit; if it's down $200+, G becomes
@@ -401,15 +332,18 @@ def should_veto_signal(
     payload = _GATES.get(family)
     if payload is None:
         return False, ""
-    p = _score_with_gate(payload, side=side, regime=regime, et_hour=et_hour,
-                         bar_features=bar_features)
+    p = _score_with_gate(
+        payload,
+        side=side,
+        regime=regime,
+        mkt_regime=mkt_regime,
+        et_hour=et_hour,
+        bar_features=bar_features,
+    )
     if p is None:
         return False, ""
     base_thr = float(payload.get("veto_threshold", 0.35))
-    eff_thr, mult = _effective_threshold(
-        base_thr, mkt_regime, cum_day_pnl,
-        strategy=str(strategy or ""), et_hour=int(et_hour or 0),
-    )
+    eff_thr, mult = _effective_threshold(base_thr, mkt_regime, cum_day_pnl)
     if p >= eff_thr:
         mult_tag = f" x{mult:.2f}[{mkt_regime} dd=${cum_day_pnl:+.0f}]" if mult != 1.0 else ""
         return True, (
@@ -433,7 +367,8 @@ def log_shadow_prediction(signal: dict, current_time_et=None) -> Optional[float]
         bars = list(guard._bar_cache)
         if len(bars) < 45:
             return None
-        regime = _rc.current_regime()
+        mkt_regime = _rc.current_regime()
+        signal_regime = str(signal.get("regime") or signal.get("aetherflow_regime") or "").strip().upper()
         side = str(signal.get("side", "")).upper()
         entry_price = float(signal.get("entry_price") or signal.get("price") or 0.0)
         strategy = str(signal.get("strategy", "")).strip() or "DynamicEngine3"
@@ -460,25 +395,33 @@ def log_shadow_prediction(signal: dict, current_time_et=None) -> Optional[float]
             sub = signal.get("sub_strategy") or ""
             logging.info(
                 "[SHADOW_GATE_2025] family=%s side=%s entry=%.2f size=%s regime=%s "
+                "mkt_regime=%s "
                 "P(big_loss)=N/A would_veto=N/A reason=no_model_for_family sub=%s",
                 family, side, entry_price, signal.get("size", "?"),
-                regime, sub[:40],
+                signal_regime, mkt_regime, sub[:40],
             )
             return None
 
         p = _score_with_gate(
-            payload, side=side, regime=regime, et_hour=et_hour, bar_features=feats,
+            payload,
+            side=side,
+            regime=signal_regime,
+            mkt_regime=mkt_regime,
+            et_hour=et_hour,
+            bar_features=feats,
         )
         if p is None:
             return None
-        thr = float(payload.get("veto_threshold", 0.35))
-        would_veto = p >= thr
+        base_thr = float(payload.get("veto_threshold", 0.35))
+        eff_thr, mult = _effective_threshold(base_thr, mkt_regime, 0.0)
+        would_veto = p >= eff_thr
         sub = signal.get("sub_strategy") or ""
         logging.info(
             "[SHADOW_GATE_2025] family=%s side=%s entry=%.2f size=%s regime=%s "
-            "P(big_loss)=%.3f thresh=%.2f would_veto=%s sub=%s",
+            "mkt_regime=%s P(big_loss)=%.3f base_thr=%.2f eff_thr=%.2f mult=%.2f "
+            "would_veto=%s sub=%s",
             family, side, entry_price, signal.get("size", "?"),
-            regime, p, thr, would_veto, sub[:40],
+            signal_regime, mkt_regime, p, base_thr, eff_thr, mult, would_veto, sub[:40],
         )
         return p
     except Exception:

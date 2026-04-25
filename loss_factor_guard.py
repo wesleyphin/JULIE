@@ -389,9 +389,14 @@ class LossFactorGuard:
             return False, ""
         try:
             from regime_classifier import current_regime
-            regime = current_regime()
+            mkt_regime = current_regime()
         except Exception:
-            regime = "neutral"
+            mkt_regime = "neutral"
+        signal_regime = str(
+            signal.get("regime")
+            or signal.get("aetherflow_regime")
+            or ""
+        ).strip().upper()
         side = str(signal.get("side", "")).upper()
         et_hour = 0
         if bars:
@@ -407,14 +412,13 @@ class LossFactorGuard:
         if not feats:
             return False, ""
         strategy = str(signal.get("strategy", "")).strip() or "DynamicEngine3"
-        # mkt_regime here IS the global regime classifier label (neutral /
-        # whipsaw / calm_trend). G gate v5 applies a regime-adaptive threshold
-        # multiplier on top of the per-strategy base threshold so it vetoes
-        # more aggressively during whipsaw and leans slightly looser on calm
-        # trend days.
+        # signal_regime is the strategy-local label (AF manifold regime when
+        # present). mkt_regime is the global regime classifier label
+        # (neutral / whipsaw / calm_trend) used as contextual input for the
+        # gate model and, when enabled, dynamic threshold adaptation.
         return sg.should_veto_signal(
-            side=side, regime=regime, et_hour=et_hour, bar_features=feats,
-            strategy=strategy, mkt_regime=regime,
+            side=side, regime=signal_regime, et_hour=et_hour, bar_features=feats,
+            strategy=strategy, mkt_regime=mkt_regime,
         )
 
 

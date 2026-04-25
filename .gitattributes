@@ -1,0 +1,1 @@
+artifacts/aetherflow_corrected_full_2011_2026/manifold_base_outrights_2011_2026.parquet filter=lfs diff=lfs merge=lfs -text

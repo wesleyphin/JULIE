@@ -4,14 +4,6 @@ import datetime
 import base64
 import csv
 import json
-
-# Module-level defaults for cross-market master frames; the main `run_bot()`
-# coroutine promotes these to live-populated globals (see 2026-04-22 change
-# note in run_bot). Default of empty DataFrame means any consumer that
-# looks these up before run_bot() executes (tests, scripts, helper fns)
-# gets a graceful fallback rather than AttributeError.
-master_mnq_df: pd.DataFrame = pd.DataFrame()
-master_vix_df: pd.DataFrame = pd.DataFrame()
 import os
 import sys
 from datetime import date
@@ -100,7 +92,6 @@ from regime_classifier import (
     init_regime_classifier as _init_regime_classifier,
     update_regime_classifier as _update_regime_classifier,
     apply_regime_size_cap as _apply_regime_size_cap,
-    apply_dead_tape_brackets as _apply_dead_tape_brackets,
 )
 from loss_factor_guard import (
     init_guard as _init_loss_factor_guard,
@@ -115,117 +106,20 @@ from signal_gate_2025 import (
 )
 
 
-def _triathlon_mark_blocked(signal, filter_name, reason=""):
-    """Flip a Triathlon-recorded signal from 'fired' to 'blocked' when
-    a downstream filter rejects it. Safe no-op when the engine is off
-    or the signal wasn't recorded at birth time."""
-    try:
-        sig_id = signal.get("triathlon_signal_id") if isinstance(signal, dict) else None
-        if not sig_id:
-            return
-        import tools.triathlon_runtime as _tri_mb
-        if not _tri_mb.is_active():
-            return
-        conn = _tri_mb._get_conn()  # internal, safe — returns None if unavailable
-        if conn is None:
-            return
-        conn.execute("BEGIN")
-        try:
-            conn.execute(
-                "UPDATE signals SET status='blocked', block_filter=?, block_reason=? WHERE signal_id=?",
-                (filter_name, str(reason)[:240], sig_id),
-            )
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-    except Exception:
-        pass
-
-
 def _signal_birth_hook(signal):
-    """Called at every signal-birth site. Does four things, in order:
-      1. On dead_tape regime, rewrite signal tp_dist / sl_dist to scalp
-         values (TP=3 / SL=5 by default) before any downstream
-         consumer captures them.
-      2. Apply the regime size-cap (filter D), if enabled.
-      3. Score the signal with filter G in shadow mode and log the prediction
+    """Called at every signal-birth site. Does two things:
+      1. Apply the regime size-cap (filter D), if enabled.
+      2. Score the signal with filter G in shadow mode and log the prediction
          — runs on every signal regardless of what upstream filters (Kalshi,
          FILTER_CHECK) will do, so we accumulate calibration data for G even
          when Kalshi short-circuits first.
-      4. Triathlon Engine: look up the cell's current medal + effects,
-         apply the size multiplier to signal['size'], stash the medal /
-         priority_delta / cell_key / triathlon_signal_id on the signal
-         dict so later entry-path code and the close path can read them.
-         Gated by JULIE_TRIATHLON_ACTIVE.
     Never raises — all failures silently no-op."""
-    # Dead-tape bracket rewrite runs FIRST so the size-cap + shadow-log
-    # see the scalp tp_dist / sl_dist values when dead_tape is active.
-    try:
-        _apply_dead_tape_brackets(signal)
-    except Exception:
-        pass
     try:
         _apply_regime_size_cap(signal)
     except Exception:
         pass
     try:
         _signal_gate_shadow_log(signal)
-    except Exception:
-        pass
-    # Triathlon medal lookup + size/priority effect application.
-    # Runs AFTER dead_tape/size_cap so the recorded size reflects the
-    # final decision. Gated off by default for the pure function;
-    # tools.triathlon_runtime respects JULIE_TRIATHLON_ACTIVE internally.
-    try:
-        import tools.triathlon_runtime as _tri
-        if _tri.is_active():
-            # Figure out current regime (falls back to 'neutral' if the
-            # regime classifier hasn't been initialized yet).
-            try:
-                from regime_classifier import current_regime as _cur_regime
-                _regime = _cur_regime() or "neutral"
-            except Exception:
-                _regime = "neutral"
-            # Time-bucket from signal's embedded ts (if present) or now.
-            import datetime as _dt
-            _ts = signal.get("ts") if isinstance(signal, dict) else None
-            if not isinstance(_ts, _dt.datetime):
-                _ts = _dt.datetime.now(NY_TZ) if "NY_TZ" in globals() else _dt.datetime.now()
-            _h = _ts.hour + _ts.minute / 60.0
-            _bucket = _tri.time_bucket_of(_h)
-            _strat = str(signal.get("strategy") or "Unknown")
-            _effects = _tri.lookup_signal_effects(_strat, _regime, _bucket)
-            # Apply size multiplier (minimum 1 contract).
-            try:
-                _base_size = int(signal.get("size") or 1)
-            except Exception:
-                _base_size = 1
-            _new_size = max(1, int(round(_base_size * float(_effects.get("size_mult", 1.0)))))
-            if _new_size != _base_size:
-                signal["size"] = _new_size
-                signal["triathlon_size_before"] = _base_size
-            signal["triathlon_medal"] = _effects.get("medal")
-            signal["triathlon_priority_delta"] = int(_effects.get("priority_delta", 0))
-            signal["triathlon_cell_key"] = _effects.get("cell_key")
-            signal["triathlon_regime"] = _regime
-            signal["triathlon_bucket"] = _bucket
-            # Persist the signal row now; record_signal returns a signal_id
-            # we stash on the signal dict so the close path can attach the
-            # outcome to the exact same row.
-            _sig_id = _tri.record_signal(
-                strategy=_strat,
-                sub_strategy=str(signal.get("sub_strategy") or signal.get("combo_key") or "") or None,
-                side=str(signal.get("side") or ""),
-                regime=_regime, time_bucket=_bucket,
-                entry_price=float(signal.get("entry_price") or signal.get("price") or 0.0),
-                tp_dist=signal.get("tp_dist"),
-                sl_dist=signal.get("sl_dist"),
-                size=_new_size,
-                status="fired",      # will be flipped to 'blocked' later if a filter rejects
-                ts=_ts,
-            )
-            if _sig_id:
-                signal["triathlon_signal_id"] = _sig_id
     except Exception:
         pass
 
@@ -807,6 +701,12 @@ def _load_aetherflow_strategy_runtime() -> Any:
     from aetherflow_strategy import AetherFlowStrategy
 
     return AetherFlowStrategy
+
+
+def _load_aetherflow_runtime_cache_updater() -> Any:
+    from aetherflow_live_runtime_cache import AetherFlowRuntimeCacheUpdater
+
+    return AetherFlowRuntimeCacheUpdater
 
 
 def _compute_session_quarter(hour: int, minute: int, base_session: str) -> int:
@@ -1549,19 +1449,24 @@ def _apply_kalshi_trade_overlay_to_signal(
         signal["kalshi_trade_overlay_reason"] = "disabled"
         return True
 
-    # v5.4 decision: keep Kalshi enabled for all strategies including DE3.
-    # A/B tested three options on 5 2025 months + April 2026 two-week window:
-    #   v5  (Kalshi on DE3 always):          +$6,469 combined
-    #   v5.3 (Kalshi off DE3 always):         +$6,968 combined  (best 5-month but
-    #                                                           -$502 on Apr 2026)
-    #   v5.4a (Kalshi off DE3 in neutral):    +$6,064 combined  (dominated)
-    # The regime-gated compromise underperforms because Apr 2026's Kalshi
-    # wins on DE3 came from neutral-regime trades (would have been killed
-    # by the regime gate). v5's "keep Kalshi on always" is preferred here —
-    # the 2026 wins outweigh the Aug/Nov regressions, and v5 is what was
-    # walk-forward-validated. Kill-switch available via JULIE_KALSHI_DE3_MODE=off
-    # for experimentation.
+    # Live scope is intentionally narrow here: the broad 2025-03 to 2026-04
+    # replay held up cleanly only for DE3, so config pins the Kalshi rule
+    # overlay to DynamicEngine3 unless an explicit env override widens it.
+    # Keep JULIE_KALSHI_DE3_MODE=off as the DE3 kill-switch for experiments.
     _strat = str(signal.get("strategy", "") or "").strip()
+    _apply_prefixes = (overlay_cfg or {}).get("apply_strategy_prefixes")
+    if isinstance(_apply_prefixes, (list, tuple, set)) and _apply_prefixes:
+        _allowed = any(
+            _strat.startswith(str(_prefix or "").strip())
+            for _prefix in _apply_prefixes
+            if str(_prefix or "").strip()
+        )
+        if not _allowed:
+            signal["kalshi_trade_overlay_applied"] = False
+            signal["kalshi_trade_overlay_reason"] = "strategy_scoped_out"
+            signal["kalshi_entry_blocked"] = False
+            signal["kalshi_tp_trail_enabled"] = False
+            return True
     _de3_mode = os.environ.get("JULIE_KALSHI_DE3_MODE", "on").strip().lower()
     if _strat.startswith("DynamicEngine3") and _de3_mode == "off":
         signal["kalshi_trade_overlay_applied"] = False
@@ -1581,37 +1486,6 @@ def _apply_kalshi_trade_overlay_to_signal(
         signal["kalshi_tp_trail_enabled"] = False
         return True
 
-    # Gather live regime label + cross-market features so the Kalshi
-    # overlay can (1) relax its threshold on trending regimes and
-    # (2) override blocks when cross-market confirms a same-direction
-    # breakout. Both kwargs are optional; if either fails, the overlay
-    # falls back to its prior (static-threshold, no-override) behavior.
-    _cm_features = None
-    _regime_label = None
-    try:
-        from regime_classifier import current_regime as _cr_fn
-        _regime_label = _cr_fn() or None
-    except Exception:
-        pass
-    try:
-        import ml_overlay_shadow as _mls_cm
-        # master_vix_df / master_mnq_df are function-scoped locals inside
-        # the main scan loop; they aren't module-level here. Look them up
-        # via the main-scope globals dict so we can still feed them to the
-        # overlay from this helper. Falls back to None (cached parquet) if
-        # absent — the overlay degrades gracefully.
-        _g = globals()
-        _vix_live = _g.get("master_vix_df")
-        _mnq_live = _g.get("master_mnq_df")
-        _cm_features = _mls_cm.get_cross_market_features(
-            signal.get("ts") or signal.get("entry_time"),
-            mes_bars=market_df,
-            vix_override_df=_vix_live,
-            mnq_override_df=_mnq_live,
-        )
-    except Exception:
-        pass
-
     plan = build_kalshi_trade_plan(
         signal,
         current_price,
@@ -1619,51 +1493,7 @@ def _apply_kalshi_trade_overlay_to_signal(
         price_action_profile=price_action_profile,
         overlay_cfg=overlay_cfg,
         tick_size=TICK_SIZE,
-        regime_label=_regime_label,
-        cross_market_features=_cm_features,
     )
-    # Log when the cross-market override fires — important telemetry to
-    # audit whether the override is catching real breakouts vs leaking.
-    _cm_override = plan.get("cross_market_override_reason")
-    if _cm_override:
-        logging.info(
-            "[KALSHI_CM_OVERRIDE] strat=%s side=%s  %s",
-            signal.get("strategy", "?"), signal.get("side", "?"), _cm_override,
-        )
-    # ML-gate shadow telemetry — always log the model's prediction when it
-    # fired, regardless of whether the ML gate is authoritative. Lets us
-    # compare the ML gate's decisions to the hand-tuned rule over real
-    # sessions before promoting. Grep [CM_GATE_ML] to audit.
-    _ml_p = plan.get("cm_gate_ml_p_win")
-    if _ml_p is not None:
-        _ml_would = plan.get("cm_gate_ml_would_override")
-        try:
-            import ml_overlay_shadow as _mls_cmdbg
-            _ml_active = _mls_cmdbg.is_cm_breakout_gate_active()
-        except Exception:
-            _ml_active = False
-        logging.info(
-            "[CM_GATE_ML] strat=%s side=%s p_win=%.3f would_override=%s "
-            "active=%s hand_tuned_override=%s",
-            signal.get("strategy", "?"), signal.get("side", "?"),
-            float(_ml_p), bool(_ml_would), _ml_active,
-            bool(_cm_override),
-        )
-    # v2 direction-specific models — much stronger AUC than v1.
-    _v2_p = plan.get("cm_gate_v2_p_direction")
-    if _v2_p is not None:
-        _v2_would = plan.get("cm_gate_v2_would_override")
-        try:
-            import ml_overlay_shadow as _mls_cmdbg2
-            _v2_active = _mls_cmdbg2.is_cm_breakout_v2_active()
-        except Exception:
-            _v2_active = False
-        logging.info(
-            "[CM_GATE_V2] strat=%s side=%s p_direction=%.3f would_override=%s "
-            "active=%s",
-            signal.get("strategy", "?"), signal.get("side", "?"),
-            float(_v2_p), bool(_v2_would), _v2_active,
-        )
 
     signal["kalshi_trade_overlay_applied"] = bool(plan.get("applied", False))
     signal["kalshi_trade_overlay_reason"] = str(plan.get("reason", "") or "")
@@ -2155,12 +1985,7 @@ def _allow_same_side_parallel_entry(
     primary_family = _live_strategy_family_name(primary_trade.get("strategy"))
     signal_family = _live_strategy_family_name(signal.get("strategy"))
     if primary_family == "de3":
-        if signal_family in {"regimeadaptive", "aetherflow"}:
-            return True
-        # DE3+DE3 same-side → normally suppressed. Check SameSide ML.
-        if signal_family == "de3":
-            return _sameside_ml_allows_stack(primary_trade, signal, tracked_live_trades)
-        return False
+        return signal_family in {"regimeadaptive", "aetherflow"}
     if primary_family == "aetherflow" and signal_family == "aetherflow":
         max_legs = max(
             1,
@@ -2179,117 +2004,7 @@ def _allow_same_side_parallel_entry(
             family_name="aetherflow",
         )
         return same_side_af_count < max_legs
-    # RA+RA: fall back to SameSide ML (was hard-blocked)
-    if primary_family == "regimeadaptive" and signal_family == "regimeadaptive":
-        return _sameside_ml_allows_stack(primary_trade, signal, tracked_live_trades)
     return False
-
-
-# ─── SameSide ML stack gate (shipped 2026-04-24) ──────────────────────────
-#
-# HGB-only classifier trained on 19,546 historical same-side events (2025)
-# with 913-event OOS holdout (2026-01-27→04-20). Ship gate passed at
-# thr=0.50: +$3,320 PnL, 58.1% WR, $590 DD (17.8% DD/PnL ratio), 23.4%
-# oracle capture. Env-gated by JULIE_SAMESIDE_ML; default OFF in code
-# (launcher flips to ON). Hard cap: max 2 contracts total (this + existing).
-
-_SAMESIDE_ML_ENABLED = os.environ.get("JULIE_SAMESIDE_ML", "0").strip() == "1"
-_SAMESIDE_ML_MAX_CONTRACTS = int(os.environ.get("JULIE_SAMESIDE_ML_MAX_CONTRACTS", "2"))
-_SAMESIDE_ML_PAYLOAD = None   # lazy-loaded
-
-
-def _sameside_ml_allows_stack(
-    primary_trade: Optional[dict],
-    signal: Optional[dict],
-    tracked_live_trades: Optional[list[dict]] = None,
-) -> bool:
-    """Return True iff the SameSide ML model endorses adding a contract to
-    the existing same-side position, subject to hard safety caps."""
-    if not _SAMESIDE_ML_ENABLED:
-        return False
-    if not isinstance(primary_trade, dict) or not isinstance(signal, dict):
-        return False
-    # Hard contracts cap — sum of existing tracked same-side family size
-    try:
-        current_same_side = 0
-        if tracked_live_trades:
-            for t in tracked_live_trades:
-                if _live_strategy_family_name(t.get("strategy")) == _live_strategy_family_name(primary_trade.get("strategy")) \
-                        and _normalize_live_side(t.get("side")) == _normalize_live_side(signal.get("side")):
-                    current_same_side += max(1, _coerce_int(t.get("size"), 1) or 1)
-        if current_same_side + 1 > _SAMESIDE_ML_MAX_CONTRACTS:
-            return False
-    except Exception:
-        logging.debug("sameside stack cap check failed", exc_info=True)
-        return False
-
-    # Lazy-load ML payload + regime classifier handle for features
-    global _SAMESIDE_ML_PAYLOAD
-    try:
-        if _SAMESIDE_ML_PAYLOAD is None:
-            from pathlib import Path as _Path
-            import pickle as _pickle
-            pkl = _Path(__file__).resolve().parent / "artifacts" / "regime_ml_sameside" / "model.pkl"
-            if not pkl.exists():
-                return False
-            with pkl.open("rb") as fh:
-                _SAMESIDE_ML_PAYLOAD = _pickle.load(fh)
-        from regime_classifier import get_regime_classifier as _get_rc
-        rc = _get_rc()
-        if rc is None:
-            return False
-        snap = rc.build_ml_feature_snapshot()
-        if snap is None:
-            return False
-        # Build the 50-feature input expected by the SameSide model
-        entry_price = float(_coerce_float(primary_trade.get("entry_price"), 0.0))
-        if entry_price <= 0:
-            return False
-        signal_price = float(_coerce_float(signal.get("price"), entry_price))
-        side_sign = 1 if _normalize_live_side(primary_trade.get("side")) == "LONG" else -1
-        current_price = signal_price
-        unrealized_pts = (current_price - entry_price) * side_sign
-        tp_dist = float(_coerce_float(primary_trade.get("tp_dist"), 6.0))
-        sl_dist = float(_coerce_float(primary_trade.get("sl_dist"), 4.0))
-        entry_ts = primary_trade.get("entry_time") or primary_trade.get("signal_time")
-        try:
-            bars_held = max(0, int((pd.Timestamp(signal.get("signal_time") or pd.Timestamp.now(tz="America/New_York"))
-                                     - pd.Timestamp(entry_ts)).total_seconds() // 60))
-        except Exception:
-            bars_held = 0
-        signal_strategy = str(signal.get("strategy", "")).lower()
-        row = dict(snap)
-        row.update({
-            "bars_held": float(bars_held),
-            "unrealized_pts": unrealized_pts,
-            "unrealized_frac": unrealized_pts / max(entry_price, 1.0),
-            "dist_to_tp": tp_dist - unrealized_pts,
-            "dist_to_sl": sl_dist + unrealized_pts,
-            "side_sign": float(side_sign),
-            "signal_to_position_delta": signal_price - entry_price,
-            "is_de3": 1.0 if "dynamicengine" in signal_strategy else 0.0,
-            "is_ra":  1.0 if "regimeadaptive" in signal_strategy else 0.0,
-            "is_af":  1.0 if "aetherflow" in signal_strategy else 0.0,
-        })
-        feature_cols = _SAMESIDE_ML_PAYLOAD["feature_cols"]
-        threshold = float(_SAMESIDE_ML_PAYLOAD.get("threshold", 0.50))
-        X = np.array([[row.get(c, 0.0) for c in feature_cols]], dtype=float)
-        hgb = _SAMESIDE_ML_PAYLOAD["hgb"]
-        stack_idx = list(hgb.classes_).index(_SAMESIDE_ML_PAYLOAD.get("positive_class", "stack"))
-        p = float(hgb.predict_proba(X)[0, stack_idx])
-        decision = p >= threshold
-        if decision:
-            logging.info(
-                "[SAMESIDE ML] stack ALLOW: %s %s | position_entry=%.2f signal_price=%.2f "
-                "unrealized=%.2fpts bars_held=%d | proba=%.3f (thr=%.2f) | cap=%d/%d",
-                signal.get("strategy", "?"), signal.get("side", "?"),
-                entry_price, signal_price, unrealized_pts, bars_held,
-                p, threshold, current_same_side + 1, _SAMESIDE_ML_MAX_CONTRACTS,
-            )
-        return decision
-    except Exception:
-        logging.debug("sameside ML check failed", exc_info=True)
-        return False
 
 
 def _normalize_live_side(value: Optional[str]) -> Optional[str]:
@@ -2330,32 +2045,13 @@ def _live_signal_confidence(sig: Optional[dict]) -> float:
 
 
 def _live_signal_sort_key(item: tuple[Any, Any, Any, Any]) -> tuple:
-    """Rescue-queue sort key. Returns a tuple; Python sorts ascending
-    so LOWER values sort FIRST = higher effective priority.
-
-    Base priority values: 0=SENTIMENT (best), 1=FAST, 2=STANDARD.
-
-    Triathlon adjustment (since 2026-04-23): if the signal dict carries
-    a `triathlon_priority_delta` (set by `_signal_birth_hook` when the
-    Triathlon Engine is active), we subtract it from the base priority.
-    Triathlon semantics: a POSITIVE delta means "promote" (gold=+1),
-    a NEGATIVE delta means "demote" (bronze=-1, probation=-2). Subtract
-    so that a positive delta produces a smaller effective priority
-    which sorts earlier. Signals without the delta (Triathlon off or
-    cell unrated) add 0 → no change from historical behavior.
-    """
     priority, _strat, signal, strat_name = item
     sig = signal if isinstance(signal, dict) else {}
-    try:
-        medal_delta = int(sig.get("triathlon_priority_delta", 0) or 0)
-    except (ValueError, TypeError):
-        medal_delta = 0
-    adjusted_priority = int(priority) - medal_delta
     strategy_label = str(sig.get("strategy", strat_name) or strat_name)
     sub_strategy = str(sig.get("sub_strategy", sig.get("combo_key", "")) or "")
     side = _normalize_live_side(sig.get("side")) or ""
     return (
-        adjusted_priority,
+        int(priority),
         -_live_signal_confidence(sig),
         strategy_label,
         sub_strategy,
@@ -3849,20 +3545,6 @@ def _build_live_active_trade(
         "rescue_from_sub_strategy": signal.get("rescue_from_sub_strategy"),
         "trend_day_tier": signal.get("trend_day_tier"),
         "trend_day_dir": signal.get("trend_day_dir"),
-        # Triathlon Engine: carry the signal-birth ID + cell metadata
-        # through to the trade dict so the trade-close path can write
-        # the realized outcome back against the correct signal row.
-        # Without this, `record_outcome` at close time has no signal_id
-        # to anchor to and the outcome is silently dropped — which is
-        # the bug that kept live Topstep trades from showing up in the
-        # Triathlon dashboard until now.
-        "triathlon_signal_id":      signal.get("triathlon_signal_id"),
-        "triathlon_medal":          signal.get("triathlon_medal"),
-        "triathlon_cell_key":       signal.get("triathlon_cell_key"),
-        "triathlon_regime":         signal.get("triathlon_regime"),
-        "triathlon_bucket":         signal.get("triathlon_bucket"),
-        "triathlon_priority_delta": signal.get("triathlon_priority_delta"),
-        "triathlon_size_before":    signal.get("triathlon_size_before"),
         "de3_trade_management_enabled": de3_trade_management_enabled,
         "de3_break_even_enabled": de3_break_even_enabled,
         "de3_break_even_activate_on_next_bar": bool(
@@ -4634,8 +4316,6 @@ def _apply_rl_management_action(
     bar_high: float,
     bar_low: float,
     bar_index: Optional[int] = None,
-    regime: Optional[str] = None,
-    mfe_pts: Optional[float] = None,
 ) -> Optional[dict]:
     """Execute an RL-policy action against the live trade.
 
@@ -4648,21 +4328,6 @@ def _apply_rl_management_action(
     shadow log still records the policy's preference for those actions
     so operators can observe how often they fire and make an informed
     decision before wiring them.
-
-    POLICY GUARDS (added 2026-04-23 after live diagnostic showed RL was
-    leaving ~$390 / 16h on the table by tightening too aggressively in
-    calm_trend regime — exits at MFE 1.5-3pt on strategies with TP=12-25pt):
-
-    1. **Regime gate**: in `calm_trend` regime, reject TIGHTEN_SL_25 /
-       TIGHTEN_SL_50. Only allow MOVE_SL_TO_BE. The trend is intact;
-       chasing the SL behind the price catches normal pullbacks.
-    2. **MFE-floor gate**: reject any TIGHTEN action when MFE/tp_dist <
-       JULIE_RL_MIN_MFE_FRAC_FOR_TIGHTEN (default 0.50). Prevents
-       locking in trivial gains that get swept on the next bar.
-
-    Both gates can be disabled via env:
-        JULIE_RL_REGIME_GATE_ACTIVE=0       # disable regime gate
-        JULIE_RL_MIN_MFE_FRAC_FOR_TIGHTEN=0 # disable MFE-floor gate
 
     Returns a dict of form:
       {"status": "applied", "new_sl": <price>}   on success
@@ -4688,45 +4353,6 @@ def _apply_rl_management_action(
 
     if action == ACT_HOLD:
         return {"status": "applied", "reason": "hold"}
-
-    # ─── Policy guards ───────────────────────────────────────────
-    # Apply BEFORE the SL-modification math so we don't waste cycles or
-    # emit misleading log lines when the action is going to be rejected.
-    if action in (ACT_TIGHTEN_SL_25, ACT_TIGHTEN_SL_50):
-        # Guard 1: regime gate — block tightens in calm_trend
-        regime_gate_active = os.environ.get(
-            "JULIE_RL_REGIME_GATE_ACTIVE", "1"
-        ).strip() not in ("0", "false", "False", "")
-        if regime_gate_active and regime == "calm_trend":
-            return {
-                "status": "skipped",
-                "reason": (
-                    f"regime_gate calm_trend — TIGHTEN action blocked "
-                    f"(let trend extend; only BE allowed)"
-                ),
-            }
-        # Guard 2: MFE-floor gate
-        try:
-            min_mfe_frac = float(os.environ.get(
-                "JULIE_RL_MIN_MFE_FRAC_FOR_TIGHTEN", "0.50"
-            ))
-        except (ValueError, TypeError):
-            min_mfe_frac = 0.50
-        if min_mfe_frac > 0 and mfe_pts is not None:
-            try:
-                tp_dist = float(trade.get("tp_dist") or 0.0)
-            except (ValueError, TypeError):
-                tp_dist = 0.0
-            if tp_dist > 0:
-                mfe_ratio = float(mfe_pts) / tp_dist
-                if mfe_ratio < min_mfe_frac:
-                    return {
-                        "status": "skipped",
-                        "reason": (
-                            f"mfe_floor mfe_pts={mfe_pts:.2f} / tp_dist={tp_dist:.2f} "
-                            f"= {mfe_ratio:.2%} < {min_mfe_frac:.0%} — premature TIGHTEN"
-                        ),
-                    }
 
     side = str(trade.get("side", "")).upper()
     try:
@@ -7394,34 +7020,7 @@ async def run_bot():
     mnq_client = None
     vix_client = None
     if filterless_only_mode:
-        # Filterless mode previously skipped BOTH clients — but the
-        # 2026-04-22 v2 LFO + v3 RL overlays need live MNQ and VIX
-        # for the cross-market feature block. Initialize both even
-        # in filterless mode; only skip when explicitly opted out.
-        if os.environ.get("JULIE_SKIP_CROSS_MARKET_LIVE", "0").strip() != "1":
-            try:
-                from yahoo_vix_client import YahooVIXClient  # top-level importable
-                mnq_target_symbol = determine_current_contract_symbol(
-                    "MNQ", tz_name=CONFIG.get("TIMEZONE", "US/Eastern")
-                )
-                mnq_client = ProjectXClient(
-                    contract_root="MNQ", target_symbol=mnq_target_symbol
-                )
-                logging.info(
-                    "[cross-market] filterless mode: live MNQ (ProjectX) + "
-                    "VIX (Yahoo) clients enabled for overlay cross-market features."
-                )
-                vix_client = YahooVIXClient(target_symbol="^VIX")
-            except Exception as _cm_exc:
-                logging.warning(
-                    "[cross-market] failed to init live MNQ/VIX clients: %s; "
-                    "v2 overlays will fall back to cached parquets", _cm_exc
-                )
-                mnq_client = None
-                vix_client = None
-        else:
-            logging.info("[cross-market] JULIE_SKIP_CROSS_MARKET_LIVE=1 — "
-                         "using cached MNQ/VIX parquets only")
+        logging.info("Skipping MNQ companion feed and Virtual VIX Client in filterless-only mode.")
     else:
         (
             OrbStrategy,
@@ -7593,6 +7192,7 @@ async def run_bot():
         else:
             logging.warning("⚠️ ManifoldStrategy enabled_live but model artifact is missing.")
     aetherflow_cfg = CONFIG.get("AETHERFLOW_STRATEGY", {}) or {}
+    aetherflow_strategy = None
     if bool(aetherflow_cfg.get("enabled_live", False)):
         aetherflow_strategy = _load_aetherflow_strategy_runtime()()
         if getattr(aetherflow_strategy, "model_loaded", False):
@@ -7600,6 +7200,26 @@ async def run_bot():
             logging.info("AetherFlowStrategy initialized for live execution")
         else:
             logging.warning("⚠️ AetherFlowStrategy enabled_live but model artifact is missing.")
+    runtime_cache_updater = None
+    if bool(aetherflow_cfg.get("live_runtime_cache_enabled", False)):
+        updater_cls = _load_aetherflow_runtime_cache_updater()
+        runtime_cache_updater = updater_cls(
+            source_path=aetherflow_cfg.get("live_runtime_source_file", "es_master_outrights.parquet"),
+            source_symbol=getattr(client, "target_symbol", None) or CONFIG.get("TARGET_SYMBOL") or "ES",
+            base_features_path=(
+                getattr(aetherflow_strategy, "_live_base_features_path", None)
+                if aetherflow_strategy is not None
+                else aetherflow_cfg.get("live_base_features_file", "")
+            ),
+            source_overlay_path=aetherflow_cfg.get("live_runtime_source_overlay_file", ""),
+            manifold_overlay_path=aetherflow_cfg.get("live_base_overlay_file", ""),
+            flush_seconds=float(aetherflow_cfg.get("live_runtime_flush_seconds", 30) or 30),
+            source_compact_seconds=float(aetherflow_cfg.get("live_runtime_source_compact_seconds", 900) or 900),
+            manifold_min_new_bars=int(aetherflow_cfg.get("live_runtime_manifold_min_new_bars", 1) or 1),
+            manifold_overlap_bars=int(aetherflow_cfg.get("live_base_overlap_bars", 1440) or 1440),
+            history_tail_bars=int(aetherflow_cfg.get("live_runtime_history_tail_bars", 10080) or 10080),
+        )
+        runtime_cache_updater.start()
     
     # LOW PRIORITY / LOOSE EXECUTION - Wait for next bar
     loose_strategies = [] if filterless_only_mode else [OrbStrategy()]
@@ -7710,12 +7330,29 @@ async def run_bot():
     _init_regime_classifier()
     _init_loss_factor_guard()
     _init_signal_gate_2025()  # filter G (ML classifier) — toggle via JULIE_SIGNAL_GATE_2025
-    # ML overlays: LFO (replacement for rule-based LevelFillOptimizer) and
-    # PCT overlay classifier. Both run in SHADOW mode by default (log-only);
-    # flip JULIE_ML_LFO_ACTIVE=1 / JULIE_ML_PCT_ACTIVE=1 to let them steer.
+    # ML overlays: strategy-scoped LFO plus the PCT overlay classifier.
+    # Current live defaults are:
+    #   DE3 -> ML LFO
+    #   RegimeAdaptive -> rule LFO
+    #   AetherFlow / MLPhysics -> no LFO
+    # Env overrides:
+    #   JULIE_LFO_POLICY_DE3 / _REGIMEADAPTIVE / _AETHERFLOW / _MLPHYSICS
+    #     values: off | rule | hybrid | ml
+    # Legacy JULIE_ML_LFO_ACTIVE=1 still forces the old hybrid behaviour.
     try:
-        from ml_overlay_shadow import init_ml_overlays as _init_ml_overlays
+        from ml_overlay_shadow import (
+            describe_lfo_live_policies as _describe_lfo_live_policies,
+            init_ml_overlays as _init_ml_overlays,
+        )
         _init_ml_overlays()
+        _lfo_policies = _describe_lfo_live_policies()
+        logging.info(
+            "LFO live policy | de3=%s regimeadaptive=%s aetherflow=%s mlphysics=%s",
+            _lfo_policies.get("de3", "off"),
+            _lfo_policies.get("regimeadaptive", "off"),
+            _lfo_policies.get("aetherflow", "off"),
+            _lfo_policies.get("mlphysics", "off"),
+        )
     except Exception as _exc:
         logging.warning("ml_overlay_shadow init failed: %s", _exc)
     _lfo_enabled = bool(CONFIG.get("LEVEL_FILL_OPTIMIZER_ENABLED", True))
@@ -7782,41 +7419,6 @@ async def run_bot():
         consecutive_loss_limit=3,
         block_minutes=15,
     )
-
-    # Cascade circuit breaker — time-window loss cluster veto, DIFFERENT
-    # from the DirectionalLossBlocker (which counts strictly-consecutive
-    # losses regardless of time). OFF by default; activate with
-    # JULIE_CASCADE_BLOCKER_ACTIVE=1. Backtest on 2025+2026 (5,237 trades /
-    # 370 days) showed count=2 / window=30min / cool=30min adds +$1.1k
-    # (2026) and +$4.2k (2025) with lower DD. See
-    # scripts/backtest_consec_loss_blocker.py.
-    try:
-        from cascade_loss_blocker import CascadeLossBlocker
-        cascade_loss_blocker: Any = CascadeLossBlocker()
-    except Exception as _cascade_exc:
-        logging.warning(
-            "[CascadeBlocker] import failed (%s) — using no-op", _cascade_exc
-        )
-        from cascade_loss_blocker import _NoOpCascadeLossBlocker
-        cascade_loss_blocker = _NoOpCascadeLossBlocker()
-
-    # Anti-flip circuit breaker — when a stop-out on one side is followed
-    # by a fresh signal on the OPPOSITE side, near the same price, within
-    # a short window, reject it. Catches the DE3 "flip at the top / flip
-    # at the bottom" pattern that cost the bot on 2026-04-23 (SHORT stopped
-    # at 7172.50, LONG flipped at 7171.75 sixty seconds later, then rode
-    # into a 64pt dump). Defaults chosen from 2025+2026 sweep: 30min /
-    # 8pt. See scripts/backtest_anti_flip_blocker.py.
-    try:
-        from anti_flip_blocker import AntiFlipBlocker
-        anti_flip_blocker: Any = AntiFlipBlocker()
-    except Exception as _antiflip_exc:
-        logging.warning(
-            "[AntiFlipBlocker] import failed (%s) — using no-op", _antiflip_exc
-        )
-        from anti_flip_blocker import _NoOpAntiFlipBlocker
-        anti_flip_blocker = _NoOpAntiFlipBlocker()
-
     impulse_filter = ImpulseFilterCls(lookback=20, impulse_multiplier=2.5)
 
     # === DUAL-FILTER SYSTEM ===
@@ -9348,56 +8950,6 @@ async def run_bot():
         update_mom_rescue_score(trade, pnl_points, close_time)
         update_hostile_day_on_close(trade.get("strategy"), pnl_points, close_time)
         directional_loss_blocker.record_trade_result(trade_side, pnl_points, close_time)
-        # Cascade blocker uses DOLLARS, not points, for the sign check —
-        # points and dollars share sign for a normal close so either works,
-        # but we pass dollars to match its docstring. OFF by default.
-        try:
-            cascade_loss_blocker.record_trade_result(trade_side, pnl_dollars, close_time)
-        except Exception as _cb_exc:  # pragma: no cover — defensive
-            logging.debug("[CascadeBlocker] record_trade_result error: %s", _cb_exc)
-        # Anti-flip blocker records stop-outs only. The module classifies
-        # via either the source string ("stop"/"stop_gap"/"confirmed stop
-        # fill") or via exit≈sl_price proximity, so both backtest-tape and
-        # live-broker source conventions are handled.
-        try:
-            _trade_sl_price = None
-            for _key in ("sl_price", "stop_price", "current_stop_price",
-                          "effective_stop_price", "de3_effective_stop_price"):
-                _v = trade.get(_key) if isinstance(trade, dict) else None
-                if _v is not None:
-                    _trade_sl_price = float(_v)
-                    break
-            anti_flip_blocker.record_trade_close(
-                trade_side, pnl_dollars, float(exit_price),
-                source=close_source, sl_price=_trade_sl_price,
-                close_time=close_time,
-            )
-        except Exception as _af_exc:  # pragma: no cover — defensive
-            logging.debug("[AntiFlipBlocker] record_trade_close error: %s", _af_exc)
-        # Triathlon Engine: write the realized outcome back to the
-        # triathlon ledger against the signal_id the signal-birth hook
-        # stashed on the trade dict. Safe — does nothing if the engine
-        # is inactive or the signal_id wasn't captured.
-        try:
-            import tools.triathlon_runtime as _tri_close
-            _tri_sig_id = trade.get("triathlon_signal_id") if isinstance(trade, dict) else None
-            if _tri_sig_id:
-                _bars_held = None
-                try:
-                    if isinstance(trade.get("entry_time"), datetime.datetime) and isinstance(close_time, datetime.datetime):
-                        _bars_held = max(1, int(round((close_time - trade["entry_time"]).total_seconds() / 60.0)))
-                except Exception:
-                    _bars_held = None
-                _tri_close.record_outcome(
-                    _tri_sig_id,
-                    pnl_dollars=float(pnl_dollars),
-                    pnl_points=float(pnl_points) if pnl_points is not None else None,
-                    exit_source=close_source,
-                    bars_held=_bars_held,
-                    counterfactual=False,
-                )
-        except Exception as _tri_exc:
-            logging.debug("[triathlon] record_outcome error: %s", _tri_exc)
         circuit_breaker.update_trade_result(pnl_dollars)
         _lfg_notify_trade_closed(closed_trade)
         _record_live_realized_pnl(live_drawdown_state, pnl_dollars, close_time=close_time)
@@ -9665,14 +9217,6 @@ async def run_bot():
         extension_filter.load_state(persisted_state.get("extension_filter"))
         chop_filter.load_state(persisted_state.get("chop_filter"))
         directional_loss_blocker.load_state(persisted_state.get("directional_loss_blocker"))
-        try:
-            cascade_loss_blocker.load_state(persisted_state.get("cascade_loss_blocker"))
-        except Exception as _cb_exc:  # pragma: no cover — defensive
-            logging.debug("[CascadeBlocker] load_state error: %s", _cb_exc)
-        try:
-            anti_flip_blocker.load_state(persisted_state.get("anti_flip_blocker"))
-        except Exception as _af_exc:  # pragma: no cover — defensive
-            logging.debug("[AntiFlipBlocker] load_state error: %s", _af_exc)
         circuit_breaker.load_state(persisted_state.get("circuit_breaker"))
         if penalty_blocker is not None:
             penalty_blocker.load_state(persisted_state.get("penalty_box_blocker"))
@@ -10030,8 +9574,6 @@ async def run_bot():
             "extension_filter": extension_filter.get_state(),
             "chop_filter": chop_filter.get_state(),
             "directional_loss_blocker": directional_loss_blocker.get_state(),
-            "cascade_loss_blocker": cascade_loss_blocker.get_state(),
-            "anti_flip_blocker": anti_flip_blocker.get_state(),
             "circuit_breaker": circuit_breaker.get_state(),
             "penalty_box_blocker": penalty_blocker.get_state() if penalty_blocker is not None else None,
             "penalty_box_blocker_asia": penalty_blocker_asia.get_state() if penalty_blocker_asia is not None else None,
@@ -10337,13 +9879,6 @@ async def run_bot():
     master_df = await client.async_get_market_data(lookback_minutes=20000, force_fetch=True)
     event_logger.log_system_event("STARTUP", f"✅ History Received: {len(master_df)} bars loaded (MES).", {"status": "COMPLETE"})
 
-    # Promote master_mnq_df / master_vix_df to module-level so the
-    # Kalshi overlay helper (_apply_kalshi_trade_overlay_to_signal, called
-    # from 7+ sites) can read them via globals() without threading them
-    # through every call site. Live-cross-market consumers stay in sync
-    # because the main scan loop mutates these globals via
-    # `globals()["master_xxx_df"] = …` later on.
-    global master_mnq_df  # noqa: PLW0603 — intentional module attr publish
     master_mnq_df = pd.DataFrame()
     if mnq_client is not None:
         event_logger.log_system_event("STARTUP", "⏳ Startup: Fetching 20,000 bar history (MNQ)...", {"status": "IN_PROGRESS"})
@@ -10354,84 +9889,6 @@ async def run_bot():
     if master_df.empty:
         logging.warning("⚠️ Startup fetch returned empty data (MES). Bot will attempt to build history in loop.")
         master_df = pd.DataFrame()
-
-    # Pre-warm the regime classifier with the last 120 bars from the startup
-    # history fetch, so the first live bar arrives with the classifier already
-    # out of warmup. Without this, classifier needs ~2h of live bars before it
-    # emits a regime signal — missing today's dead-tape opportunity entirely.
-    if not master_df.empty and _init_regime_classifier is not None:
-        from regime_classifier import get_regime_classifier as _get_rc
-        _rc = _get_rc()
-        if _rc is not None:
-            # Warm the rule classifier with 120 bars AND the ML history with
-            # 520 bars (v5 features need 480-bar deepest lookback).
-            warmup_rule = master_df.tail(120)
-            warmup_ml = master_df.tail(max(_rc.ML_FEATURE_HISTORY_BARS, 520))
-            try:
-                _close_col = "close" if "close" in warmup_rule.columns else "Close"
-                for _ts, _row in warmup_rule.iterrows():
-                    _update_regime_classifier(_ts, float(_row[_close_col]))
-                # Deeper OHLCV warm for ML feature builder
-                _o_col = "open" if "open" in warmup_ml.columns else "Open"
-                _h_col = "high" if "high" in warmup_ml.columns else "High"
-                _l_col = "low" if "low" in warmup_ml.columns else "Low"
-                _v_col = "volume" if "volume" in warmup_ml.columns else ("Volume" if "Volume" in warmup_ml.columns else None)
-                for _ts, _row in warmup_ml.iterrows():
-                    _rc.record_bar(
-                        _ts,
-                        float(_row.get(_o_col, _row[_close_col])),
-                        float(_row.get(_h_col, _row[_close_col])),
-                        float(_row.get(_l_col, _row[_close_col])),
-                        float(_row[_close_col]),
-                        float(_row.get(_v_col, 0.0) or 0.0) if _v_col else 0.0,
-                    )
-                logging.info(
-                    "Regime classifier pre-warmed | rule bars=%d ML history bars=%d | current regime=%s vol=%.2fbp eff=%.3f",
-                    len(warmup_rule), len(warmup_ml), _rc.regime, _rc.state.vol_bp, _rc.state.eff,
-                )
-                # Bar-1 ML readiness self-test: now that the 520-bar cache is
-                # full, verify every enabled ML model can produce a prediction
-                # using the pre-warm cache. This forces lazy-load of all
-                # shipped artifacts BEFORE the first live signal hits
-                # apply_scalp_brackets / apply_size_reduction / apply_be_disable.
-                try:
-                    from regime_classifier import (
-                        ML_BRACKETS_ENABLED as _ML_A_EN,
-                        ML_SIZE_ENABLED as _ML_B_EN,
-                        ML_BE_ENABLED as _ML_C_EN,
-                        _ml_says as _ml_predict,
-                        _features_with_a_pred as _feat_plus_a,
-                    )
-                    snap = _rc.build_ml_feature_snapshot()
-                    if snap is None:
-                        logging.warning("[ML READY?] feature snapshot unavailable "
-                                        "(ml_ready=%s, cache=%d bars)",
-                                        _rc.ml_ready, len(_rc._ml_c))
-                    else:
-                        # Pre-touch each model to lazy-load from disk
-                        a_pred = _ml_predict("brackets", dict(snap)) if _ML_A_EN else None
-                        b_pred = _ml_predict("size",     _feat_plus_a(dict(snap))) if _ML_B_EN else None
-                        c_pred = _ml_predict("be",       _feat_plus_a(dict(snap))) if _ML_C_EN else None
-                        # Verify each enabled flag's model actually loaded
-                        from regime_classifier import (
-                            _ML_BRACKET_MODEL as _MA, _ML_SIZE_MODEL as _MB, _ML_BE_MODEL as _MC,
-                        )
-                        status_a = f"A={'loaded' if _MA else 'missing'}/pred={a_pred}" if _ML_A_EN else "A=disabled"
-                        status_b = f"B={'loaded' if _MB else 'missing'}/pred={b_pred}" if _ML_B_EN else "B=disabled"
-                        status_c = f"C={'loaded' if _MC else 'missing'}/pred={c_pred}" if _ML_C_EN else "C=disabled"
-                        all_ok = (
-                            (not _ML_A_EN or _MA is not None)
-                            and (not _ML_B_EN or _MB is not None)
-                            and (not _ML_C_EN or _MC is not None)
-                        )
-                        logging.info(
-                            "[ML READY%s] pre-warm self-test bar-1 | snapshot=40feat | %s | %s | %s",
-                            "" if all_ok else "!", status_a, status_b, status_c,
-                        )
-                except Exception as _ml_exc:
-                    logging.warning("ML readiness self-test failed: %s", _ml_exc, exc_info=True)
-            except Exception as _rc_exc:
-                logging.warning("Regime classifier pre-warm failed: %s", _rc_exc)
 
     if bar_logger is not None and not master_df.empty:
         appended = bar_logger.append_from_df(master_df)
@@ -10473,7 +9930,6 @@ async def run_bot():
         master_mnq_df = pd.DataFrame()
 
     # --- NEW: Initialize VIX master dataframe ---
-    global master_vix_df  # noqa: PLW0603 — same rationale as master_mnq_df
     master_vix_df = pd.DataFrame()
     vix_fetch_toggle = True
 
@@ -10990,6 +10446,15 @@ async def run_bot():
             current_time = new_df.index[-1]
             currbar = new_df.iloc[-1]
             is_new_bar = (last_processed_bar is None or current_time > last_processed_bar)
+            if is_new_bar and runtime_cache_updater is not None:
+                try:
+                    history_tail = new_df.tail(int(getattr(runtime_cache_updater, "history_tail_bars", 10080) or 10080))
+                    runtime_cache_updater.enqueue(
+                        recent_bars=recent_data if not recent_data.empty else new_df.tail(1),
+                        history_tail=history_tail,
+                    )
+                except Exception as exc:
+                    logging.warning("AetherFlow runtime cache enqueue failed: %s", exc)
             if is_new_bar and last_processed_bar is not None:
                 bar_gap = current_time - last_processed_bar
                 if bar_gap > datetime.timedelta(minutes=2):
@@ -11092,23 +10557,6 @@ async def run_bot():
             except Exception as _mls_exc:
                 logging.debug("shadow ML PCT scoring failed: %s", _mls_exc, exc_info=True)
             _update_regime_classifier(current_time, currbar['close'])
-            # Also feed OHLCV into the classifier's ML feature history so
-            # the v5 regime-ML models (apply_scalp_brackets / size / be) can
-            # build a feature snapshot at signal-birth time.
-            try:
-                from regime_classifier import get_regime_classifier as _get_rc
-                _rc_ml = _get_rc()
-                if _rc_ml is not None:
-                    _rc_ml.record_bar(
-                        current_time,
-                        float(currbar.get('open', currbar['close'])),
-                        float(currbar.get('high', currbar['close'])),
-                        float(currbar.get('low',  currbar['close'])),
-                        float(currbar['close']),
-                        float(currbar.get('volume', 0.0) or 0.0),
-                    )
-            except Exception:
-                logging.debug("regime ML record_bar failed", exc_info=True)
             # Feed trend-day state into LossFactorGuard so the counter-trend
             # reversal veto can act on it (filter C).
             _lfg_notify_trend_day(trend_day_tier, trend_day_dir)
@@ -12055,8 +11503,6 @@ async def run_bot():
                                         trade_id=id(trade),
                                         entry_time=_rl_entry_time,
                                         entry_bar_idx=_rl_entry_bar_idx,
-                                        vix_override_df=master_vix_df,
-                                        mnq_override_df=master_mnq_df,
                                     )
                                     if _rl_result is not None:
                                         _rl_action, _rl_name = _rl_result
@@ -12082,8 +11528,6 @@ async def run_bot():
                                                     market_price=current_price,
                                                     bar_high=bar_high, bar_low=bar_low,
                                                     bar_index=bar_count,
-                                                    regime=_rl_reg,
-                                                    mfe_pts=float(trade.get("_rl_mfe_pts", 0.0) or 0.0),
                                                 )
                                                 if isinstance(_rl_apply, dict):
                                                     logging.info(
@@ -12798,6 +12242,28 @@ async def run_bot():
                 for strat in current_fast:
                     strat_name = strat.__class__.__name__
                     try:
+                        if (
+                            strat_name == "DynamicEngine3Strategy"
+                            and hasattr(strat, "set_runtime_context_overrides")
+                        ):
+                            live_dd_metrics = _current_live_drawdown_metrics(live_drawdown_state)
+                            strat.set_runtime_context_overrides(
+                                {
+                                    "live_drawdown_usd": float(
+                                        live_dd_metrics.get("current_drawdown_usd", 0.0) or 0.0
+                                    ),
+                                    "live_realized_pnl_usd": float(
+                                        live_dd_metrics.get("realized_pnl", 0.0) or 0.0
+                                    ),
+                                    "live_peak_realized_pnl_usd": float(
+                                        live_dd_metrics.get("peak_realized_pnl", 0.0) or 0.0
+                                    ),
+                                    "live_drawdown_source": str(
+                                        live_dd_metrics.get("source", "trade_pnl_fallback")
+                                        or "trade_pnl_fallback"
+                                    ),
+                                }
+                            )
                         # Handle specific arguments for VIX vs others
                         if strat_name == "VIXReversionStrategy":
                             if master_vix_df.empty or new_df.empty:
@@ -13930,26 +13396,6 @@ async def run_bot():
                                         do_execute = True
                                     else:
                                         logging.info(f"⛔ CONSENSUS BLOCKED by DirectionalLossBlocker: {dir_reason}")
-                                        _triathlon_mark_blocked(signal, 'DirectionalLossBlocker', dir_reason)
-                                        continue
-                            if not consensus_rescued:
-                                casc_blocked, casc_reason = cascade_loss_blocker.should_block_trade(signal['side'], current_time)
-                                if casc_blocked:
-                                    if try_consensus_rescue("CascadeLossBlocker", casc_reason):
-                                        do_execute = True
-                                    else:
-                                        logging.info(f"⛔ CONSENSUS BLOCKED by CascadeLossBlocker: {casc_reason}")
-                                        _triathlon_mark_blocked(signal, 'CascadeLossBlocker', casc_reason)
-                                        continue
-                            if not consensus_rescued:
-                                _af_entry_px = float(signal.get('entry_price') or signal.get('price') or current_price or 0)
-                                af_blocked, af_reason = anti_flip_blocker.should_block_trade(signal['side'], _af_entry_px, current_time)
-                                if af_blocked:
-                                    if try_consensus_rescue("AntiFlipBlocker", af_reason):
-                                        do_execute = True
-                                    else:
-                                        logging.info(f"⛔ CONSENSUS BLOCKED by AntiFlipBlocker: {af_reason}")
-                                        _triathlon_mark_blocked(signal, 'AntiFlipBlocker', af_reason)
                                         continue
                             if not consensus_rescued:
                                 trend_blocked, trend_reason = trend_filter.should_block_trade(new_df, signal['side'])
@@ -14267,20 +13713,6 @@ async def run_bot():
                             dir_blocked, dir_reason = directional_loss_blocker.should_block_trade(signal['side'], current_time)
                             if dir_blocked:
                                 if not try_rescue_trigger(dir_reason, 'DirectionalLoss'):
-                                    _triathlon_mark_blocked(signal, 'DirectionalLossBlocker', dir_reason)
-                                    continue
-
-                            casc_blocked, casc_reason = cascade_loss_blocker.should_block_trade(signal['side'], current_time)
-                            if casc_blocked:
-                                if not try_rescue_trigger(casc_reason, 'CascadeLoss'):
-                                    _triathlon_mark_blocked(signal, 'CascadeLossBlocker', casc_reason)
-                                    continue
-
-                            _af_entry_px = float(signal.get('entry_price') or signal.get('price') or current_price or 0)
-                            af_blocked, af_reason = anti_flip_blocker.should_block_trade(signal['side'], _af_entry_px, current_time)
-                            if af_blocked:
-                                if not try_rescue_trigger(af_reason, 'AntiFlip'):
-                                    _triathlon_mark_blocked(signal, 'AntiFlipBlocker', af_reason)
                                     continue
 
                             impulse_blocked, impulse_reason = impulse_filter.should_block_trade(signal['side'])
@@ -14836,98 +14268,114 @@ async def run_bot():
                         and not pending_level_fills
                         and signal.get("entry_mode") not in ("loose", "level_fill")
                     ):
-                        try:
-                            _lfo_bar = {
-                                "open":  float(currbar["open"]),
-                                "high":  float(currbar["high"]),
-                                "low":   float(currbar["low"]),
-                                "close": float(currbar["close"]),
-                            }
-                            _lfo_decision = level_fill_optimizer.evaluate(
-                                signal,
-                                float(current_price),
-                                structural_tracker,
-                                bank_filter,
-                                bar_candle=_lfo_bar,
-                            )
-                        except Exception as _lfo_exc:
-                            logging.warning("LevelFillOptimizer error: %s", _lfo_exc)
-                            _lfo_decision = None
-
-                        # SHADOW ML LFO scoring — logs a parallel ML prediction
-                        # alongside the rule-based decision for A/B comparison.
+                        _lfo_bar = {
+                            "open": float(currbar["open"]),
+                            "high": float(currbar["high"]),
+                            "low": float(currbar["low"]),
+                            "close": float(currbar["close"]),
+                        }
+                        _lfo_strategy_name = signal.get("strategy", strat_name)
+                        _lfo_policy = "rule"
+                        _mls = None
                         try:
                             import ml_overlay_shadow as _mls
-                            if _mls._LFO_PAYLOAD is not None:
-                                import signal_gate_2025 as _sg
-                                bank_base = (float(current_price) // 12.5) * 12.5
-                                _dist_below = float(current_price) - bank_base
-                                _dist_above = (bank_base + 12.5) - float(current_price)
-                                _bar_range = float(_lfo_bar["high"]) - float(_lfo_bar["low"])
-                                _body_pct = (float(_lfo_bar["close"]) - float(_lfo_bar["low"])) / max(0.01, _bar_range)
-                                _bar_cache = getattr(loss_factor_guard, "_bar_cache", None) if loss_factor_guard else None
-                                _feats = _sg.compute_bar_features_from_ohlcv(list(_bar_cache)) if _bar_cache and len(_bar_cache) >= 45 else {}
-                                _sess = ("ASIA" if currbar.name.hour < 3 or currbar.name.hour >= 18 else
-                                         "LONDON" if currbar.name.hour < 7 else
-                                         "NY_PRE" if currbar.name.hour < 9 else
-                                         "NY" if currbar.name.hour < 16 else "POST")
-                                try:
-                                    from regime_classifier import current_regime as _cr
-                                    _mkt_regime = _cr() or ""
-                                except Exception:
-                                    _mkt_regime = ""
-                                # Build bars_df from _bar_cache tuples for v2 LFO
-                                # (encoder + cross-market features). Harmless when v1
-                                # model is loaded — score_lfo skips augmentation.
-                                _bars_df = None
-                                if _bar_cache and len(_bar_cache) >= 10:
-                                    try:
-                                        import pandas as _pd_local
-                                        _rows = list(_bar_cache)
-                                        _bars_df = _pd_local.DataFrame(
-                                            [(r[1], r[2], r[3], r[4], r[5]) for r in _rows],
-                                            columns=["open", "high", "low", "close", "volume"],
-                                            index=_pd_local.DatetimeIndex([r[0] for r in _rows]),
-                                        )
-                                    except Exception:
-                                        _bars_df = None
-                                # Live cross-market overrides — master_vix_df and
-                                # master_mnq_df are accumulated elsewhere in the
-                                # scan loop; passing them unconditionally is safe
-                                # (v1 payloads + empty frames both ignore).
-                                _ml_score = _mls.score_lfo(
-                                    signal=signal,
-                                    bar_features=_feats,
-                                    dist_to_bank_below=_dist_below,
-                                    dist_to_bank_above=_dist_above,
-                                    bar_range_pts=_bar_range,
-                                    bar_close_pct_body=_body_pct,
-                                    sl_dist=float(signal.get("sl_dist") or 0),
-                                    tp_dist=float(signal.get("tp_dist") or 0),
-                                    session=_sess,
-                                    mkt_regime=_mkt_regime,
-                                    et_hour=int(currbar.name.hour),
-                                    bars_df=_bars_df,
-                                    current_time=currbar.name,
-                                    vix_override_df=master_vix_df,
-                                    mnq_override_df=master_mnq_df,
+                            _lfo_policy = _mls.get_lfo_live_policy(_lfo_strategy_name)
+                        except Exception as _lfo_policy_exc:
+                            logging.debug("LFO policy resolution failed: %s", _lfo_policy_exc, exc_info=True)
+
+                        if _lfo_policy in {"rule", "hybrid"}:
+                            try:
+                                _lfo_decision = level_fill_optimizer.evaluate(
+                                    signal,
+                                    float(current_price),
+                                    structural_tracker,
+                                    bank_filter,
+                                    bar_candle=_lfo_bar,
                                 )
-                                if _ml_score is not None:
-                                    _p_wait, _thr = _ml_score
-                                    _ml_choice = "WAIT" if _p_wait >= _thr else "IMMEDIATE"
-                                    _rule_choice = _lfo_decision.get("mode", "IMMEDIATE") if _lfo_decision else "IMMEDIATE"
-                                    logging.info(
-                                        "[SHADOW_LFO] rule=%s ml=%s p_wait=%.3f thr=%.3f strat=%s side=%s",
-                                        _rule_choice, _ml_choice, _p_wait, _thr,
-                                        signal.get("strategy","?"), signal.get("side","?"),
+                            except Exception as _lfo_exc:
+                                logging.warning("LevelFillOptimizer error: %s", _lfo_exc)
+                                _lfo_decision = None
+
+                        if _mls is not None and _lfo_policy in {"ml", "hybrid"}:
+                            try:
+                                if _mls._LFO_PAYLOAD is not None:
+                                    import signal_gate_2025 as _sg
+                                    bank_base = (float(current_price) // 12.5) * 12.5
+                                    _dist_below = float(current_price) - bank_base
+                                    _dist_above = (bank_base + 12.5) - float(current_price)
+                                    _bar_range = float(_lfo_bar["high"]) - float(_lfo_bar["low"])
+                                    _body_pct = (float(_lfo_bar["close"]) - float(_lfo_bar["low"])) / max(0.01, _bar_range)
+                                    _bar_cache = getattr(loss_factor_guard, "_bar_cache", None) if loss_factor_guard else None
+                                    _feats = _sg.compute_bar_features_from_ohlcv(list(_bar_cache)) if _bar_cache and len(_bar_cache) >= 45 else {}
+                                    _sess = ("ASIA" if currbar.name.hour < 3 or currbar.name.hour >= 18 else
+                                             "LONDON" if currbar.name.hour < 7 else
+                                             "NY_PRE" if currbar.name.hour < 9 else
+                                             "NY" if currbar.name.hour < 16 else "POST")
+                                    try:
+                                        from regime_classifier import current_regime as _cr
+                                        _mkt_regime = _cr() or ""
+                                    except Exception:
+                                        _mkt_regime = ""
+                                    _bars_df = None
+                                    if _bar_cache and len(_bar_cache) >= 10:
+                                        try:
+                                            import pandas as _pd_local
+                                            _rows = list(_bar_cache)
+                                            _bars_df = _pd_local.DataFrame(
+                                                [(r[1], r[2], r[3], r[4], r[5]) for r in _rows],
+                                                columns=["open", "high", "low", "close", "volume"],
+                                                index=_pd_local.DatetimeIndex([r[0] for r in _rows]),
+                                            )
+                                        except Exception:
+                                            _bars_df = None
+                                    _ml_score = _mls.score_lfo(
+                                        signal=signal,
+                                        bar_features=_feats,
+                                        dist_to_bank_below=_dist_below,
+                                        dist_to_bank_above=_dist_above,
+                                        bar_range_pts=_bar_range,
+                                        bar_close_pct_body=_body_pct,
+                                        sl_dist=float(signal.get("sl_dist") or 0),
+                                        tp_dist=float(signal.get("tp_dist") or 0),
+                                        session=_sess,
+                                        mkt_regime=_mkt_regime,
+                                        et_hour=int(currbar.name.hour),
+                                        bars_df=_bars_df,
+                                        current_time=currbar.name,
                                     )
-                                    if _mls.is_lfo_live_active():
-                                        # Live mode: override _lfo_decision based on ML
-                                        if _ml_choice == "IMMEDIATE" and _lfo_decision is not None:
+                                    if _ml_score is not None:
+                                        _p_wait, _thr = _ml_score
+                                        _ml_choice = "WAIT" if _p_wait >= _thr else "IMMEDIATE"
+                                        _rule_choice = _lfo_decision.get("mode", "IMMEDIATE") if _lfo_decision else "IMMEDIATE"
+                                        logging.info(
+                                            "[LIVE_LFO] policy=%s rule=%s ml=%s p_wait=%.3f thr=%.3f strat=%s side=%s",
+                                            _lfo_policy,
+                                            _rule_choice,
+                                            _ml_choice,
+                                            _p_wait,
+                                            _thr,
+                                            _lfo_strategy_name,
+                                            signal.get("side", "?"),
+                                        )
+                                        if _lfo_policy == "ml":
+                                            if _ml_choice == "WAIT":
+                                                _lfo_decision = _mls.build_ml_wait_decision(
+                                                    signal,
+                                                    float(current_price),
+                                                    p_wait=_p_wait,
+                                                    threshold=_thr,
+                                                )
+                                            else:
+                                                _lfo_decision = None
+                                        elif _ml_choice == "IMMEDIATE" and _lfo_decision is not None:
                                             _lfo_decision["mode"] = "IMMEDIATE"
                                             _lfo_decision["reason"] = f"ml_lfo p_wait={_p_wait:.3f}<{_thr}"
-                        except Exception as _ml_exc:
-                            logging.debug("shadow ML LFO scoring failed: %s", _ml_exc, exc_info=True)
+                                    elif _lfo_policy == "ml":
+                                        logging.warning("ML LFO policy active but score unavailable for %s", _lfo_strategy_name)
+                                elif _lfo_policy == "ml":
+                                    logging.warning("ML LFO policy active but payload missing for %s", _lfo_strategy_name)
+                            except Exception as _ml_exc:
+                                logging.debug("shadow ML LFO scoring failed: %s", _ml_exc, exc_info=True)
 
                     if _lfo_decision is not None and _lfo_decision.get("mode") == FILL_WAIT:
                         import uuid as _uuid_mod
@@ -15286,23 +14734,6 @@ async def run_bot():
                                     del pending_loose_signals[s_name]; continue
                                 else:
                                     event_logger.log_filter_check("DirectionalLossBlocker", sig['side'], True, strategy=sig.get('strategy', s_name))
-
-                                # Cascade Loss Blocker — time-window loss cluster (OFF by default)
-                                casc_blocked, casc_reason = cascade_loss_blocker.should_block_trade(sig['side'], current_time)
-                                if casc_blocked:
-                                    event_logger.log_filter_check("CascadeLossBlocker", sig['side'], False, casc_reason, strategy=sig.get('strategy', s_name))
-                                    del pending_loose_signals[s_name]; continue
-                                else:
-                                    event_logger.log_filter_check("CascadeLossBlocker", sig['side'], True, strategy=sig.get('strategy', s_name))
-
-                                # Anti-flip blocker — opposite-side stop-out near this price
-                                _af_entry_px = float(sig.get('entry_price') or sig.get('price') or current_price or 0)
-                                af_blocked, af_reason = anti_flip_blocker.should_block_trade(sig['side'], _af_entry_px, current_time)
-                                if af_blocked:
-                                    event_logger.log_filter_check("AntiFlipBlocker", sig['side'], False, af_reason, strategy=sig.get('strategy', s_name))
-                                    del pending_loose_signals[s_name]; continue
-                                else:
-                                    event_logger.log_filter_check("AntiFlipBlocker", sig['side'], True, strategy=sig.get('strategy', s_name))
 
                                 # Impulse Filter (Prevent catching falling knife / fading rocket ship)
                                 impulse_blocked, impulse_reason = impulse_filter.should_block_trade(sig['side'])
@@ -16123,23 +15554,6 @@ async def run_bot():
                                         else:
                                             event_logger.log_filter_check("DirectionalLossBlocker", signal['side'], True, strategy=signal.get('strategy', s_name))
 
-                                        # Cascade Loss Blocker — time-window cluster veto (OFF by default)
-                                        casc_blocked, casc_reason = cascade_loss_blocker.should_block_trade(signal['side'], current_time)
-                                        if casc_blocked:
-                                            event_logger.log_filter_check("CascadeLossBlocker", signal['side'], False, casc_reason, strategy=signal.get('strategy', s_name))
-                                            continue
-                                        else:
-                                            event_logger.log_filter_check("CascadeLossBlocker", signal['side'], True, strategy=signal.get('strategy', s_name))
-
-                                        # Anti-flip blocker — opposite-side stop-out near this price
-                                        _af_entry_px = float(signal.get('entry_price') or signal.get('price') or current_price or 0)
-                                        af_blocked, af_reason = anti_flip_blocker.should_block_trade(signal['side'], _af_entry_px, current_time)
-                                        if af_blocked:
-                                            event_logger.log_filter_check("AntiFlipBlocker", signal['side'], False, af_reason, strategy=signal.get('strategy', s_name))
-                                            continue
-                                        else:
-                                            event_logger.log_filter_check("AntiFlipBlocker", signal['side'], True, strategy=signal.get('strategy', s_name))
-
                                         tp_dist = signal.get('tp_dist', 15.0)
 
                                         effective_tp_dist = tp_dist
@@ -16395,6 +15809,11 @@ async def run_bot():
                     sentiment_service.stop()
             except Exception:
                 pass
+            try:
+                if runtime_cache_updater is not None:
+                    runtime_cache_updater.stop()
+            except Exception as exc:
+                logging.warning(f"Runtime cache updater shutdown failed: {exc}")
             try:
                 await client.stop_user_stream()
             except Exception:

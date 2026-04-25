@@ -92,6 +92,9 @@ DERIVED_FEATURE_COLUMNS = [
     "compression_release_session_edge",
     "aligned_flow_ny_dispersed_edge",
     "aligned_flow_nypm_trend_edge",
+    "aligned_flow_nypm_trend_pressure_edge",
+    "aligned_flow_nypm_trend_distance_edge",
+    "aligned_flow_nypm_trend_recovery_edge",
     "transition_burst_nyam_chop_edge",
     "setup_strength",
     "candidate_side",
@@ -193,6 +196,27 @@ def _augment_interaction_features(frame: pd.DataFrame) -> pd.DataFrame:
     compression_release_session_edge = setup_compression_release * release_energy * (session_is_london + session_is_nypm)
     aligned_flow_ny_dispersed_edge = setup_aligned_flow * trend_persistence * regime_is_dispersed * (session_is_nyam + session_is_nypm)
     aligned_flow_nypm_trend_edge = setup_aligned_flow * trend_persistence * session_is_nypm * regime_is_trend_geodesic
+    aligned_flow_nypm_trend_pressure_edge = (
+        setup_aligned_flow
+        * session_is_nypm
+        * regime_is_trend_geodesic
+        * flow_mag_fast
+        * (candidate_side * pressure_imbalance_30).clip(lower=0.0)
+    )
+    aligned_flow_nypm_trend_distance_edge = (
+        setup_aligned_flow
+        * session_is_nypm
+        * regime_is_trend_geodesic
+        * alignment_pct
+        * (candidate_side * directional_vwap_dist).clip(lower=0.0)
+    )
+    aligned_flow_nypm_trend_recovery_edge = (
+        setup_aligned_flow
+        * session_is_nypm
+        * regime_is_trend_geodesic
+        * coherence_recovery
+        * d_alignment_3.clip(lower=0.0)
+    )
     transition_burst_nyam_chop_edge = setup_transition_burst * burst_pressure * session_is_nyam * regime_is_chop_spiral
 
     work["directional_vwap_dist"] = directional_vwap_dist
@@ -216,6 +240,9 @@ def _augment_interaction_features(frame: pd.DataFrame) -> pd.DataFrame:
     work["compression_release_session_edge"] = compression_release_session_edge
     work["aligned_flow_ny_dispersed_edge"] = aligned_flow_ny_dispersed_edge
     work["aligned_flow_nypm_trend_edge"] = aligned_flow_nypm_trend_edge
+    work["aligned_flow_nypm_trend_pressure_edge"] = aligned_flow_nypm_trend_pressure_edge
+    work["aligned_flow_nypm_trend_distance_edge"] = aligned_flow_nypm_trend_distance_edge
+    work["aligned_flow_nypm_trend_recovery_edge"] = aligned_flow_nypm_trend_recovery_edge
     work["transition_burst_nyam_chop_edge"] = transition_burst_nyam_chop_edge
     return work
 
@@ -256,10 +283,12 @@ def _build_from_base(
     dispersion_pct = _clip01(work["manifold_dispersion_pct"])
     r_pct = _clip01(work["manifold_R_pct"])
     regime_id = pd.to_numeric(work.get("manifold_regime_id", -1.0), errors="coerce").fillna(-1.0)
+    session_id = pd.to_numeric(work.get("session_id", -1.0), errors="coerce").fillna(-1.0)
     regime_is_trend = regime_id.eq(0.0)
     regime_is_chop = regime_id.eq(1.0)
     regime_is_disperse = regime_id.eq(2.0)
     regime_is_rot = regime_id.eq(3.0)
+    session_is_nypm = session_id.eq(3.0)
 
     flow_fast = (0.60 * ret_5) + (0.40 * ema_slope)
     flow_slow = (0.60 * ret_15) + (0.40 * ema_spread)
@@ -327,6 +356,22 @@ def _build_from_base(
     cr_long = np.where(cr_cond, cr_base * directional_bias.clip(lower=0.0), 0.0)
     cr_short = np.where(cr_cond, cr_base * (-directional_bias).clip(lower=0.0), 0.0)
 
+    af_general_cond = (
+        (coherence > 0.34)
+        & (alignment_pct > 0.60)
+        & (smoothness_pct > 0.55)
+        & (stress_pct < 0.46)
+        & (flow_agreement > 0.18)
+        & (flow_mag_slow > 0.14)
+        & (~regime_is_rot)
+        & (~session_is_nypm)
+    )
+    af_base = (0.35 * coherence) + (0.25 * alignment_pct) + (0.20 * (1.0 - stress_pct)) + (0.20 * flow_mag_slow)
+    af_long_bias = directional_bias.clip(lower=0.0)
+    af_short_bias = (-directional_bias).clip(lower=0.0)
+    af_long = np.where(af_general_cond, af_base * af_long_bias, 0.0)
+    af_short = np.where(af_general_cond, af_base * af_short_bias, 0.0)
+
     af_cond = (
         (coherence > 0.34)
         & (alignment_pct > 0.60)
@@ -336,9 +381,8 @@ def _build_from_base(
         & (flow_mag_slow > 0.14)
         & (~regime_is_rot)
     )
-    af_base = (0.35 * coherence) + (0.25 * alignment_pct) + (0.20 * (1.0 - stress_pct)) + (0.20 * flow_mag_slow)
-    af_long = np.where(af_cond, af_base * directional_bias.clip(lower=0.0), 0.0)
-    af_short = np.where(af_cond, af_base * (-directional_bias).clip(lower=0.0), 0.0)
+    af_long = np.where(af_cond, af_base * af_long_bias, 0.0)
+    af_short = np.where(af_cond, af_base * af_short_bias, 0.0)
 
     ex_base = (0.45 * extension_score) + (0.20 * stress_pct) + (0.20 * flow_curvature.abs().clip(0.0, 0.01) * 80.0) + (0.15 * d_stress_3.clip(lower=0.0))
     ex_long_cond = (

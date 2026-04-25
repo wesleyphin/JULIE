@@ -16,7 +16,10 @@ logger = logging.getLogger("kalshi_provider")
 
 class KalshiProvider:
     """
-    Authenticated Kalshi API client for KXINXU (S&P 500 above/below hourly contracts).
+    Authenticated Kalshi API client for KXINXU hourly S&P 500 contracts.
+
+    This provider is safe to use in observation-only mode: callers can read the
+    ladder and derived probabilities without implying any execution changes.
     """
 
     def __init__(self, config: Dict):
@@ -123,9 +126,6 @@ class KalshiProvider:
                 time.sleep(2)
         return {}
 
-    # KXINXU settlement hours are Eastern Time (per CFTC filing: "Time will
-    # be measured in Eastern Time (ET)" covering "traditional market hours
-    # 9:30 AM - 4 PM ET").  Hourly contracts settle at 10-16 ET.
     _SETTLEMENT_HOURS_ET = [10, 11, 12, 13, 14, 15, 16]
 
     def active_settlement_hour_et(self, ref_time: Optional[datetime] = None, rollover_minute: int = 5) -> Optional[int]:
@@ -151,19 +151,12 @@ class KalshiProvider:
         return f"{self.series}-{now.strftime('%y%b%d').upper()}H{next_hour * 100}"
 
     def event_ticker_for_hour(self, et_hour: int, ref_date: Optional[datetime] = None) -> str:
-        """Build an event ticker for a specific ET settlement hour."""
         et = pytz.timezone("US/Eastern")
         if ref_date is None:
             ref_date = datetime.now(et)
         return f"{self.series}-{ref_date.strftime('%y%b%d').upper()}H{et_hour * 100}"
 
     def fetch_daily_contracts(self) -> List[Dict]:
-        """Fetch all of today's hourly contracts for historical backfill.
-
-        Contracts settle at each hour 10 AM - 4 PM ET.  On startup, this
-        pre-populates the cache so the ML pipeline has data even for
-        contracts that already settled before the bot started.
-        """
         if not self.enabled:
             return []
         et = pytz.timezone("US/Eastern")
@@ -172,17 +165,18 @@ class KalshiProvider:
         for hour in self._SETTLEMENT_HOURS_ET:
             ticker = self.event_ticker_for_hour(hour, now)
             markets = self._fetch_event_markets(event_ticker=ticker)
-            results.append({
-                "et_hour": hour,
-                "event_ticker": ticker,
-                "strikes": markets,
-                "settled": now.hour >= hour,
-                "strike_count": len(markets),
-            })
+            results.append(
+                {
+                    "et_hour": hour,
+                    "event_ticker": ticker,
+                    "strikes": markets,
+                    "settled": now.hour >= hour,
+                    "strike_count": len(markets),
+                }
+            )
         return results
 
     def _event_sort_ts(self, event: Dict) -> float:
-        # strike_date is on events; close_time is on markets (actual settlement time)
         for key in ("strike_date", "close_time", "expected_expiration_time", "settlement_time", "expiration_time", "event_time", "open_time"):
             raw = event.get(key)
             if not raw:
@@ -200,12 +194,6 @@ class KalshiProvider:
         return 0.0
 
     def _resolve_event_from_series(self) -> Optional[Dict]:
-        """Find the next upcoming event for this series.
-
-        The Kalshi /events API returns objects with these fields:
-          event_ticker, series_ticker, strike_date, title, sub_title, category
-        Note: no 'status' or 'close_time' on events — those are on markets.
-        """
         data = self._get(
             "/events",
             {
@@ -224,7 +212,6 @@ class KalshiProvider:
         for event in events:
             if not isinstance(event, dict):
                 continue
-            # Events use 'event_ticker', not 'ticker'
             ticker = str(event.get("event_ticker", "") or event.get("ticker", "") or "")
             if not ticker.startswith(f"{self.series}-"):
                 continue
@@ -236,7 +223,6 @@ class KalshiProvider:
             candidates.sort(key=lambda item: item[0])
             return candidates[0][1]
 
-        # No future events — return the most recent one
         all_valid = [
             (self._event_sort_ts(evt), evt)
             for evt in events
@@ -258,8 +244,6 @@ class KalshiProvider:
             except ValueError:
                 continue
 
-            # Probability: use yes_bid midpoint (matches Kalshi website "Chance"),
-            # NOT last_price_dollars which is often 0 when no trades have occurred.
             prob = None
             yes_bid = market.get("yes_bid_dollars") or market.get("yes_bid")
             yes_ask = market.get("yes_ask_dollars") or market.get("yes_ask")
@@ -270,7 +254,6 @@ class KalshiProvider:
                     prob = (bid_f + ask_f) / 2.0
                 except (TypeError, ValueError):
                     pass
-            # Fall back to last_price if bid/ask unavailable
             if prob is None or prob == 0:
                 for field in ("last_price_dollars", "last_price"):
                     val = market.get(field)
@@ -285,7 +268,6 @@ class KalshiProvider:
             if prob is None:
                 continue
 
-            # Normalize cents (0-100) to probability (0-1)
             if prob > 1.0:
                 prob = prob / 100.0
 
@@ -312,17 +294,12 @@ class KalshiProvider:
         return sorted(parsed, key=lambda row: row["strike"])
 
     def _all_finalized(self, parsed: List[Dict]) -> bool:
-        """Check if all parsed markets are settled/finalized."""
         if not parsed:
             return False
         settled_statuses = {"finalized", "settled", "closed"}
-        return all(
-            str(m.get("status", "") or "").lower() in settled_statuses
-            for m in parsed
-        )
+        return all(str(m.get("status", "") or "").lower() in settled_statuses for m in parsed)
 
     def _fetch_single_event(self, event_ticker: str, resolved_event: Optional[Dict] = None) -> List[Dict]:
-        """Fetch and parse markets for a single event ticker."""
         with self._cache_lock:
             cached = self._cache.get(event_ticker)
             if cached and (time.time() - float(cached.get("ts", 0))) < self.cache_ttl:
@@ -341,9 +318,8 @@ class KalshiProvider:
         parsed = self._parse_markets(markets)
         if not parsed:
             return []
-        # Don't cache finalized events for the full TTL — allow fast rotation
         if self._all_finalized(parsed):
-            cache_ts = time.time() - self.cache_ttl + 10  # expires in 10s
+            cache_ts = time.time() - self.cache_ttl + 10
         else:
             cache_ts = time.time()
         with self._cache_lock:
@@ -351,7 +327,6 @@ class KalshiProvider:
         return parsed
 
     def _fetch_event_markets(self, event_ticker: Optional[str] = None) -> List[Dict]:
-        # If a specific ticker was requested, return it directly
         if event_ticker is not None:
             self.last_resolved_ticker = event_ticker
             result = self._fetch_single_event(event_ticker)
@@ -359,18 +334,15 @@ class KalshiProvider:
                 logger.warning("No Kalshi markets parsed for %s", event_ticker)
             return result
 
-        # Try series resolution first, then current ticker
         resolved_event = self._resolve_event_from_series()
         event_ticker = (
-            str((resolved_event or {}).get("event_ticker", "") or
-                (resolved_event or {}).get("ticker", "") or "").strip()
+            str((resolved_event or {}).get("event_ticker", "") or (resolved_event or {}).get("ticker", "") or "").strip()
             or self._current_event_ticker()
         )
         self.last_resolved_ticker = event_ticker
 
         parsed = self._fetch_single_event(event_ticker, resolved_event)
 
-        # If all markets are finalized, rotate to the next settlement hour
         if self._all_finalized(parsed):
             et = pytz.timezone("US/Eastern")
             now = datetime.now(et)
@@ -410,11 +382,6 @@ class KalshiProvider:
         if not above:
             return markets[-1]["probability"]
         return None
-
-    def get_probability_curve(self) -> Dict[float, float]:
-        if not self.enabled or not self.is_healthy:
-            return {}
-        return {m["strike"]: m["probability"] for m in self._fetch_event_markets()}
 
     def get_nearest_market(self, strike_price: float) -> Optional[Dict]:
         if not self.enabled or not self.is_healthy:
@@ -598,8 +565,6 @@ class KalshiProvider:
             {
                 "probability": round(float(probability), 4),
                 "classification": classification,
-                # Expose ES-space values by default so callers can compare
-                # Kalshi context directly against MES/ES live prices.
                 "implied_level": round(float(implied_level_es), 2) if implied_level_es is not None else None,
                 "distance": round(float(distance_es), 2) if distance_es is not None else None,
                 "implied_level_es": round(float(implied_level_es), 2) if implied_level_es is not None else None,
@@ -610,68 +575,6 @@ class KalshiProvider:
             }
         )
         return payload
-
-    def get_probability_gradient(self, es_price: float) -> Optional[float]:
-        if not self.enabled or not self.is_healthy:
-            return None
-        spx_price = self.es_to_spx(es_price)
-        markets = self._fetch_event_markets()
-        if len(markets) < 3:
-            return None
-        below = [m for m in markets if m["strike"] <= spx_price]
-        above = [m for m in markets if m["strike"] > spx_price]
-        if not below or not above:
-            return None
-        lo = below[-1]
-        hi = above[0]
-        gradient = (hi["probability"] - lo["probability"]) / (hi["strike"] - lo["strike"])
-        return round(float(gradient), 6)
-
-    def get_implied_distribution(self, es_price: float) -> Optional[Dict]:
-        _ = es_price
-        if not self.enabled or not self.is_healthy:
-            return None
-        markets = self._fetch_event_markets()
-        if len(markets) < 10:
-            return None
-        densities: List[float] = []
-        midpoints: List[float] = []
-        for idx in range(len(markets) - 1):
-            ds = markets[idx + 1]["strike"] - markets[idx]["strike"]
-            if ds <= 0:
-                continue
-            dp = markets[idx]["probability"] - markets[idx + 1]["probability"]
-            density = max(0.0, dp / ds)
-            densities.append(density)
-            midpoints.append((markets[idx]["strike"] + markets[idx + 1]["strike"]) / 2.0)
-        total = sum(densities)
-        if total <= 0:
-            return None
-        norm = [value / total for value in densities]
-        mean = sum(mid * den for mid, den in zip(midpoints, norm))
-        variance = sum(den * (mid - mean) ** 2 for mid, den in zip(midpoints, norm))
-        std = variance**0.5
-        skew = sum(den * (((mid - mean) / std) ** 3) for mid, den in zip(midpoints, norm)) if std > 0 else 0.0
-        return {
-            "implied_mean": round(float(mean), 2),
-            "implied_std": round(float(std), 2),
-            "implied_skew": round(float(skew), 4),
-        }
-
-    def get_sentiment_momentum(self, es_price: float, lookback: int = 3) -> Optional[float]:
-        probability = self.get_probability(self.es_to_spx(es_price))
-        if probability is None:
-            return None
-        self._sentiment_history.append((time.time(), probability))
-        self._sentiment_history = self._sentiment_history[-20:]
-        if len(self._sentiment_history) < int(lookback) + 1:
-            return None
-        prior = self._sentiment_history[-(int(lookback) + 1)][1]
-        return round(float(probability - prior), 4)
-
-    def update_basis(self, es_price: float, spx_price: float) -> None:
-        self.basis_offset = round(float(es_price) - float(spx_price), 2)
-        logger.info("Kalshi basis updated: ES-SPX=%s", self.basis_offset)
 
     def clear_cache(self) -> None:
         with self._cache_lock:

@@ -1,0 +1,56 @@
+﻿{
+    "feature_kind":  "manifold_base_extended",
+    "source_path":  "C:\\Users\\timot\\OneDrive\\Desktop\\topstep2\\es_master_outrights.parquet",
+    "existing_base_path":  "C:\\Users\\timot\\OneDrive\\Desktop\\topstep2\\artifacts\\aetherflow_backtest_cache\\manifold_base_outrights_corrected_full_extended_20260421_1614.parquet",
+    "output_path":  "C:\\Users\\timot\\OneDrive\\Desktop\\topstep2\\artifacts\\aetherflow_corrected_full_2011_2026\\manifold_base_outrights_2011_2026.parquet",
+    "requested_range":  {
+                            "start":  "2011-01-02T19:23:00-05:00",
+                            "end":  "2026-04-24T15:18:00-04:00"
+                        },
+    "rebuild_range":  {
+                          "start":  "2026-04-14T16:14:00-04:00",
+                          "end":  "2026-04-24T15:18:00-04:00"
+                      },
+    "rows":  4169016,
+    "columns":  [
+                    "manifold_R",
+                    "manifold_alignment",
+                    "manifold_smoothness",
+                    "manifold_stress",
+                    "manifold_dispersion",
+                    "manifold_risk_mult",
+                    "manifold_R_pct",
+                    "manifold_alignment_pct",
+                    "manifold_smoothness_pct",
+                    "manifold_stress_pct",
+                    "manifold_dispersion_pct",
+                    "manifold_side_bias",
+                    "manifold_no_trade",
+                    "manifold_regime_id",
+                    "manifold_allow_trend",
+                    "manifold_allow_mean_reversion",
+                    "manifold_allow_breakout",
+                    "manifold_allow_fade",
+                    "ret_1",
+                    "ret_5",
+                    "ret_15",
+                    "atr14",
+                    "atr14_z",
+                    "range_z",
+                    "vol_z",
+                    "vwap_dist_atr",
+                    "ema_spread",
+                    "ema_slope_20",
+                    "hour_sin",
+                    "hour_cos",
+                    "session_id"
+                ],
+    "range":  {
+                  "start":  "2011-01-02T19:23:00-05:00",
+                  "end":  "2026-04-24T15:18:00-04:00"
+              },
+    "overlap_days":  7,
+    "built_at":  "2026-04-24T19:21:13.017300+00:00",
+    "promoted_from":  "C:\\Users\\timot\\OneDrive\\Desktop\\topstep2\\artifacts\\aetherflow_backtest_cache\\manifold_base_outrights_corrected_full_extended_20260424_1518.parquet",
+    "promoted_at":  "2026-04-24T20:04:18.8796095+00:00"
+}

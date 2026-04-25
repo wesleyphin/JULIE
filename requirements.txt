@@ -4,10 +4,7 @@
 aiohttp==3.13.3
 click==8.3.1
 colorama==0.4.6
-accelerate>=0.34,<2
-bitsandbytes>=0.45,<1; platform_system == "Linux"  # CUDA-only; optional on macOS/Windows (dynamic int8 fallback used instead)
-torch>=2.4,<3
-transformers>=4.48,<5
+cryptography==46.0.3
 joblib==1.5.3
 lightgbm==4.6.0
 numpy==2.4.3
@@ -15,14 +12,16 @@ pandas==3.0.1
 pillow==12.1.1
 pyarrow==23.0.1
 pydantic==2.12.5
+pytz==2025.2
 python-dotenv==1.2.2
 python-socketio==5.16.1
 requests==2.33.0
-cryptography>=42.0.0
-pytz>=2024.1
 rich==14.3.3
 scikit-learn==1.8.0
 signalrcore-async==0.5.4
 simple-websocket==1.1.0
+torch==2.9.0
+transformers==4.57.1
+accelerate==1.11.0
 xgboost==3.2.0
-yfinance==0.2.66
+yfinance==1.2.0

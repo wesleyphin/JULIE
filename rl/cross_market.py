@@ -107,26 +107,12 @@ class CrossMarketFeatures:
             except Exception:
                 self._vix = None
 
-    def extract_at(
-        self,
-        ts_et,
-        *,
-        mes_bars: Optional[pd.DataFrame] = None,
-        vix_override_df: Optional[pd.DataFrame] = None,
-        mnq_override_df: Optional[pd.DataFrame] = None,
-    ) -> Dict[str, float]:
+    def extract_at(self, ts_et, *, mes_bars: Optional[pd.DataFrame] = None) -> Dict[str, float]:
         """Return a CROSS_MARKET_FEATURE_KEYS-keyed dict for timestamp ts_et.
 
         mes_bars (optional): DataFrame of MES bars covering ts_et-30min..ts_et.
         Used for correlation/divergence computations. If None, those features
         return defaults.
-
-        vix_override_df / mnq_override_df (optional): live-accumulator
-        dataframes from julie001 (master_vix_df / master_mnq_df). When
-        supplied AND their latest bar is fresher than the cached parquet,
-        they are preferred — this is how the live bot gets real-time
-        cross-market context instead of day-old closes. Each is expected
-        to have a `close` column and a tz-aware DatetimeIndex.
         """
         self._ensure_loaded()
         out = dict(CROSS_MARKET_FEATURE_DEFAULTS)
@@ -140,22 +126,13 @@ class CrossMarketFeatures:
         else:
             ts_et = ts_et.tz_convert(NY)
 
-        # Pick the freshest available source for each feed. Live overrides
-        # win when they actually have data newer than the static parquet.
-        mnq_src = self._mnq
-        if self._is_fresh_override(mnq_override_df, mnq_src):
-            mnq_src = self._prep_override(mnq_override_df)
-        vix_src = self._vix
-        if self._is_fresh_override(vix_override_df, vix_src):
-            vix_src = self._prep_override(vix_override_df)
-
         # --- MNQ features ---
-        if mnq_src is not None and len(mnq_src) > 30 and mes_bars is not None:
+        if self._mnq is not None and len(self._mnq) > 30 and mes_bars is not None:
             try:
-                pos_mnq = mnq_src.index.searchsorted(ts_et, side="right") - 1
+                pos_mnq = self._mnq.index.searchsorted(ts_et, side="right") - 1
                 pos_mes = mes_bars.index.searchsorted(ts_et, side="right") - 1
                 if pos_mnq >= 30 and pos_mes >= 30:
-                    mnq_closes = mnq_src["close"].iloc[pos_mnq - 29: pos_mnq + 1].to_numpy()
+                    mnq_closes = self._mnq["close"].iloc[pos_mnq - 29: pos_mnq + 1].to_numpy()
                     mes_closes = mes_bars["close"].iloc[pos_mes - 29: pos_mes + 1].to_numpy()
                     if len(mnq_closes) == 30 and len(mes_closes) == 30:
                         mnq_rets = np.diff(mnq_closes) / mnq_closes[:-1]
@@ -187,25 +164,12 @@ class CrossMarketFeatures:
                 pass
 
         # --- VIX features ---
-        if vix_src is not None and len(vix_src) > 5:
+        if self._vix is not None and len(self._vix) > 5:
             try:
-                pos = vix_src.index.searchsorted(ts_et, side="right") - 1
+                pos = self._vix.index.searchsorted(ts_et, side="right") - 1
                 if pos >= 5:
-                    vix_now = float(vix_src["close"].iloc[pos])
-                    # 5d-ago — use parquet for 5d history if live override
-                    # doesn't span 5 days (live override is typically <1 day
-                    # of bars). Fallback to nearest available.
-                    lookback = min(pos, 5)
-                    vix_5d_ago = float(vix_src["close"].iloc[pos - lookback])
-                    # If we fell back to fewer than 5 days, and the static
-                    # parquet is loaded, prefer its 5d history.
-                    if lookback < 5 and self._vix is not None and len(self._vix) > 5:
-                        try:
-                            static_pos = self._vix.index.searchsorted(ts_et, side="right") - 1
-                            if static_pos >= 5:
-                                vix_5d_ago = float(self._vix["close"].iloc[static_pos - 5])
-                        except Exception:
-                            pass
+                    vix_now = float(self._vix["close"].iloc[pos])
+                    vix_5d_ago = float(self._vix["close"].iloc[pos - 5])
                     out["vix_level"] = vix_now
                     if vix_now < 14:
                         out["vix_regime_code"] = 0.0
@@ -222,70 +186,17 @@ class CrossMarketFeatures:
 
         return out
 
-    # --- override helpers --------------------------------------------
-    @staticmethod
-    def _is_fresh_override(override_df, cached_df) -> bool:
-        """Return True iff override has a valid `close` column AND its
-        latest index is strictly newer than the cached dataframe's latest."""
-        if override_df is None or getattr(override_df, "empty", True):
-            return False
-        if "close" not in override_df.columns:
-            return False
-        try:
-            ov_last = override_df.index[-1]
-        except Exception:
-            return False
-        if cached_df is None or getattr(cached_df, "empty", True):
-            return True
-        try:
-            cached_last = cached_df.index[-1]
-        except Exception:
-            return True
-        # Normalize timezones before comparing
-        try:
-            if ov_last.tz is None:
-                ov_last = ov_last.tz_localize("UTC")
-            if cached_last.tz is None:
-                cached_last = cached_last.tz_localize("UTC")
-            return ov_last > cached_last
-        except Exception:
-            return False
-
-    @staticmethod
-    def _prep_override(df: pd.DataFrame) -> pd.DataFrame:
-        """Normalize a live-accumulator DataFrame to the same shape the
-        cached parquet has (tz-aware NY index, sorted, `close` column)."""
-        try:
-            out = df[["close"]].copy()
-            if out.index.tz is None:
-                out.index = out.index.tz_localize("UTC").tz_convert(NY)
-            else:
-                out.index = out.index.tz_convert(NY)
-            out = out.sort_index()
-            return out
-        except Exception:
-            return df
-
 
 # Module-level singleton for convenient reuse
 _CROSS_MARKET: Optional[CrossMarketFeatures] = None
 
 
-def get_cross_market_features(
-    ts_et, *, mes_bars=None, vix_override_df=None, mnq_override_df=None,
-) -> Dict[str, float]:
-    """Module-level helper — reuse a singleton CrossMarketFeatures instance.
-    Pass `vix_override_df` / `mnq_override_df` when the live bot has fresher
-    data than the cached parquets (it almost always does in a live session)."""
+def get_cross_market_features(ts_et, *, mes_bars=None) -> Dict[str, float]:
+    """Module-level helper — reuse a singleton CrossMarketFeatures instance."""
     global _CROSS_MARKET
     if _CROSS_MARKET is None:
         _CROSS_MARKET = CrossMarketFeatures()
-    return _CROSS_MARKET.extract_at(
-        ts_et,
-        mes_bars=mes_bars,
-        vix_override_df=vix_override_df,
-        mnq_override_df=mnq_override_df,
-    )
+    return _CROSS_MARKET.extract_at(ts_et, mes_bars=mes_bars)
 
 
 if __name__ == "__main__":

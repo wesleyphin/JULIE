@@ -61,6 +61,7 @@ DEFAULT_OVERLAY_CONFIG: Dict[str, Any] = {
     "max_tp_multiplier": 1.75,
     "breakout_max_tp_multiplier": 2.5,
     "trail_enabled_roles": ["balanced", "forward_primary"],
+    "entry_block_exempt_strategies": ["AetherFlow"],
     "trail_buffer_ticks": {
         "background": 6,
         "balanced": 4,
@@ -144,6 +145,17 @@ def _merge_overlay_config(overlay_cfg: Optional[Dict[str, Any]]) -> Dict[str, An
         else:
             config[key] = value
     return config
+
+
+def _strategy_matches_prefixes(strategy: Any, prefixes: Any) -> bool:
+    text = str(strategy or "").strip()
+    if not text or not isinstance(prefixes, (list, tuple, set)):
+        return False
+    for raw in prefixes:
+        prefix = str(raw or "").strip()
+        if prefix and text.startswith(prefix):
+            return True
+    return False
 
 
 def analyze_recent_price_action(
@@ -492,16 +504,7 @@ def build_trade_plan(
     price_action_profile: Optional[Dict[str, Any]] = None,
     overlay_cfg: Optional[Dict[str, Any]] = None,
     tick_size: float = 0.25,
-    regime_label: Optional[str] = None,
-    cross_market_features: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
-    """regime_label / cross_market_features:
-        Optional live-bot context added 2026-04-22. When supplied, this
-        function can (a) relax the entry-threshold on trending regimes and
-        (b) override the block when cross-market signals confirm a
-        same-direction breakout. Both levers default to no-op when the
-        inputs are absent, so older callers continue to work unchanged.
-    """
     config = _merge_overlay_config(overlay_cfg)
     role = str((price_action_profile or {}).get("role") or "background")
     mode = str((price_action_profile or {}).get("mode") or "level")
@@ -684,25 +687,10 @@ def build_trade_plan(
     entry_threshold = _resolve_role_cfg(config, "entry_threshold", role, 0.45)
     block_buffer = _resolve_role_cfg(config, "entry_block_buffer", role, 1.0)
     size_floor = _resolve_role_cfg(config, "entry_size_floor", role, 0.85)
-
-    # -------- Regime-aware threshold relaxation (2026-04-22) --------
-    # Kalshi's hourly-settlement markets have a mean-reversion prior. On a
-    # trending/calm-trend day the crowd consistently under-prices the "close
-    # above current" event and the overlay blocks every continuation signal.
-    # When regime_classifier says we're in a trending regime, relax the
-    # entry_threshold by a fixed discount so the overlay still gates chop
-    # but lets more trend-continuation signals through.
-    regime_threshold_discount = 0.0
-    regime_norm = str(regime_label or "").strip().lower()
-    _TRENDING_REGIMES = {
-        "calm_trend", "trending_up", "trending_down", "trend", "trending",
-    }
-    if regime_norm in _TRENDING_REGIMES:
-        regime_threshold_discount = _coerce_float(
-            config.get("regime_trending_threshold_discount"), 0.10
-        )
-        entry_threshold = max(0.0, entry_threshold - regime_threshold_discount)
-
+    entry_block_exempt = _strategy_matches_prefixes(
+        signal.get("strategy"),
+        config.get("entry_block_exempt_strategies"),
+    )
     entry_blocked = bool(
         role != "background"
         and (
@@ -710,196 +698,8 @@ def build_trade_plan(
             or momentum_retention + 1e-9 < retention_floor
         )
     )
-
-    # -------- Cross-market breakout override (2026-04-22) --------
-    # Two paths — the hand-tuned VIX/MNQ rule (default) or the ML gate
-    # (model_cm_breakout_gate.joblib, opt-in via JULIE_KALSHI_CM_GATE_ACTIVE).
-    # The non-authoritative path is ALWAYS computed and surfaced in the
-    # plan dict so we can observe divergence between the two over live
-    # sessions before promoting the ML gate.
-    override_reason = None
-    ml_p_win = None
-    ml_override_would_fire = None
-    try:
-        import ml_overlay_shadow as _mls
-        if _mls._CM_GATE_PAYLOAD is not None or _mls.init_cm_breakout_gate():
-            ml_p_win = _mls.score_cm_breakout_gate(
-                kalshi_state={
-                    "entry_probability": entry_probability,
-                    "probe_probability": probe_probability,
-                    "momentum_delta": momentum_delta,
-                    "momentum_retention": momentum_retention,
-                    "support_score": entry_support_score,
-                    "threshold": float(entry_threshold + regime_threshold_discount),
-                    "probe_distance_pts": float(probe_points),
-                    "et_hour_frac": _coerce_float((price_action_profile or {}).get("et_hour_frac"), 0.0),
-                },
-                bar_state={
-                    "atr14_pts": _coerce_float((price_action_profile or {}).get("atr14_pts"), 0.0),
-                    "range_30bar_pts": _coerce_float((price_action_profile or {}).get("range_30bar_pts"), 0.0),
-                    "trend_20bar_pct": _coerce_float((price_action_profile or {}).get("trend_20bar_pct"), 0.0),
-                    "dist_to_20bar_hi_pct": _coerce_float((price_action_profile or {}).get("dist_to_20bar_hi_pct"), 0.0),
-                    "dist_to_20bar_lo_pct": _coerce_float((price_action_profile or {}).get("dist_to_20bar_lo_pct"), 0.0),
-                    "vel_5bar_pts_per_min": _coerce_float((price_action_profile or {}).get("vel_5bar_pts_per_min"), 0.0),
-                    "dist_to_bank_pts": _coerce_float((price_action_profile or {}).get("dist_to_bank_pts"), 0.0),
-                },
-                sub_flags={
-                    "sub_tier": _coerce_float((signal or {}).get("sub_tier"), 0.0),
-                    "sub_is_rev": _coerce_float((signal or {}).get("sub_is_rev"), 0.0),
-                    "sub_is_5min": _coerce_float((signal or {}).get("sub_is_5min"), 0.0),
-                },
-                regime=str((price_action_profile or {}).get("regime", regime_norm) or "neutral"),
-                regime_vol_bp=_coerce_float((price_action_profile or {}).get("regime_vol_bp"), 0.0),
-                regime_eff=_coerce_float((price_action_profile or {}).get("regime_eff"), 0.0),
-                role=role,
-                side=str((signal or {}).get("side") or ""),
-                cross_market_features=(cross_market_features or {}),
-            )
-            if ml_p_win is not None:
-                ml_override_would_fire = bool(
-                    ml_p_win >= _mls.cm_breakout_gate_override_threshold()
-                )
-    except Exception:
-        pass
-
-    # v2 direction-specific CM gate — trained on 125k aligned MES+MNQ+VIX
-    # bars with direct price-direction target (AUC ~0.80 vs v1's 0.54).
-    # Computed unconditionally and surfaced in plan; authoritative when
-    # JULIE_KALSHI_CM_GATE_V2_ACTIVE=1.
-    ml_v2_p_direction = None
-    ml_v2_would_override = None
-    try:
-        import ml_overlay_shadow as _mls
-        if _mls._CM_BREAKOUT_LONG is not None or _mls.init_cm_breakout_v2():
-            # Assemble v2 feature dict — cross-market keys need remapping
-            # because v2's training used slightly different names
-            # (mnq_ret_5m vs mnq_ret_5min_pct, etc.).
-            cm_local = cross_market_features or {}
-            v2_feats = {
-                "vix_level": _coerce_float(cm_local.get("vix_level"), 16.0),
-                "vix_regime_code": _coerce_float(cm_local.get("vix_regime_code"), 1.0),
-                "vix_roc_5d": _coerce_float(cm_local.get("vix_rate_of_change_5d"), 0.0),
-                "mnq_ret_5m": _coerce_float(cm_local.get("mnq_ret_5min_pct"), 0.0),
-                "mnq_ret_30m": _coerce_float(cm_local.get("mnq_ret_30min_pct"), 0.0),
-                "mes_mnq_corr_30": _coerce_float(cm_local.get("mes_mnq_corr_30bar"), 0.5),
-                "mes_mnq_div_pct": _coerce_float(cm_local.get("mes_mnq_divergence_pct"), 0.0),
-                "dxy_level": _coerce_float(cm_local.get("dxy_level"), 100.0),
-                # MES momentum — pull from price_action_profile if available
-                "mes_ret_5m":  _coerce_float((price_action_profile or {}).get("mes_ret_5m"),  0.0),
-                "mes_ret_15m": _coerce_float((price_action_profile or {}).get("mes_ret_15m"), 0.0),
-                "mes_ret_30m": _coerce_float((price_action_profile or {}).get("trend_20bar_pct"), 0.0),
-                "mes_atr_14":  _coerce_float((price_action_profile or {}).get("atr14_pts"),  0.0),
-                "mes_dist_hi20_pct": _coerce_float((price_action_profile or {}).get("dist_to_20bar_hi_pct"), 0.0),
-                "mes_dist_lo20_pct": _coerce_float((price_action_profile or {}).get("dist_to_20bar_lo_pct"), 0.0),
-                "et_hour": _coerce_float((price_action_profile or {}).get("et_hour"), 12.0),
-                "minute_of_hour": _coerce_float((price_action_profile or {}).get("minute_of_hour"), 0.0),
-                "day_of_week": _coerce_float((price_action_profile or {}).get("day_of_week"), 2.0),
-            }
-            side_side = str((signal or {}).get("side") or "").upper()
-            if side_side in ("LONG", "SHORT"):
-                ml_v2_p_direction = _mls.score_cm_breakout_v2(side_side, v2_feats)
-                if ml_v2_p_direction is not None:
-                    ml_v2_would_override = bool(
-                        ml_v2_p_direction >= _mls.cm_breakout_v2_override_threshold()
-                    )
-    except Exception:
-        pass
-    if (
-        entry_blocked
-        and isinstance(cross_market_features, dict)
-        and entry_support_score >= _coerce_float(
-            config.get("cm_override_min_support_score"), 0.15
-        )
-    ):
-        cm = cross_market_features
-        vix = _coerce_float(cm.get("vix_level"), math.nan)
-        mnq_5m = _coerce_float(cm.get("mnq_ret_5min_pct"), 0.0)
-        mnq_corr = _coerce_float(cm.get("mes_mnq_corr_30bar"), 0.0)
-        vix_calm = _coerce_float(config.get("cm_override_vix_calm_threshold"), 20.0)
-        vix_fear = _coerce_float(config.get("cm_override_vix_fear_threshold"), 22.0)
-        mnq_momo = _coerce_float(config.get("cm_override_mnq_momo_pct"), 0.10)
-        min_corr = _coerce_float(config.get("cm_override_min_corr"), 0.30)
-        side_upper = str((signal or {}).get("side") or "").strip().upper()
-        if (
-            side_upper == "LONG"
-            and math.isfinite(vix) and vix < vix_calm
-            and mnq_5m > mnq_momo
-            and mnq_corr >= min_corr
-        ):
-            entry_blocked = False
-            override_reason = (
-                f"cm_breakout_override_long vix={vix:.2f}<{vix_calm:.1f} "
-                f"mnq5m={mnq_5m:+.3f}%>{mnq_momo:.2f}% corr={mnq_corr:.2f}"
-            )
-        elif (
-            side_upper == "SHORT"
-            and math.isfinite(vix) and vix > vix_fear
-            and mnq_5m < -mnq_momo
-            and mnq_corr >= min_corr
-        ):
-            entry_blocked = False
-            override_reason = (
-                f"cm_breakout_override_short vix={vix:.2f}>{vix_fear:.1f} "
-                f"mnq5m={mnq_5m:+.3f}%<-{mnq_momo:.2f}% corr={mnq_corr:.2f}"
-            )
-
-    # ML-gate authoritative path — when active, replace whatever the
-    # hand-tuned rule decided with the ML decision. Safe-guarded the same
-    # way (support floor, role exempt). When shadow (default), the
-    # ml_override_would_fire flag is only informational.
-    #
-    # Priority: v2 direction-specific models (strong AUC) take precedence
-    # over v1 (weak AUC) when both are active.
-    try:
-        import ml_overlay_shadow as _mls
-        if _mls.is_cm_breakout_v2_active() and ml_v2_would_override is not None:
-            entry_blocked_base = bool(
-                role != "background"
-                and (
-                    entry_support_score < (entry_threshold - block_buffer)
-                    or momentum_retention + 1e-9 < retention_floor
-                )
-            )
-            if entry_blocked_base and ml_v2_would_override and \
-                    entry_support_score >= _coerce_float(
-                        config.get("cm_override_min_support_score"), 0.15):
-                entry_blocked = False
-                override_reason = (
-                    f"ml_v2_override_{side_upper.lower() if (side_upper := str((signal or {}).get('side') or '').upper()) else '?'} "
-                    f"p_dir={ml_v2_p_direction:.3f}>="
-                    f"{_mls.cm_breakout_v2_override_threshold():.2f}"
-                )
-            elif not ml_v2_would_override:
-                entry_blocked = entry_blocked_base
-                if override_reason:
-                    override_reason = None
-        elif _mls.is_cm_breakout_gate_active() and ml_override_would_fire is not None:
-            # ML gate authoritative — recompute entry_blocked from the
-            # ORIGINAL hand-tuned block result, then apply ML override
-            # (rather than the hand-tuned override if it fired).
-            entry_blocked_base = bool(
-                role != "background"
-                and (
-                    entry_support_score < (entry_threshold - block_buffer)
-                    or momentum_retention + 1e-9 < retention_floor
-                )
-            )
-            if entry_blocked_base and ml_override_would_fire and \
-                    entry_support_score >= _coerce_float(
-                        config.get("cm_override_min_support_score"), 0.15):
-                entry_blocked = False
-                override_reason = (
-                    f"ml_override p_win={ml_p_win:.3f}>="
-                    f"{_mls.cm_breakout_gate_override_threshold():.2f} "
-                    f"(hand_tuned_would={'fire' if override_reason else 'skip'})"
-                )
-            elif not ml_override_would_fire:
-                # ML says keep blocked; restore the baseline block
-                entry_blocked = entry_blocked_base
-                if override_reason:  # hand-tuned had fired; ML overrules
-                    override_reason = None
-    except Exception:
-        pass
+    if entry_block_exempt:
+        entry_blocked = False
     size_multiplier = 1.0
     if entry_support_score < entry_threshold:
         ratio = _clamp(entry_support_score / max(entry_threshold, 1e-9), 0.0, 1.0)
@@ -928,14 +728,8 @@ def build_trade_plan(
             "momentum_retention": round(float(momentum_retention), 4),
             "entry_support_score": entry_support_score,
             "entry_threshold": float(entry_threshold),
-            "regime_threshold_discount": float(regime_threshold_discount),
-            "regime_label": regime_norm or None,
-            "cross_market_override_reason": override_reason,
-            "cm_gate_ml_p_win": (float(ml_p_win) if ml_p_win is not None else None),
-            "cm_gate_ml_would_override": ml_override_would_fire,
-            "cm_gate_v2_p_direction": (float(ml_v2_p_direction) if ml_v2_p_direction is not None else None),
-            "cm_gate_v2_would_override": ml_v2_would_override,
             "entry_blocked": bool(entry_blocked),
+            "entry_block_exempt": bool(entry_block_exempt),
             "size_multiplier": float(size_multiplier),
             "tp_dist": float(adjusted_tp_dist),
             "target_price": round(float(adjusted_target_price), 2),
