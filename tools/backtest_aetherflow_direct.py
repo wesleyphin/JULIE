@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
 
 from aetherflow_base_cache import (
     DEFAULT_FULL_MANIFOLD_BASE_FEATURES,
+    resolve_full_manifold_base_features_path,
     validate_full_manifold_base_features_path,
 )
 import backtest_mes_et as bt
@@ -23,7 +24,8 @@ from aetherflow_model_bundle import (
     normalize_model_bundle,
     predict_bundle_probabilities,
 )
-from aetherflow_strategy import REGIME_ID_TO_NAME
+from aetherflow_strategy import AetherFlowStrategy, REGIME_ID_TO_NAME, augment_aetherflow_phase_features
+from bot_state import trading_day_start
 from config import CONFIG
 from tools.backtest_regimeadaptive_robust import _write_converted_csv
 
@@ -157,7 +159,40 @@ def _build_signal_frame(
     allow_setups: set[str] | None,
     block_regimes: set[str],
     allowed_session_ids: set[int] | None,
+    use_runtime_policy: bool = False,
 ) -> pd.DataFrame:
+    base = _load_base_features(base_features_path, pd.Timestamp(symbol_df.index.min()), pd.Timestamp(symbol_df.index.max()))
+
+    if use_runtime_policy:
+        runtime_strategy = AetherFlowStrategy()
+        metrics_cfg_path = Path(str(CONFIG.get("AETHERFLOW_STRATEGY", {}).get("metrics_file", runtime_strategy.metrics_path))).expanduser()
+        if not metrics_cfg_path.is_absolute():
+            metrics_cfg_path = ROOT / metrics_cfg_path
+        runtime_strategy.model_path = Path(model_path)
+        runtime_strategy.thresholds_path = Path(thresholds_path)
+        runtime_strategy.metrics_path = metrics_cfg_path
+        runtime_strategy.model = None
+        runtime_strategy.model_bundle = None
+        runtime_strategy.model_loaded = False
+        runtime_strategy._precomputed_df = pd.DataFrame()
+        runtime_strategy._precomputed_lookup = {}
+        runtime_strategy._precomputed_known_timestamps = set()
+        runtime_strategy._load_artifacts()
+        if not runtime_strategy.model_loaded or runtime_strategy.model_bundle is None:
+            raise RuntimeError(f"AetherFlow model failed to load: {model_path}")
+        if threshold_override is not None:
+            runtime_strategy.threshold_override = float(threshold_override)
+            runtime_strategy.threshold = float(threshold_override)
+        if min_confidence_override is not None:
+            runtime_strategy.min_confidence = float(min_confidence_override)
+        if allow_setups:
+            runtime_strategy.allowed_setup_families = set(str(item) for item in allow_setups if str(item).strip())
+        if block_regimes:
+            runtime_strategy.hazard_block_regimes = {str(item).strip().upper() for item in block_regimes if str(item).strip()}
+        if allowed_session_ids and not runtime_strategy.family_policies:
+            runtime_strategy.allowed_session_ids = {int(x) for x in allowed_session_ids}
+        return runtime_strategy.build_backtest_df_from_base_features(base)
+
     bundle, feature_columns, threshold, policy = _load_model_bundle(model_path, thresholds_path)
     effective_threshold = float(threshold_override if threshold_override is not None else threshold)
     if min_confidence_override is not None:
@@ -175,13 +210,13 @@ def _build_signal_frame(
             if str(item).strip()
         }
 
-    base = _load_base_features(base_features_path, pd.Timestamp(symbol_df.index.min()), pd.Timestamp(symbol_df.index.max()))
     features = build_feature_frame(
         base_features=base,
         preferred_setup_families=allow_setups,
     )
     if features.empty:
         return pd.DataFrame()
+    features = augment_aetherflow_phase_features(features)
 
     if allowed_session_ids:
         sess = pd.to_numeric(features.get("session_id"), errors="coerce").fillna(-999).round().astype(int)
@@ -203,6 +238,185 @@ def _build_signal_frame(
     return features
 
 
+def _normalize_aetherflow_risk_governor(raw_cfg: dict | None) -> dict:
+    cfg = raw_cfg if isinstance(raw_cfg, dict) else {}
+
+    def _float_or(default: float, value) -> float:
+        try:
+            out = float(value)
+        except Exception:
+            return float(default)
+        return float(out) if math.isfinite(out) else float(default)
+
+    def _int_or(default: int, value) -> int:
+        try:
+            return int(round(float(value)))
+        except Exception:
+            return int(default)
+
+    return {
+        "enabled": bool(cfg.get("enabled", False)),
+        "daily_loss_stop_usd": max(0.0, _float_or(0.0, cfg.get("daily_loss_stop_usd", 0.0))),
+        "min_loss_trades": max(0, _int_or(0, cfg.get("min_loss_trades", 0))),
+        "block_new_entries_rest_of_day": bool(cfg.get("block_new_entries_rest_of_day", True)),
+    }
+
+
+def _resolve_aetherflow_signal_size(signal: dict | None) -> tuple[int, float]:
+    base_size = max(1, int(CONFIG.get("AETHERFLOW_STRATEGY", {}).get("size", 5) or 5))
+    if not isinstance(signal, dict):
+        return int(base_size), 1.0
+    try:
+        raw_multiplier = float(
+            signal.get(
+                "aetherflow_size_multiplier",
+                signal.get("size_multiplier", 1.0),
+            )
+            or 1.0
+        )
+    except Exception:
+        raw_multiplier = 1.0
+    if not math.isfinite(raw_multiplier) or raw_multiplier <= 0.0:
+        raw_multiplier = 1.0
+    target_size = int(round(float(base_size) * float(raw_multiplier)))
+    return max(1, target_size), float(raw_multiplier)
+
+
+def _aetherflow_trade_day_key(ts: pd.Timestamp) -> pd.Timestamp:
+    dt_value = ts.to_pydatetime() if isinstance(ts, pd.Timestamp) else pd.Timestamp(ts).to_pydatetime()
+    return pd.Timestamp(trading_day_start(dt_value))
+
+
+def _aetherflow_backtest_execution_cfg() -> dict:
+    cfg = dict(CONFIG.get("BACKTEST_EXECUTION", {}) or {})
+    af_cfg = CONFIG.get("AETHERFLOW_STRATEGY", {}) or {}
+    override = af_cfg.get("direct_backtest_execution", {})
+    if isinstance(override, dict):
+        cfg.update(override)
+    return cfg
+
+
+def _normalize_aetherflow_drawdown_size_scaling(raw_cfg: dict | None = None) -> dict:
+    af_cfg = CONFIG.get("AETHERFLOW_STRATEGY", {}) or {}
+    if isinstance(raw_cfg, dict):
+        cfg = dict(raw_cfg)
+        source = "override"
+    elif isinstance(af_cfg.get("drawdown_size_scaling"), dict):
+        cfg = dict(af_cfg.get("drawdown_size_scaling") or {})
+        source = "aetherflow_strategy"
+    else:
+        exec_cfg = CONFIG.get("BACKTEST_EXECUTION", {}) or {}
+        cfg = {
+            "enabled": exec_cfg.get("drawdown_size_scaling_enabled", False),
+            "start_usd": exec_cfg.get("drawdown_size_scaling_start_usd", 0.0),
+            "max_usd": exec_cfg.get("drawdown_size_scaling_max_usd", 0.0),
+            "base_contracts": exec_cfg.get("drawdown_size_scaling_base_contracts", af_cfg.get("size", 5)),
+            "min_contracts": exec_cfg.get("drawdown_size_scaling_min_contracts", 1),
+        }
+        source = "backtest_execution"
+
+    def _float_or(default: float, value) -> float:
+        try:
+            out = float(value)
+        except Exception:
+            return float(default)
+        return float(out) if math.isfinite(out) else float(default)
+
+    def _int_or(default: int, value) -> int:
+        try:
+            return int(round(float(value)))
+        except Exception:
+            return int(default)
+
+    start_usd = max(0.0, _float_or(0.0, cfg.get("start_usd", cfg.get("drawdown_size_scaling_start_usd", 0.0))))
+    max_usd = max(
+        start_usd,
+        _float_or(start_usd, cfg.get("max_usd", cfg.get("drawdown_size_scaling_max_usd", start_usd))),
+    )
+    base_contracts = max(
+        1,
+        _int_or(
+            int(af_cfg.get("size", 5) or 5),
+            cfg.get("base_contracts", cfg.get("drawdown_size_scaling_base_contracts", af_cfg.get("size", 5))),
+        ),
+    )
+    min_contracts = max(
+        1,
+        _int_or(1, cfg.get("min_contracts", cfg.get("drawdown_size_scaling_min_contracts", 1))),
+    )
+    if min_contracts > base_contracts:
+        min_contracts = int(base_contracts)
+    return {
+        "enabled": bool(cfg.get("enabled", cfg.get("drawdown_size_scaling_enabled", False))),
+        "start_usd": float(start_usd),
+        "max_usd": float(max_usd),
+        "base_contracts": int(base_contracts),
+        "min_contracts": int(min_contracts),
+        "source": source,
+    }
+
+
+def _apply_aetherflow_drawdown_size_cap(
+    requested_size: int,
+    current_realized_dd: float,
+    scaling_cfg: dict | None,
+) -> tuple[int, dict]:
+    cfg = scaling_cfg if isinstance(scaling_cfg, dict) else _normalize_aetherflow_drawdown_size_scaling()
+    requested = max(1, int(requested_size))
+    start_usd = max(0.0, float(cfg.get("start_usd", 0.0) or 0.0))
+    max_usd = max(start_usd, float(cfg.get("max_usd", start_usd) or start_usd))
+    configured_base_contracts = max(1, int(cfg.get("base_contracts", requested) or requested))
+    base_contracts = max(1, int(max(requested, configured_base_contracts)))
+    min_contracts = max(1, int(cfg.get("min_contracts", 1) or 1))
+    if min_contracts > base_contracts:
+        min_contracts = int(base_contracts)
+    realized_dd = max(0.0, float(current_realized_dd or 0.0))
+
+    diagnostics = {
+        "drawdown_size_scaling_enabled": bool(cfg.get("enabled", False)),
+        "drawdown_size_source": str(cfg.get("source", "") or ""),
+        "drawdown_size_realized_dd_usd": float(realized_dd),
+        "drawdown_size_progress": 0.0,
+        "drawdown_size_cap": int(base_contracts),
+        "drawdown_size_requested": int(requested),
+        "drawdown_size_applied": False,
+        "drawdown_size_step_usd": 0.0,
+        "drawdown_size_base_contracts": int(base_contracts),
+        "drawdown_size_min_contracts": int(min_contracts),
+    }
+    if not bool(cfg.get("enabled", False)) or max_usd <= start_usd or base_contracts <= min_contracts:
+        diagnostics["drawdown_size_scaling_enabled"] = False
+        return int(requested), diagnostics
+
+    contract_range = max(1, int(base_contracts) - int(min_contracts))
+    span_usd = max(1e-9, float(max_usd) - float(start_usd))
+    step_usd = span_usd / float(contract_range)
+    if realized_dd <= start_usd:
+        dd_progress = 0.0
+        drawdown_size_cap = int(base_contracts)
+    elif realized_dd >= max_usd:
+        dd_progress = 1.0
+        drawdown_size_cap = int(min_contracts)
+    else:
+        dd_above = realized_dd - start_usd
+        dd_progress = min(1.0, dd_above / span_usd)
+        bucket = int(dd_above / step_usd)
+        bucket = max(0, min(int(contract_range), int(bucket)))
+        drawdown_size_cap = max(int(min_contracts), int(base_contracts) - int(bucket))
+
+    applied_size = min(int(requested), int(drawdown_size_cap), int(base_contracts))
+    applied_size = max(int(min_contracts), int(applied_size))
+    diagnostics.update(
+        {
+            "drawdown_size_progress": float(dd_progress),
+            "drawdown_size_cap": int(drawdown_size_cap),
+            "drawdown_size_applied": bool(applied_size < requested),
+            "drawdown_size_step_usd": float(step_usd),
+        }
+    )
+    return int(applied_size), diagnostics
+
+
 def _simulate_single_position(
     *,
     df: pd.DataFrame,
@@ -210,12 +424,15 @@ def _simulate_single_position(
     start_time: pd.Timestamp,
     end_time: pd.Timestamp,
     use_horizon_time_stop: bool,
+    risk_governor_override: dict | None = None,
 ) -> dict:
-    exec_cfg = CONFIG.get("BACKTEST_EXECUTION", {}) or {}
+    exec_cfg = _aetherflow_backtest_execution_cfg()
     gap_fills = bool(exec_cfg.get("gap_fills", True))
     no_entry_window = bool(exec_cfg.get("enforce_no_new_entries_window", True))
     no_entry_start = int(exec_cfg.get("no_new_entries_start_hour_et", 16) or 16)
+    no_entry_start_minute = int(exec_cfg.get("no_new_entries_start_minute_et", 0) or 0)
     no_entry_end = int(exec_cfg.get("no_new_entries_end_hour_et", 18) or 18)
+    no_entry_end_minute = int(exec_cfg.get("no_new_entries_end_minute_et", 0) or 0)
     force_flat_enabled = bool(exec_cfg.get("force_flat_at_time", True))
     force_flat_hour = int(exec_cfg.get("force_flat_hour_et", 16) or 16)
     force_flat_minute = int(exec_cfg.get("force_flat_minute_et", 0) or 0)
@@ -225,6 +442,11 @@ def _simulate_single_position(
     fees_per_side = float(risk_cfg.get("FEES_PER_SIDE", 2.5) or 2.5)
     fee_per_contract_rt = fees_per_side * 2.0
     tick_size = float(getattr(bt, "TICK_SIZE", 0.25) or 0.25)
+    aetherflow_cfg = CONFIG.get("AETHERFLOW_STRATEGY", {}) or {}
+    drawdown_size_cfg = _normalize_aetherflow_drawdown_size_scaling()
+    risk_governor_cfg = _normalize_aetherflow_risk_governor(
+        risk_governor_override if isinstance(risk_governor_override, dict) and risk_governor_override else aetherflow_cfg.get("risk_governor", {})
+    )
 
     index = pd.DatetimeIndex(df.index)
     opens = df["open"].to_numpy(dtype=float)
@@ -260,10 +482,23 @@ def _simulate_single_position(
     break_even_armed_trade_count = 0
     break_even_stop_update_count = 0
     early_exit_close_count = 0
+    risk_governor_blocked_days: set[str] = set()
+    risk_governor_blocked_signals = 0
+    risk_governor_state = {
+        "trade_day": None,
+        "realized_pnl": 0.0,
+        "loss_trades": 0,
+        "blocked": False,
+        "blocked_reason": "",
+        "blocked_at": None,
+    }
 
     active = False
     pending_entry = None
     active_trade: dict = {}
+
+    no_entry_start_total = (int(no_entry_start) * 60) + int(no_entry_start_minute)
+    no_entry_end_total = (int(no_entry_end) * 60) + int(no_entry_end_minute)
 
     def _coerce_float(value, default: float = 0.0) -> float:
         try:
@@ -293,6 +528,35 @@ def _simulate_single_position(
                 return False
         return bool(value)
 
+    def _ensure_risk_governor_day(ts: pd.Timestamp) -> None:
+        trade_day = _aetherflow_trade_day_key(pd.Timestamp(ts))
+        if risk_governor_state["trade_day"] == trade_day:
+            return
+        risk_governor_state["trade_day"] = trade_day
+        risk_governor_state["realized_pnl"] = 0.0
+        risk_governor_state["loss_trades"] = 0
+        risk_governor_state["blocked"] = False
+        risk_governor_state["blocked_reason"] = ""
+        risk_governor_state["blocked_at"] = None
+
+    def _risk_governor_blocks_new_entries(ts: pd.Timestamp) -> bool:
+        _ensure_risk_governor_day(ts)
+        return bool(
+            risk_governor_cfg.get("enabled", False)
+            and risk_governor_cfg.get("block_new_entries_rest_of_day", True)
+            and risk_governor_state.get("blocked", False)
+        )
+
+    def _minute_window_blocked(current_hour: int, current_minute: int) -> bool:
+        if not no_entry_window:
+            return False
+        current_total = (int(current_hour) * 60) + int(current_minute)
+        if no_entry_start_total == no_entry_end_total:
+            return False
+        if no_entry_start_total < no_entry_end_total:
+            return bool(no_entry_start_total <= current_total < no_entry_end_total)
+        return bool(current_total >= no_entry_start_total or current_total < no_entry_end_total)
+
     def close_trade(exit_price: float, exit_time: pd.Timestamp, reason: str, exit_bar_index: int) -> None:
         nonlocal active, pending_entry, active_trade, equity, peak, max_drawdown, wins, losses, trades, gross_profit, gross_loss, early_exit_close_count
         pnl_points = (
@@ -313,6 +577,21 @@ def _simulate_single_position(
         trades += 1
         if str(reason) == "early_exit":
             early_exit_close_count += 1
+        _ensure_risk_governor_day(exit_time)
+        risk_governor_state["realized_pnl"] = float(risk_governor_state.get("realized_pnl", 0.0) or 0.0) + float(pnl_net)
+        if pnl_net < 0.0:
+            risk_governor_state["loss_trades"] = int(risk_governor_state.get("loss_trades", 0) or 0) + 1
+        if (
+            bool(risk_governor_cfg.get("enabled", False))
+            and not bool(risk_governor_state.get("blocked", False))
+            and float(risk_governor_cfg.get("daily_loss_stop_usd", 0.0) or 0.0) > 0.0
+            and float(risk_governor_state.get("realized_pnl", 0.0) or 0.0) <= -float(risk_governor_cfg.get("daily_loss_stop_usd", 0.0) or 0.0)
+            and int(risk_governor_state.get("loss_trades", 0) or 0) >= int(risk_governor_cfg.get("min_loss_trades", 0) or 0)
+        ):
+            risk_governor_state["blocked"] = True
+            risk_governor_state["blocked_reason"] = f"daily_loss_stop_{int(round(float(risk_governor_cfg.get('daily_loss_stop_usd', 0.0) or 0.0)))}"
+            risk_governor_state["blocked_at"] = pd.Timestamp(exit_time)
+            risk_governor_blocked_days.add(str(pd.Timestamp(risk_governor_state["trade_day"]).date()))
         exit_reason_counts[reason] = exit_reason_counts.get(reason, 0) + 1
         session_counts[active_trade["session"]] = session_counts.get(active_trade["session"], 0) + 1
         trade_log.append(
@@ -346,6 +625,15 @@ def _simulate_single_position(
                 "aetherflow_use_horizon_time_stop": bool(active_trade.get("use_horizon_time_stop", False)),
                 "aetherflow_entry_mode": str(active_trade.get("entry_mode", "") or ""),
                 "aetherflow_entry_intrabar_fill": bool(active_trade.get("entry_intrabar_fill", False)),
+                "aetherflow_size_multiplier": float(active_trade.get("size_multiplier", 1.0) or 1.0),
+                "drawdown_size_scaling_enabled": bool(active_trade.get("drawdown_size_scaling_enabled", False)),
+                "drawdown_size_source": str(active_trade.get("drawdown_size_source", "") or ""),
+                "drawdown_size_realized_dd_usd": float(active_trade.get("drawdown_size_realized_dd_usd", 0.0) or 0.0),
+                "drawdown_size_progress": float(active_trade.get("drawdown_size_progress", 0.0) or 0.0),
+                "drawdown_size_cap": int(active_trade.get("drawdown_size_cap", active_trade.get("size", 0)) or 0),
+                "drawdown_size_requested": int(active_trade.get("drawdown_size_requested", active_trade.get("requested_size", active_trade.get("size", 0))) or 0),
+                "drawdown_size_applied": bool(active_trade.get("drawdown_size_applied", False)),
+                "drawdown_size_step_usd": float(active_trade.get("drawdown_size_step_usd", 0.0) or 0.0),
                 "aetherflow_break_even_enabled": bool(active_trade.get("break_even_enabled", False)),
                 "aetherflow_break_even_applied": bool(active_trade.get("break_even_applied", False)),
                 "aetherflow_break_even_move_count": int(active_trade.get("break_even_move_count", 0) or 0),
@@ -518,6 +806,12 @@ def _simulate_single_position(
         nonlocal active, pending_entry, active_trade
         side_num = _coerce_int(signal.get("candidate_side", 0), 0)
         if side_num == 0:
+            raw_side = str(signal.get("side", "") or "").strip().upper()
+            if raw_side == "LONG":
+                side_num = 1
+            elif raw_side == "SHORT":
+                side_num = -1
+        if side_num == 0:
             pending_entry = None
             return
         atr14 = max(_coerce_float(signal.get("atr14", 1.0), 1.0), 1e-9)
@@ -525,11 +819,29 @@ def _simulate_single_position(
         setup_tp_mult = _coerce_float(signal.get("setup_tp_mult", 2.0), 2.0)
         sl_mult = _coerce_float(signal.get("sl_mult_override", setup_sl_mult), setup_sl_mult)
         tp_mult = _coerce_float(signal.get("tp_mult_override", setup_tp_mult), setup_tp_mult)
-        sl_dist = float(np.clip(sl_mult * atr14, 1.0, 8.0))
-        tp_dist = float(np.clip(tp_mult * atr14, max(sl_dist * 1.2, 1.5), 16.0))
+        signal_sl_dist = _coerce_float(signal.get("sl_dist", math.nan), math.nan)
+        if math.isfinite(signal_sl_dist) and signal_sl_dist > 0.0:
+            sl_dist = float(signal_sl_dist)
+        else:
+            sl_dist = float(np.clip(sl_mult * atr14, 1.0, 8.0))
+        signal_tp_dist = _coerce_float(signal.get("tp_dist", math.nan), math.nan)
+        if math.isfinite(signal_tp_dist) and signal_tp_dist > 0.0:
+            tp_dist = float(signal_tp_dist)
+        else:
+            tp_dist = float(np.clip(tp_mult * atr14, max(sl_dist * 1.2, 1.5), 16.0))
         current_stop_price = float(entry_price) - sl_dist if side_num > 0 else float(entry_price) + sl_dist
+        resolved_size, size_multiplier = _resolve_aetherflow_signal_size(signal)
+        requested_size = int(resolved_size)
+        resolved_size, drawdown_size_diag = _apply_aetherflow_drawdown_size_cap(
+            requested_size,
+            max(0.0, float(peak) - float(equity)),
+            drawdown_size_cfg,
+        )
         horizon_bars = _coerce_int(
-            signal.get("horizon_bars_override", signal.get("setup_horizon_bars", 0.0)),
+            signal.get(
+                "horizon_bars_override",
+                signal.get("horizon_bars", signal.get("setup_horizon_bars", 0.0)),
+            ),
             0,
         )
         active_trade = {
@@ -542,13 +854,16 @@ def _simulate_single_position(
             "tp_dist": tp_dist,
             "sl_mult": float(sl_mult),
             "tp_mult": float(tp_mult),
-            "size": int(CONFIG.get("AETHERFLOW_STRATEGY", {}).get("size", 5) or 5),
+            "size": int(resolved_size),
+            "requested_size": int(requested_size),
+            "size_multiplier": float(size_multiplier),
+            **drawdown_size_diag,
             "bars_held": 0,
             "mfe_points": 0.0,
             "mae_points": 0.0,
-            "setup_family": str(signal.get("setup_family", "") or ""),
-            "confidence": _coerce_float(signal.get("aetherflow_confidence", 0.0), 0.0),
-            "regime_name": str(signal.get("manifold_regime_name", "") or ""),
+            "setup_family": str(signal.get("setup_family", signal.get("aetherflow_setup_family", "")) or ""),
+            "confidence": _coerce_float(signal.get("confidence", signal.get("aetherflow_confidence", 0.0)), 0.0),
+            "regime_name": str(signal.get("manifold_regime_name", signal.get("aetherflow_regime", "")) or ""),
             "session": _session_name(entry_time),
             "horizon_bars": horizon_bars,
             "use_horizon_time_stop": _coerce_bool(signal.get("use_horizon_time_stop", use_horizon_time_stop), bool(use_horizon_time_stop)),
@@ -581,11 +896,11 @@ def _simulate_single_position(
         bar_low = float(lows[i])
         bar_close = float(closes[i])
         holiday_closed_now = bool(holiday_flat_arr[i])
-        entry_window_blocked = bool(no_entry_window and (hours[i] >= no_entry_start) and (hours[i] < no_entry_end))
+        entry_window_blocked = _minute_window_blocked(hours[i], minutes[i])
         force_flat_now = bool(force_flat_enabled and hours[i] == force_flat_hour and minutes[i] >= force_flat_minute)
 
         if pending_entry is not None and not active:
-            if holiday_closed_now or entry_window_blocked:
+            if holiday_closed_now or entry_window_blocked or _risk_governor_blocks_new_entries(ts):
                 pending_entry = None
             else:
                 signal_bar_index = _coerce_int(pending_entry.get("_signal_bar_index", i - 1), i - 1)
@@ -721,6 +1036,11 @@ def _simulate_single_position(
             continue
         if holiday_closed_now or entry_window_blocked or i >= (len(df) - 1):
             continue
+        if _risk_governor_blocks_new_entries(ts):
+            signal = signal_lookup.get(int(ts.value))
+            if signal is not None:
+                risk_governor_blocked_signals += 1
+            continue
 
         signal = signal_lookup.get(int(ts.value))
         if signal is None:
@@ -765,11 +1085,17 @@ def _simulate_single_position(
         "force_flat_enabled": bool(force_flat_enabled),
         "force_flat_time_et": f"{force_flat_hour:02d}:{force_flat_minute:02d}",
         "bar_minutes": 1,
-        "drawdown_size_scaling_enabled": False,
-        "drawdown_size_scaling_start_usd": 0.0,
-        "drawdown_size_scaling_max_usd": 0.0,
-        "drawdown_size_scaling_base_contracts": int(CONFIG.get("AETHERFLOW_STRATEGY", {}).get("size", 5) or 5),
-        "drawdown_size_scaling_min_contracts": int(CONFIG.get("AETHERFLOW_STRATEGY", {}).get("size", 5) or 5),
+        "drawdown_size_scaling_enabled": bool(drawdown_size_cfg.get("enabled", False)),
+        "drawdown_size_scaling_source": str(drawdown_size_cfg.get("source", "") or ""),
+        "drawdown_size_scaling_start_usd": float(drawdown_size_cfg.get("start_usd", 0.0) or 0.0),
+        "drawdown_size_scaling_max_usd": float(drawdown_size_cfg.get("max_usd", 0.0) or 0.0),
+        "drawdown_size_scaling_base_contracts": int(drawdown_size_cfg.get("base_contracts", 0) or 0),
+        "drawdown_size_scaling_min_contracts": int(drawdown_size_cfg.get("min_contracts", 0) or 0),
+        "aetherflow_risk_governor_enabled": bool(risk_governor_cfg.get("enabled", False)),
+        "aetherflow_risk_governor_daily_loss_stop_usd": float(risk_governor_cfg.get("daily_loss_stop_usd", 0.0) or 0.0),
+        "aetherflow_risk_governor_min_loss_trades": int(risk_governor_cfg.get("min_loss_trades", 0) or 0),
+        "aetherflow_risk_governor_blocked_days": int(len(risk_governor_blocked_days)),
+        "aetherflow_risk_governor_blocked_signals": int(risk_governor_blocked_signals),
         "break_even_armed_trades": int(break_even_armed_trade_count),
         "break_even_stop_updates": int(break_even_stop_update_count),
         "early_exit_closes": int(early_exit_close_count),
@@ -788,6 +1114,7 @@ def _simulate(
     use_horizon_time_stop: bool,
     allow_same_side_add_ons: bool = False,
     max_same_side_legs: int = 1,
+    risk_governor_override: dict | None = None,
 ) -> dict:
     if bool(allow_same_side_add_ons) and int(max_same_side_legs) > 1:
         from tools.backtest_aetherflow_multi_leg import simulate_same_side_add_ons
@@ -799,6 +1126,7 @@ def _simulate(
             end_time=end_time,
             use_horizon_time_stop=use_horizon_time_stop,
             max_same_side_legs=int(max_same_side_legs),
+            risk_governor_override=risk_governor_override,
         )
     return _simulate_single_position(
         df=df,
@@ -806,6 +1134,7 @@ def _simulate(
         start_time=start_time,
         end_time=end_time,
         use_horizon_time_stop=use_horizon_time_stop,
+        risk_governor_override=risk_governor_override,
     )
 
 
@@ -822,11 +1151,22 @@ def _converted_trade_log_for_montecarlo(trade_log: list[dict], gate_threshold: f
 
 
 def main() -> None:
+    configured_aetherflow_cfg = dict(CONFIG.get("AETHERFLOW_STRATEGY", {}) or {})
     parser = argparse.ArgumentParser(description="Direct AetherFlow backtest using cached manifold features and setup horizons.")
     parser.add_argument("--source", default=bt.DEFAULT_CSV_NAME)
-    parser.add_argument("--base-features", default=DEFAULT_FULL_MANIFOLD_BASE_FEATURES)
-    parser.add_argument("--model-file", default="model_aetherflow_fullrange_v2.pkl")
-    parser.add_argument("--thresholds-file", default="aetherflow_thresholds_fullrange_v2.json")
+    parser.add_argument(
+        "--base-features",
+        default=str(configured_aetherflow_cfg.get("backtest_base_features_file", DEFAULT_FULL_MANIFOLD_BASE_FEATURES) or DEFAULT_FULL_MANIFOLD_BASE_FEATURES),
+        help="Full precomputed manifold base cache. Defaults to the canonical promoted AF full-range manifold cache.",
+    )
+    parser.add_argument(
+        "--model-file",
+        default=str(configured_aetherflow_cfg.get("model_file", "model_aetherflow_fullrange_v2.pkl") or "model_aetherflow_fullrange_v2.pkl"),
+    )
+    parser.add_argument(
+        "--thresholds-file",
+        default=str(configured_aetherflow_cfg.get("thresholds_file", "aetherflow_thresholds_fullrange_v2.json") or "aetherflow_thresholds_fullrange_v2.json"),
+    )
     parser.add_argument("--start", required=True)
     parser.add_argument("--end", required=True)
     parser.add_argument("--symbol-mode", default=str(bt.CONFIG.get("BACKTEST_SYMBOL_MODE", "single") or "single"))
@@ -838,6 +1178,8 @@ def main() -> None:
     parser.add_argument("--allow-setup", action="append", default=None)
     parser.add_argument("--block-regime", action="append", default=None)
     parser.add_argument("--use-horizon-time-stop", action="store_true")
+    parser.add_argument("--allow-same-side-add-ons", action="store_true")
+    parser.add_argument("--max-same-side-legs", type=int, default=1)
     args = parser.parse_args()
 
     source_path = _resolve_source(args.source)
@@ -864,7 +1206,12 @@ def main() -> None:
             for x in (CONFIG.get("AETHERFLOW_STRATEGY", {}).get("hazard_block_regimes", []) or [])
             if str(x).strip()
         }
-    allowed_session_ids = {1, 2, 3}
+    configured_allowed_session_ids = configured_aetherflow_cfg.get("allowed_session_ids")
+    allowed_session_ids = (
+        {int(x) for x in (configured_allowed_session_ids or [])}
+        if configured_allowed_session_ids
+        else None
+    )
 
     configured_threshold_override = CONFIG.get("AETHERFLOW_STRATEGY", {}).get("threshold_override", None)
     try:
@@ -886,23 +1233,40 @@ def main() -> None:
         if threshold_override is not None
         else float(max(configured_min_conf, args.min_confidence_override if args.min_confidence_override is not None else 0.0))
     )
+    configured_model_path = (ROOT / str(configured_aetherflow_cfg.get("model_file", ""))).resolve()
+    configured_thresholds_path = (ROOT / str(configured_aetherflow_cfg.get("thresholds_file", ""))).resolve()
+    selected_model_path = (ROOT / str(args.model_file)).resolve()
+    selected_thresholds_path = (ROOT / str(args.thresholds_file)).resolve()
+    use_runtime_policy = bool(
+        selected_model_path == configured_model_path
+        and selected_thresholds_path == configured_thresholds_path
+        and args.threshold_override is None
+        and args.min_confidence_override is None
+        and not args.allow_setup
+        and not args.block_regime
+    )
     signals = _build_signal_frame(
         symbol_df=symbol_df,
-        base_features_path=ROOT / str(args.base_features),
-        model_path=ROOT / str(args.model_file),
-        thresholds_path=ROOT / str(args.thresholds_file),
+        base_features_path=resolve_full_manifold_base_features_path(args.base_features),
+        model_path=selected_model_path,
+        thresholds_path=selected_thresholds_path,
         threshold_override=threshold_override,
         min_confidence_override=effective_threshold,
         allow_setups=allow_setups or None,
         block_regimes=block_regimes,
         allowed_session_ids=allowed_session_ids,
+        use_runtime_policy=use_runtime_policy,
     )
+    if isinstance(signals, pd.DataFrame) and not signals.empty:
+        signals = signals.loc[(signals.index >= start_time) & (signals.index <= end_time)].copy()
     stats = _simulate(
         df=symbol_df,
         signals=signals,
         start_time=start_time,
         end_time=end_time,
         use_horizon_time_stop=bool(args.use_horizon_time_stop),
+        allow_same_side_add_ons=bool(args.allow_same_side_add_ons),
+        max_same_side_legs=int(args.max_same_side_legs),
     )
     stats["symbol_mode"] = str(args.symbol_mode or "").strip().lower()
     stats["symbol_distribution"] = symbol_distribution
@@ -919,6 +1283,7 @@ def main() -> None:
     print(f"symbol={symbol}")
     print("selected_strategies=['AetherFlowStrategy']")
     print("selected_filters=[]")
+    print(f"policy_mode={'runtime_config' if use_runtime_policy else 'threshold_only'}")
     print(f"equity={stats.get('equity')}")
     print(f"trades={stats.get('trades')}")
     print(f"winrate={stats.get('winrate')}")

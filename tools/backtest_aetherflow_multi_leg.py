@@ -5,6 +5,14 @@ import pandas as pd
 
 import backtest_mes_et as bt
 from config import CONFIG
+from tools.backtest_aetherflow_direct import (
+    _aetherflow_backtest_execution_cfg,
+    _aetherflow_trade_day_key,
+    _apply_aetherflow_drawdown_size_cap,
+    _normalize_aetherflow_risk_governor,
+    _normalize_aetherflow_drawdown_size_scaling,
+    _resolve_aetherflow_signal_size,
+)
 
 
 def _session_name(ts: pd.Timestamp) -> str:
@@ -28,12 +36,15 @@ def simulate_same_side_add_ons(
     end_time: pd.Timestamp,
     use_horizon_time_stop: bool,
     max_same_side_legs: int,
+    risk_governor_override: dict | None = None,
 ) -> dict:
-    exec_cfg = CONFIG.get("BACKTEST_EXECUTION", {}) or {}
+    exec_cfg = _aetherflow_backtest_execution_cfg()
     gap_fills = bool(exec_cfg.get("gap_fills", True))
     no_entry_window = bool(exec_cfg.get("enforce_no_new_entries_window", True))
     no_entry_start = int(exec_cfg.get("no_new_entries_start_hour_et", 16) or 16)
+    no_entry_start_minute = int(exec_cfg.get("no_new_entries_start_minute_et", 0) or 0)
     no_entry_end = int(exec_cfg.get("no_new_entries_end_hour_et", 18) or 18)
+    no_entry_end_minute = int(exec_cfg.get("no_new_entries_end_minute_et", 0) or 0)
     force_flat_enabled = bool(exec_cfg.get("force_flat_at_time", True))
     force_flat_hour = int(exec_cfg.get("force_flat_hour_et", 16) or 16)
     force_flat_minute = int(exec_cfg.get("force_flat_minute_et", 0) or 0)
@@ -43,6 +54,13 @@ def simulate_same_side_add_ons(
     fees_per_side = float(risk_cfg.get("FEES_PER_SIDE", 2.5) or 2.5)
     fee_per_contract_rt = fees_per_side * 2.0
     tick_size = float(getattr(bt, "TICK_SIZE", 0.25) or 0.25)
+    aetherflow_cfg = CONFIG.get("AETHERFLOW_STRATEGY", {}) or {}
+    drawdown_size_cfg = _normalize_aetherflow_drawdown_size_scaling()
+    risk_governor_cfg = _normalize_aetherflow_risk_governor(
+        risk_governor_override if isinstance(risk_governor_override, dict) and risk_governor_override else aetherflow_cfg.get("risk_governor", {})
+    )
+    no_entry_start_total = (int(no_entry_start) * 60) + int(no_entry_start_minute)
+    no_entry_end_total = (int(no_entry_end) * 60) + int(no_entry_end_minute)
     max_same_side_legs = max(1, int(max_same_side_legs))
 
     index = pd.DatetimeIndex(df.index)
@@ -100,6 +118,16 @@ def simulate_same_side_add_ons(
     break_even_armed_trade_count = 0
     break_even_stop_update_count = 0
     early_exit_close_count = 0
+    risk_governor_blocked_days: set[str] = set()
+    risk_governor_blocked_signals = 0
+    risk_governor_state = {
+        "trade_day": None,
+        "realized_pnl": 0.0,
+        "loss_trades": 0,
+        "blocked": False,
+        "blocked_reason": "",
+        "blocked_at": None,
+    }
     same_side_addon_entries = 0
     suppressed_due_to_position_limit = 0
     suppressed_due_to_opposite_side_conflict = 0
@@ -132,6 +160,35 @@ def simulate_same_side_add_ons(
             if text in {"0", "false", "no", "off", ""}:
                 return False
         return bool(value)
+
+    def _ensure_risk_governor_day(ts: pd.Timestamp) -> None:
+        trade_day = _aetherflow_trade_day_key(pd.Timestamp(ts))
+        if risk_governor_state["trade_day"] == trade_day:
+            return
+        risk_governor_state["trade_day"] = trade_day
+        risk_governor_state["realized_pnl"] = 0.0
+        risk_governor_state["loss_trades"] = 0
+        risk_governor_state["blocked"] = False
+        risk_governor_state["blocked_reason"] = ""
+        risk_governor_state["blocked_at"] = None
+
+    def _risk_governor_blocks_new_entries(ts: pd.Timestamp) -> bool:
+        _ensure_risk_governor_day(ts)
+        return bool(
+            risk_governor_cfg.get("enabled", False)
+            and risk_governor_cfg.get("block_new_entries_rest_of_day", True)
+            and risk_governor_state.get("blocked", False)
+        )
+
+    def _minute_window_blocked(current_hour: int, current_minute: int) -> bool:
+        if not no_entry_window:
+            return False
+        current_total = (int(current_hour) * 60) + int(current_minute)
+        if no_entry_start_total == no_entry_end_total:
+            return False
+        if no_entry_start_total < no_entry_end_total:
+            return bool(no_entry_start_total <= current_total < no_entry_end_total)
+        return bool(current_total >= no_entry_start_total or current_total < no_entry_end_total)
 
     def align_stop_price_to_tick(price: float, side_num: int) -> float:
         if not math.isfinite(price) or tick_size <= 0.0:
@@ -172,6 +229,21 @@ def simulate_same_side_add_ons(
         trades += 1
         if str(reason) == "early_exit":
             early_exit_close_count += 1
+        _ensure_risk_governor_day(exit_time)
+        risk_governor_state["realized_pnl"] = float(risk_governor_state.get("realized_pnl", 0.0) or 0.0) + float(pnl_net)
+        if pnl_net < 0.0:
+            risk_governor_state["loss_trades"] = int(risk_governor_state.get("loss_trades", 0) or 0) + 1
+        if (
+            bool(risk_governor_cfg.get("enabled", False))
+            and not bool(risk_governor_state.get("blocked", False))
+            and float(risk_governor_cfg.get("daily_loss_stop_usd", 0.0) or 0.0) > 0.0
+            and float(risk_governor_state.get("realized_pnl", 0.0) or 0.0) <= -float(risk_governor_cfg.get("daily_loss_stop_usd", 0.0) or 0.0)
+            and int(risk_governor_state.get("loss_trades", 0) or 0) >= int(risk_governor_cfg.get("min_loss_trades", 0) or 0)
+        ):
+            risk_governor_state["blocked"] = True
+            risk_governor_state["blocked_reason"] = f"daily_loss_stop_{int(round(float(risk_governor_cfg.get('daily_loss_stop_usd', 0.0) or 0.0)))}"
+            risk_governor_state["blocked_at"] = pd.Timestamp(exit_time)
+            risk_governor_blocked_days.add(str(pd.Timestamp(risk_governor_state["trade_day"]).date()))
         exit_reason_counts[reason] = exit_reason_counts.get(reason, 0) + 1
         session_counts[trade["session"]] = session_counts.get(trade["session"], 0) + 1
         trade_log.append(
@@ -205,6 +277,15 @@ def simulate_same_side_add_ons(
                 "aetherflow_use_horizon_time_stop": bool(trade.get("use_horizon_time_stop", False)),
                 "aetherflow_entry_mode": str(trade.get("entry_mode", "") or ""),
                 "aetherflow_entry_intrabar_fill": bool(trade.get("entry_intrabar_fill", False)),
+                "aetherflow_size_multiplier": float(trade.get("size_multiplier", 1.0) or 1.0),
+                "drawdown_size_scaling_enabled": bool(trade.get("drawdown_size_scaling_enabled", False)),
+                "drawdown_size_source": str(trade.get("drawdown_size_source", "") or ""),
+                "drawdown_size_realized_dd_usd": float(trade.get("drawdown_size_realized_dd_usd", 0.0) or 0.0),
+                "drawdown_size_progress": float(trade.get("drawdown_size_progress", 0.0) or 0.0),
+                "drawdown_size_cap": int(trade.get("drawdown_size_cap", trade.get("size", 0)) or 0),
+                "drawdown_size_requested": int(trade.get("drawdown_size_requested", trade.get("requested_size", trade.get("size", 0))) or 0),
+                "drawdown_size_applied": bool(trade.get("drawdown_size_applied", False)),
+                "drawdown_size_step_usd": float(trade.get("drawdown_size_step_usd", 0.0) or 0.0),
                 "aetherflow_break_even_enabled": bool(trade.get("break_even_enabled", False)),
                 "aetherflow_break_even_applied": bool(trade.get("break_even_applied", False)),
                 "aetherflow_break_even_move_count": int(trade.get("break_even_move_count", 0) or 0),
@@ -341,6 +422,13 @@ def simulate_same_side_add_ons(
         tp_mult = _coerce_float(signal.get("tp_mult_override", setup_tp_mult), setup_tp_mult)
         sl_dist = float(np.clip(sl_mult * atr14, 1.0, 8.0))
         tp_dist = float(np.clip(tp_mult * atr14, max(sl_dist * 1.2, 1.5), 16.0))
+        resolved_size, size_multiplier = _resolve_aetherflow_signal_size(signal)
+        requested_size = int(resolved_size)
+        resolved_size, drawdown_size_diag = _apply_aetherflow_drawdown_size_cap(
+            requested_size,
+            max(0.0, float(peak) - float(equity)),
+            drawdown_size_cfg,
+        )
         if active_trades or pending_entries:
             same_side_addon_entries += 1
         active_trades.append(
@@ -354,7 +442,10 @@ def simulate_same_side_add_ons(
                 "tp_dist": tp_dist,
                 "sl_mult": float(sl_mult),
                 "tp_mult": float(tp_mult),
-                "size": int(CONFIG.get("AETHERFLOW_STRATEGY", {}).get("size", 5) or 5),
+                "size": int(resolved_size),
+                "requested_size": int(requested_size),
+                "size_multiplier": float(size_multiplier),
+                **drawdown_size_diag,
                 "bars_held": 0,
                 "mfe_points": 0.0,
                 "mae_points": 0.0,
@@ -393,13 +484,13 @@ def simulate_same_side_add_ons(
         bar_low = float(lows[i])
         bar_close = float(closes[i])
         holiday_closed_now = bool(holiday_flat_arr[i])
-        entry_window_blocked = bool(no_entry_window and (hours[i] >= no_entry_start) and (hours[i] < no_entry_end))
+        entry_window_blocked = _minute_window_blocked(hours[i], minutes[i])
         force_flat_now = bool(force_flat_enabled and hours[i] == force_flat_hour and minutes[i] >= force_flat_minute)
 
         if pending_entries:
             still_pending: list[dict] = []
             for pending_entry in list(pending_entries):
-                if holiday_closed_now or entry_window_blocked:
+                if holiday_closed_now or entry_window_blocked or _risk_governor_blocks_new_entries(ts):
                     continue
                 signal_bar_index = _coerce_int(pending_entry.get("_signal_bar_index", i - 1), i - 1)
                 bars_since_signal = max(0, int(i - signal_bar_index))
@@ -504,6 +595,10 @@ def simulate_same_side_add_ons(
 
         if holiday_closed_now or entry_window_blocked or i >= (len(df) - 1):
             continue
+        if _risk_governor_blocks_new_entries(ts):
+            blocked_here = signal_lookup.get(int(ts.value), []) or []
+            risk_governor_blocked_signals += int(len(blocked_here))
+            continue
 
         for signal in list(signal_lookup.get(int(ts.value), []) or []):
             side_num = _coerce_int(signal.get("candidate_side", 0), 0)
@@ -551,11 +646,17 @@ def simulate_same_side_add_ons(
         "force_flat_enabled": bool(force_flat_enabled),
         "force_flat_time_et": f"{force_flat_hour:02d}:{force_flat_minute:02d}",
         "bar_minutes": 1,
-        "drawdown_size_scaling_enabled": False,
-        "drawdown_size_scaling_start_usd": 0.0,
-        "drawdown_size_scaling_max_usd": 0.0,
-        "drawdown_size_scaling_base_contracts": int(CONFIG.get("AETHERFLOW_STRATEGY", {}).get("size", 5) or 5),
-        "drawdown_size_scaling_min_contracts": int(CONFIG.get("AETHERFLOW_STRATEGY", {}).get("size", 5) or 5),
+        "drawdown_size_scaling_enabled": bool(drawdown_size_cfg.get("enabled", False)),
+        "drawdown_size_scaling_source": str(drawdown_size_cfg.get("source", "") or ""),
+        "drawdown_size_scaling_start_usd": float(drawdown_size_cfg.get("start_usd", 0.0) or 0.0),
+        "drawdown_size_scaling_max_usd": float(drawdown_size_cfg.get("max_usd", 0.0) or 0.0),
+        "drawdown_size_scaling_base_contracts": int(drawdown_size_cfg.get("base_contracts", 0) or 0),
+        "drawdown_size_scaling_min_contracts": int(drawdown_size_cfg.get("min_contracts", 0) or 0),
+        "aetherflow_risk_governor_enabled": bool(risk_governor_cfg.get("enabled", False)),
+        "aetherflow_risk_governor_daily_loss_stop_usd": float(risk_governor_cfg.get("daily_loss_stop_usd", 0.0) or 0.0),
+        "aetherflow_risk_governor_min_loss_trades": int(risk_governor_cfg.get("min_loss_trades", 0) or 0),
+        "aetherflow_risk_governor_blocked_days": int(len(risk_governor_blocked_days)),
+        "aetherflow_risk_governor_blocked_signals": int(risk_governor_blocked_signals),
         "break_even_armed_trades": int(break_even_armed_trade_count),
         "break_even_stop_updates": int(break_even_stop_update_count),
         "early_exit_closes": int(early_exit_close_count),

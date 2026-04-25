@@ -634,30 +634,22 @@ CONFIG = {
         # Optional overrides passed into RegimeManifoldEngine used by the strategy.
         "manifold_params": {},
     },
-    # AetherFlow deploy candidate:
-    # corrected full-base retune that improves both recent OOS and the
-    # long corrected history. The live book keeps selective CR/TB pair
-    # coverage and adds aligned_flow in the slices that stayed profitable
-    # on corrected research: NY_AM dispersed, NY_PM dispersed, and
-    # NY_PM trend-geodesic, while requiring stronger short-horizon
-    # alignment drift across the AF slice set for better historical balance.
+    # AetherFlow live runtime is pinned to the 2026-04-24 handoff:
+    # corrected full manifold base plus the promoted radical AF NY_AM trend
+    # routed ensemble. Keep this aligned with LIVE_RUNTIME_HANDOFF_20260424.md
+    # and configs/aetherflow_current_live_policy_20260421.json.
     "AETHERFLOW_STRATEGY": {
         "enabled_live": True,
         "enabled_backtest": False,
         "backtest_hard_filters_only": True,
-        "model_file": "model_aetherflow_deploy_2026oos.pkl",
-        "thresholds_file": "aetherflow_thresholds_deploy_2026oos.json",
-        "metrics_file": "aetherflow_metrics_deploy_2026oos.json",
+        "model_file": "artifacts/aetherflow_routed_ensemble_candidates_20260422/radical_af_nyam_trend_v1/model.pkl",
+        "thresholds_file": "artifacts/aetherflow_routed_ensemble_candidates_20260422/radical_af_nyam_trend_v1/thresholds.json",
+        "metrics_file": "artifacts/aetherflow_routed_ensemble_candidates_20260422/radical_af_nyam_trend_v1/metrics.json",
+        "backtest_base_features_file": "artifacts/aetherflow_corrected_full_2011_2026/manifold_base_outrights_2011_2026.parquet",
+        "live_base_features_file": "artifacts/aetherflow_corrected_full_2011_2026/manifold_base_outrights_2011_2026.parquet",
         "min_bars": 320,
-        # Corrected April 12-13, 2026 AF regime-aware balance retune:
-        # keep CR selective, run TB slightly tighter overall, but allow a
-        # dedicated NY_AM CHOP_SPIRAL TB slice at 0.54 for extra coverage.
-        # aligned_flow stays in the profitable NY_AM/NY_PM slices, with a mild
-        # positive d_alignment_3 filter and a tighter NY_AM directional-VWAP
-        # distance cap. On corrected data this adds both recent OOS equity and
-        # trade count while also improving long-history equity and drawdown.
         "threshold_override": 0.55,
-        "min_confidence": 0.55,
+        "min_confidence": 0.50,
         "size": 5,
         # Allow one same-direction AetherFlow add-on live, with its own bracket.
         # Research favored a 2-leg cap over 3 legs for a cleaner risk/robustness balance.
@@ -672,28 +664,176 @@ CONFIG = {
             "stacked_multiplier": 1.0,
             "max_contracts": 10,
         },
+        # AetherFlow-specific backtest execution override. The promoted runtime
+        # reports used the 15:00-18:00 no-entry window with 16:00 force-flat.
+        "direct_backtest_execution": {
+            "enforce_no_new_entries_window": True,
+            "no_new_entries_start_hour_et": 15,
+            "no_new_entries_end_hour_et": 18,
+            "force_flat_at_time": True,
+            "force_flat_hour_et": 16,
+            "force_flat_minute_et": 0,
+        },
+        # AetherFlow-specific realized-drawdown size cap. The live stack has a
+        # generic cap; this keeps AF's direct replay and live execution aligned
+        # without changing DE3 or RegimeAdaptive sizing.
+        "drawdown_size_scaling": {
+            "enabled": True,
+            "start_usd": 250.0,
+            "max_usd": 800.0,
+            "base_contracts": 5,
+            "min_contracts": 1,
+        },
+        "post_policy_size_rules": {
+            "enabled": True,
+            "rules": [
+                {
+                    "name": "boost_tb_london_highconf_22x",
+                    "match_setup_families": ["transition_burst"],
+                    "match_session_ids": [1],
+                    "match_min_aetherflow_confidence": 0.70,
+                    "size_multiplier": 2.2,
+                },
+                {
+                    "name": "boost_tb_nyam_short_highconf_22x",
+                    "match_setup_families": ["transition_burst"],
+                    "match_session_ids": [2],
+                    "match_sides": ["SHORT"],
+                    "match_min_aetherflow_confidence": 0.70,
+                    "size_multiplier": 2.2,
+                },
+                {
+                    "name": "boost_er_asia_highconf_22x",
+                    "match_setup_families": ["exhaustion_reversal"],
+                    "match_session_ids": [0],
+                    "match_min_aetherflow_confidence": 0.70,
+                    "size_multiplier": 2.2,
+                },
+            ],
+        },
         "max_feature_bars": 900,
-        "allowed_session_ids": [1, 2, 3],
-        "allowed_setup_families": ["aligned_flow", "compression_release", "transition_burst"],
+        "allowed_session_ids": [],
+        "allowed_setup_families": ["aligned_flow", "transition_burst", "exhaustion_reversal"],
+        "risk_governor": {
+            "enabled": True,
+            "daily_loss_stop_usd": 300.0,
+            "min_loss_trades": 2,
+            "block_new_entries_rest_of_day": True,
+        },
         "family_policies": {
-            "compression_release": {
-                "threshold": 0.58,
-                "allowed_session_ids": [1, 2, 3],
-                "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
-            },
             "transition_burst": {
                 "threshold": 0.555,
                 "allowed_session_ids": [1, 2, 3],
                 "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                "use_horizon_time_stop": True,
                 "policy_rules": [
                     {
-                        "name": "nyam_chop_054",
+                        "name": "asia_tb_disp_block_target",
+                        "match_session_ids": [0],
+                        "match_regimes": ["DISPERSED"],
+                        "blocked_regimes": ["DISPERSED", "ROTATIONAL_TURBULENCE"],
+                    },
+                    {
+                        "name": "asia_disp_long_054_maxslow060",
+                        "match_session_ids": [0],
+                        "match_regimes": ["DISPERSED"],
+                        "match_sides": ["LONG"],
+                        "threshold": 0.54,
+                        "allowed_session_ids": [0],
+                        "allowed_regimes": ["DISPERSED"],
+                        "allowed_sides": ["LONG"],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "max_flow_mag_slow": 0.6,
+                        "use_horizon_time_stop": True,
+                    },
+                    {
+                        "name": "asia_disp_short_054",
+                        "match_session_ids": [0],
+                        "match_regimes": ["DISPERSED"],
+                        "match_sides": ["SHORT"],
+                        "threshold": 0.54,
+                        "allowed_session_ids": [0],
+                        "allowed_regimes": ["DISPERSED"],
+                        "allowed_sides": ["SHORT"],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "min_d_alignment_3": 0.1,
+                        "min_phase_d_alignment_mean_5": 0.05,
+                        "use_horizon_time_stop": True,
+                    },
+                    {
+                        "name": "nyam_tb_chop_long_quality_050",
                         "match_session_ids": [2],
                         "match_regimes": ["CHOP_SPIRAL"],
-                        "threshold": 0.54,
+                        "match_sides": ["LONG"],
+                        "threshold": 0.50,
+                        "allowed_session_ids": [2],
+                        "allowed_regimes": ["CHOP_SPIRAL"],
+                        "allowed_sides": ["LONG"],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "min_flow_agreement": 0.7,
+                        "min_signed_d_alignment_3": 0.06,
+                        "use_horizon_time_stop": True,
+                    },
+                    {
+                        "name": "nyam_chop_053",
+                        "match_session_ids": [2],
+                        "match_regimes": ["CHOP_SPIRAL"],
+                        "threshold": 0.53,
                         "allowed_session_ids": [2],
                         "allowed_regimes": ["CHOP_SPIRAL"],
                         "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "use_horizon_time_stop": True,
+                    },
+                    {
+                        "name": "nyam_tb_tg_short_block",
+                        "match_session_ids": [2],
+                        "match_regimes": ["TREND_GEODESIC"],
+                        "match_sides": ["SHORT"],
+                        "blocked_regimes": ["TREND_GEODESIC", "ROTATIONAL_TURBULENCE"],
+                    },
+                    {
+                        "name": "nyam_tb_tg_long_block_target",
+                        "match_session_ids": [2],
+                        "match_regimes": ["TREND_GEODESIC"],
+                        "match_sides": ["LONG"],
+                        "blocked_regimes": ["TREND_GEODESIC", "ROTATIONAL_TURBULENCE"],
+                    },
+                    {
+                        "name": "london_any_054",
+                        "match_session_ids": [1],
+                        "threshold": 0.54,
+                        "allowed_session_ids": [1],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "use_horizon_time_stop": True,
+                    },
+                    {
+                        "name": "nypm_tb_disp_block",
+                        "match_session_ids": [3],
+                        "match_regimes": ["DISPERSED"],
+                        "blocked_regimes": ["DISPERSED", "ROTATIONAL_TURBULENCE"],
+                    },
+                    {
+                        "name": "nypm_tb_long_block",
+                        "match_session_ids": [3],
+                        "match_sides": ["LONG"],
+                        "blocked_regimes": [
+                            "CHOP_SPIRAL",
+                            "DISPERSED",
+                            "TREND_GEODESIC",
+                            "ROTATIONAL_TURBULENCE",
+                        ],
+                    },
+                    {
+                        "name": "nypm_tb_tg_short_phase_run2",
+                        "match_session_ids": [3],
+                        "match_regimes": ["TREND_GEODESIC"],
+                        "match_sides": ["SHORT"],
+                        "allowed_session_ids": [3],
+                        "allowed_regimes": ["TREND_GEODESIC"],
+                        "allowed_sides": ["SHORT"],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "min_phase_regime_run_bars": 2,
+                        "use_horizon_time_stop": True,
                     },
                 ],
             },
@@ -710,6 +850,32 @@ CONFIG = {
                 "entry_mode": "market_next_bar",
                 "policy_rules": [
                     {
+                        "name": "nyam_af_disp_short_block_target",
+                        "match_session_ids": [2],
+                        "match_regimes": ["DISPERSED"],
+                        "match_sides": ["SHORT"],
+                        "blocked_regimes": ["DISPERSED", "ROTATIONAL_TURBULENCE"],
+                    },
+                    {
+                        "name": "nyam_disp_quality_054",
+                        "match_session_ids": [2],
+                        "match_regimes": ["DISPERSED"],
+                        "threshold": 0.54,
+                        "allowed_session_ids": [2],
+                        "allowed_regimes": ["DISPERSED"],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "entry_mode": "market_next_bar",
+                        "min_flow_agreement": 0.96,
+                        "max_stress_pct": 0.45,
+                        "min_flow_mag_slow": 0.7,
+                    },
+                    {
+                        "name": "nypm_disp_block",
+                        "match_session_ids": [3],
+                        "match_regimes": ["DISPERSED"],
+                        "blocked_regimes": ["DISPERSED", "ROTATIONAL_TURBULENCE"],
+                    },
+                    {
                         "name": "nypm_disp",
                         "match_session_ids": [3],
                         "match_regimes": ["DISPERSED"],
@@ -723,6 +889,40 @@ CONFIG = {
                         "max_flow_mag_slow": 1.0,
                     },
                     {
+                        "name": "nypm_af_tg_short_quality_0526",
+                        "match_session_ids": [3],
+                        "match_regimes": ["TREND_GEODESIC"],
+                        "match_sides": ["SHORT"],
+                        "threshold": 0.526,
+                        "allowed_session_ids": [3],
+                        "allowed_regimes": ["TREND_GEODESIC"],
+                        "allowed_sides": ["SHORT"],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "entry_mode": "market_next_bar",
+                        "min_setup_strength": 0.75,
+                        "max_directional_vwap_dist_atr": 6.0,
+                        "max_flow_mag_slow": 1.0,
+                        "min_pressure_imbalance_30": -0.5,
+                    },
+                    {
+                        "name": "nypm_af_tg_long_quality_050_mid",
+                        "match_session_ids": [3],
+                        "match_regimes": ["TREND_GEODESIC"],
+                        "match_sides": ["LONG"],
+                        "threshold": 0.50,
+                        "allowed_session_ids": [3],
+                        "allowed_regimes": ["TREND_GEODESIC"],
+                        "allowed_sides": ["LONG"],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "entry_mode": "market_next_bar",
+                        "min_setup_strength": 0.0,
+                        "max_directional_vwap_dist_atr": 6.0,
+                        "max_flow_mag_slow": 1.0,
+                        "min_flow_agreement": 0.55,
+                        "min_signed_d_alignment_3": 0.04,
+                        "size_multiplier": 0.5,
+                    },
+                    {
                         "name": "nypm_tg",
                         "match_session_ids": [3],
                         "match_regimes": ["TREND_GEODESIC"],
@@ -734,6 +934,31 @@ CONFIG = {
                         "min_setup_strength": 0.0,
                         "max_directional_vwap_dist_atr": 6.0,
                         "max_flow_mag_slow": 1.0,
+                    },
+                ],
+            },
+            "exhaustion_reversal": {
+                "threshold": 0.58,
+                "allowed_session_ids": [0, 1, 2],
+                "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                "policy_rules": [
+                    {
+                        "name": "nyam_er_disp_long_block",
+                        "match_session_ids": [2],
+                        "match_regimes": ["DISPERSED"],
+                        "match_sides": ["LONG"],
+                        "blocked_regimes": ["DISPERSED", "ROTATIONAL_TURBULENCE"],
+                    },
+                    {
+                        "name": "london_disp_short_flow050",
+                        "match_session_ids": [1],
+                        "match_regimes": ["DISPERSED"],
+                        "match_sides": ["SHORT"],
+                        "allowed_session_ids": [1],
+                        "allowed_regimes": ["DISPERSED"],
+                        "allowed_sides": ["SHORT"],
+                        "blocked_regimes": ["ROTATIONAL_TURBULENCE"],
+                        "min_flow_agreement": 0.5,
                     },
                 ],
             },
@@ -790,6 +1015,8 @@ CONFIG = {
     "ENABLE_PCT_LEVEL_OVERLAY": True,
     "KALSHI_TRADE_OVERLAY": {
         "enabled": True,
+        # Live handoff keeps the rule overlay scoped to DE3 only.
+        "apply_strategy_prefixes": ["DynamicEngine3"],
         "lookback_bars": 20000,
         "lookback_trade_days": 10,
         "min_trade_days": 6,
@@ -2517,10 +2744,8 @@ CONFIG = {
             },
         },
         # Primary DE3v4 runtime/training artifact.
-        # Live promotion 2026-04-08:
-        # promote the 06-09 Long_Rev bracket-menu expansion bundle and
-        # keep the runtime on the synced live artifact path.
-        "bundle_path": "artifacts/de3_v4_live/latest.json",
+        # Live promotion 2026-04-24: pin the exact promoted daytype-soft bundle.
+        "bundle_path": "artifacts/de3_v4_live/dynamic_engine3_v4_bundle.decision_side_daytype_soft_v1_20260422_promoted.json",
         "reports_dir": "reports",
         # If bundle is missing, runtime stays safe and falls back to candidate-level defaults.
         "auto_build_bundle": False,
@@ -2552,6 +2777,15 @@ CONFIG = {
             # gradual slowdown from unbounded in-memory row growth.
             # 0 disables the cap.
             "trace_max_rows": 250000,
+            "family_profile_veto": {
+                "enabled": True,
+                "rules": [
+                    {
+                        "name": "frv_06_09_long_rev_t2_normal_grind_down_distributed_normal_15m",
+                        "enabled": True,
+                    },
+                ],
+            },
             # Legacy pre-router gates can be selectively disabled for v4 experiments.
             "disable_context_policy_gate": True,
             "disable_context_veto_gate": True,
