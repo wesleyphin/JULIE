@@ -4997,3 +4997,147 @@ Filter G, or disable it entirely.
 - `artifacts/percell_3way_results.csv` — per-row annotated decisions
 - `artifacts/percell_3way_summary.json` — config summaries + deltas
 
+
+### 8.33.10 — V18 + Recipe B 5-way Deployment-Fidelity-Fast Comparison
+
+*Added 2026-04-26.* Replaces friend's V18 train/test eval with a
+deployment-realistic measurement that preserves friend's <1-second runtime.
+
+#### Methodology
+
+Ran [tools/v18_5way_holdout_real_kronos.py](tools/v18_5way_holdout_real_kronos.py)
+on friend's pre-cached features (DE3 + `allowed_by_friend_rule=True`,
+1,599 rows of 3,438 corpus rows). Friend's speed source = pre-cached
+Kronos features ([artifacts/v18_kronos_features.parquet](artifacts/v18_kronos_features.parquet))
++ vectorized PnL via numpy cumsum. NO bug, just legitimate caching.
+
+Added on top of friend's vectorized eval:
+- **NY-only filter** [08:00, 16:00) ET (vectorized boolean mask)
+- **Single-position constraint** (stateful walk in time order, ~5ms on 1,599 rows)
+- **Time-ordered cumulative size-aware DD** (peak-to-trough on size-aware equity, not row-order cumsum on PnL[keep])
+- **Recipe B sizing for E** (proba≥0.85→size=10, 0.65–0.85→size=4, 0.60–0.65→size=1)
+
+NOT modeled (would require feature regeneration + re-simulation):
+- Regime ML v5_brackets / v6_size / v6_be (40+ multi-window vol/eff features not cached)
+- SameSide ML (50 features incl. position-state — also violates single-position)
+- Downstream Kalshi/LFO/PCT/Pivot overlays (V18 IS the meta gate over their probas)
+
+Total runtime: **0.8 seconds** (vs Kronos batch's 49-min one-time cost).
+
+#### Headline result — HOLDOUT (Jan-Apr 2026, 3.73 months, honest forward-projection)
+
+| Config | Trades | WR | Net PnL | Avg/trade | Max DD |
+|---|---:|---:|---:|---:|---:|
+| A_filterless | 487 | 43.74% | −$2,280.00 | −$4.68 | −$3,606.25 |
+| B_FilterG_base_0.35 | 32 | 40.62% | −$210.00 | −$6.56 | −$336.25 |
+| C_V15_thr_0.65 | 88 | 59.09% | +$1,485.00 | +$16.88 | −$363.75 |
+| D_V18_thr_0.60_flat | 97 | 58.76% | +$1,581.25 | +$16.30 | −$363.75 |
+| **E_V18+RecipeB (DEPLOYED)** | **97** | **58.76%** | **+$16,285.00** | **+$167.89** | **−$1,200.00** |
+
+#### Δ vs B (production proxy):
+
+| Config | Δtrades | ΔPnL | ΔDD |
+|---|---:|---:|---:|
+| A_filterless | +455 | −$2,070 | −$3,270 |
+| C_V15 | +56 | +$1,695 | −$28 |
+| D_V18 flat | +65 | +$1,791 | −$28 |
+| **E_V18+RecipeB** | **+65** | **+$16,495** | **−$864** |
+
+#### Recipe B tier breakdown (E, holdout)
+
+| Tier | Size | n | WR | PnL | DD |
+|---|---:|---:|---:|---:|---:|
+| tier10 (≥0.85) | 10 | 25 | **84.0%** | **+$16,637.50** | −$575.00 |
+| tier4 (0.65-0.85) | 4 | 62 | 50.0% | −$360.00 | **−$1,785.00** |
+| tier1 (0.60-0.65) | 1 | 10 | 50.0% | +$7.50 | −$65.00 |
+
+**Tier-10 alone delivers 100% of the edge.** Tiers 4 and 1 add zero net edge,
+and tier-4 contributes the worst per-tier DD (−$1,785).
+
+#### Per-month (E, holdout)
+
+| Month | Trades | PnL | WR | Max size | DD |
+|---|---:|---:|---:|---:|---:|
+| 2026-01 | 13 | +$12,871.25 | 92.3% | 10 | −$55.00 |
+| 2026-02 | 26 | +$977.50 | 57.7% | 10 | **−$1,200.00 ⚠** |
+| 2026-03 | 49 | +$658.75 | 49.0% | 10 | **−$1,060.00 ⚠** |
+| 2026-04 | 9 | +$1,777.50 | 66.7% | 10 | −$35.00 |
+
+**February breaches user's $870 ship-gate within a single month** (DD −$1,200).
+March near-breach (−$1,060). Both months are tier-4 driven; tier-10 holds up.
+
+#### 8-month projection vs user's $32.5k claim
+
+- E HOLDOUT PnL: **$16,285 over 3.73mo → $4,362/mo**
+- E scaled to 8mo: **$34,896**
+- User projection: **$32,500/8mo**
+- **E is at 107.4% of user projection — claim survives deployment-fidelity scrutiny**
+
+#### Δ deployment-fidelity (E) vs friend's eval pattern (no single-pos, no NY)
+
+| Metric | Friend's eval | Deployment E | Δ |
+|---|---:|---:|---:|
+| Trades | 100 | 97 | −3 |
+| WR | 59.0% | 58.76% | −0.24pp |
+| PnL | $16,345.00 | $16,285.00 | **−$60.00** |
+| DD | −$1,177.50 | −$1,200.00 | −$22.50 |
+
+**Constraint cost: $60 (0.37% of friend's projection).** Single-position + NY-only
+are essentially free constraints on this corpus because tier-10 trades are sparse
+(7 per month) and don't overlap.
+
+#### 14-month in-sample inflation (warning for context)
+
+| Config | Trades | WR | PnL | DD |
+|---|---:|---:|---:|---:|
+| E (in-sample, 14mo) | 506 | 75.3% | **$262,551** | −$1,200 |
+| E (holdout, 3.73mo) | 97 | 58.8% | $16,285 | −$1,200 |
+
+V15 and V18 were trained on the train split (Mar 2025–Dec 2025); the
+"+$262k" 14-month total is ~94% in-sample inflation. **Use HOLDOUT only
+for forward projection.**
+
+#### Honest verdict
+
+1. **V18 + Recipe B (deployed) genuinely beats current production B** by +$16,495
+   PnL over 3.73 months (97 trades vs 32). Δvs B: +$16,495 PnL, −$864 ΔDD.
+
+2. **Friend's $32,500/8mo projection is REPLICABLE under deployment-fidelity.**
+   E scales to $34,896/8mo (107% of friend's claim). The vectorized eval was
+   not lying — it just didn't need to apply the constraints because they cost
+   almost nothing on this corpus.
+
+3. **Tier-10 alone IS the entire edge.** 25 holdout trades × 84% WR ×
+   size 10 = $16,637.50 (101% of total E PnL). Tier-4 PnL is −$360 with
+   −$1,785 DD; tier-1 is null. **Recipe B's tier-4 layer is a bad bet
+   on this corpus.**
+
+4. **DD breach: E's $1,200 holdout DD exceeds user's $870 ship gate.**
+   The DD comes from tier-4 losers compounding in Feb-Mar 2026. Tier-10
+   alone has DD only −$575 (well within gate).
+
+5. **Recommendation — tier-10-only Recipe B variant**:
+   - Drop tier-4 and tier-1, keep size=10 only when proba ≥ 0.85
+   - Holdout result: 25 trades, 84% WR, $16,637 PnL, **−$575 DD** ← within $870 gate
+   - 8mo scaled: $35,679 — slightly higher than full Recipe B because tier-4 was net-negative
+   - Trade-off: lower trade frequency (~7/month vs ~26/month for full Recipe B)
+   - Risk: n=25 is small; 84% WR has wide CI (95% CI ≈ 64-96%); regression to 60-70% would
+     halve PnL but stay positive
+
+6. **Caveats / honest limitations of this eval**:
+   - Regime ML and SameSide ML overlays NOT modeled (their features not cached;
+     bracket changes / concurrency need re-simulation)
+   - 1,599-row DE3+friend subset only; RA contributions to A/B not measured
+     (RA gate is separate via V17 RA NY-rule, not V18)
+   - Holdout n=25 for tier-10 is statistically modest — 8-month forward
+     replication assumes regime stability that next quarter doesn't guarantee
+   - In-sample 14-month "+$262k" is fully inflated by training-data leak;
+     do NOT use as deployment expectation
+
+#### Files added
+
+- `tools/v18_5way_holdout_real_kronos.py` — final eval harness (0.8s runtime)
+- `tools/kronos_batch_extract.py` — daemon batch with checkpointing (49 min for 3,438 rows; produced [artifacts/v11_corpus_with_kronos_features.parquet](artifacts/v11_corpus_with_kronos_features.parquet) for the broader corpus, not used in this 5-way which uses friend's pre-cache for V18-trained-against-it parity)
+- `artifacts/v18_5way_holdout_summary.json` — full results
+- `artifacts/v18_5way_holdout_per_month.csv` — per-month E breakdown
+
