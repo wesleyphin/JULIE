@@ -5271,3 +5271,90 @@ julie001.py.**
 
 - [artifacts/v18_tier4_fix_attempts.json](artifacts/v18_tier4_fix_attempts.json) — full per-option results
 
+
+#### Phase 1 addendum — Option 4b: skip whipsaw tier-4 entirely
+
+*Added 2026-04-26.* Operator asked whether dropping (rather than
+demoting) whipsaw tier-4 trades produces a strictly better profile.
+Re-aggregated the same holdout cache with the rule:
+- proba ≥ 0.85: size=10 (unchanged)
+- 0.65 ≤ proba < 0.85, regime=calm_trend: size=4
+- 0.65 ≤ proba < 0.85, regime=neutral: size=1 (demote)
+- 0.65 ≤ proba < 0.85, regime=whipsaw: **SKIP (size=0)** ← change
+- 0.65 ≤ proba < 0.85, regime=dead_tape: SKIP (no-trade band)
+- 0.60 ≤ proba < 0.65: size=1 (unchanged)
+
+| Option | Trades | WR | PnL | Max DD | PnL gate | DD gate | Ship? |
+|---|---:|---:|---:|---:|:---:|:---:|:---:|
+| Baseline (current Recipe B) | 97 | 58.8% | $16,285.00 | −$1,200.00 | ✅ | ❌ | NO |
+| Option 4 (demote tier-4 EV-neg) | 97 | 58.8% | $16,686.25 | −$593.75 | ✅ | ✅ | YES |
+| **Option 4b (skip whipsaw, demote neutral)** | **83** | **59.0%** | **$16,707.50** | **−$593.75** | ✅ | ✅ | **YES** |
+
+**Δ Option 4b vs Option 4: +$21.25 PnL, $0 DD, −14 trades.**
+
+Component breakdown (Option 4b, HOLDOUT):
+
+| Component | n | WR | PnL |
+|---|---:|---:|---:|
+| tier-10 (≥0.85) | 25 | 84.0% | +$16,637.50 |
+| tier-4 calm_trend (size=4) | 20 | 55.0% | +$175.00 |
+| tier-4 neutral (size=1, demoted) | 28 | 42.9% | −$112.50 |
+| tier-4 whipsaw (skipped) | 0 (was 16 candidates) | — | $0.00 |
+| tier-1 (0.60-0.65) | 10 | 50.0% | +$7.50 |
+| **Total** | **83** | **59.0%** | **+$16,707.50** |
+
+#### Recommendation update — ship Option 4b
+
+The improvement over Option 4 is small in absolute PnL terms (+$21),
+but Option 4b is the cleaner defensive choice:
+- Strictly removes the worst-EV regime cluster (whipsaw at size=0)
+  rather than just shrinking it
+- DD profile is identical — the whipsaw size-1 demotion in Option 4
+  contributes no incremental DD because the tier-4 DD floor was
+  already in calm_trend losing streaks, not whipsaw
+- Lower trade count (83 vs 97) reduces cognitive load on operator-side
+  monitoring without sacrificing PnL or DD
+
+**Implementation — env flag:**
+
+```bash
+# Both flags ON for Option 4b deployment:
+export JULIE_LOCAL_DE3_RECIPE_B_REGIME_AWARE=1
+export JULIE_LOCAL_DE3_TIER4_SKIP_WHIPSAW=1
+```
+
+Wiring point in `_apply_de3_v18_tiered_size_live` (julie001.py:2890):
+
+```python
+if proba >= 0.85:
+    size = 10
+elif 0.65 <= proba < 0.85:
+    regime = regime_classifier.current_regime()  # already available
+    if regime == "calm_trend":
+        size = 4
+    elif regime == "whipsaw":
+        return None  # SKIP — no-fire (or 0)
+    else:  # neutral, dead_tape
+        size = 1
+elif 0.60 <= proba < 0.65:
+    size = 1
+else:
+    size = 0
+```
+
+**Live code NOT modified in this commit. Operator picks deployment timing.**
+
+#### Honest caveats (Option 4b specific)
+
+- **n=16 whipsaw tier-4 candidates is tiny.** The −$85 PnL contribution
+  in baseline is statistically indistinguishable from zero. Skipping
+  them is a defensive cut, not a strong-edge play.
+- **Whipsaw is also rarer than calm_trend** in the v11 holdout (16 vs 20
+  candidates). If next quarter's market has more whipsaw weeks (e.g.
+  during macro shocks), Option 4b will skip a larger fraction of tier-4
+  signals. That's mechanically what we want — but trade frequency could
+  drop further than the holdout suggests.
+- **The +$21.25 vs Option 4** is below noise floor for a sample this
+  size. Choose Option 4b for cleanliness (defensive + simpler), not
+  for the marginal PnL.
+

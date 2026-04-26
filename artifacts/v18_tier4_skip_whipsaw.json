@@ -1,0 +1,36 @@
+{
+  "baseline": {
+    "trades": 97,
+    "wr": 0.5876288659793815,
+    "pnl": 16285.0,
+    "dd": -1200.0
+  },
+  "option_4_demote": {
+    "trades": 97,
+    "wr": 0.5876288659793815,
+    "pnl": 16686.25,
+    "dd": -593.75
+  },
+  "option_4b_skip_whipsaw": {
+    "trades": 83,
+    "wr": 0.5903614457831325,
+    "pnl": 16707.5,
+    "dd": -593.75
+  },
+  "deltas": {
+    "opt4b_vs_baseline": {
+      "pnl": 422.5,
+      "dd": 606.25,
+      "trades": -14
+    },
+    "opt4b_vs_opt4": {
+      "pnl": 21.25,
+      "dd": 0.0,
+      "trades": -14
+    }
+  },
+  "ship_gates": {
+    "opt4b_pnl_ge_16k": true,
+    "opt4b_dd_le_870": true
+  }
+}
