@@ -2850,7 +2850,10 @@ def _apply_kalshi_tp_trail(
 
 
 # === LOCAL OVERRIDE 2026-04-26 — Recipe B tiered sizing helper (do not commit) ===
-def de3_size_from_v18_proba(proba: Optional[float]) -> Optional[int]:
+def de3_size_from_v18_proba(
+    proba: Optional[float],
+    regime: Optional[str] = None,
+) -> Optional[int]:
     """Return position size based on V18 confidence per Recipe B (10/4/1).
 
     Default tiers:
@@ -2858,6 +2861,15 @@ def de3_size_from_v18_proba(proba: Optional[float]) -> Optional[int]:
         0.65 <= proba < 0.85 -> 4  (medium)
         0.60 <= proba < 0.65 -> 1  (low; just above V18 gate threshold)
         proba < 0.60         -> 0  (V18 gate normally blocks below this)
+
+    Option 4b regime-aware tier-4 (§8.33.11):
+        When LOCAL_DE3_RECIPE_B_REGIME_AWARE=1 AND regime is provided, the
+        tier-4 band (0.65 <= proba < 0.85) branches by regime:
+          calm_trend          -> size 4 (keep — only EV-positive regime)
+          whipsaw             -> size 0 (SKIP, when LOCAL_DE3_TIER4_SKIP_WHIPSAW=1)
+                                 or size 1 (demote, when SKIP flag is 0)
+          neutral / dead_tape -> size 1 (demote — EV-negative)
+        tier-10 and tier-1 unchanged.
 
     Returns None when:
       - LOCAL_DE3_USE_TIERED_SIZING is disabled (let existing sizing decide)
@@ -2881,15 +2893,51 @@ def de3_size_from_v18_proba(proba: Optional[float]) -> Optional[int]:
         )
     except Exception:
         ordered = [(0.85, 10), (0.65, 4), (0.60, 1)]
+    # Determine which tier this proba lands in (highest threshold satisfied).
+    base_size: Optional[int] = None
+    threshold_hit: Optional[float] = None
     for threshold, size in ordered:
         if p >= threshold:
-            return int(size)
-    return 0
+            base_size = int(size)
+            threshold_hit = float(threshold)
+            break
+    if base_size is None:
+        return 0
+
+    # Option 4b regime-aware tier-4 branch. Only applies to the tier-4 band
+    # (the 4-contract tier in default config). Tier-10 and tier-1 remain
+    # untouched. If regime info is missing or feature flag is off, return
+    # the flat tier size (existing behavior).
+    if (
+        regime is not None
+        and isinstance(regime, str)
+        and regime not in ("", "disabled", "warmup", "unknown")
+        and base_size == 4
+        and threshold_hit is not None
+        and threshold_hit < 0.85  # belt-and-suspenders: tier-4 band only
+        and bool(CONFIG.get("LOCAL_DE3_RECIPE_B_REGIME_AWARE", True))
+    ):
+        regime_norm = regime.lower().strip()
+        if regime_norm == "calm_trend":
+            return 4  # keep — EV-positive
+        if regime_norm == "whipsaw":
+            if bool(CONFIG.get("LOCAL_DE3_TIER4_SKIP_WHIPSAW", True)):
+                return 0  # SKIP — defensive cut
+            return 1  # demote (Option 4 fallback)
+        # neutral, dead_tape, anything else → demote to size=1
+        return 1
+
+    return int(base_size)
 
 
 def _apply_de3_v18_tiered_size_live(signal: Optional[dict], base_size: int) -> int:
     """When a DE3 signal has been approved by V18 and a v18_proba is stashed
     on the signal, override base_size with the Recipe B tier for that proba.
+
+    Option 4b (§8.33.11): looks up runtime regime via
+    regime_classifier.current_regime() at signal-birth and passes it to
+    de3_size_from_v18_proba so tier-4 can branch by regime
+    (calm_trend → keep, whipsaw → skip, else → demote to 1).
 
     Falls through (returns base_size unchanged) when:
       - signal is not a dict
@@ -2912,11 +2960,27 @@ def _apply_de3_v18_tiered_size_live(signal: Optional[dict], base_size: int) -> i
             return int(base_size)
         if gate_model and gate_model != "V18_DE3":
             return int(base_size)
-        tiered = de3_size_from_v18_proba(signal.get("v18_proba"))
+
+        # Option 4b: look up runtime regime for tier-4 branching. Failures
+        # here are non-fatal — fall back to flat tier-4 (regime=None).
+        regime: Optional[str] = None
+        if bool(CONFIG.get("LOCAL_DE3_RECIPE_B_REGIME_AWARE", True)):
+            try:
+                from regime_classifier import current_regime as _cur_regime
+                regime = _cur_regime()
+            except Exception:
+                regime = None
+
+        tiered = de3_size_from_v18_proba(signal.get("v18_proba"), regime=regime)
         if tiered is None:
             return int(base_size)
         signal["de3_v18_tiered_size_before"] = int(base_size)
         signal["de3_v18_tiered_size"] = int(tiered)
+        if regime is not None:
+            signal["de3_v18_tiered_regime"] = str(regime)
+        if int(tiered) == 0 and regime is not None:
+            signal["de3_v18_tier4_skipped"] = True
+            signal["de3_v18_tier4_skip_regime"] = str(regime)
         return int(tiered)
     except Exception:
         return int(base_size)

@@ -5358,3 +5358,160 @@ else:
   size. Choose Option 4b for cleanliness (defensive + simpler), not
   for the marginal PnL.
 
+
+### 8.33.12 — Option 4b Live Wiring: Regime-Aware Tier-4 + Whipsaw Skip
+
+*Added 2026-04-26.* Operator greenlit shipping the §8.33.11 Option 4b
+holdout result ($16,707 PnL / −$594 DD, both ship gates passed). This
+section documents the live wiring.
+
+#### Code changes (commit-scoped to v18 branch only)
+
+**[julie001.py:2853](julie001.py:2853) — `de3_size_from_v18_proba`:** added optional `regime` parameter.
+When provided AND the proba lands in the tier-4 band (size=4 by default
+config) AND `LOCAL_DE3_RECIPE_B_REGIME_AWARE=1`:
+- `regime == "calm_trend"` → size=4 (keep)
+- `regime == "whipsaw"` → size=0 (SKIP) when `LOCAL_DE3_TIER4_SKIP_WHIPSAW=1`,
+  otherwise size=1 (Option 4 demote)
+- `regime ∈ {neutral, dead_tape, …}` → size=1 (demote — EV-negative)
+
+Tier-10 (proba ≥ 0.85) and tier-1 (0.60 ≤ proba < 0.65) are **untouched**;
+they ignore the regime parameter regardless of flag state.
+
+When `regime is None` or in `{"", "disabled", "warmup", "unknown"}`, the
+helper returns the flat tier size unchanged (existing behavior). This
+preserves the rollback path: turning off the regime classifier (or the
+two new env flags) restores baseline Recipe B exactly.
+
+**[julie001.py:2890](julie001.py:2890) — `_apply_de3_v18_tiered_size_live`:** looks up
+`regime_classifier.current_regime()` once at signal-birth (gated by
+`LOCAL_DE3_RECIPE_B_REGIME_AWARE`) and passes it to the helper. Stamps
+telemetry on the signal:
+- `signal["de3_v18_tiered_size_before"]` — pre-tier base size
+- `signal["de3_v18_tiered_size"]` — post-tier resolved size
+- `signal["de3_v18_tiered_regime"]` — regime label seen at decision time
+- `signal["de3_v18_tier4_skipped"] = True` — set when whipsaw skip fires
+- `signal["de3_v18_tier4_skip_regime"]` — regime that triggered skip
+
+Failures looking up the regime are non-fatal — caller falls back to the
+flat tier size (regime=None path).
+
+#### Env flags (config.py:5292)
+
+| Flag | Default | Purpose |
+|---|:---:|---|
+| `JULIE_LOCAL_DE3_RECIPE_B_REGIME_AWARE` | `1` | Master toggle for tier-4 regime branching |
+| `JULIE_LOCAL_DE3_TIER4_SKIP_WHIPSAW` | `1` | Whipsaw → skip (`0`) vs demote (`1`) |
+| `JULIE_LOCAL_DE3_TIERED_SIZE` | `1` | Existing — must be `1` for new flags to apply |
+| `JULIE_REGIME_CLASSIFIER` | (existing) | Must be `1` for `current_regime()` to return non-`"disabled"` |
+
+#### Rollback paths
+
+| Scenario | Action | Resulting behavior |
+|---|---|---|
+| Disable Option 4b entirely | `JULIE_LOCAL_DE3_RECIPE_B_REGIME_AWARE=0` | Falls back to flat Recipe B (size=4 for any regime in tier-4 band) |
+| Demote whipsaw instead of skip (Option 4) | `JULIE_LOCAL_DE3_TIER4_SKIP_WHIPSAW=0` | whipsaw tier-4 → size=1 (Option 4 from §8.33.11) instead of size=0 |
+| Disable Recipe B entirely | `JULIE_LOCAL_DE3_TIERED_SIZE=0` | All tiered sizing falls through; existing v4 sizing chain takes over |
+| Disable V18 entirely | `JULIE_LOCAL_DE3_USE_V18=0` | V18 path off → no `v18_proba` stashed → tiered sizing helper returns None → existing behavior |
+
+#### Smoke test results
+
+19 synthetic cases passed (run via inline Python). Coverage:
+
+| Case category | Cases | Result |
+|---|---:|:---:|
+| Tier-10 across all regimes | 3 | All return 10 (regime ignored) ✅ |
+| Tier-4 calm_trend | 1 | size=4 (keep) ✅ |
+| Tier-4 whipsaw (skip flag ON) | 1 | size=0 (skip) ✅ |
+| Tier-4 neutral / dead_tape | 2 | size=1 (demote) ✅ |
+| Tier-1 across all regimes | 2 | size=1 (regime ignored) ✅ |
+| Below tier-1 (proba<0.60) | 1 | size=0 ✅ |
+| regime=None / "disabled" / "warmup" | 3 | flat tier size ✅ |
+| Flag rollback (regime-aware OFF) | 2 | flat tier-4 size=4 ✅ |
+| Flag rollback (skip-whipsaw OFF) | 1 | whipsaw tier-4 → 1 (Option 4) ✅ |
+| Signal-level integration | 4 | Correct sizes + telemetry stamps ✅ |
+
+#### Wiring point references
+
+- `[julie001.py:2853](julie001.py:2853)` — `de3_size_from_v18_proba(proba, regime=None)` (signature change + regime branch)
+- `[julie001.py:2890](julie001.py:2890)` — `_apply_de3_v18_tiered_size_live` (regime lookup + telemetry stamps)
+- `[config.py:5292](config.py:5292)` — env flag definitions
+- `[regime_classifier.py:415](regime_classifier.py:415)` — `current_regime()` accessor used at signal-birth
+
+#### Live behavior on next restart
+
+Bot reads env flags from process env (default ON). At next DE3 V18 signal:
+1. `_apply_de3_v18_tiered_size_live` is called with `signal["v18_proba"]` set
+2. Looks up `regime_classifier.current_regime()` (e.g. "calm_trend" / "whipsaw" / "neutral" / "dead_tape" / "disabled")
+3. Calls `de3_size_from_v18_proba(proba, regime=<label>)`
+4. If proba lands in tier-4 band AND regime is whipsaw → returns 0 → trade is sized 0 contracts → effectively skipped
+5. Telemetry stamps appear on the signal for log audit
+
+#### Honest caveats (carry forward from §8.33.11 addendum)
+
+- n=20 calm_trend tier-4 trades is small; +$2.19/trade EV has wide CI.
+  Re-evaluate after 30 live trading days.
+- n=16 whipsaw tier-4 candidates is tiny; the −$85 baseline contribution
+  is statistically indistinguishable from zero. Skip is defensive, not
+  strong-edge.
+- Runtime `current_regime()` uses rolling vol/eff windows (regime_classifier.py:319).
+  The corpus's `bf_regime_vol_bp` and `bf_regime_eff` columns use the
+  same input (close-to-close returns) but the rolling window logic may
+  differ marginally. Spot-check first week of live signals against
+  per-row `signal["de3_v18_tiered_regime"]` telemetry.
+- If the regime classifier is OFF (`JULIE_REGIME_CLASSIFIER=0` or not
+  initialized), `current_regime()` returns `"disabled"`, the helper
+  falls back to flat tier-4 size=4, and Option 4b is silently a no-op.
+  **Confirm `JULIE_REGIME_CLASSIFIER=1` is set in the bot's runtime
+  environment before relying on Option 4b.**
+
+#### Files changed
+
+- `julie001.py` (+~30 lines in two functions)
+- `config.py` (+~25 lines — env flag block)
+- `docs/STRATEGY_ARCHITECTURE_JOURNAL.md` (this section)
+
+
+#### Side-query — tier-10 by-regime breakdown (do NOT extend Option 4b to tier-10)
+
+Operator asked whether the 4 tier-10 losers cluster in a specific regime
+that could be skipped. Answer: **no, leave tier-10 alone**.
+
+| Regime | n | WR | avg @ size=1 | total @ size=10 | losers |
+|---|---:|---:|---:|---:|---:|
+| calm_trend | 17 | 88.2% | +$90.29 | +$15,350 | 2 |
+| neutral | 7 | 71.4% | +$17.68 | +$1,237.50 | 2 |
+| whipsaw | 1 | 100.0% | +$5.00 | +$50 | 0 |
+| dead_tape | 0 | — | — | — | — |
+
+The 4 losers (sorted by size):
+
+| ts | side | regime | proba | pnl @ size=10 |
+|---|---|---|---:|---:|
+| 2026-03-05 14:01 ET | LONG | neutral | 0.865 | −$575 |
+| 2026-03-02 08:52 ET | LONG | calm_trend | 0.852 | −$450 |
+| 2026-03-11 13:46 ET | LONG | neutral | 0.899 | −$125 |
+| 2026-03-13 13:52 ET | LONG | calm_trend | 0.911 | −$87.50 |
+
+Three reasons not to extend Option 4b to tier-10:
+
+1. **All tier-10-firing regimes are EV-positive.** Even neutral
+   produces +$1,237.50 at size=10. Skipping any regime forfeits real PnL.
+
+2. **Losers are split 2/2 between calm_trend and neutral.** No clean
+   regime cut.
+
+3. **Losers are TIME-clustered (Mar 2-13 2026), not regime-clustered.**
+   All 4 fall in March's high-DD window flagged in §8.33.10 ($1,060
+   single-month DD). The driver was time-specific (likely ESH6 contract
+   roll period), not regime-specific.
+
+Counterfactual confirmed: skipping tier-10 in "EV-negative regimes"
+would skip 0 trades (because no tier-10 regime is EV-negative). The
+proposed extension is a no-op — same $16,707 PnL, same −$594 DD.
+
+**Action item:** monitor whether the March 2026 tier-10 losses
+correlate with contract-roll periods (ESH6 → ESM6 transition was
+mid-March 2026). If yes, a contract-roll-aware tier-10 veto is the
+right surgical fix; **NOT** a regime filter.
+

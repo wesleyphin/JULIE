@@ -5288,3 +5288,32 @@ if _tiers_override:
     except Exception:
         pass
 # === END LOCAL OVERRIDE ===
+
+# === LOCAL OVERRIDE 2026-04-26 — Option 4b: regime-aware tier-4 + whipsaw skip ===
+# §8.33.11 holdout analysis: Recipe B's flat tier-4 (proba 0.65-0.85 → size=4)
+# is the entire DD source ($1,200 holdout DD breaches $870 ship gate while
+# contributing -$360 PnL). Per-regime EV split shows:
+#   calm_trend tier-4 (n=20, 55% WR, +$2.19 avg/trade) → keep size=4
+#   neutral    tier-4 (n=28, 43% WR, -$4.02 avg/trade) → demote to size=1
+#   whipsaw    tier-4 (n=16, defensive cut)            → SKIP (size=0)
+# Result: $16,707 PnL / -$594 DD on holdout — passes both ship gates.
+#
+# When LOCAL_DE3_RECIPE_B_REGIME_AWARE=1 (default), tier-4 sizing branches by
+# regime_classifier.current_regime() at signal-birth. When 0, falls back to
+# the flat-tier behavior above (size=4 for any regime).
+#
+# When LOCAL_DE3_TIER4_SKIP_WHIPSAW=1 (default), whipsaw tier-4 returns
+# size=0 (skip). When 0, whipsaw tier-4 demotes to size=1 (Option 4 from
+# §8.33.11) instead of skipping.
+#
+# Both flags require LOCAL_DE3_USE_TIERED_SIZING=1 to take effect.
+# Both flags require regime_classifier active (JULIE_REGIME_CLASSIFIER=1)
+# to actually return a regime label; otherwise current_regime() returns
+# "disabled" and the regime-aware path falls back to flat tier-4.
+CONFIG["LOCAL_DE3_RECIPE_B_REGIME_AWARE"] = _env_flag(
+    "JULIE_LOCAL_DE3_RECIPE_B_REGIME_AWARE", True
+)
+CONFIG["LOCAL_DE3_TIER4_SKIP_WHIPSAW"] = _env_flag(
+    "JULIE_LOCAL_DE3_TIER4_SKIP_WHIPSAW", True
+)
+# === END LOCAL OVERRIDE ===
