@@ -1,0 +1,12 @@
+{
+  "config": "v18 + Recipe B + Option 4b + v6_be ML",
+  "n_trades": 83,
+  "v6_be_disable_count": 28,
+  "v6_be_keep_count": 55,
+  "v6_be_warmup_count": 0,
+  "no_be_pnl": 16707.5,
+  "with_be_pnl_all": 17478.75,
+  "v6be_applied_pnl": 17421.25,
+  "delta_v6be_vs_no_be": 713.75,
+  "delta_with_be_vs_no_be": 771.25
+}
