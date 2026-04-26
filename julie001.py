@@ -30,6 +30,31 @@ from process_singleton import acquire_singleton_lock
 TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 
 
+# === LOCAL OVERRIDE 2026-04-26 — Regime ML defaults ON (do not commit to main) ===
+# Activate the regime classifier + ML BE-disable layer by default for live runs.
+# These env vars MUST be set BEFORE `from regime_classifier import ...` because
+# regime_classifier reads os.environ at module-load time and caches the values.
+#
+# Default ON:
+#   JULIE_REGIME_CLASSIFIER  — master switch for the regime classifier module
+#   JULIE_REGIME_ML_BE       — v6_be ML model drives BE-disable decisions
+#                              (else falls back to rule: only disable BE in dead_tape)
+# Default OFF (operator can flip via shell env if desired):
+#   JULIE_REGIME_ML_BRACKETS — v5_brackets ML drives scalp-bracket switching
+#   JULIE_REGIME_ML_SIZE     — v6_size ML drives size-reduction
+#
+# Note: v6_be uses an `a_pred_scalp` feature derived from v5_brackets. With
+# JULIE_REGIME_ML_BRACKETS=0 (default), a_pred falls back to a rule-based
+# heuristic — v6_be still works but with slight feature drift vs training.
+# To run the full Regime ML stack at training fidelity, set both.
+#
+# Operator can override per-run by setting these env vars BEFORE launching
+# the bot (e.g. `JULIE_REGIME_ML_BE=0 python3 julie001.py` to disable BE-ML).
+os.environ.setdefault("JULIE_REGIME_CLASSIFIER", "1")
+os.environ.setdefault("JULIE_REGIME_ML_BE", "1")
+# === END LOCAL OVERRIDE ===
+
+
 def _maybe_acquire_direct_run_live_lock() -> Optional[object]:
     if __name__ != "__main__":
         return None
