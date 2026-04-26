@@ -1,0 +1,121 @@
+{
+  "method": "v10 stack-aware sequential training",
+  "reference_baseline": {
+    "pnl": 74000.0,
+    "trades": 1290,
+    "dd_target": 870.0
+  },
+  "holdout_baseline": {
+    "pnl": 79658.75,
+    "trades": 1477,
+    "dd": 4632.5
+  },
+  "stage_aucs": {
+    "filterg": 0.5038873203826219,
+    "kalshi": 0.43537756575230685,
+    "lfo": 0.52487711476909,
+    "pct": null
+  },
+  "combinations_tested": 38,
+  "passing_all_gates": 0,
+  "best_pareto": {
+    "label": "all=0.85",
+    "thresholds": {
+      "filterg": 0.85,
+      "kalshi": 0.85,
+      "lfo": 0.85,
+      "pct": 0.85
+    },
+    "pnl": 75327.5,
+    "dd": 3413.75,
+    "fired": 1248,
+    "wr": 71.07371794871796
+  },
+  "best_dd_floor": {
+    "label": "all=0.40",
+    "thresholds": {
+      "filterg": 0.4,
+      "kalshi": 0.4,
+      "lfo": 0.4,
+      "pct": 0.4
+    },
+    "pnl": 0.0,
+    "dd": 0,
+    "fired": 0,
+    "wr": 0
+  },
+  "top_5_by_pnl": [
+    {
+      "label": "all=0.90",
+      "pnl": 79726.25,
+      "dd": 3728.75,
+      "fired": 1334,
+      "wr": 71.06446776611695
+    },
+    {
+      "label": "all=0.85",
+      "pnl": 75327.5,
+      "dd": 3413.75,
+      "fired": 1248,
+      "wr": 71.07371794871796
+    },
+    {
+      "label": "rand_13",
+      "pnl": 66412.5,
+      "dd": 3298.75,
+      "fired": 1129,
+      "wr": 70.32772364924712
+    },
+    {
+      "label": "all=0.80",
+      "pnl": 66102.5,
+      "dd": 3330.0,
+      "fired": 1135,
+      "wr": 69.95594713656388
+    },
+    {
+      "label": "all=0.75",
+      "pnl": 59880.0,
+      "dd": 3146.25,
+      "fired": 1054,
+      "wr": 69.16508538899431
+    }
+  ],
+  "top_5_by_dd": [
+    {
+      "label": "all=0.40",
+      "pnl": 0.0,
+      "dd": 0,
+      "fired": 0,
+      "wr": 0
+    },
+    {
+      "label": "all=0.45",
+      "pnl": 0.0,
+      "dd": 0,
+      "fired": 0,
+      "wr": 0
+    },
+    {
+      "label": "all=0.50",
+      "pnl": 0.0,
+      "dd": 0,
+      "fired": 0,
+      "wr": 0
+    },
+    {
+      "label": "balanced",
+      "pnl": 0.0,
+      "dd": 0,
+      "fired": 0,
+      "wr": 0
+    },
+    {
+      "label": "strict_pct",
+      "pnl": 0.0,
+      "dd": 0,
+      "fired": 0,
+      "wr": 0
+    }
+  ]
+}

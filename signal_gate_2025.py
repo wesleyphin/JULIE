@@ -288,6 +288,53 @@ _PER_CELL_TABLE_PATH = Path(__file__).resolve().parent / "ai_loop_data" / "triat
 _PER_CELL_CACHE: Optional[Dict[str, float]] = None
 
 
+# Map any short-code / family / variant of a strategy name onto the canonical
+# full class-name form used by the filterg_threshold_overrides.json keys.
+# Without this normalisation, a caller that passes the family short code
+# (e.g. "de3", "regimeadaptive", "MLPhysics_AsianSession") never matches a
+# JSON key like "DynamicEngine3" / "RegimeAdaptive" / "MLPhysics", and every
+# lookup silently falls back to mult=1.0 — i.e. the entire per-cell override
+# system is dead. Fix: normalise lower/strip/dehyphen before key lookup, and
+# also strip MLPhysics suffixes ("MLPhysics_AsianSession" → "MLPhysics").
+_STRATEGY_NAME_NORMALIZE: Dict[str, str] = {
+    "de3": "DynamicEngine3",
+    "dynamicengine3": "DynamicEngine3",
+    "ra": "RegimeAdaptive",
+    "regimeadaptive": "RegimeAdaptive",
+    "af": "AetherFlow",
+    "aetherflow": "AetherFlow",
+    "mlphysics": "MLPhysics",
+    "ml_physics": "MLPhysics",
+    "mlphysicslegacy": "MLPhysicsLegacy",
+}
+
+
+def _normalize_strategy_for_cell_key(strategy: str) -> str:
+    """Map any input form of a strategy name onto the canonical name used as
+    the prefix of cell keys in filterg_threshold_overrides.json. Returns the
+    input unchanged if no mapping applies (so unknown strategies still get
+    looked up verbatim, which preserves any future cell keys we add)."""
+    if not strategy:
+        return strategy
+    raw = str(strategy).strip()
+    key = raw.lower().replace("-", "").replace("_", "")
+    # Direct mapping
+    if key in _STRATEGY_NAME_NORMALIZE:
+        return _STRATEGY_NAME_NORMALIZE[key]
+    # Suffixed forms — e.g. "MLPhysics_AsianSession", "MLPhysicsLegacy_NY"
+    if key.startswith("mlphysicslegacy"):
+        return "MLPhysicsLegacy"
+    if key.startswith("mlphysics"):
+        return "MLPhysics"
+    if key.startswith("dynamicengine3"):
+        return "DynamicEngine3"
+    if key.startswith("regimeadaptive"):
+        return "RegimeAdaptive"
+    if key.startswith("aetherflow"):
+        return "AetherFlow"
+    return raw
+
+
 def _load_per_cell_overrides() -> Dict[str, float]:
     """Lazy-load the per-cell multiplier table. Returns {} on any I/O
     or parse error (fail-closed)."""
@@ -338,17 +385,25 @@ def _time_bucket_of_hour(et_hour: int) -> str:
 
 def _per_cell_multiplier(strategy: str, regime: str, et_hour: int) -> float:
     """Look up the per-cell multiplier. Returns 1.0 when inactive, missing,
-    or when the cell isn't in the override table."""
+    or when the cell isn't in the override table.
+
+    Bug-fix 2026-04-26: normalise the strategy argument BEFORE composing the
+    cell key, so callers that pass the family short code ("de3"), the lower-
+    case form ("dynamicengine3"), or a suffixed variant ("MLPhysics_NY")
+    still match the canonical JSON keys ("DynamicEngine3", "MLPhysics", …).
+    Previously, every lookup that used a non-canonical strategy string
+    silently fell back to 1.0 — the whole override table was dead.
+    """
     if not _PER_CELL_ACTIVE:
         return 1.0
     table = _load_per_cell_overrides()
     if not table:
         return 1.0
-    # Mirror the triathlon cell-key shape. Strategy is kept as-is (not
-    # normalized to family) because the Triathlon table uses full strategy
-    # labels like "DynamicEngine3" / "RegimeAdaptive".
+    # Mirror the triathlon cell-key shape. Strategy is normalised to the
+    # canonical class name used as JSON key prefix.
+    norm_strategy = _normalize_strategy_for_cell_key(strategy)
     tb = _time_bucket_of_hour(et_hour)
-    ck = f"{strategy}|{str(regime or '').lower()}|{tb}"
+    ck = f"{norm_strategy}|{str(regime or '').lower()}|{tb}"
     return float(table.get(ck, 1.0))
 
 

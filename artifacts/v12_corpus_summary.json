@@ -1,0 +1,54 @@
+{
+  "v11_input_rows": 3438,
+  "v12_columns": 116,
+  "kalshi_hydration_count": 3121,
+  "kalshi_hydration_pct": 90.77952297847585,
+  "kalshi_feature_sanity": {
+    "k12_entry_probability": {
+      "n_valid": 3121,
+      "mean": 0.301770760544696,
+      "std": 0.25402391002871727,
+      "min": 0.0,
+      "max": 0.99
+    },
+    "k12_skew_p10": {
+      "n_valid": 3121,
+      "mean": -0.11118051348926505,
+      "std": 0.2671965840730509,
+      "min": -0.98,
+      "max": 0.6690194000000392
+    },
+    "k12_distance_to_50": {
+      "n_valid": 3121,
+      "mean": 0.26356099908362757,
+      "std": 0.1853345846563351,
+      "min": 0.0,
+      "max": 0.5
+    }
+  },
+  "shock_context_keys": [
+    "ctx_day_direction_regime",
+    "ctx_day_expansion_regime",
+    "ctx_day_first60_share",
+    "ctx_day_flow_regime",
+    "ctx_day_gap_ratio",
+    "ctx_day_gap_regime",
+    "ctx_day_opening_regime",
+    "ctx_day_profile",
+    "ctx_day_range_progress_ratio",
+    "ctx_day_trend_frac",
+    "ctx_day_type",
+    "ctx_day_volume_progress_ratio",
+    "ctx_shock_direction_bucket",
+    "ctx_shock_recent_range_bucket",
+    "ctx_shock_recent_range_ratio",
+    "ctx_shock_recent_volume_bucket",
+    "ctx_shock_recent_volume_ratio",
+    "ctx_shock_score",
+    "ctx_shock_score_bucket",
+    "ctx_shock_session_move_bucket",
+    "ctx_shock_session_move_norm",
+    "ctx_shock_session_range_bucket",
+    "ctx_shock_session_range_norm"
+  ]
+}

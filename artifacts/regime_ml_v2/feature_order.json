@@ -1,0 +1,31 @@
+{
+  "features": [
+    "vol_bp_120",
+    "eff_120",
+    "vol_bp_60",
+    "eff_60",
+    "vol_bp_30",
+    "eff_30",
+    "atr14",
+    "range_pct_20",
+    "body_ratio_20",
+    "up_bar_pct_20",
+    "mom_5",
+    "mom_15",
+    "mom_30",
+    "volume_z_20",
+    "et_hour",
+    "et_minute_bucket",
+    "range_pct_120",
+    "max_runup_60",
+    "max_rundown_60"
+  ],
+  "labels": [
+    "dead_tape",
+    "default"
+  ],
+  "session_hours_et": [
+    9,
+    16
+  ]
+}

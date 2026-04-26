@@ -1,0 +1,3 @@
+V15-RA KILL — RA holdout n=29 < G3 floor; no threshold reaches gate-passing.
+Recommended: defer RA retraining until ≥500 candidates accumulated (likely end of Q3 2026).
+Production-side: keep JULIE_VETO_RA_VOL_HIGH=1 strategy-level veto (per §8.5).

@@ -1,0 +1,173 @@
+{
+  "strategy": "DynamicEngine3",
+  "stage": "pivot_v11",
+  "n_total": 1599,
+  "n_train": 1068,
+  "n_test": 531,
+  "n_train_pos": 39,
+  "n_test_pos": 23,
+  "train_auc": 0.999700979292816,
+  "test_auc": 0.6928277986990756,
+  "holdout_baselines": {
+    "no_pivot": {
+      "trades": 531,
+      "wr": 0.4387947269303202,
+      "pnl": -2673.75,
+      "dd": 3927.5
+    },
+    "always_pivot": {
+      "trades": 531,
+      "wr": 0.4576271186440678,
+      "pnl": -2428.75,
+      "dd": 3655.0
+    },
+    "oracle_pnl": -1821.25
+  },
+  "threshold_sweep": [
+    {
+      "threshold": 0.4,
+      "n_arm": 8,
+      "trades": 531,
+      "wr": 0.4387947269303202,
+      "pnl": -2636.25,
+      "dd": 3890.0,
+      "G1_dd_le_870": false,
+      "G2_pnl_ge_baseline": true,
+      "G3_n_oos_ge_50": true,
+      "G4_wr_ge_55": false,
+      "all_pass": false
+    },
+    {
+      "threshold": 0.45,
+      "n_arm": 4,
+      "trades": 531,
+      "wr": 0.4387947269303202,
+      "pnl": -2636.25,
+      "dd": 3890.0,
+      "G1_dd_le_870": false,
+      "G2_pnl_ge_baseline": true,
+      "G3_n_oos_ge_50": true,
+      "G4_wr_ge_55": false,
+      "all_pass": false
+    },
+    {
+      "threshold": 0.5,
+      "n_arm": 2,
+      "trades": 531,
+      "wr": 0.4387947269303202,
+      "pnl": -2673.75,
+      "dd": 3927.5,
+      "G1_dd_le_870": false,
+      "G2_pnl_ge_baseline": true,
+      "G3_n_oos_ge_50": true,
+      "G4_wr_ge_55": false,
+      "all_pass": false
+    },
+    {
+      "threshold": 0.55,
+      "n_arm": 1,
+      "trades": 531,
+      "wr": 0.4387947269303202,
+      "pnl": -2673.75,
+      "dd": 3927.5,
+      "G1_dd_le_870": false,
+      "G2_pnl_ge_baseline": true,
+      "G3_n_oos_ge_50": true,
+      "G4_wr_ge_55": false,
+      "all_pass": false
+    },
+    {
+      "threshold": 0.6,
+      "n_arm": 1,
+      "trades": 531,
+      "wr": 0.4387947269303202,
+      "pnl": -2673.75,
+      "dd": 3927.5,
+      "G1_dd_le_870": false,
+      "G2_pnl_ge_baseline": true,
+      "G3_n_oos_ge_50": true,
+      "G4_wr_ge_55": false,
+      "all_pass": false
+    },
+    {
+      "threshold": 0.6499999999999999,
+      "n_arm": 1,
+      "trades": 531,
+      "wr": 0.4387947269303202,
+      "pnl": -2673.75,
+      "dd": 3927.5,
+      "G1_dd_le_870": false,
+      "G2_pnl_ge_baseline": true,
+      "G3_n_oos_ge_50": true,
+      "G4_wr_ge_55": false,
+      "all_pass": false
+    },
+    {
+      "threshold": 0.7,
+      "n_arm": 0,
+      "trades": 531,
+      "wr": 0.4387947269303202,
+      "pnl": -2673.75,
+      "dd": 3927.5,
+      "G1_dd_le_870": false,
+      "G2_pnl_ge_baseline": true,
+      "G3_n_oos_ge_50": true,
+      "G4_wr_ge_55": false,
+      "all_pass": false
+    },
+    {
+      "threshold": 0.75,
+      "n_arm": 0,
+      "trades": 531,
+      "wr": 0.4387947269303202,
+      "pnl": -2673.75,
+      "dd": 3927.5,
+      "G1_dd_le_870": false,
+      "G2_pnl_ge_baseline": true,
+      "G3_n_oos_ge_50": true,
+      "G4_wr_ge_55": false,
+      "all_pass": false
+    },
+    {
+      "threshold": 0.7999999999999999,
+      "n_arm": 0,
+      "trades": 531,
+      "wr": 0.4387947269303202,
+      "pnl": -2673.75,
+      "dd": 3927.5,
+      "G1_dd_le_870": false,
+      "G2_pnl_ge_baseline": true,
+      "G3_n_oos_ge_50": true,
+      "G4_wr_ge_55": false,
+      "all_pass": false
+    },
+    {
+      "threshold": 0.8499999999999999,
+      "n_arm": 0,
+      "trades": 531,
+      "wr": 0.4387947269303202,
+      "pnl": -2673.75,
+      "dd": 3927.5,
+      "G1_dd_le_870": false,
+      "G2_pnl_ge_baseline": true,
+      "G3_n_oos_ge_50": true,
+      "G4_wr_ge_55": false,
+      "all_pass": false
+    }
+  ],
+  "best_threshold": {
+    "threshold": 0.4,
+    "n_arm": 8,
+    "trades": 531,
+    "wr": 0.4387947269303202,
+    "pnl": -2636.25,
+    "dd": 3890.0,
+    "G1_dd_le_870": false,
+    "G2_pnl_ge_baseline": true,
+    "G3_n_oos_ge_50": true,
+    "G4_wr_ge_55": false,
+    "all_pass": false
+  },
+  "status": "KILL",
+  "binding_gate": "G1_dd_le_870"
+}

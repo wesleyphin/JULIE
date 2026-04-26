@@ -1,0 +1,5 @@
+{
+  "best_thr": 0.65,
+  "status": "KILL",
+  "block_rule": "p_wrong >= thr ==> BLOCK"
+}

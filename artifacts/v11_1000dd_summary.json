@@ -1,0 +1,108 @@
+{
+  "baseline": {
+    "n": 560,
+    "wr": 0.42857142857142855,
+    "pnl": -2886.25,
+    "dd": 4095.0
+  },
+  "best_per_stack": {
+    "A_FG_K": {
+      "fg_thr": 0.2,
+      "k_thr": 0.2,
+      "lfo_thr": null,
+      "pct_thr": null,
+      "n_kept": 47,
+      "WR": 0.3404255319148936,
+      "PnL": -180.0,
+      "DD": 346.25,
+      "all_4_pass": false,
+      "gates_str": "YYNN"
+    },
+    "B_FG_LFO": {
+      "fg_thr": 0.6,
+      "k_thr": null,
+      "lfo_thr": 0.5,
+      "pct_thr": null,
+      "n_kept": 63,
+      "WR": 0.3333333333333333,
+      "PnL": -337.5,
+      "DD": 503.75,
+      "all_4_pass": false,
+      "gates_str": "YYYN"
+    },
+    "C_FG_K_LFO": {
+      "fg_thr": 0.2,
+      "k_thr": 0.2,
+      "lfo_thr": 0.2,
+      "pct_thr": null,
+      "n_kept": 36,
+      "WR": 0.3055555555555556,
+      "PnL": -127.5,
+      "DD": 277.5,
+      "all_4_pass": false,
+      "gates_str": "YYNN"
+    },
+    "D_FG_K_LFO_PCT": {
+      "fg_thr": 0.2,
+      "k_thr": 0.2,
+      "lfo_thr": 0.3,
+      "pct_thr": 0.3,
+      "n_kept": 38,
+      "WR": 0.2894736842105263,
+      "PnL": -102.5,
+      "DD": 242.5,
+      "all_4_pass": false,
+      "gates_str": "YYNN"
+    }
+  },
+  "best_per_head": {
+    "kalshi_de3": {
+      "thr": 0.1,
+      "n_kept": 243,
+      "WR": 0.3786008230452675,
+      "PnL": -1975.0,
+      "DD": 2426.25,
+      "all_4_pass": false,
+      "gates_str": "NYYN"
+    },
+    "lfo_de3": {
+      "thr": 0.1,
+      "n_kept": 209,
+      "WR": 0.40669856459330145,
+      "PnL": -1016.25,
+      "DD": 1505.0,
+      "all_4_pass": false,
+      "gates_str": "NYYN"
+    },
+    "pct_de3": {
+      "thr": 0.1,
+      "n_kept": 29,
+      "WR": 0.2413793103448276,
+      "PnL": -212.5,
+      "DD": 232.5,
+      "all_4_pass": false,
+      "gates_str": "YYNN"
+    },
+    "filterg_de3": {
+      "thr": 0.1,
+      "n_kept": 61,
+      "WR": 0.32786885245901637,
+      "PnL": -422.5,
+      "DD": 508.75,
+      "all_4_pass": false,
+      "gates_str": "YYYN"
+    },
+    "pivot_de3": {
+      "thr": 0.1,
+      "n_kept": 29,
+      "WR": 0.2413793103448276,
+      "PnL": -212.5,
+      "DD": 232.5,
+      "all_4_pass": false,
+      "gates_str": "YYNN"
+    }
+  },
+  "global_best_passing": null,
+  "n_configs_passing_all_4_gates": 0,
+  "top_passing_configs": []
+}

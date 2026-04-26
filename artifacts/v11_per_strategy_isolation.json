@@ -1,0 +1,80 @@
+{
+  "DE3_only": {
+    "n": 531,
+    "WR": 0.4387947269303202,
+    "PnL": -2673.75,
+    "DD": 3927.5,
+    "gates": {
+      "G1_dd_le_1000": false,
+      "G2_pnl_ok": true,
+      "G3_n_oos": true,
+      "G4_wr_ge_55": false
+    },
+    "gates_str": "NYYN"
+  },
+  "RA_only": {
+    "n": 29,
+    "WR": 0.2413793103448276,
+    "PnL": -212.5,
+    "DD": 232.5,
+    "gates": {
+      "G1_dd_le_1000": true,
+      "G2_pnl_ok": true,
+      "G3_n_oos": false,
+      "G4_wr_ge_55": false
+    },
+    "gates_str": "YYNN"
+  },
+  "full_holdout": {
+    "n": 560,
+    "WR": 0.42857142857142855,
+    "PnL": -2886.25,
+    "DD": 4095.0,
+    "gates": {
+      "G1_dd_le_1000": false,
+      "G2_pnl_ok": true,
+      "G3_n_oos": true,
+      "G4_wr_ge_55": false
+    },
+    "gates_str": "NYYN"
+  },
+  "DE3_only+kalshi@0.100": {
+    "n": 214,
+    "WR": 0.397196261682243,
+    "PnL": -1762.5,
+    "DD": 2245.0,
+    "gates": {
+      "G1_dd_le_1000": false,
+      "G2_pnl_ok": true,
+      "G3_n_oos": true,
+      "G4_wr_ge_55": false
+    },
+    "gates_str": "NYYN"
+  },
+  "DE3_only+lfo@0.100": {
+    "n": 180,
+    "WR": 0.43333333333333335,
+    "PnL": -803.75,
+    "DD": 1337.5,
+    "gates": {
+      "G1_dd_le_1000": false,
+      "G2_pnl_ok": true,
+      "G3_n_oos": true,
+      "G4_wr_ge_55": false
+    },
+    "gates_str": "NYYN"
+  },
+  "DE3_only+fg@0.100": {
+    "n": 32,
+    "WR": 0.40625,
+    "PnL": -210.0,
+    "DD": 336.25,
+    "gates": {
+      "G1_dd_le_1000": true,
+      "G2_pnl_ok": true,
+      "G3_n_oos": false,
+      "G4_wr_ge_55": false
+    },
+    "gates_str": "YYNN"
+  }
+}

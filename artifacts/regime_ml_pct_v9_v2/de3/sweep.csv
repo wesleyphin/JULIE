@@ -1,0 +1,11 @@
+thr,trades,wr,pnl,dd,n_oos_pre_friend,G1,G2,G3,G4,all_pass,binding_gates,passing
+0.4,475.0,0.43157894736842106,-2693.75,-3725.0,1454.0,False,False,True,False,False,"['G1 DD>870.0', 'G2 PnL<-2280 or trades>507', 'G4 WR<0.55']",1
+0.45,480.0,0.4354166666666667,-2347.5,-3496.25,1466.0,False,False,True,False,False,"['G1 DD>870.0', 'G2 PnL<-2280 or trades>507', 'G4 WR<0.55']",1
+0.5,484.0,0.43388429752066116,-2473.75,-3565.0,1471.0,False,False,True,False,False,"['G1 DD>870.0', 'G2 PnL<-2280 or trades>507', 'G4 WR<0.55']",1
+0.55,486.0,0.43621399176954734,-2293.75,-3502.5,1474.0,False,False,True,False,False,"['G1 DD>870.0', 'G2 PnL<-2280 or trades>507', 'G4 WR<0.55']",1
+0.6,487.0,0.43737166324435317,-2292.5,-3501.25,1475.0,False,False,True,False,False,"['G1 DD>870.0', 'G2 PnL<-2280 or trades>507', 'G4 WR<0.55']",1
+0.65,489.0,0.4376278118609407,-2232.5,-3558.75,1477.0,False,True,True,False,False,"['G1 DD>870.0', 'G4 WR<0.55']",2
+0.7,489.0,0.4376278118609407,-2232.5,-3558.75,1477.0,False,True,True,False,False,"['G1 DD>870.0', 'G4 WR<0.55']",2
+0.75,489.0,0.4376278118609407,-2232.5,-3558.75,1477.0,False,True,True,False,False,"['G1 DD>870.0', 'G4 WR<0.55']",2
+0.8,489.0,0.4376278118609407,-2232.5,-3558.75,1477.0,False,True,True,False,False,"['G1 DD>870.0', 'G4 WR<0.55']",2
+0.85,489.0,0.4376278118609407,-2232.5,-3558.75,1477.0,False,True,True,False,False,"['G1 DD>870.0', 'G4 WR<0.55']",2

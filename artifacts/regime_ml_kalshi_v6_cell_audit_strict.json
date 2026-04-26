@@ -1,0 +1,111 @@
+[
+  {
+    "label": "side+role+settlement_hour+regime_bucket",
+    "cell_cols": [
+      "side",
+      "role",
+      "settlement_hour",
+      "regime_bucket"
+    ],
+    "criteria": "n>=30, wr>=0.45, avg>=$2",
+    "n_cells": 7,
+    "tr_n": 471,
+    "tr_wr": 50.955414012738856,
+    "tr_pnl": 2580.0,
+    "tr_avg_pnl": 5.477707006369426,
+    "oos_n_new_pass": 40,
+    "oos_new_wr": 25.0,
+    "oos_new_pnl": -300.0,
+    "rule_baseline": -100.0,
+    "lift": -300.0,
+    "capt_pct": -6.521739130434782,
+    "ships": "False"
+  },
+  {
+    "label": "side+role+settlement_hour+regime_bucket",
+    "cell_cols": [
+      "side",
+      "role",
+      "settlement_hour",
+      "regime_bucket"
+    ],
+    "criteria": "n>=50, wr>=0.50, avg>=$5",
+    "n_cells": 2,
+    "tr_n": 140,
+    "tr_wr": 60.71428571428571,
+    "tr_pnl": 1450.0,
+    "tr_avg_pnl": 10.357142857142858,
+    "oos_n_new_pass": 21,
+    "oos_new_wr": 28.57142857142857,
+    "oos_new_pnl": -120.0,
+    "rule_baseline": -100.0,
+    "lift": -120.0,
+    "capt_pct": -2.608695652173913,
+    "ships": "False"
+  },
+  {
+    "label": "side+role+settlement_hour+regime_bucket",
+    "cell_cols": [
+      "side",
+      "role",
+      "settlement_hour",
+      "regime_bucket"
+    ],
+    "criteria": "n>=50, wr>=0.55, avg>=$5",
+    "n_cells": 2,
+    "tr_n": 140,
+    "tr_wr": 60.71428571428571,
+    "tr_pnl": 1450.0,
+    "tr_avg_pnl": 10.357142857142858,
+    "oos_n_new_pass": 21,
+    "oos_new_wr": 28.57142857142857,
+    "oos_new_pnl": -120.0,
+    "rule_baseline": -100.0,
+    "lift": -120.0,
+    "capt_pct": -2.608695652173913,
+    "ships": "False"
+  },
+  {
+    "label": "side+role+settlement_hour+regime_bucket",
+    "cell_cols": [
+      "side",
+      "role",
+      "settlement_hour",
+      "regime_bucket"
+    ],
+    "criteria": "n>=50, wr>=0.60, avg>=$8",
+    "n_cells": 2,
+    "tr_n": 140,
+    "tr_wr": 60.71428571428571,
+    "tr_pnl": 1450.0,
+    "tr_avg_pnl": 10.357142857142858,
+    "oos_n_new_pass": 21,
+    "oos_new_wr": 28.57142857142857,
+    "oos_new_pnl": -120.0,
+    "rule_baseline": -100.0,
+    "lift": -120.0,
+    "capt_pct": -2.608695652173913,
+    "ships": "False"
+  },
+  {
+    "label": "side+role+settlement_hour",
+    "cell_cols": [
+      "side",
+      "role",
+      "settlement_hour"
+    ],
+    "criteria": "n>=50, wr>=0.50, avg>=$3",
+    "n_cells": 1,
+    "tr_n": 56,
+    "tr_wr": 51.78571428571429,
+    "tr_pnl": 330.0,
+    "tr_avg_pnl": 5.892857142857143,
+    "oos_n_new_pass": 24,
+    "oos_new_wr": 37.5,
+    "oos_new_pnl": -30.0,
+    "rule_baseline": -100.0,
+    "lift": -30.0,
+    "capt_pct": -0.6521739130434783,
+    "ships": "False"
+  }
+]

@@ -1,0 +1,5 @@
+{
+  "status": "TRAINED",
+  "test_auc": 0.43537756575230685,
+  "best_threshold_per_overlay": 0.85
+}

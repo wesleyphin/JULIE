@@ -1,0 +1,1584 @@
+{
+  "new": [
+    {
+      "side": "LONG",
+      "entry": 6470.75,
+      "exit": 6483.25,
+      "pnl_pts": 12.5,
+      "pnl_dollars": 183.78
+    },
+    {
+      "side": "LONG",
+      "entry": 6472.75,
+      "exit": 6475.5,
+      "pnl_pts": 2.75,
+      "pnl_dollars": 37.53
+    },
+    {
+      "side": "LONG",
+      "entry": 6473.25,
+      "exit": 6463.25,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6467.5,
+      "exit": 6457.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6457.25,
+      "exit": 6447.25,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6448.75,
+      "exit": 6438.75,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "SHORT",
+      "entry": 6435.0,
+      "exit": 6429.0,
+      "pnl_pts": 6.0,
+      "pnl_dollars": 115.04
+    },
+    {
+      "side": "LONG",
+      "entry": 6429.75,
+      "exit": 6454.75,
+      "pnl_pts": 25.0,
+      "pnl_dollars": 123.76
+    },
+    {
+      "side": "LONG",
+      "entry": 6453.0,
+      "exit": 6443.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6445.25,
+      "exit": 6446.25,
+      "pnl_pts": 1.0,
+      "pnl_dollars": 11.28
+    },
+    {
+      "side": "SHORT",
+      "entry": 6446.25,
+      "exit": 6442.5,
+      "pnl_pts": 3.75,
+      "pnl_dollars": 35.02
+    },
+    {
+      "side": "LONG",
+      "entry": 6442.5,
+      "exit": 6455.25,
+      "pnl_pts": 12.75,
+      "pnl_dollars": 187.53
+    },
+    {
+      "side": "LONG",
+      "entry": 6444.5,
+      "exit": 6446.5,
+      "pnl_pts": 2.0,
+      "pnl_dollars": 17.52
+    },
+    {
+      "side": "LONG",
+      "entry": 6442.5,
+      "exit": 6432.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -51.24
+    },
+    {
+      "side": "LONG",
+      "entry": 6435.0,
+      "exit": 6456.0,
+      "pnl_pts": 21.0,
+      "pnl_dollars": 103.76
+    },
+    {
+      "side": "LONG",
+      "entry": 6452.5,
+      "exit": 6466.75,
+      "pnl_pts": 14.25,
+      "pnl_dollars": 70.01
+    },
+    {
+      "side": "SHORT",
+      "entry": 6465.75,
+      "exit": 6459.75,
+      "pnl_pts": 6.0,
+      "pnl_dollars": 143.8
+    },
+    {
+      "side": "LONG",
+      "entry": 6466.25,
+      "exit": 6472.25,
+      "pnl_pts": 6.0,
+      "pnl_dollars": 143.8
+    },
+    {
+      "side": "LONG",
+      "entry": 6465.75,
+      "exit": 6471.75,
+      "pnl_pts": 6.0,
+      "pnl_dollars": 143.8
+    },
+    {
+      "side": "LONG",
+      "entry": 6466.5,
+      "exit": 6472.5,
+      "pnl_pts": 6.0,
+      "pnl_dollars": 143.8
+    },
+    {
+      "side": "LONG",
+      "entry": 6463.0,
+      "exit": 6468.25,
+      "pnl_pts": 5.25,
+      "pnl_dollars": 25.01
+    },
+    {
+      "side": "LONG",
+      "entry": 6468.75,
+      "exit": 6464.75,
+      "pnl_pts": -4.0,
+      "pnl_dollars": -106.2
+    },
+    {
+      "side": "LONG",
+      "entry": 6466.25,
+      "exit": 6456.25,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "SHORT",
+      "entry": 6469.25,
+      "exit": 6469.5,
+      "pnl_pts": -0.25,
+      "pnl_dollars": -4.98
+    },
+    {
+      "side": "LONG",
+      "entry": 6469.5,
+      "exit": 6494.5,
+      "pnl_pts": 25.0,
+      "pnl_dollars": 371.28
+    },
+    {
+      "side": "LONG",
+      "entry": 6495.25,
+      "exit": 6516.25,
+      "pnl_pts": 21.0,
+      "pnl_dollars": 207.52
+    },
+    {
+      "side": "SHORT",
+      "entry": 6527.25,
+      "exit": 6521.25,
+      "pnl_pts": 6.0,
+      "pnl_dollars": 115.04
+    },
+    {
+      "side": "LONG",
+      "entry": 6521.5,
+      "exit": 6511.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -51.24
+    },
+    {
+      "side": "LONG",
+      "entry": 6521.5,
+      "exit": 6524.75,
+      "pnl_pts": 3.25,
+      "pnl_dollars": 45.03
+    },
+    {
+      "side": "LONG",
+      "entry": 6522.75,
+      "exit": 6532.75,
+      "pnl_pts": 10.0,
+      "pnl_dollars": 97.52
+    },
+    {
+      "side": "LONG",
+      "entry": 6534.25,
+      "exit": 6526.25,
+      "pnl_pts": -8.0,
+      "pnl_dollars": -123.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6528.75,
+      "exit": 6520.75,
+      "pnl_pts": -8.0,
+      "pnl_dollars": -41.24
+    },
+    {
+      "side": "LONG",
+      "entry": 6497.75,
+      "exit": 6487.75,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6487.0,
+      "exit": 6477.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6476.0,
+      "exit": 6466.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6462.25,
+      "exit": 6452.25,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "SHORT",
+      "entry": 6470.5,
+      "exit": 6474.5,
+      "pnl_pts": -4.0,
+      "pnl_dollars": -42.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6474.5,
+      "exit": 6476.5,
+      "pnl_pts": 2.0,
+      "pnl_dollars": 8.76
+    },
+    {
+      "side": "LONG",
+      "entry": 6482.5,
+      "exit": 6496.75,
+      "pnl_pts": 14.25,
+      "pnl_dollars": 210.03
+    },
+    {
+      "side": "LONG",
+      "entry": 6499.75,
+      "exit": 6505.75,
+      "pnl_pts": 6.0,
+      "pnl_dollars": 115.04
+    },
+    {
+      "side": "LONG",
+      "entry": 6501.5,
+      "exit": 6507.5,
+      "pnl_pts": 6.0,
+      "pnl_dollars": 115.04
+    },
+    {
+      "side": "LONG",
+      "entry": 6500.5,
+      "exit": 6502.25,
+      "pnl_pts": 1.75,
+      "pnl_dollars": 22.53
+    },
+    {
+      "side": "LONG",
+      "entry": 6498.25,
+      "exit": 6500.75,
+      "pnl_pts": 2.5,
+      "pnl_dollars": 22.52
+    },
+    {
+      "side": "LONG",
+      "entry": 6497.25,
+      "exit": 6506.0,
+      "pnl_pts": 8.75,
+      "pnl_dollars": 127.53
+    },
+    {
+      "side": "LONG",
+      "entry": 6507.0,
+      "exit": 6497.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6499.0,
+      "exit": 6519.25,
+      "pnl_pts": 20.25,
+      "pnl_dollars": 100.01
+    },
+    {
+      "side": "LONG",
+      "entry": 6515.5,
+      "exit": 6505.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6490.25,
+      "exit": 6499.75,
+      "pnl_pts": 9.5,
+      "pnl_dollars": 138.78
+    },
+    {
+      "side": "LONG",
+      "entry": 6499.25,
+      "exit": 6501.25,
+      "pnl_pts": 2.0,
+      "pnl_dollars": 26.28
+    },
+    {
+      "side": "LONG",
+      "entry": 6502.25,
+      "exit": 6522.75,
+      "pnl_pts": 20.5,
+      "pnl_dollars": 303.78
+    },
+    {
+      "side": "LONG",
+      "entry": 6522.5,
+      "exit": 6534.75,
+      "pnl_pts": 12.25,
+      "pnl_dollars": 60.01
+    },
+    {
+      "side": "LONG",
+      "entry": 6532.75,
+      "exit": 6545.25,
+      "pnl_pts": 12.5,
+      "pnl_dollars": 183.78
+    },
+    {
+      "side": "LONG",
+      "entry": 6553.25,
+      "exit": 6548.0,
+      "pnl_pts": -5.25,
+      "pnl_dollars": -82.47
+    },
+    {
+      "side": "SHORT",
+      "entry": 6548.0,
+      "exit": 6558.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6561.75,
+      "exit": 6551.75,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6543.75,
+      "exit": 6540.75,
+      "pnl_pts": -3.0,
+      "pnl_dollars": -16.24
+    },
+    {
+      "side": "SHORT",
+      "entry": 6540.75,
+      "exit": 6539.5,
+      "pnl_pts": 1.25,
+      "pnl_dollars": 10.02
+    },
+    {
+      "side": "LONG",
+      "entry": 6533.5,
+      "exit": 6553.75,
+      "pnl_pts": 20.25,
+      "pnl_dollars": 100.01
+    },
+    {
+      "side": "SHORT",
+      "entry": 6549.25,
+      "exit": 6557.5,
+      "pnl_pts": -8.25,
+      "pnl_dollars": -127.47
+    },
+    {
+      "side": "LONG",
+      "entry": 6557.5,
+      "exit": 6577.5,
+      "pnl_pts": 20.0,
+      "pnl_dollars": 296.28
+    },
+    {
+      "side": "LONG",
+      "entry": 6578.5,
+      "exit": 6587.25,
+      "pnl_pts": 8.75,
+      "pnl_dollars": 42.51
+    },
+    {
+      "side": "LONG",
+      "entry": 6584.25,
+      "exit": 6586.5,
+      "pnl_pts": 2.25,
+      "pnl_dollars": 30.03
+    },
+    {
+      "side": "SHORT",
+      "entry": 6592.0,
+      "exit": 6576.0,
+      "pnl_pts": 16.0,
+      "pnl_dollars": 236.28
+    },
+    {
+      "side": "LONG",
+      "entry": 6576.0,
+      "exit": 6587.25,
+      "pnl_pts": 11.25,
+      "pnl_dollars": 55.01
+    },
+    {
+      "side": "LONG",
+      "entry": 6592.0,
+      "exit": 6594.75,
+      "pnl_pts": 2.75,
+      "pnl_dollars": 37.53
+    },
+    {
+      "side": "SHORT",
+      "entry": 6587.0,
+      "exit": 6587.5,
+      "pnl_pts": -0.5,
+      "pnl_dollars": -7.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6587.5,
+      "exit": 6588.0,
+      "pnl_pts": 0.5,
+      "pnl_dollars": 1.26
+    }
+  ],
+  "old": [
+    {
+      "side": "LONG",
+      "entry": 6470.75,
+      "exit": 6483.25,
+      "pnl_pts": 12.5,
+      "pnl_dollars": 183.78
+    },
+    {
+      "side": "LONG",
+      "entry": 6477.75,
+      "exit": 6467.75,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6466.5,
+      "exit": 6456.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6455.25,
+      "exit": 6456.75,
+      "pnl_pts": 1.5,
+      "pnl_dollars": 18.78
+    },
+    {
+      "side": "LONG",
+      "entry": 6455.5,
+      "exit": 6445.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -51.24
+    },
+    {
+      "side": "LONG",
+      "entry": 6442.5,
+      "exit": 6432.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6430.25,
+      "exit": 6432.0,
+      "pnl_pts": 1.75,
+      "pnl_dollars": 22.53
+    },
+    {
+      "side": "LONG",
+      "entry": 6429.75,
+      "exit": 6454.75,
+      "pnl_pts": 25.0,
+      "pnl_dollars": 123.76
+    },
+    {
+      "side": "LONG",
+      "entry": 6453.0,
+      "exit": 6443.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6442.25,
+      "exit": 6444.25,
+      "pnl_pts": 2.0,
+      "pnl_dollars": 26.28
+    },
+    {
+      "side": "LONG",
+      "entry": 6442.5,
+      "exit": 6448.5,
+      "pnl_pts": 6.0,
+      "pnl_dollars": 28.76
+    },
+    {
+      "side": "SHORT",
+      "entry": 6448.5,
+      "exit": 6458.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6457.75,
+      "exit": 6447.75,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6445.75,
+      "exit": 6435.75,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "SHORT",
+      "entry": 6430.25,
+      "exit": 6431.25,
+      "pnl_pts": -1.0,
+      "pnl_dollars": -12.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6431.25,
+      "exit": 6452.0,
+      "pnl_pts": 20.75,
+      "pnl_dollars": 205.02
+    },
+    {
+      "side": "LONG",
+      "entry": 6463.0,
+      "exit": 6469.0,
+      "pnl_pts": 6.0,
+      "pnl_dollars": 115.04
+    },
+    {
+      "side": "LONG",
+      "entry": 6459.25,
+      "exit": 6465.75,
+      "pnl_pts": 6.5,
+      "pnl_dollars": 93.78
+    },
+    {
+      "side": "LONG",
+      "entry": 6467.75,
+      "exit": 6473.75,
+      "pnl_pts": 6.0,
+      "pnl_dollars": 143.8
+    },
+    {
+      "side": "LONG",
+      "entry": 6467.25,
+      "exit": 6457.25,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6463.5,
+      "exit": 6469.25,
+      "pnl_pts": 5.75,
+      "pnl_dollars": 82.53
+    },
+    {
+      "side": "SHORT",
+      "entry": 6469.25,
+      "exit": 6469.5,
+      "pnl_pts": -0.25,
+      "pnl_dollars": -4.98
+    },
+    {
+      "side": "LONG",
+      "entry": 6469.5,
+      "exit": 6476.25,
+      "pnl_pts": 6.75,
+      "pnl_dollars": 97.53
+    },
+    {
+      "side": "SHORT",
+      "entry": 6476.25,
+      "exit": 6476.25,
+      "pnl_pts": 0.0,
+      "pnl_dollars": -2.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6476.25,
+      "exit": 6487.25,
+      "pnl_pts": 11.0,
+      "pnl_dollars": 161.28
+    },
+    {
+      "side": "LONG",
+      "entry": 6485.0,
+      "exit": 6506.0,
+      "pnl_pts": 21.0,
+      "pnl_dollars": 207.52
+    },
+    {
+      "side": "LONG",
+      "entry": 6510.0,
+      "exit": 6522.5,
+      "pnl_pts": 12.5,
+      "pnl_dollars": 61.26
+    },
+    {
+      "side": "LONG",
+      "entry": 6521.5,
+      "exit": 6511.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -51.24
+    },
+    {
+      "side": "LONG",
+      "entry": 6521.5,
+      "exit": 6528.25,
+      "pnl_pts": 6.75,
+      "pnl_dollars": 97.53
+    },
+    {
+      "side": "LONG",
+      "entry": 6536.5,
+      "exit": 6528.5,
+      "pnl_pts": -8.0,
+      "pnl_dollars": -123.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6533.25,
+      "exit": 6525.25,
+      "pnl_pts": -8.0,
+      "pnl_dollars": -123.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6519.25,
+      "exit": 6511.25,
+      "pnl_pts": -8.0,
+      "pnl_dollars": -41.24
+    },
+    {
+      "side": "LONG",
+      "entry": 6506.25,
+      "exit": 6496.25,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6482.75,
+      "exit": 6496.75,
+      "pnl_pts": 14.0,
+      "pnl_dollars": 206.28
+    },
+    {
+      "side": "LONG",
+      "entry": 6502.75,
+      "exit": 6504.0,
+      "pnl_pts": 1.25,
+      "pnl_dollars": 15.03
+    },
+    {
+      "side": "LONG",
+      "entry": 6506.75,
+      "exit": 6502.75,
+      "pnl_pts": -4.0,
+      "pnl_dollars": -106.2
+    },
+    {
+      "side": "LONG",
+      "entry": 6497.0,
+      "exit": 6500.0,
+      "pnl_pts": 3.0,
+      "pnl_dollars": 41.28
+    },
+    {
+      "side": "LONG",
+      "entry": 6497.25,
+      "exit": 6506.0,
+      "pnl_pts": 8.75,
+      "pnl_dollars": 127.53
+    },
+    {
+      "side": "LONG",
+      "entry": 6507.0,
+      "exit": 6497.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6493.0,
+      "exit": 6495.5,
+      "pnl_pts": 2.5,
+      "pnl_dollars": 11.26
+    },
+    {
+      "side": "LONG",
+      "entry": 6507.0,
+      "exit": 6511.0,
+      "pnl_pts": 4.0,
+      "pnl_dollars": 18.76
+    },
+    {
+      "side": "LONG",
+      "entry": 6490.25,
+      "exit": 6499.75,
+      "pnl_pts": 9.5,
+      "pnl_dollars": 138.78
+    },
+    {
+      "side": "LONG",
+      "entry": 6499.25,
+      "exit": 6501.25,
+      "pnl_pts": 2.0,
+      "pnl_dollars": 26.28
+    },
+    {
+      "side": "LONG",
+      "entry": 6502.5,
+      "exit": 6523.0,
+      "pnl_pts": 20.5,
+      "pnl_dollars": 303.78
+    },
+    {
+      "side": "LONG",
+      "entry": 6522.5,
+      "exit": 6534.75,
+      "pnl_pts": 12.25,
+      "pnl_dollars": 60.01
+    },
+    {
+      "side": "LONG",
+      "entry": 6532.75,
+      "exit": 6545.25,
+      "pnl_pts": 12.5,
+      "pnl_dollars": 183.78
+    },
+    {
+      "side": "LONG",
+      "entry": 6550.5,
+      "exit": 6553.25,
+      "pnl_pts": 2.75,
+      "pnl_dollars": 37.53
+    },
+    {
+      "side": "LONG",
+      "entry": 6541.75,
+      "exit": 6544.5,
+      "pnl_pts": 2.75,
+      "pnl_dollars": 37.53
+    },
+    {
+      "side": "LONG",
+      "entry": 6543.75,
+      "exit": 6540.75,
+      "pnl_pts": -3.0,
+      "pnl_dollars": -16.24
+    },
+    {
+      "side": "SHORT",
+      "entry": 6540.75,
+      "exit": 6539.5,
+      "pnl_pts": 1.25,
+      "pnl_dollars": 10.02
+    },
+    {
+      "side": "LONG",
+      "entry": 6533.5,
+      "exit": 6524.0,
+      "pnl_pts": -9.5,
+      "pnl_dollars": -97.48
+    },
+    {
+      "side": "SHORT",
+      "entry": 6524.0,
+      "exit": 6534.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6534.5,
+      "exit": 6548.5,
+      "pnl_pts": 14.0,
+      "pnl_dollars": 206.28
+    },
+    {
+      "side": "LONG",
+      "entry": 6549.25,
+      "exit": 6555.25,
+      "pnl_pts": 6.0,
+      "pnl_dollars": 86.28
+    },
+    {
+      "side": "LONG",
+      "entry": 6554.5,
+      "exit": 6572.25,
+      "pnl_pts": 17.75,
+      "pnl_dollars": 262.53
+    },
+    {
+      "side": "SHORT",
+      "entry": 6572.25,
+      "exit": 6572.25,
+      "pnl_pts": 0.0,
+      "pnl_dollars": -2.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6572.25,
+      "exit": 6590.0,
+      "pnl_pts": 17.75,
+      "pnl_dollars": 262.53
+    },
+    {
+      "side": "SHORT",
+      "entry": 6590.0,
+      "exit": 6584.25,
+      "pnl_pts": 5.75,
+      "pnl_dollars": 55.02
+    },
+    {
+      "side": "LONG",
+      "entry": 6584.25,
+      "exit": 6586.5,
+      "pnl_pts": 2.25,
+      "pnl_dollars": 30.03
+    },
+    {
+      "side": "SHORT",
+      "entry": 6592.0,
+      "exit": 6586.25,
+      "pnl_pts": 5.75,
+      "pnl_dollars": 82.53
+    },
+    {
+      "side": "LONG",
+      "entry": 6586.25,
+      "exit": 6576.25,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6576.0,
+      "exit": 6587.25,
+      "pnl_pts": 11.25,
+      "pnl_dollars": 55.01
+    },
+    {
+      "side": "LONG",
+      "entry": 6593.0,
+      "exit": 6595.5,
+      "pnl_pts": 2.5,
+      "pnl_dollars": 11.26
+    },
+    {
+      "side": "SHORT",
+      "entry": 6587.0,
+      "exit": 6587.5,
+      "pnl_pts": -0.5,
+      "pnl_dollars": -22.44
+    },
+    {
+      "side": "LONG",
+      "entry": 6587.5,
+      "exit": 6587.25,
+      "pnl_pts": -0.25,
+      "pnl_dollars": -2.49
+    },
+    {
+      "side": "SHORT",
+      "entry": 6587.25,
+      "exit": 6597.25,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6651.0,
+      "exit": 6663.5,
+      "pnl_pts": 12.5,
+      "pnl_dollars": 183.78
+    },
+    {
+      "side": "LONG",
+      "entry": 6666.75,
+      "exit": 6674.75,
+      "pnl_pts": 8.0,
+      "pnl_dollars": 38.76
+    },
+    {
+      "side": "LONG",
+      "entry": 6675.5,
+      "exit": 6665.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6665.0,
+      "exit": 6674.75,
+      "pnl_pts": 9.75,
+      "pnl_dollars": 95.02
+    },
+    {
+      "side": "SHORT",
+      "entry": 6674.75,
+      "exit": 6684.75,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6689.0,
+      "exit": 6679.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6672.0,
+      "exit": 6662.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6659.25,
+      "exit": 6661.75,
+      "pnl_pts": 2.5,
+      "pnl_dollars": 11.26
+    },
+    {
+      "side": "LONG",
+      "entry": 6660.5,
+      "exit": 6663.75,
+      "pnl_pts": 3.25,
+      "pnl_dollars": 45.03
+    },
+    {
+      "side": "LONG",
+      "entry": 6658.0,
+      "exit": 6678.5,
+      "pnl_pts": 20.5,
+      "pnl_dollars": 202.52
+    },
+    {
+      "side": "LONG",
+      "entry": 6685.0,
+      "exit": 6675.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6678.0,
+      "exit": 6668.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6651.25,
+      "exit": 6672.0,
+      "pnl_pts": 20.75,
+      "pnl_dollars": 307.53
+    },
+    {
+      "side": "LONG",
+      "entry": 6668.75,
+      "exit": 6658.75,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6658.5,
+      "exit": 6648.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6652.5,
+      "exit": 6642.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -51.24
+    },
+    {
+      "side": "LONG",
+      "entry": 6643.0,
+      "exit": 6633.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -51.24
+    },
+    {
+      "side": "LONG",
+      "entry": 6631.25,
+      "exit": 6621.25,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -51.24
+    },
+    {
+      "side": "LONG",
+      "entry": 6689.0,
+      "exit": 6701.5,
+      "pnl_pts": 12.5,
+      "pnl_dollars": 183.78
+    },
+    {
+      "side": "LONG",
+      "entry": 6712.25,
+      "exit": 6702.25,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6700.5,
+      "exit": 6690.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6673.25,
+      "exit": 6695.5,
+      "pnl_pts": 22.25,
+      "pnl_dollars": 330.03
+    },
+    {
+      "side": "SHORT",
+      "entry": 6695.5,
+      "exit": 6704.75,
+      "pnl_pts": -9.25,
+      "pnl_dollars": -94.98
+    },
+    {
+      "side": "LONG",
+      "entry": 6704.75,
+      "exit": 6705.75,
+      "pnl_pts": 1.0,
+      "pnl_dollars": 11.28
+    },
+    {
+      "side": "SHORT",
+      "entry": 6705.75,
+      "exit": 6705.75,
+      "pnl_pts": 0.0,
+      "pnl_dollars": -2.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6705.75,
+      "exit": 6695.75,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -51.24
+    },
+    {
+      "side": "LONG",
+      "entry": 6692.0,
+      "exit": 6692.0,
+      "pnl_pts": 0.0,
+      "pnl_dollars": -3.72
+    },
+    {
+      "side": "SHORT",
+      "entry": 6692.0,
+      "exit": 6702.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6684.0,
+      "exit": 6685.25,
+      "pnl_pts": 1.25,
+      "pnl_dollars": 15.03
+    },
+    {
+      "side": "LONG",
+      "entry": 6693.0,
+      "exit": 6704.25,
+      "pnl_pts": 11.25,
+      "pnl_dollars": 165.03
+    },
+    {
+      "side": "LONG",
+      "entry": 6702.0,
+      "exit": 6704.25,
+      "pnl_pts": 2.25,
+      "pnl_dollars": 30.03
+    },
+    {
+      "side": "LONG",
+      "entry": 6704.25,
+      "exit": 6694.25,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -51.24
+    },
+    {
+      "side": "LONG",
+      "entry": 6694.75,
+      "exit": 6714.75,
+      "pnl_pts": 20.0,
+      "pnl_dollars": 197.52
+    },
+    {
+      "side": "LONG",
+      "entry": 6713.0,
+      "exit": 6703.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6707.75,
+      "exit": 6703.75,
+      "pnl_pts": -4.0,
+      "pnl_dollars": -127.44
+    },
+    {
+      "side": "LONG",
+      "entry": 6706.25,
+      "exit": 6699.25,
+      "pnl_pts": -7.0,
+      "pnl_dollars": -217.44
+    },
+    {
+      "side": "LONG",
+      "entry": 6699.5,
+      "exit": 6712.0,
+      "pnl_pts": 12.5,
+      "pnl_dollars": 183.78
+    },
+    {
+      "side": "LONG",
+      "entry": 6748.75,
+      "exit": 6750.25,
+      "pnl_pts": 1.5,
+      "pnl_dollars": 18.78
+    },
+    {
+      "side": "LONG",
+      "entry": 6745.5,
+      "exit": 6748.25,
+      "pnl_pts": 2.75,
+      "pnl_dollars": 25.02
+    },
+    {
+      "side": "LONG",
+      "entry": 6738.0,
+      "exit": 6728.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6726.75,
+      "exit": 6716.75,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "SHORT",
+      "entry": 6716.5,
+      "exit": 6706.25,
+      "pnl_pts": 10.25,
+      "pnl_dollars": 150.03
+    },
+    {
+      "side": "SHORT",
+      "entry": 6708.5,
+      "exit": 6713.5,
+      "pnl_pts": -5.0,
+      "pnl_dollars": -52.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6713.5,
+      "exit": 6703.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "SHORT",
+      "entry": 6707.0,
+      "exit": 6712.0,
+      "pnl_pts": -5.0,
+      "pnl_dollars": -78.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6712.0,
+      "exit": 6714.5,
+      "pnl_pts": 2.5,
+      "pnl_dollars": 11.26
+    },
+    {
+      "side": "LONG",
+      "entry": 6714.0,
+      "exit": 6717.5,
+      "pnl_pts": 3.5,
+      "pnl_dollars": 48.78
+    },
+    {
+      "side": "LONG",
+      "entry": 6717.0,
+      "exit": 6723.75,
+      "pnl_pts": 6.75,
+      "pnl_dollars": 97.53
+    },
+    {
+      "side": "LONG",
+      "entry": 6724.0,
+      "exit": 6714.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6710.0,
+      "exit": 6700.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6693.5,
+      "exit": 6683.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "SHORT",
+      "entry": 6684.0,
+      "exit": 6694.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6690.25,
+      "exit": 6691.5,
+      "pnl_pts": 1.25,
+      "pnl_dollars": 15.03
+    },
+    {
+      "side": "LONG",
+      "entry": 6691.0,
+      "exit": 6692.5,
+      "pnl_pts": 1.5,
+      "pnl_dollars": 18.78
+    },
+    {
+      "side": "LONG",
+      "entry": 6690.5,
+      "exit": 6680.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -51.24
+    },
+    {
+      "side": "LONG",
+      "entry": 6674.75,
+      "exit": 6667.75,
+      "pnl_pts": -7.0,
+      "pnl_dollars": -72.48
+    },
+    {
+      "side": "SHORT",
+      "entry": 6667.75,
+      "exit": 6665.75,
+      "pnl_pts": 2.0,
+      "pnl_dollars": 26.28
+    },
+    {
+      "side": "LONG",
+      "entry": 6665.75,
+      "exit": 6655.75,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6665.25,
+      "exit": 6669.75,
+      "pnl_pts": 4.5,
+      "pnl_dollars": 21.26
+    },
+    {
+      "side": "LONG",
+      "entry": 6665.0,
+      "exit": 6677.5,
+      "pnl_pts": 12.5,
+      "pnl_dollars": 122.52
+    },
+    {
+      "side": "SHORT",
+      "entry": 6684.5,
+      "exit": 6694.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6695.25,
+      "exit": 6697.25,
+      "pnl_pts": 2.0,
+      "pnl_dollars": 17.52
+    },
+    {
+      "side": "LONG",
+      "entry": 6690.0,
+      "exit": 6680.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6677.0,
+      "exit": 6667.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6666.5,
+      "exit": 6677.5,
+      "pnl_pts": 11.0,
+      "pnl_dollars": 107.52
+    },
+    {
+      "side": "SHORT",
+      "entry": 6677.5,
+      "exit": 6662.25,
+      "pnl_pts": 15.25,
+      "pnl_dollars": 150.02
+    },
+    {
+      "side": "LONG",
+      "entry": 6662.25,
+      "exit": 6667.0,
+      "pnl_pts": 4.75,
+      "pnl_dollars": 22.51
+    },
+    {
+      "side": "SHORT",
+      "entry": 6667.0,
+      "exit": 6677.0,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6678.5,
+      "exit": 6668.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -51.24
+    },
+    {
+      "side": "SHORT",
+      "entry": 6664.5,
+      "exit": 6671.0,
+      "pnl_pts": -6.5,
+      "pnl_dollars": -67.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6671.0,
+      "exit": 6696.0,
+      "pnl_pts": 25.0,
+      "pnl_dollars": 247.52
+    },
+    {
+      "side": "LONG",
+      "entry": 6694.75,
+      "exit": 6719.75,
+      "pnl_pts": 25.0,
+      "pnl_dollars": 371.28
+    },
+    {
+      "side": "LONG",
+      "entry": 6721.0,
+      "exit": 6728.5,
+      "pnl_pts": 7.5,
+      "pnl_dollars": 108.78
+    },
+    {
+      "side": "LONG",
+      "entry": 6728.5,
+      "exit": 6718.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6720.75,
+      "exit": 6727.5,
+      "pnl_pts": 6.75,
+      "pnl_dollars": 97.53
+    },
+    {
+      "side": "SHORT",
+      "entry": 6727.5,
+      "exit": 6708.5,
+      "pnl_pts": 19.0,
+      "pnl_dollars": 187.52
+    },
+    {
+      "side": "LONG",
+      "entry": 6708.5,
+      "exit": 6698.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "SHORT",
+      "entry": 6697.25,
+      "exit": 6707.25,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -102.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6711.5,
+      "exit": 6701.5,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -51.24
+    },
+    {
+      "side": "LONG",
+      "entry": 6699.75,
+      "exit": 6702.25,
+      "pnl_pts": 2.5,
+      "pnl_dollars": 11.26
+    },
+    {
+      "side": "SHORT",
+      "entry": 6708.0,
+      "exit": 6705.75,
+      "pnl_pts": 2.25,
+      "pnl_dollars": 20.02
+    },
+    {
+      "side": "LONG",
+      "entry": 6708.25,
+      "exit": 6698.25,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6700.25,
+      "exit": 6707.25,
+      "pnl_pts": 7.0,
+      "pnl_dollars": 101.28
+    },
+    {
+      "side": "SHORT",
+      "entry": 6707.25,
+      "exit": 6711.25,
+      "pnl_pts": -4.0,
+      "pnl_dollars": -42.48
+    },
+    {
+      "side": "LONG",
+      "entry": 6711.25,
+      "exit": 6701.25,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    },
+    {
+      "side": "LONG",
+      "entry": 6701.0,
+      "exit": 6706.5,
+      "pnl_pts": 5.5,
+      "pnl_dollars": 78.78
+    },
+    {
+      "side": "SHORT",
+      "entry": 6706.5,
+      "exit": 6706.25,
+      "pnl_pts": 0.25,
+      "pnl_dollars": 0.02
+    },
+    {
+      "side": "LONG",
+      "entry": 6706.25,
+      "exit": 6709.0,
+      "pnl_pts": 2.75,
+      "pnl_dollars": 37.53
+    },
+    {
+      "side": "LONG",
+      "entry": 6713.25,
+      "exit": 6703.25,
+      "pnl_pts": -10.0,
+      "pnl_dollars": -153.72
+    }
+  ],
+  "new_summary": {
+    "label": "NEW (current bot, Kalshi-only blocker)",
+    "n": 67,
+    "pnl": 1962.97,
+    "wins": 42,
+    "losses": 25,
+    "wr": 62.6865671641791,
+    "avg": 29.298059701492537,
+    "max_dd": 771.0800000000002,
+    "biggest_win": 371.28,
+    "biggest_loss": -153.72
+  },
+  "old_summary": {
+    "label": "OLD (hard-rule, dormant Kalshi)",
+    "n": 155,
+    "pnl": 588.7899999999998,
+    "wins": 80,
+    "losses": 75,
+    "wr": 51.61290322580645,
+    "avg": 3.7986451612903216,
+    "max_dd": 1732.1900000000014,
+    "biggest_win": 371.28,
+    "biggest_loss": -217.44
+  }
+}

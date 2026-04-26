@@ -4,6 +4,25 @@ __pycache__/
 *$py.class
 *.so
 
+# Local backups (timestamped *.bak* files from edit history)
+*.bak*
+
+# Local-only environment caches (machine-specific, large)
+.kronos_venv/
+
+# OS clutter
+.DS_Store
+
+# Additional credential file patterns (defence in depth)
+.env.*
+!.env.example
+secrets.py
+*.pem
+*.key
+credentials*
+apikey*
+api_key*
+
 # Logs + runtime state
 *.log
 bot_state.json

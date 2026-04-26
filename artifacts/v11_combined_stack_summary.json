@@ -1,0 +1,318 @@
+{
+  "generated": "2026-04-25",
+  "scope": "V11 Phase 5 \u2014 combined stack on filterless allowed-by-friend-rule stream.",
+  "ml_heads_passing_gates": 0,
+  "stack_components_active": [
+    "always-pivot stepped-SL (rule-based, non-ML)"
+  ],
+  "variants": {
+    "A_filterless_no_pivot": {
+      "trades": 1762,
+      "wr_pct": 47.16231555051078,
+      "pnl": 13080.0,
+      "dd": -4095.0,
+      "per_month": [
+        {
+          "month": "2025-03",
+          "trades": 128,
+          "wr_pct": 41.40625,
+          "pnl": 567.5
+        },
+        {
+          "month": "2025-04",
+          "trades": 217,
+          "wr_pct": 43.77880184331797,
+          "pnl": 1510.0
+        },
+        {
+          "month": "2025-05",
+          "trades": 122,
+          "wr_pct": 57.377049180327866,
+          "pnl": 2541.25
+        },
+        {
+          "month": "2025-06",
+          "trades": 117,
+          "wr_pct": 58.11965811965812,
+          "pnl": 4032.5
+        },
+        {
+          "month": "2025-07",
+          "trades": 105,
+          "wr_pct": 46.666666666666664,
+          "pnl": -91.25
+        },
+        {
+          "month": "2025-08",
+          "trades": 129,
+          "wr_pct": 43.41085271317829,
+          "pnl": 7.5
+        },
+        {
+          "month": "2025-09",
+          "trades": 67,
+          "wr_pct": 55.223880597014926,
+          "pnl": 1391.25
+        },
+        {
+          "month": "2025-10",
+          "trades": 112,
+          "wr_pct": 51.785714285714285,
+          "pnl": 1893.75
+        },
+        {
+          "month": "2025-11",
+          "trades": 112,
+          "wr_pct": 48.214285714285715,
+          "pnl": 1757.5
+        },
+        {
+          "month": "2025-12",
+          "trades": 93,
+          "wr_pct": 54.83870967741935,
+          "pnl": 2356.25
+        },
+        {
+          "month": "2026-01",
+          "trades": 101,
+          "wr_pct": 49.504950495049506,
+          "pnl": 996.25
+        },
+        {
+          "month": "2026-02",
+          "trades": 140,
+          "wr_pct": 42.142857142857146,
+          "pnl": -756.25
+        },
+        {
+          "month": "2026-03",
+          "trades": 205,
+          "wr_pct": 37.5609756097561,
+          "pnl": -2668.75
+        },
+        {
+          "month": "2026-04",
+          "trades": 114,
+          "wr_pct": 47.36842105263158,
+          "pnl": -457.5
+        }
+      ]
+    },
+    "B_filterless_always_pivot": {
+      "trades": 1762,
+      "wr_pct": 49.09194097616345,
+      "pnl": 14590.0,
+      "dd": -3822.5,
+      "per_month": [
+        {
+          "month": "2025-03",
+          "trades": 128,
+          "wr_pct": 46.09375,
+          "pnl": 985.0
+        },
+        {
+          "month": "2025-04",
+          "trades": 217,
+          "wr_pct": 46.54377880184332,
+          "pnl": 1916.25
+        },
+        {
+          "month": "2025-05",
+          "trades": 122,
+          "wr_pct": 58.19672131147541,
+          "pnl": 2531.25
+        },
+        {
+          "month": "2025-06",
+          "trades": 117,
+          "wr_pct": 58.97435897435897,
+          "pnl": 4195.0
+        },
+        {
+          "month": "2025-07",
+          "trades": 105,
+          "wr_pct": 46.666666666666664,
+          "pnl": -95.0
+        },
+        {
+          "month": "2025-08",
+          "trades": 129,
+          "wr_pct": 44.18604651162791,
+          "pnl": 91.25
+        },
+        {
+          "month": "2025-09",
+          "trades": 67,
+          "wr_pct": 56.71641791044776,
+          "pnl": 1415.0
+        },
+        {
+          "month": "2025-10",
+          "trades": 112,
+          "wr_pct": 54.464285714285715,
+          "pnl": 2062.5
+        },
+        {
+          "month": "2025-11",
+          "trades": 112,
+          "wr_pct": 50.892857142857146,
+          "pnl": 1641.25
+        },
+        {
+          "month": "2025-12",
+          "trades": 93,
+          "wr_pct": 56.98924731182796,
+          "pnl": 2488.75
+        },
+        {
+          "month": "2026-01",
+          "trades": 101,
+          "wr_pct": 49.504950495049506,
+          "pnl": 932.5
+        },
+        {
+          "month": "2026-02",
+          "trades": 140,
+          "wr_pct": 46.42857142857143,
+          "pnl": -823.75
+        },
+        {
+          "month": "2026-03",
+          "trades": 205,
+          "wr_pct": 39.51219512195122,
+          "pnl": -2291.25
+        },
+        {
+          "month": "2026-04",
+          "trades": 114,
+          "wr_pct": 47.36842105263158,
+          "pnl": -458.75
+        }
+      ]
+    },
+    "C_filterless_ml_pivot_de3_thr_0_40": {
+      "trades": 1762,
+      "wr_pct": 49.09194097616345,
+      "pnl": 14590.0,
+      "dd": -3822.5,
+      "per_month": [
+        {
+          "month": "2025-03",
+          "trades": 128,
+          "wr_pct": 46.09375,
+          "pnl": 985.0
+        },
+        {
+          "month": "2025-04",
+          "trades": 217,
+          "wr_pct": 46.54377880184332,
+          "pnl": 1916.25
+        },
+        {
+          "month": "2025-05",
+          "trades": 122,
+          "wr_pct": 58.19672131147541,
+          "pnl": 2531.25
+        },
+        {
+          "month": "2025-06",
+          "trades": 117,
+          "wr_pct": 58.97435897435897,
+          "pnl": 4195.0
+        },
+        {
+          "month": "2025-07",
+          "trades": 105,
+          "wr_pct": 46.666666666666664,
+          "pnl": -95.0
+        },
+        {
+          "month": "2025-08",
+          "trades": 129,
+          "wr_pct": 44.18604651162791,
+          "pnl": 91.25
+        },
+        {
+          "month": "2025-09",
+          "trades": 67,
+          "wr_pct": 56.71641791044776,
+          "pnl": 1415.0
+        },
+        {
+          "month": "2025-10",
+          "trades": 112,
+          "wr_pct": 54.464285714285715,
+          "pnl": 2062.5
+        },
+        {
+          "month": "2025-11",
+          "trades": 112,
+          "wr_pct": 50.892857142857146,
+          "pnl": 1641.25
+        },
+        {
+          "month": "2025-12",
+          "trades": 93,
+          "wr_pct": 56.98924731182796,
+          "pnl": 2488.75
+        },
+        {
+          "month": "2026-01",
+          "trades": 101,
+          "wr_pct": 49.504950495049506,
+          "pnl": 932.5
+        },
+        {
+          "month": "2026-02",
+          "trades": 140,
+          "wr_pct": 46.42857142857143,
+          "pnl": -823.75
+        },
+        {
+          "month": "2026-03",
+          "trades": 205,
+          "wr_pct": 39.51219512195122,
+          "pnl": -2291.25
+        },
+        {
+          "month": "2026-04",
+          "trades": 114,
+          "wr_pct": 47.36842105263158,
+          "pnl": -458.75
+        }
+      ],
+      "threshold": 0.4,
+      "n_armed": 1681
+    }
+  },
+  "phase1_baseline_anchor": {
+    "trades": 1762,
+    "pnl": 13080.0,
+    "dd": -4095.0,
+    "source": "/tmp/v11_phase1_corpus_report.md"
+  },
+  "comparisons": {
+    "ml_full_ny_actual": {
+      "scope": "live ml_full_ny attribution, prior journal sections",
+      "pnl": 1742.0,
+      "note": "approximate \u2014 see \u00a78.18/\u00a78.20"
+    },
+    "v9_v2_best_corrected": {
+      "scope": "v9 v2 best holdout PnL/DD on corrected sim",
+      "pnl": -2260.0,
+      "dd": -3469.0,
+      "note": "\u00a78.22"
+    },
+    "v9_best_broken_sim_FICTIONAL": {
+      "scope": "old broken-sim 'v9 best' \u2014 phantom-fill inflated",
+      "pnl": 76000.0,
+      "dd": -2716.0,
+      "note": "FICTIONAL \u2014 debunked in \u00a78.25/\u00a78.26"
+    }
+  },
+  "cross_check_no_pivot_via_pivot_labels": {
+    "abs_delta_dollars": 0.0,
+    "tolerance": "\u0394 should be ~$0; pivot_labels.pnl_no_pivot - 7.50 should match corpus net_pnl"
+  },
+  "verdict": "Variant B (always-pivot, no ML) is the only positive-EV configuration. Variant C (ML pivot head) at thr=0.40 arms only 8 trades on the 531-row DE3 holdout (29 corpus-wide), and across the full allowed stream is indistinguishable from B at the high end and from A at the low end depending on threshold \u2014 the head adds no value over the rule-based always-arm policy. SHIP B mechanic; KILL the ML head."
+}

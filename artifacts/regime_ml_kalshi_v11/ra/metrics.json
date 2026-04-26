@@ -1,0 +1,10 @@
+{
+  "overlay": "kalshi",
+  "strategy": "RA",
+  "skipped": true,
+  "reason": "n_train<100 OR n_test<50",
+  "n_train": 31,
+  "n_test": 20,
+  "kill_marker": true,
+  "ship": false
+}

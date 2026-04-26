@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.julie.kalshi_tick_capturer</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/Caskroom/miniconda/base/bin/python3</string>
+        <string>/Users/wes/Downloads/JULIE001/tools/kalshi_tick_capturer.py</string>
+        <string>--strike-window</string>
+        <string>25</string>
+        <string>--poll-interval</string>
+        <string>60</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>/Users/wes/Downloads/JULIE001</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/wes/Downloads/JULIE001/logs/kalshi_tick_capturer.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/wes/Downloads/JULIE001/logs/kalshi_tick_capturer.err.log</string>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+</dict>
+</plist>

@@ -1,0 +1,172 @@
+{
+  "target": "de3",
+  "n_total": 1599,
+  "features": [
+    "fg_proba",
+    "kalshi_proba",
+    "kalshi_v12_proba",
+    "lfo_proba",
+    "pct_proba",
+    "pivot_proba",
+    "kronos_max_high_above",
+    "kronos_min_low_below",
+    "kronos_pred_atr_30bar",
+    "kronos_dir_move",
+    "kronos_close_vs_entry"
+  ],
+  "v15_baseline": {
+    "threshold": 0.65,
+    "n_keep": 91,
+    "win_rate": 0.5934,
+    "pnl_dollars": 1500.0,
+    "max_drawdown_dollars": 340.0
+  },
+  "v18_best_holdout": {
+    "threshold": 0.85,
+    "n": 25,
+    "wr": 0.84,
+    "pnl": 1663.75,
+    "dd": 57.5
+  },
+  "v18_ship_threshold": {
+    "threshold": 0.6,
+    "n": 100,
+    "wr": 0.59,
+    "pnl": 1596.25,
+    "dd": 340.0
+  },
+  "v18_holdout_auc": 0.5728749603940433,
+  "v18_train_oof_mean_auc_lr": 0.822131996528309,
+  "v18_train_oof_mean_auc_hgb": 0.8208879294963449,
+  "chosen_model": "LogReg",
+  "holdout_sweep_top3_pnl": [
+    {
+      "threshold": 0.85,
+      "n": 25,
+      "wr": 0.84,
+      "pnl": 1663.75,
+      "dd": 57.5
+    },
+    {
+      "threshold": 0.6,
+      "n": 100,
+      "wr": 0.59,
+      "pnl": 1596.25,
+      "dd": 340.0
+    },
+    {
+      "threshold": 0.65,
+      "n": 90,
+      "wr": 0.6,
+      "pnl": 1588.75,
+      "dd": 313.75
+    }
+  ],
+  "holdout_sweep": [
+    {
+      "threshold": 0.2,
+      "n": 350,
+      "wr": 0.46285714285714286,
+      "pnl": -815.0,
+      "dd": 2036.25
+    },
+    {
+      "threshold": 0.25,
+      "n": 299,
+      "wr": 0.4782608695652174,
+      "pnl": -75.0,
+      "dd": 1396.25
+    },
+    {
+      "threshold": 0.3,
+      "n": 257,
+      "wr": 0.48249027237354086,
+      "pnl": 218.75,
+      "dd": 1172.5
+    },
+    {
+      "threshold": 0.35,
+      "n": 220,
+      "wr": 0.4954545454545455,
+      "pnl": 762.5,
+      "dd": 798.75
+    },
+    {
+      "threshold": 0.4,
+      "n": 192,
+      "wr": 0.5,
+      "pnl": 855.0,
+      "dd": 672.5
+    },
+    {
+      "threshold": 0.45,
+      "n": 164,
+      "wr": 0.5,
+      "pnl": 821.25,
+      "dd": 628.75
+    },
+    {
+      "threshold": 0.5,
+      "n": 144,
+      "wr": 0.4930555555555556,
+      "pnl": 696.25,
+      "dd": 812.5
+    },
+    {
+      "threshold": 0.55,
+      "n": 116,
+      "wr": 0.5603448275862069,
+      "pnl": 1442.5,
+      "dd": 381.25
+    },
+    {
+      "threshold": 0.6,
+      "n": 100,
+      "wr": 0.59,
+      "pnl": 1596.25,
+      "dd": 340.0
+    },
+    {
+      "threshold": 0.65,
+      "n": 90,
+      "wr": 0.6,
+      "pnl": 1588.75,
+      "dd": 313.75
+    },
+    {
+      "threshold": 0.7,
+      "n": 75,
+      "wr": 0.6266666666666667,
+      "pnl": 1580.0,
+      "dd": 230.0
+    },
+    {
+      "threshold": 0.75,
+      "n": 52,
+      "wr": 0.6730769230769231,
+      "pnl": 1526.25,
+      "dd": 222.5
+    },
+    {
+      "threshold": 0.8,
+      "n": 39,
+      "wr": 0.717948717948718,
+      "pnl": 1382.5,
+      "dd": 191.25
+    },
+    {
+      "threshold": 0.85,
+      "n": 25,
+      "wr": 0.84,
+      "pnl": 1663.75,
+      "dd": 57.5
+    },
+    {
+      "threshold": 0.9,
+      "n": 16,
+      "wr": 0.9375,
+      "pnl": 1405.0,
+      "dd": 8.75
+    }
+  ]
+}

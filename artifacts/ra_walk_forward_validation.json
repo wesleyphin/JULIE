@@ -1,0 +1,2211 @@
+{
+  "walk_forward_results": [
+    {
+      "kind": "pair",
+      "rule_human": "(bf_de3_entry_lower_wick_ratio <= 0.0833) AND (bf_regime_eff > 0.0690)",
+      "rule_data": {
+        "feature_a": "bf_de3_entry_lower_wick_ratio",
+        "op_a": "<=",
+        "thr_a": 0.08333333333333333,
+        "feature_b": "bf_regime_eff",
+        "op_b": ">",
+        "thr_b": 0.06898218507261054,
+        "train": {
+          "n": 25,
+          "wr": 0.52,
+          "pnl": 16.25,
+          "dd": 102.5
+        },
+        "holdout": {
+          "n": 4,
+          "wr": 0.75,
+          "pnl": 52.5,
+          "dd": 0.0
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 5,
+          "wr": 0.8,
+          "pnl": 62.5,
+          "dd": 27.5
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 4,
+          "wr": 0.5,
+          "pnl": 6.25,
+          "dd": 11.25
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 7,
+          "wr": 0.5714285714285714,
+          "pnl": 7.5,
+          "dd": 60.0
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 6,
+          "wr": 0.3333333333333333,
+          "pnl": -27.5,
+          "dd": 70.0
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 7,
+          "wr": 0.5714285714285714,
+          "pnl": 20.0,
+          "dd": 42.5
+        }
+      ],
+      "mean_wr": 0.5552380952380952,
+      "std_wr": 0.15015034038107705,
+      "mean_n": 5.8,
+      "mean_pnl": 13.75,
+      "consistency_4_of_5": false,
+      "splits_above_55": 3
+    },
+    {
+      "kind": "pair",
+      "rule_human": "(bf_de3_entry_lower_wick_ratio <= 0.0833) AND (bf_regime_eff > 0.0642)",
+      "rule_data": {
+        "feature_a": "bf_de3_entry_lower_wick_ratio",
+        "op_a": "<=",
+        "thr_a": 0.08333333333333333,
+        "feature_b": "bf_regime_eff",
+        "op_b": ">",
+        "thr_b": 0.06424539512774806,
+        "train": {
+          "n": 25,
+          "wr": 0.52,
+          "pnl": 16.25,
+          "dd": 102.5
+        },
+        "holdout": {
+          "n": 4,
+          "wr": 0.75,
+          "pnl": 52.5,
+          "dd": 0.0
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 5,
+          "wr": 0.8,
+          "pnl": 62.5,
+          "dd": 27.5
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 4,
+          "wr": 0.5,
+          "pnl": 6.25,
+          "dd": 11.25
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 7,
+          "wr": 0.5714285714285714,
+          "pnl": 7.5,
+          "dd": 60.0
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 6,
+          "wr": 0.3333333333333333,
+          "pnl": -27.5,
+          "dd": 70.0
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 7,
+          "wr": 0.5714285714285714,
+          "pnl": 20.0,
+          "dd": 42.5
+        }
+      ],
+      "mean_wr": 0.5552380952380952,
+      "std_wr": 0.15015034038107705,
+      "mean_n": 5.8,
+      "mean_pnl": 13.75,
+      "consistency_4_of_5": false,
+      "splits_above_55": 3
+    },
+    {
+      "kind": "single",
+      "rule_human": "bf_de3_entry_lower_wick_ratio <= 0.0833",
+      "rule_data": {
+        "feature": "bf_de3_entry_lower_wick_ratio",
+        "operator": "<=",
+        "threshold": 0.08333333333333333,
+        "train": {
+          "n": 33,
+          "wr": 0.48484848484848486,
+          "pnl": -16.25,
+          "dd": 108.75
+        },
+        "holdout": {
+          "n": 5,
+          "wr": 0.6,
+          "pnl": 37.5,
+          "dd": 15.0
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 8,
+          "wr": 0.75,
+          "pnl": 80.0,
+          "dd": 32.5
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 8,
+          "wr": 0.375,
+          "pnl": -28.75,
+          "dd": 41.25
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 7,
+          "wr": 0.5714285714285714,
+          "pnl": 7.5,
+          "dd": 60.0
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 7,
+          "wr": 0.2857142857142857,
+          "pnl": -42.5,
+          "dd": 70.0
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 8,
+          "wr": 0.5,
+          "pnl": 5.0,
+          "dd": 57.5
+        }
+      ],
+      "mean_wr": 0.49642857142857144,
+      "std_wr": 0.16067459827431418,
+      "mean_n": 7.6,
+      "mean_pnl": 4.25,
+      "consistency_4_of_5": false,
+      "splits_above_55": 2
+    },
+    {
+      "kind": "leaf",
+      "rule_human": "(pct_pct_from_open > -0.0052) AND (bf_dist_to_bank_pts <= 9.6250) AND (bf_de3_entry_range10_atr > 3.7677)",
+      "rule_data": {
+        "conditions": [
+          {
+            "feature": "pct_pct_from_open",
+            "operator": ">",
+            "threshold": -0.005232083378359675
+          },
+          {
+            "feature": "bf_dist_to_bank_pts",
+            "operator": "<=",
+            "threshold": 9.625
+          },
+          {
+            "feature": "bf_de3_entry_range10_atr",
+            "operator": ">",
+            "threshold": 3.7676563262939453
+          }
+        ],
+        "train": {
+          "n": 35,
+          "wr": 0.5714285714285714,
+          "pnl": 122.5,
+          "dd": 110.0
+        },
+        "holdout": {
+          "n": 11,
+          "wr": 0.18181818181818182,
+          "pnl": -117.5,
+          "dd": 102.5
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": false,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": false,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 7,
+          "wr": 0.42857142857142855,
+          "pnl": -17.5,
+          "dd": 42.5
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 8,
+          "wr": 0.75,
+          "pnl": 92.5,
+          "dd": 27.5
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 4,
+          "wr": 0.25,
+          "pnl": -60.0,
+          "dd": 55.0
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 14,
+          "wr": 0.5714285714285714,
+          "pnl": 62.5,
+          "dd": 35.0
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 13,
+          "wr": 0.3076923076923077,
+          "pnl": -72.5,
+          "dd": 117.5
+        }
+      ],
+      "mean_wr": 0.4615384615384615,
+      "std_wr": 0.181543317392418,
+      "mean_n": 9.2,
+      "mean_pnl": 1.0,
+      "consistency_4_of_5": false,
+      "splits_above_55": 2
+    },
+    {
+      "kind": "pair",
+      "rule_human": "(bf_dist_to_bank_above <= 5.7500) AND (bf_sl_dist_pts > 1.5000)",
+      "rule_data": {
+        "feature_a": "bf_dist_to_bank_above",
+        "op_a": "<=",
+        "thr_a": 5.75,
+        "feature_b": "bf_sl_dist_pts",
+        "op_b": ">",
+        "thr_b": 1.5,
+        "train": {
+          "n": 31,
+          "wr": 0.41935483870967744,
+          "pnl": -188.75,
+          "dd": 288.75
+        },
+        "holdout": {
+          "n": 4,
+          "wr": 0.75,
+          "pnl": 26.25,
+          "dd": 27.5
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 8,
+          "wr": 0.375,
+          "pnl": -70.0,
+          "dd": 55.0
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 4,
+          "wr": 0.25,
+          "pnl": -43.75,
+          "dd": 66.25
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 8,
+          "wr": 0.25,
+          "pnl": -120.0,
+          "dd": 92.5
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 9,
+          "wr": 0.5555555555555556,
+          "pnl": 0.0,
+          "dd": 55.0
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 6,
+          "wr": 0.8333333333333334,
+          "pnl": 71.25,
+          "dd": 27.5
+        }
+      ],
+      "mean_wr": 0.4527777777777778,
+      "std_wr": 0.22075907207006143,
+      "mean_n": 7.0,
+      "mean_pnl": -32.5,
+      "consistency_4_of_5": false,
+      "splits_above_55": 2
+    },
+    {
+      "kind": "pair",
+      "rule_human": "(bf_dist_to_bank_above <= 5.7500) AND (half_hour_bucket <= 23.0000)",
+      "rule_data": {
+        "feature_a": "bf_dist_to_bank_above",
+        "op_a": "<=",
+        "thr_a": 5.75,
+        "feature_b": "half_hour_bucket",
+        "op_b": "<=",
+        "thr_b": 23.0,
+        "train": {
+          "n": 31,
+          "wr": 0.41935483870967744,
+          "pnl": -188.75,
+          "dd": 288.75
+        },
+        "holdout": {
+          "n": 4,
+          "wr": 0.75,
+          "pnl": 26.25,
+          "dd": 27.5
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 8,
+          "wr": 0.375,
+          "pnl": -70.0,
+          "dd": 55.0
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 4,
+          "wr": 0.25,
+          "pnl": -43.75,
+          "dd": 66.25
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 8,
+          "wr": 0.25,
+          "pnl": -120.0,
+          "dd": 92.5
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 9,
+          "wr": 0.5555555555555556,
+          "pnl": 0.0,
+          "dd": 55.0
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 6,
+          "wr": 0.8333333333333334,
+          "pnl": 71.25,
+          "dd": 27.5
+        }
+      ],
+      "mean_wr": 0.4527777777777778,
+      "std_wr": 0.22075907207006143,
+      "mean_n": 7.0,
+      "mean_pnl": -32.5,
+      "consistency_4_of_5": false,
+      "splits_above_55": 2
+    },
+    {
+      "kind": "single",
+      "rule_human": "bf_sl_dist_pts > 1.5000",
+      "rule_data": {
+        "feature": "bf_sl_dist_pts",
+        "operator": ">",
+        "threshold": 1.5,
+        "train": {
+          "n": 103,
+          "wr": 0.4174757281553398,
+          "pnl": -608.75,
+          "dd": 588.75
+        },
+        "holdout": {
+          "n": 9,
+          "wr": 0.5555555555555556,
+          "pnl": 12.5,
+          "dd": 32.5
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 27,
+          "wr": 0.4444444444444444,
+          "pnl": -142.5,
+          "dd": 135.0
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 22,
+          "wr": 0.5,
+          "pnl": -3.75,
+          "dd": 110.0
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 32,
+          "wr": 0.34375,
+          "pnl": -305.0,
+          "dd": 342.5
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 16,
+          "wr": 0.4375,
+          "pnl": -92.5,
+          "dd": 87.5
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 15,
+          "wr": 0.4666666666666667,
+          "pnl": -52.5,
+          "dd": 110.0
+        }
+      ],
+      "mean_wr": 0.4384722222222222,
+      "std_wr": 0.05213349436368045,
+      "mean_n": 22.4,
+      "mean_pnl": -119.25,
+      "consistency_4_of_5": false,
+      "splits_above_55": 0
+    },
+    {
+      "kind": "single",
+      "rule_human": "bf_regime_eff > 0.0690",
+      "rule_data": {
+        "feature": "bf_regime_eff",
+        "operator": ">",
+        "threshold": 0.06898218507261054,
+        "train": {
+          "n": 70,
+          "wr": 0.4142857142857143,
+          "pnl": -371.25,
+          "dd": 398.75
+        },
+        "holdout": {
+          "n": 7,
+          "wr": 0.5714285714285714,
+          "pnl": 20.0,
+          "dd": 27.5
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 21,
+          "wr": 0.47619047619047616,
+          "pnl": -52.5,
+          "dd": 92.5
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 12,
+          "wr": 0.4166666666666667,
+          "pnl": -36.25,
+          "dd": 71.25
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 17,
+          "wr": 0.4117647058823529,
+          "pnl": -117.5,
+          "dd": 130.0
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 16,
+          "wr": 0.375,
+          "pnl": -105.0,
+          "dd": 125.0
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 11,
+          "wr": 0.45454545454545453,
+          "pnl": -40.0,
+          "dd": 52.5
+        }
+      ],
+      "mean_wr": 0.42683346065699,
+      "std_wr": 0.03527380983626986,
+      "mean_n": 15.4,
+      "mean_pnl": -70.25,
+      "consistency_4_of_5": false,
+      "splits_above_55": 0
+    },
+    {
+      "kind": "single",
+      "rule_human": "half_hour_bucket <= 22.0000",
+      "rule_data": {
+        "feature": "half_hour_bucket",
+        "operator": "<=",
+        "threshold": 22.0,
+        "train": {
+          "n": 84,
+          "wr": 0.38095238095238093,
+          "pnl": -651.25,
+          "dd": 643.75
+        },
+        "holdout": {
+          "n": 7,
+          "wr": 0.5714285714285714,
+          "pnl": 17.5,
+          "dd": 27.5
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 25,
+          "wr": 0.44,
+          "pnl": -137.5,
+          "dd": 135.0
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 17,
+          "wr": 0.4117647058823529,
+          "pnl": -81.25,
+          "dd": 137.5
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 25,
+          "wr": 0.24,
+          "pnl": -362.5,
+          "dd": 377.5
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 13,
+          "wr": 0.46153846153846156,
+          "pnl": -60.0,
+          "dd": 82.5
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 11,
+          "wr": 0.5454545454545454,
+          "pnl": 7.5,
+          "dd": 77.5
+        }
+      ],
+      "mean_wr": 0.419751542575072,
+      "std_wr": 0.10033124954462891,
+      "mean_n": 18.2,
+      "mean_pnl": -126.75,
+      "consistency_4_of_5": false,
+      "splits_above_55": 0
+    },
+    {
+      "kind": "single",
+      "rule_human": "half_hour_bucket <= 21.0000",
+      "rule_data": {
+        "feature": "half_hour_bucket",
+        "operator": "<=",
+        "threshold": 21.0,
+        "train": {
+          "n": 75,
+          "wr": 0.37333333333333335,
+          "pnl": -603.75,
+          "dd": 583.75
+        },
+        "holdout": {
+          "n": 5,
+          "wr": 0.6,
+          "pnl": 22.5,
+          "dd": 27.5
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 22,
+          "wr": 0.4090909090909091,
+          "pnl": -155.0,
+          "dd": 135.0
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 17,
+          "wr": 0.4117647058823529,
+          "pnl": -81.25,
+          "dd": 137.5
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 21,
+          "wr": 0.2857142857142857,
+          "pnl": -252.5,
+          "dd": 267.5
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 12,
+          "wr": 0.4166666666666667,
+          "pnl": -82.5,
+          "dd": 82.5
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 8,
+          "wr": 0.5,
+          "pnl": -10.0,
+          "dd": 77.5
+        }
+      ],
+      "mean_wr": 0.4046473134708428,
+      "std_wr": 0.06848659370663686,
+      "mean_n": 16.0,
+      "mean_pnl": -116.25,
+      "consistency_4_of_5": false,
+      "splits_above_55": 0
+    },
+    {
+      "kind": "single",
+      "rule_human": "pct_minutes_since_open <= 60.0000",
+      "rule_data": {
+        "feature": "pct_minutes_since_open",
+        "operator": "<=",
+        "threshold": 60.0,
+        "train": {
+          "n": 75,
+          "wr": 0.37333333333333335,
+          "pnl": -603.75,
+          "dd": 583.75
+        },
+        "holdout": {
+          "n": 5,
+          "wr": 0.6,
+          "pnl": 22.5,
+          "dd": 27.5
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 22,
+          "wr": 0.4090909090909091,
+          "pnl": -155.0,
+          "dd": 135.0
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 17,
+          "wr": 0.4117647058823529,
+          "pnl": -81.25,
+          "dd": 137.5
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 21,
+          "wr": 0.2857142857142857,
+          "pnl": -252.5,
+          "dd": 267.5
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 12,
+          "wr": 0.4166666666666667,
+          "pnl": -82.5,
+          "dd": 82.5
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 8,
+          "wr": 0.5,
+          "pnl": -10.0,
+          "dd": 77.5
+        }
+      ],
+      "mean_wr": 0.4046473134708428,
+      "std_wr": 0.06848659370663686,
+      "mean_n": 16.0,
+      "mean_pnl": -116.25,
+      "consistency_4_of_5": false,
+      "splits_above_55": 0
+    },
+    {
+      "kind": "single",
+      "rule_human": "bf_regime_eff > 0.0642",
+      "rule_data": {
+        "feature": "bf_regime_eff",
+        "operator": ">",
+        "threshold": 0.06424539512774806,
+        "train": {
+          "n": 76,
+          "wr": 0.3815789473684211,
+          "pnl": -498.75,
+          "dd": 498.75
+        },
+        "holdout": {
+          "n": 9,
+          "wr": 0.5555555555555556,
+          "pnl": 27.5,
+          "dd": 27.5
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 22,
+          "wr": 0.45454545454545453,
+          "pnl": -80.0,
+          "dd": 92.5
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 15,
+          "wr": 0.3333333333333333,
+          "pnl": -106.25,
+          "dd": 128.75
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 19,
+          "wr": 0.3684210526315789,
+          "pnl": -147.5,
+          "dd": 160.0
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 16,
+          "wr": 0.375,
+          "pnl": -105.0,
+          "dd": 125.0
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 13,
+          "wr": 0.46153846153846156,
+          "pnl": -32.5,
+          "dd": 47.5
+        }
+      ],
+      "mean_wr": 0.3985676604097657,
+      "std_wr": 0.05063320104027426,
+      "mean_n": 17.0,
+      "mean_pnl": -94.25,
+      "consistency_4_of_5": false,
+      "splits_above_55": 0
+    },
+    {
+      "kind": "pair",
+      "rule_human": "(bf_dist_to_20bar_hi_pct <= 0.0010) AND (kalshi_proba > 0.7175)",
+      "rule_data": {
+        "feature_a": "bf_dist_to_20bar_hi_pct",
+        "op_a": "<=",
+        "thr_a": 0.0010383138806718435,
+        "feature_b": "kalshi_proba",
+        "op_b": ">",
+        "thr_b": 0.7174985586582798,
+        "train": {
+          "n": 33,
+          "wr": 0.30303030303030304,
+          "pnl": -237.5,
+          "dd": 232.5
+        },
+        "holdout": {
+          "n": 4,
+          "wr": 0.75,
+          "pnl": 50.0,
+          "dd": 0.0
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 1,
+          "wr": 0.0,
+          "pnl": -27.5,
+          "dd": 0.0
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 13,
+          "wr": 0.3076923076923077,
+          "pnl": -62.5,
+          "dd": 88.75
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 10,
+          "wr": 0.3,
+          "pnl": -100.0,
+          "dd": 142.5
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 6,
+          "wr": 0.3333333333333333,
+          "pnl": -15.0,
+          "dd": 30.0
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 7,
+          "wr": 0.5714285714285714,
+          "pnl": 17.5,
+          "dd": 58.75
+        }
+      ],
+      "mean_wr": 0.3781135531135531,
+      "std_wr": 0.11229074246838407,
+      "mean_n": 7.4,
+      "mean_pnl": -37.5,
+      "consistency_4_of_5": false,
+      "splits_above_55": 1
+    },
+    {
+      "kind": "pair",
+      "rule_human": "(bf_dist_to_20bar_hi_pct <= 0.0010) AND (kalshi_proba > 0.7018)",
+      "rule_data": {
+        "feature_a": "bf_dist_to_20bar_hi_pct",
+        "op_a": "<=",
+        "thr_a": 0.0010383138806718435,
+        "feature_b": "kalshi_proba",
+        "op_b": ">",
+        "thr_b": 0.7017883925075588,
+        "train": {
+          "n": 34,
+          "wr": 0.29411764705882354,
+          "pnl": -265.0,
+          "dd": 260.0
+        },
+        "holdout": {
+          "n": 4,
+          "wr": 0.75,
+          "pnl": 50.0,
+          "dd": 0.0
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 1,
+          "wr": 0.0,
+          "pnl": -27.5,
+          "dd": 0.0
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 13,
+          "wr": 0.3076923076923077,
+          "pnl": -62.5,
+          "dd": 88.75
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 10,
+          "wr": 0.3,
+          "pnl": -100.0,
+          "dd": 142.5
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 7,
+          "wr": 0.2857142857142857,
+          "pnl": -42.5,
+          "dd": 35.0
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 7,
+          "wr": 0.5714285714285714,
+          "pnl": 17.5,
+          "dd": 58.75
+        }
+      ],
+      "mean_wr": 0.36620879120879124,
+      "std_wr": 0.1187458488587328,
+      "mean_n": 7.6,
+      "mean_pnl": -43.0,
+      "consistency_4_of_5": false,
+      "splits_above_55": 1
+    },
+    {
+      "kind": "pair",
+      "rule_human": "(bf_dist_to_20bar_hi_pct <= 0.0012) AND (kalshi_proba > 0.7018)",
+      "rule_data": {
+        "feature_a": "bf_dist_to_20bar_hi_pct",
+        "op_a": "<=",
+        "thr_a": 0.0011810053891224217,
+        "feature_b": "kalshi_proba",
+        "op_b": ">",
+        "thr_b": 0.7017883925075588,
+        "train": {
+          "n": 40,
+          "wr": 0.3,
+          "pnl": -302.5,
+          "dd": 297.5
+        },
+        "holdout": {
+          "n": 4,
+          "wr": 0.75,
+          "pnl": 50.0,
+          "dd": 0.0
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 2,
+          "wr": 0.5,
+          "pnl": -5.0,
+          "dd": 0.0
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 15,
+          "wr": 0.26666666666666666,
+          "pnl": -102.5,
+          "dd": 97.5
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 11,
+          "wr": 0.2727272727272727,
+          "pnl": -127.5,
+          "dd": 170.0
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 9,
+          "wr": 0.3333333333333333,
+          "pnl": -35.0,
+          "dd": 37.5
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 7,
+          "wr": 0.5714285714285714,
+          "pnl": 17.5,
+          "dd": 58.75
+        }
+      ],
+      "mean_wr": 0.361038961038961,
+      "std_wr": 0.1242341279641052,
+      "mean_n": 8.8,
+      "mean_pnl": -50.5,
+      "consistency_4_of_5": false,
+      "splits_above_55": 1
+    },
+    {
+      "kind": "single",
+      "rule_human": "bf_dist_to_bank_above <= 5.7500",
+      "rule_data": {
+        "feature": "bf_dist_to_bank_above",
+        "operator": "<=",
+        "threshold": 5.75,
+        "train": {
+          "n": 41,
+          "wr": 0.34146341463414637,
+          "pnl": -288.75,
+          "dd": 401.25
+        },
+        "holdout": {
+          "n": 7,
+          "wr": 0.5714285714285714,
+          "pnl": 18.75,
+          "dd": 27.5
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 9,
+          "wr": 0.3333333333333333,
+          "pnl": -85.0,
+          "dd": 82.5
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 7,
+          "wr": 0.14285714285714285,
+          "pnl": -88.75,
+          "dd": 111.25
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 8,
+          "wr": 0.25,
+          "pnl": -120.0,
+          "dd": 92.5
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 15,
+          "wr": 0.4,
+          "pnl": -40.0,
+          "dd": 115.0
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 9,
+          "wr": 0.6666666666666666,
+          "pnl": 63.75,
+          "dd": 30.0
+        }
+      ],
+      "mean_wr": 0.35857142857142854,
+      "std_wr": 0.17640655990188467,
+      "mean_n": 9.6,
+      "mean_pnl": -54.0,
+      "consistency_4_of_5": false,
+      "splits_above_55": 1
+    },
+    {
+      "kind": "pair",
+      "rule_human": "(bf_dist_to_20bar_hi_pct <= 0.0012) AND (kalshi_proba > 0.7175)",
+      "rule_data": {
+        "feature_a": "bf_dist_to_20bar_hi_pct",
+        "op_a": "<=",
+        "thr_a": 0.0011810053891224217,
+        "feature_b": "kalshi_proba",
+        "op_b": ">",
+        "thr_b": 0.7174985586582798,
+        "train": {
+          "n": 38,
+          "wr": 0.2894736842105263,
+          "pnl": -297.5,
+          "dd": 292.5
+        },
+        "holdout": {
+          "n": 4,
+          "wr": 0.75,
+          "pnl": 50.0,
+          "dd": 0.0
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 2,
+          "wr": 0.5,
+          "pnl": -5.0,
+          "dd": 0.0
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 15,
+          "wr": 0.26666666666666666,
+          "pnl": -102.5,
+          "dd": 97.5
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 11,
+          "wr": 0.2727272727272727,
+          "pnl": -127.5,
+          "dd": 170.0
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 7,
+          "wr": 0.2857142857142857,
+          "pnl": -30.0,
+          "dd": 37.5
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 7,
+          "wr": 0.5714285714285714,
+          "pnl": 17.5,
+          "dd": 58.75
+        }
+      ],
+      "mean_wr": 0.3491341991341991,
+      "std_wr": 0.12852605347377558,
+      "mean_n": 8.4,
+      "mean_pnl": -49.5,
+      "consistency_4_of_5": false,
+      "splits_above_55": 1
+    },
+    {
+      "kind": "single",
+      "rule_human": "bf_dist_to_20bar_hi_pct <= 0.0010",
+      "rule_data": {
+        "feature": "bf_dist_to_20bar_hi_pct",
+        "operator": "<=",
+        "threshold": 0.0010383138806718435,
+        "train": {
+          "n": 39,
+          "wr": 0.28205128205128205,
+          "pnl": -315.0,
+          "dd": 310.0
+        },
+        "holdout": {
+          "n": 5,
+          "wr": 0.6,
+          "pnl": 22.5,
+          "dd": 27.5
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 1,
+          "wr": 0.0,
+          "pnl": -27.5,
+          "dd": 0.0
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 14,
+          "wr": 0.2857142857142857,
+          "pnl": -77.5,
+          "dd": 103.75
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 11,
+          "wr": 0.36363636363636365,
+          "pnl": -77.5,
+          "dd": 120.0
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 10,
+          "wr": 0.2,
+          "pnl": -100.0,
+          "dd": 92.5
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 8,
+          "wr": 0.5,
+          "pnl": -10.0,
+          "dd": 58.75
+        }
+      ],
+      "mean_wr": 0.3373376623376623,
+      "std_wr": 0.11031462311741293,
+      "mean_n": 8.8,
+      "mean_pnl": -58.5,
+      "consistency_4_of_5": false,
+      "splits_above_55": 0
+    },
+    {
+      "kind": "single",
+      "rule_human": "bf_dist_to_20bar_hi_pct <= 0.0012",
+      "rule_data": {
+        "feature": "bf_dist_to_20bar_hi_pct",
+        "operator": "<=",
+        "threshold": 0.0011810053891224217,
+        "train": {
+          "n": 45,
+          "wr": 0.28888888888888886,
+          "pnl": -352.5,
+          "dd": 347.5
+        },
+        "holdout": {
+          "n": 5,
+          "wr": 0.6,
+          "pnl": 22.5,
+          "dd": 27.5
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 2,
+          "wr": 0.5,
+          "pnl": -5.0,
+          "dd": 0.0
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 16,
+          "wr": 0.25,
+          "pnl": -117.5,
+          "dd": 112.5
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 12,
+          "wr": 0.3333333333333333,
+          "pnl": -105.0,
+          "dd": 147.5
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 12,
+          "wr": 0.25,
+          "pnl": -92.5,
+          "dd": 95.0
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 8,
+          "wr": 0.5,
+          "pnl": -10.0,
+          "dd": 58.75
+        }
+      ],
+      "mean_wr": 0.3333333333333333,
+      "std_wr": 0.10206207261596575,
+      "mean_n": 10.0,
+      "mean_pnl": -66.0,
+      "consistency_4_of_5": false,
+      "splits_above_55": 0
+    },
+    {
+      "kind": "pair",
+      "rule_human": "(half_hour_bucket <= 21.0000) AND (bf_dist_to_20bar_hi_pct <= 0.0012)",
+      "rule_data": {
+        "feature_a": "half_hour_bucket",
+        "op_a": "<=",
+        "thr_a": 21.0,
+        "feature_b": "bf_dist_to_20bar_hi_pct",
+        "op_b": "<=",
+        "thr_b": 0.0011810053891224217,
+        "train": {
+          "n": 15,
+          "wr": 0.13333333333333333,
+          "pnl": -251.25,
+          "dd": 223.75
+        },
+        "holdout": {
+          "n": 4,
+          "wr": 0.75,
+          "pnl": 50.0,
+          "dd": 0.0
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 1,
+          "wr": 0.0,
+          "pnl": -27.5,
+          "dd": 0.0
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 4,
+          "wr": 0.25,
+          "pnl": -23.75,
+          "dd": 18.75
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 7,
+          "wr": 0.14285714285714285,
+          "pnl": -117.5,
+          "dd": 137.5
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 2,
+          "wr": 0.0,
+          "pnl": -55.0,
+          "dd": 27.5
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 5,
+          "wr": 0.6,
+          "pnl": 22.5,
+          "dd": 3.75
+        }
+      ],
+      "mean_wr": 0.33095238095238094,
+      "std_wr": 0.1952090570739965,
+      "mean_n": 3.8,
+      "mean_pnl": -40.25,
+      "consistency_4_of_5": false,
+      "splits_above_55": 1
+    },
+    {
+      "kind": "pair",
+      "rule_human": "(bf_dist_to_20bar_hi_pct <= 0.0012) AND (pct_minutes_since_open <= 60.0000)",
+      "rule_data": {
+        "feature_a": "bf_dist_to_20bar_hi_pct",
+        "op_a": "<=",
+        "thr_a": 0.0011810053891224217,
+        "feature_b": "pct_minutes_since_open",
+        "op_b": "<=",
+        "thr_b": 60.0,
+        "train": {
+          "n": 15,
+          "wr": 0.13333333333333333,
+          "pnl": -251.25,
+          "dd": 223.75
+        },
+        "holdout": {
+          "n": 4,
+          "wr": 0.75,
+          "pnl": 50.0,
+          "dd": 0.0
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": true,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 1,
+          "wr": 0.0,
+          "pnl": -27.5,
+          "dd": 0.0
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 4,
+          "wr": 0.25,
+          "pnl": -23.75,
+          "dd": 18.75
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 7,
+          "wr": 0.14285714285714285,
+          "pnl": -117.5,
+          "dd": 137.5
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 2,
+          "wr": 0.0,
+          "pnl": -55.0,
+          "dd": 27.5
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 5,
+          "wr": 0.6,
+          "pnl": 22.5,
+          "dd": 3.75
+        }
+      ],
+      "mean_wr": 0.33095238095238094,
+      "std_wr": 0.1952090570739965,
+      "mean_n": 3.8,
+      "mean_pnl": -40.25,
+      "consistency_4_of_5": false,
+      "splits_above_55": 1
+    },
+    {
+      "kind": "leaf",
+      "rule_human": "(pct_pct_from_open > -0.0052) AND (bf_dist_to_bank_pts <= 9.6250) AND (bf_de3_entry_range10_atr <= 3.7677)",
+      "rule_data": {
+        "conditions": [
+          {
+            "feature": "pct_pct_from_open",
+            "operator": ">",
+            "threshold": -0.005232083378359675
+          },
+          {
+            "feature": "bf_dist_to_bank_pts",
+            "operator": "<=",
+            "threshold": 9.625
+          },
+          {
+            "feature": "bf_de3_entry_range10_atr",
+            "operator": "<=",
+            "threshold": 3.7676563262939453
+          }
+        ],
+        "train": {
+          "n": 57,
+          "wr": 0.2807017543859649,
+          "pnl": -585.0,
+          "dd": 607.5
+        },
+        "holdout": {
+          "n": 14,
+          "wr": 0.2857142857142857,
+          "pnl": -72.5,
+          "dd": 105.0
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": false,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": false,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 18,
+          "wr": 0.3888888888888889,
+          "pnl": -120.0,
+          "dd": 160.0
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 16,
+          "wr": 0.3125,
+          "pnl": -120.0,
+          "dd": 180.0
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 8,
+          "wr": 0.25,
+          "pnl": -95.0,
+          "dd": 137.5
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 11,
+          "wr": 0.18181818181818182,
+          "pnl": -140.0,
+          "dd": 125.0
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 18,
+          "wr": 0.2222222222222222,
+          "pnl": -182.5,
+          "dd": 202.5
+        }
+      ],
+      "mean_wr": 0.27108585858585854,
+      "std_wr": 0.07265489875311383,
+      "mean_n": 14.2,
+      "mean_pnl": -131.5,
+      "consistency_4_of_5": false,
+      "splits_above_55": 0
+    },
+    {
+      "kind": "leaf",
+      "rule_human": "(pct_pct_from_open > -0.0052) AND (bf_dist_to_bank_pts > 9.6250)",
+      "rule_data": {
+        "conditions": [
+          {
+            "feature": "pct_pct_from_open",
+            "operator": ">",
+            "threshold": -0.005232083378359675
+          },
+          {
+            "feature": "bf_dist_to_bank_pts",
+            "operator": ">",
+            "threshold": 9.625
+          }
+        ],
+        "train": {
+          "n": 26,
+          "wr": 0.11538461538461539,
+          "pnl": -500.0,
+          "dd": 472.5
+        },
+        "holdout": {
+          "n": 4,
+          "wr": 0.25,
+          "pnl": -22.5,
+          "dd": 30.0
+        },
+        "gates_strict": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": false,
+          "all": false
+        },
+        "gates_relaxed": {
+          "G1_870": true,
+          "G2": true,
+          "G3": false,
+          "G4": false,
+          "all": false
+        }
+      },
+      "per_fold": [
+        {
+          "fold": 0,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -180.0,
+          "n": 3,
+          "wr": 0.0,
+          "pnl": -82.5,
+          "dd": 55.0
+        },
+        {
+          "fold": 1,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -107.5,
+          "n": 7,
+          "wr": 0.14285714285714285,
+          "pnl": -102.5,
+          "dd": 75.0
+        },
+        {
+          "fold": 2,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.34375,
+          "fold_baseline_pnl": -305.0,
+          "n": 12,
+          "wr": 0.16666666666666666,
+          "pnl": -230.0,
+          "dd": 247.5
+        },
+        {
+          "fold": 3,
+          "fold_n_total": 32,
+          "fold_baseline_wr": 0.40625,
+          "fold_baseline_pnl": -95.0,
+          "n": 4,
+          "wr": 0.0,
+          "pnl": -85.0,
+          "dd": 70.0
+        },
+        {
+          "fold": 4,
+          "fold_n_total": 35,
+          "fold_baseline_wr": 0.2571428571428571,
+          "fold_baseline_pnl": -277.5,
+          "n": 4,
+          "wr": 0.25,
+          "pnl": -22.5,
+          "dd": 30.0
+        }
+      ],
+      "mean_wr": 0.11190476190476191,
+      "std_wr": 0.09805362039035238,
+      "mean_n": 6.0,
+      "mean_pnl": -104.5,
+      "consistency_4_of_5": false,
+      "splits_above_55": 0
+    }
+  ],
+  "n_splits": 5
+}

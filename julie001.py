@@ -114,6 +114,704 @@ from signal_gate_2025 import (
     log_shadow_prediction as _signal_gate_shadow_log,
 )
 
+# === LOCAL OVERRIDE 2026-04-25 — V15 wiring (do not commit) ===
+# Wires the V15 stacked meta-learner into the DE3 firing path.
+# - V15 takes 6 features: fg_proba, kalshi_proba, kalshi_v12_proba,
+#   lfo_proba, pct_proba, pivot_proba.
+# - V11 single-model probas (fg/kalshi/lfo/pct/pivot) are NOT carried on
+#   the live signal dict in production. The five underlying models ARE
+#   loaded by ml_overlay_shadow.py + signal_gate_2025.py at startup, but
+#   they fire at scattered live sites and never stash their proba on the
+#   signal in time for this gate. So we re-fire them inline here using
+#   the same logic that produced the V15 training corpus
+#   (tools/build_v11_training_corpus.py). This guarantees feature
+#   distribution parity between training and inference.
+# - K12 (67-feature kalshi v12) is fired on signal-side context, but its
+#   features are bar-derived and are looked up by name on a feature dict
+#   we build from the market_df window.
+# - Semantic: KEEP if V15 proba >= V15_DE3_THRESHOLD (0.65 per user).
+# - Fallback: if any bundle is missing or feature build fails, do NOT
+#   block (return True) — we only veto when we have a real V15 prediction.
+try:
+    import joblib as _v15_joblib
+    _V15_DE3_PATH = Path(__file__).resolve().parent / "artifacts" / "regime_ml_meta_v15" / "de3" / "model.joblib"
+    _K12_DE3_PATH = Path(__file__).resolve().parent / "artifacts" / "regime_ml_kalshi_v12" / "de3" / "model.joblib"
+    V15_DE3_BUNDLE = _v15_joblib.load(_V15_DE3_PATH) if _V15_DE3_PATH.exists() else None
+    K12_DE3_BUNDLE = _v15_joblib.load(_K12_DE3_PATH) if _K12_DE3_PATH.exists() else None
+except Exception as _v15_load_err:
+    V15_DE3_BUNDLE = None
+    K12_DE3_BUNDLE = None
+    logging.warning("[V15_DE3] bundle load failed: %s", _v15_load_err)
+V15_DE3_THRESHOLD = 0.65  # user-supplied threshold; bundle.best_threshold is 0.725 but user override per task spec
+
+# === LOCAL OVERRIDE 2026-04-25 — V17 RA NY ML gate (replaces LOCAL_RA_DISABLED_IN_NY) ===
+# Bundle: artifacts/regime_ml_ra_ny_rule_v17/ra/model.joblib
+# Features: pct_dist_to_running_hi_pct, k12_below_10, pct_minutes_since_open
+# Semantic: KEEP if proba >= 0.40, BLOCK otherwise.
+# Conservative fallback: BLOCK if any feature unavailable (matches the prior
+# blunt LOCAL_RA_DISABLED_IN_NY behavior — V17 strictly improves on it).
+try:
+    _V17_RA_PATH = Path(__file__).resolve().parent / "artifacts" / "regime_ml_ra_ny_rule_v17" / "ra" / "model.joblib"
+    V17_RA_BUNDLE = _v15_joblib.load(_V17_RA_PATH) if _V17_RA_PATH.exists() else None
+except Exception as _v17_load_err:
+    V17_RA_BUNDLE = None
+    logging.warning("[V17_RA_NY] bundle load failed: %s", _v17_load_err)
+V17_RA_THRESHOLD = 0.40
+
+
+def v17_should_keep_ra_ny(
+    signal: Optional[dict] = None,
+    *,
+    market_df=None,
+    current_price: Optional[float] = None,
+) -> tuple[bool, str]:
+    """V17 quality gate for RA NY candidates.
+
+    Returns (keep, reason). keep=True means the RA candidate may proceed in NY.
+
+    Features (from V17 bundle):
+      - pct_dist_to_running_hi_pct: distance from running session high (% of price)
+      - k12_below_10: live Kalshi prob at strike-10 (via KalshiProvider)
+      - pct_minutes_since_open: minutes since regular session open (9:30 ET)
+
+    Conservative behavior: returns (False, reason) on ANY missing/error path.
+    This guarantees V17 strictly improves over the prior blunt
+    LOCAL_RA_DISABLED_IN_NY = True (which blocked 100% of RA in NY).
+    """
+    if V17_RA_BUNDLE is None:
+        return False, "v17_bundle_missing"
+    if market_df is None or len(market_df) < 5:
+        return False, "v17_missing_market_df_window"
+
+    # Resolve signal price + side + ts
+    try:
+        if current_price is None:
+            current_price = float(market_df["close"].iloc[-1])
+        signal_price = float(
+            (signal or {}).get("entry_price")
+            or (signal or {}).get("price")
+            or current_price
+        )
+    except Exception:
+        return False, "v17_no_price"
+    if not (signal_price > 0):
+        return False, "v17_bad_price"
+
+    # Resolve hour-ET from the latest bar (replay-compat) or wall clock.
+    try:
+        _last_ts = market_df.index[-1]
+        if hasattr(_last_ts, "to_pydatetime"):
+            _last_ts = _last_ts.to_pydatetime()
+        if _last_ts.tzinfo is None:
+            _last_ts = _last_ts.replace(tzinfo=NY_TZ)
+        else:
+            _last_ts = _last_ts.astimezone(NY_TZ)
+        hour_et = int(_last_ts.hour)
+    except Exception:
+        try:
+            hour_et = int(datetime.datetime.now(NY_TZ).hour)
+        except Exception:
+            return False, "v17_no_hour_et"
+
+    # Feature 1 + 3: pct_dist_to_running_hi_pct + pct_minutes_since_open via
+    # build_pct_features (the same surrogate the v11/v12/v17 corpus build used).
+    try:
+        helpers = _v11_fire_helpers()
+        if helpers is False or helpers is None:
+            return False, "v17_pct_helpers_unavailable"
+        prev_window = market_df.tail(60)
+        pct_features = helpers.build_pct_features(prev_window, signal_price, hour_et)
+        f_dist_hi = pct_features.get("dist_to_running_hi_pct")
+        f_min_open = pct_features.get("minutes_since_open")
+    except Exception as e:
+        return False, f"v17_pct_feature_error:{e}"
+    if f_dist_hi is None or f_min_open is None:
+        return False, "v17_pct_feature_missing"
+
+    # Feature 2: k12_below_10 via the live Kalshi provider (p at strike-10).
+    try:
+        _kalshi = _get_kalshi_provider()
+    except Exception as e:
+        return False, f"v17_kalshi_provider_error:{e}"
+    if _kalshi is None or not getattr(_kalshi, "enabled", False):
+        return False, "v17_kalshi_unavailable"
+    try:
+        f_k12_below_10 = _kalshi.get_probability(float(signal_price) - 10.0)
+    except Exception as e:
+        return False, f"v17_kalshi_prob_error:{e}"
+    import math as _m
+    try:
+        fv = float(f_k12_below_10) if f_k12_below_10 is not None else float("nan")
+    except Exception:
+        return False, "v17_kalshi_prob_bad"
+    if not _m.isfinite(fv):
+        return False, "v17_kalshi_prob_nan"
+    f_k12_below_10 = fv
+
+    try:
+        X = [[float(f_dist_hi), float(f_k12_below_10), float(f_min_open)]]
+        proba = float(V17_RA_BUNDLE["model"].predict_proba(X)[0, 1])
+    except Exception as e:
+        return False, f"v17_predict_error:{e}"
+    if not _m.isfinite(proba):
+        return False, "v17_predict_nan"
+
+    # Stash on signal dict for downstream telemetry (harmless when not read).
+    try:
+        if isinstance(signal, dict):
+            signal["v17_ra_ny_proba"] = float(proba)
+            signal["v17_ra_ny_pct_dist_to_running_hi_pct"] = float(f_dist_hi)
+            signal["v17_ra_ny_k12_below_10"] = float(f_k12_below_10)
+            signal["v17_ra_ny_pct_minutes_since_open"] = float(f_min_open)
+    except Exception:
+        pass
+
+    if proba >= V17_RA_THRESHOLD:
+        return True, f"v17_keep_proba={proba:.3f}"
+    return False, f"v17_block_proba={proba:.3f}"
+# === END LOCAL OVERRIDE ===
+
+# Lazy-loaded v11 model bundles. These are the SAME artifacts the production
+# code already loads (via ml_overlay_shadow / signal_gate_2025), but we hold
+# our own references so we can fire them inside this gate without depending
+# on those modules' init order.
+_V11_MODEL_BUNDLES: dict = {}
+_V11_FIRE_HELPERS = None  # module-handle for tools.build_v11_training_corpus
+
+def _v11_load_bundles():
+    """Load the 5 v11-corpus models (filterg, kalshi, lfo, pct, pivot) on
+    first call. Returns dict with keys filterg/kalshi/lfo/pct/pivot (each
+    None on failure)."""
+    global _V11_MODEL_BUNDLES
+    if _V11_MODEL_BUNDLES:
+        return _V11_MODEL_BUNDLES
+    try:
+        import joblib as _v11_joblib
+    except Exception:
+        _V11_MODEL_BUNDLES = {"filterg": None, "kalshi": None, "lfo": None,
+                              "pct": None, "pivot": None}
+        return _V11_MODEL_BUNDLES
+    _root = Path(__file__).resolve().parent
+    paths = {
+        "filterg": _root / "artifacts" / "regime_ml_filterg_v10" / "de3" / "model.joblib",
+        "kalshi":  _root / "artifacts" / "signal_gate_2025" / "model_kalshi_gate.joblib",
+        "lfo":     _root / "artifacts" / "signal_gate_2025" / "model_lfo.joblib",
+        "pct":     _root / "artifacts" / "signal_gate_2025" / "model_pct_overlay.joblib",
+        "pivot":   _root / "artifacts" / "signal_gate_2025" / "model_pivot_trail.joblib",
+    }
+    out = {}
+    for k, p in paths.items():
+        try:
+            out[k] = _v11_joblib.load(p) if p.exists() else None
+        except Exception as e:
+            logging.warning("[V15_DE3] v11 model %s load failed: %s", k, e)
+            out[k] = None
+    _V11_MODEL_BUNDLES = out
+    return out
+
+def _v11_fire_helpers():
+    """Lazy import of fire_* from tools/build_v11_training_corpus. Returns
+    the module handle or None on failure."""
+    global _V11_FIRE_HELPERS
+    if _V11_FIRE_HELPERS is not None:
+        return _V11_FIRE_HELPERS
+    try:
+        import sys as _sys
+        _tools_path = str(Path(__file__).resolve().parent / "tools")
+        if _tools_path not in _sys.path:
+            _sys.path.insert(0, _tools_path)
+        import build_v11_training_corpus as _v11mod
+        _V11_FIRE_HELPERS = _v11mod
+    except Exception as e:
+        logging.warning("[V15_DE3] v11 fire helpers import failed: %s", e)
+        _V11_FIRE_HELPERS = False
+    return _V11_FIRE_HELPERS
+
+
+def v15_should_keep_de3(
+    signal: dict,
+    *,
+    market_df=None,
+    current_price: Optional[float] = None,
+) -> tuple[bool, str]:
+    """V15 stacked meta-learner gate for DE3 candidates.
+
+    Returns (keep, reason). keep=True means the candidate may proceed.
+
+    Semantics:
+      - Computes the 5 v11 probas (fg, kalshi, lfo, pct, pivot) inline by
+        re-firing the same production-loaded models the v11 training
+        corpus used. Features are built from the trailing 60 bars of
+        `market_df` using ports of build_bar_features / build_pct_features.
+      - Fires K12 on the same bar-derived feature set (K12 trained on the
+        same DE3 entry-shape features, looked up by name).
+      - Falls back to keep=True if bundles, helpers, or market_df are
+        unavailable — we only block on a confident sub-threshold V15 reading.
+    """
+    if V15_DE3_BUNDLE is None or K12_DE3_BUNDLE is None:
+        return True, "v15_bundle_missing"
+    if not isinstance(signal, dict):
+        return True, "no_signal_dict"
+    if market_df is None or len(market_df) < 45:
+        return True, "missing_market_df_window"
+
+    helpers = _v11_fire_helpers()
+    if helpers is False or helpers is None:
+        return True, "v11_helpers_unavailable"
+    bundles = _v11_load_bundles()
+    # Determine signal context
+    side = str(signal.get("side", "") or "").upper() or "LONG"
+    sub_strategy = str(signal.get("strategy", "") or "")
+    try:
+        sl_dist = float(signal.get("sl_dist") or signal.get("sl") or 0.0)
+        tp_dist = float(signal.get("tp_dist") or signal.get("tp") or 0.0)
+    except Exception:
+        sl_dist = 0.0
+        tp_dist = 0.0
+    # Use the last bar's price if no override; pull et_hour from the last
+    # bar timestamp (replay-compat) or fall back to wall-clock NY hour.
+    try:
+        _last_ts = market_df.index[-1]
+        if hasattr(_last_ts, "to_pydatetime"):
+            _last_ts = _last_ts.to_pydatetime()
+        if _last_ts.tzinfo is None:
+            _last_ts = _last_ts.replace(tzinfo=NY_TZ)
+        else:
+            _last_ts = _last_ts.astimezone(NY_TZ)
+        hour_et = int(_last_ts.hour)
+    except Exception:
+        hour_et = int(datetime.datetime.now(NY_TZ).hour)
+    if current_price is None:
+        try:
+            current_price = float(market_df["close"].iloc[-1])
+        except Exception:
+            return True, "no_current_price"
+    try:
+        signal_price = float(signal.get("entry_price") or current_price)
+    except Exception:
+        signal_price = float(current_price)
+
+    # Build features from a 60-bar window ending at the last bar (mirror
+    # corpus tool: prev_window = sym_bars.loc[sym_bars.index <= ts].tail(60)).
+    try:
+        prev_window = market_df.tail(60)
+        bar_features = helpers.build_bar_features(
+            prev_window, signal_price, side, sl_dist, tp_dist, hour_et,
+        )
+        pct_features = helpers.build_pct_features(prev_window, signal_price, hour_et)
+    except Exception as e:
+        return True, f"feature_build_error:{e}"
+
+    # Fire the 5 v11 production models (any nan -> bail).
+    try:
+        fg_p = helpers.fire_filterg(bundles.get("filterg"), bar_features, side, hour_et)
+        k11_p = helpers.fire_kalshi(bundles.get("kalshi"), side, bar_features, hour_et, sub_strategy)
+        lfo_p = helpers.fire_lfo(bundles.get("lfo"), side, bar_features, hour_et)
+        pct_p = helpers.fire_pct(bundles.get("pct"), pct_features)
+        pivot_p = helpers.fire_pivot(bundles.get("pivot"), side, bar_features, hour_et)
+    except Exception as e:
+        return True, f"v11_fire_error:{e}"
+    import math as _m
+    for nm, v in (("fg_proba", fg_p), ("kalshi_proba", k11_p), ("lfo_proba", lfo_p),
+                  ("pct_proba", pct_p), ("pivot_proba", pivot_p)):
+        try:
+            fv = float(v)
+        except Exception:
+            return True, f"bad_{nm}"
+        if not _m.isfinite(fv):
+            return True, f"nan_{nm}"
+
+    # K12 on bar-derived features looked up by name.
+    try:
+        k12_feats_names = K12_DE3_BUNDLE.get("features", []) or []
+        k12_row = []
+        for f in k12_feats_names:
+            fv = bar_features.get(f, 0.0)
+            try:
+                k12_row.append(float(fv) if fv is not None else 0.0)
+            except Exception:
+                k12_row.append(0.0)
+        k12_proba = float(K12_DE3_BUNDLE["model"].predict_proba([k12_row])[0, 1])
+    except Exception as e:
+        return True, f"k12_error:{e}"
+
+    try:
+        v15_row = [float(fg_p), float(k11_p), float(k12_proba),
+                   float(lfo_p), float(pct_p), float(pivot_p)]
+        v15_proba = float(V15_DE3_BUNDLE["model"].predict_proba([v15_row])[0, 1])
+    except Exception as e:
+        return True, f"v15_error:{e}"
+
+    # Stash the computed probas on the signal dict for downstream telemetry
+    # / eventual debugging — harmless when consumers don't read them.
+    try:
+        signal["fg_proba"] = float(fg_p)
+        signal["kalshi_proba"] = float(k11_p)
+        signal["kalshi_v12_proba"] = float(k12_proba)
+        signal["lfo_proba"] = float(lfo_p)
+        signal["pct_proba"] = float(pct_p)
+        signal["pivot_proba"] = float(pivot_p)
+        signal["v15_proba"] = float(v15_proba)
+    except Exception:
+        pass
+
+    keep = v15_proba >= V15_DE3_THRESHOLD
+    return keep, (
+        f"v15_proba={v15_proba:.4f} thr={V15_DE3_THRESHOLD:.2f} "
+        f"k12={k12_proba:.4f} fg={fg_p:.3f} kal={k11_p:.3f} "
+        f"lfo={lfo_p:.3f} pct={pct_p:.3f} piv={pivot_p:.3f}"
+    )
+# === END LOCAL OVERRIDE ===
+
+
+# === LOCAL OVERRIDE 2026-04-26 — V18-DE3 stacked meta with Kronos features ===
+# Bundle: artifacts/regime_ml_v18_de3/de3/model.joblib
+# Features (in bundle order):
+#   fg_proba, kalshi_proba, kalshi_v12_proba, lfo_proba, pct_proba, pivot_proba,
+#   kronos_max_high_above, kronos_min_low_below, kronos_pred_atr_30bar,
+#   kronos_dir_move, kronos_close_vs_entry
+# The 6 v11/v12 probas are reused from the V15 path (same bundles, same features).
+# The 5 Kronos features are produced by a subprocess that runs Kronos-small in
+# the .kronos_venv venv (see tools/kronos_predict_features.py). This keeps
+# PyTorch out of the bot's main process — no OMP threading collisions.
+#
+# Toggle: CONFIG["LOCAL_DE3_USE_V18"]. Default ON (flipped 2026-04-26).
+# Latency profile: V15 ~ms; V18 ~0.5-1.5s per signal (Kronos daemon mode,
+# model preloaded once at first call; ~3.8s cold-start one time only).
+# Fallback: any failure (bundle missing, subprocess timeout/error,
+# v11 feature build error) falls back to V15.
+try:
+    _V18_DE3_PATH = Path(__file__).resolve().parent / "artifacts" / "regime_ml_v18_de3" / "de3" / "model.joblib"
+    V18_DE3_BUNDLE = _v15_joblib.load(_V18_DE3_PATH) if _V18_DE3_PATH.exists() else None
+except Exception as _v18_load_err:
+    V18_DE3_BUNDLE = None
+    logging.warning("[V18_DE3] bundle load failed: %s", _v18_load_err)
+V18_DE3_THRESHOLD = 0.60  # ship-eligible per metrics.json (matches V15 keep-rate)
+
+_KRONOS_PREDICT_SCRIPT = Path(__file__).resolve().parent / "tools" / "kronos_predict_features.py"
+_KRONOS_VENV_PYTHON = Path(__file__).resolve().parent / ".kronos_venv" / "bin" / "python3"
+# Daemon-mode timeouts. Startup includes one-time model load (~3-15s on first
+# run, faster on warm HF cache). Per-call timeout is small because the model
+# stays resident; an inference that exceeds this is almost certainly hung.
+_KRONOS_TIMEOUT_S = 15            # per-call wait for daemon to respond
+_KRONOS_DAEMON_BOOT_S = 90        # max wait for daemon "ready" event
+_KRONOS_SAMPLE_COUNT = os.environ.get("KRONOS_SAMPLE_COUNT", "1")
+_KRONOS_PRED_LEN = os.environ.get("KRONOS_PRED_LEN", "30")
+
+# Daemon-mode runtime state. The daemon is started lazily on the first V18
+# candidate, then kept alive for the bot's lifetime. If the daemon dies we
+# attempt one restart; persistent failures fall through to V15.
+import threading as _kronos_threading_mod
+import atexit as _kronos_atexit_mod
+import subprocess as _kronos_subprocess_mod
+
+_KRONOS_DAEMON = None              # subprocess.Popen handle or None
+_KRONOS_DAEMON_LOCK = _kronos_threading_mod.Lock()
+_KRONOS_DAEMON_RESTARTS = 0        # cumulative; reset by operator if needed
+
+
+def _kronos_daemon_shutdown():
+    """Best-effort shutdown of the Kronos daemon at process exit. Avoids
+    orphaned Python+PyTorch processes if the bot crashes."""
+    global _KRONOS_DAEMON
+    proc = _KRONOS_DAEMON
+    _KRONOS_DAEMON = None
+    if proc is None:
+        return
+    try:
+        if proc.poll() is None and proc.stdin and not proc.stdin.closed:
+            try:
+                proc.stdin.write(json.dumps({"cmd": "shutdown"}) + "\n")
+                proc.stdin.flush()
+            except Exception:
+                pass
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    try:
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                proc.kill()
+    except Exception:
+        pass
+
+
+_kronos_atexit_mod.register(_kronos_daemon_shutdown)
+
+
+def _ensure_kronos_daemon():
+    """Lazy-start the Kronos daemon. Returns the subprocess handle, or None
+    if it cannot be brought up (which forces V15 fallback)."""
+    global _KRONOS_DAEMON, _KRONOS_DAEMON_RESTARTS
+    if not _KRONOS_PREDICT_SCRIPT.exists() or not _KRONOS_VENV_PYTHON.exists():
+        return None
+    with _KRONOS_DAEMON_LOCK:
+        proc = _KRONOS_DAEMON
+        if proc is not None and proc.poll() is None:
+            return proc
+        # Need to start (or restart) the daemon.
+        env = os.environ.copy()
+        env.setdefault("KRONOS_SAMPLE_COUNT", str(_KRONOS_SAMPLE_COUNT))
+        env.setdefault("KRONOS_PRED_LEN", str(_KRONOS_PRED_LEN))
+        env.setdefault("OMP_NUM_THREADS", "1")
+        env.setdefault("MKL_NUM_THREADS", "1")
+        env.setdefault("TOKENIZERS_PARALLELISM", "false")
+        try:
+            proc = _kronos_subprocess_mod.Popen(
+                [str(_KRONOS_VENV_PYTHON), str(_KRONOS_PREDICT_SCRIPT), "--daemon"],
+                stdin=_kronos_subprocess_mod.PIPE,
+                stdout=_kronos_subprocess_mod.PIPE,
+                stderr=_kronos_subprocess_mod.DEVNULL,
+                text=True,
+                bufsize=1,
+                env=env,
+            )
+        except Exception as e:
+            logging.warning("[V18_DE3] kronos daemon spawn failed: %s", e)
+            _KRONOS_DAEMON = None
+            return None
+        # Wait for "ready" event.
+        ready = False
+        deadline = time.time() + _KRONOS_DAEMON_BOOT_S
+        while time.time() < deadline:
+            try:
+                line = proc.stdout.readline()
+            except Exception:
+                line = ""
+            if not line:
+                if proc.poll() is not None:
+                    break
+                continue
+            try:
+                msg = json.loads(line.strip())
+            except Exception:
+                continue
+            if isinstance(msg, dict):
+                if msg.get("event") == "ready":
+                    ready = True
+                    break
+                if msg.get("event") == "load_error":
+                    logging.warning("[V18_DE3] kronos daemon load_error: %s",
+                                    msg.get("exc"))
+                    break
+        if not ready:
+            try:
+                proc.terminate()
+                proc.wait(timeout=3)
+            except Exception:
+                try: proc.kill()
+                except Exception: pass
+            _KRONOS_DAEMON = None
+            return None
+        _KRONOS_DAEMON = proc
+        _KRONOS_DAEMON_RESTARTS += 1
+        logging.info("[V18_DE3] kronos daemon ready (restarts=%d)",
+                     _KRONOS_DAEMON_RESTARTS)
+        return proc
+
+
+def _kronos_daemon_request(payload, timeout_s=_KRONOS_TIMEOUT_S):
+    """Send one JSON request to the daemon and return the parsed response
+    (dict) or None on timeout/IO/parse failure. Caller is responsible for
+    interpreting None as "fall back to V15".
+    Uses select() to enforce a per-call timeout without freezing the bot."""
+    import select as _kronos_select_mod
+    proc = _ensure_kronos_daemon()
+    if proc is None:
+        return None
+    with _KRONOS_DAEMON_LOCK:
+        if proc.poll() is not None:
+            # Died between ensure and lock; try one restart.
+            proc = None
+        if proc is None:
+            # release lock before recursive ensure (can't recurse into same lock)
+            pass
+    if proc is None:
+        # Drop lock and try to bring it back up once more.
+        global _KRONOS_DAEMON
+        _KRONOS_DAEMON = None
+        proc = _ensure_kronos_daemon()
+        if proc is None:
+            return None
+    try:
+        line = json.dumps(payload) + "\n"
+        with _KRONOS_DAEMON_LOCK:
+            try:
+                proc.stdin.write(line)
+                proc.stdin.flush()
+            except Exception as e:
+                logging.warning("[V18_DE3] kronos daemon write failed: %s", e)
+                _KRONOS_DAEMON = None
+                try: proc.terminate()
+                except Exception: pass
+                return None
+            # select-based read with timeout
+            rlist, _wl, _xl = _kronos_select_mod.select(
+                [proc.stdout], [], [], float(timeout_s)
+            )
+            if not rlist:
+                logging.warning("[V18_DE3] kronos daemon timeout (>%ss); restarting",
+                                timeout_s)
+                _KRONOS_DAEMON = None
+                try: proc.terminate()
+                except Exception: pass
+                return None
+            try:
+                resp_line = proc.stdout.readline()
+            except Exception as e:
+                logging.warning("[V18_DE3] kronos daemon read failed: %s", e)
+                _KRONOS_DAEMON = None
+                try: proc.terminate()
+                except Exception: pass
+                return None
+        if not resp_line:
+            return None
+        return json.loads(resp_line.strip())
+    except Exception as e:
+        logging.warning("[V18_DE3] kronos daemon request error: %s", e)
+        return None
+
+
+def _v18_kronos_features_for_candidate(market_df, signal_price):
+    """Daemon-mode Kronos call. Returns dict with the 5 v18 features
+    (kronos_max_high_above, kronos_min_low_below, kronos_pred_atr_30bar,
+    kronos_dir_move, kronos_close_vs_entry) on success, None on any failure.
+
+    The Kronos subprocess is started once (lazy) and kept alive — per-call
+    latency is dominated by inference (~0.5-1.5s) rather than process spawn
+    + model load (~3s) as it was in one-shot mode.
+
+    Bars are passed via stdin as a JSON list of OHLCV dicts (newest at end).
+    Kronos needs >= 100 bars; we cap the window at 512 (ctx) bars.
+    """
+    if market_df is None or len(market_df) < 100:
+        return None
+    try:
+        win = market_df.tail(512).copy()
+        bars = []
+        for ts, row in win.iterrows():
+            try:
+                ts_iso = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+                bars.append({
+                    "ts": ts_iso,
+                    "open": float(row.get("open", row.get("Open", 0.0)) or 0.0),
+                    "high": float(row.get("high", row.get("High", 0.0)) or 0.0),
+                    "low": float(row.get("low", row.get("Low", 0.0)) or 0.0),
+                    "close": float(row.get("close", row.get("Close", 0.0)) or 0.0),
+                    "volume": float(row.get("volume", row.get("Volume", 0.0)) or 0.0),
+                })
+            except Exception:
+                continue
+        if len(bars) < 100:
+            return None
+        feats = _kronos_daemon_request({
+            "bars": bars,
+            "entry_price": float(signal_price),
+        })
+        if not isinstance(feats, dict):
+            return None
+        if "kronos_max_high_above" not in feats:
+            # Daemon emitted an error response, e.g. {"kronos_failed": "..."}
+            return None
+        return feats
+    except Exception:
+        return None
+
+
+def v18_should_keep_de3(
+    signal: dict,
+    *,
+    market_df=None,
+    current_price: Optional[float] = None,
+) -> tuple[bool, str]:
+    """V18-DE3 stacked meta gate. Falls back to v15_should_keep_de3 on any
+    Kronos failure. Returns (keep, reason). keep=True allows the candidate.
+
+    On success the v18 proba is stashed on the signal dict as ``v18_proba``
+    along with the 5 kronos features for downstream telemetry.
+    """
+    if V18_DE3_BUNDLE is None:
+        return v15_should_keep_de3(signal, market_df=market_df, current_price=current_price)
+    if not isinstance(signal, dict):
+        return v15_should_keep_de3(signal, market_df=market_df, current_price=current_price)
+    if market_df is None or len(market_df) < 100:
+        return v15_should_keep_de3(signal, market_df=market_df, current_price=current_price)
+
+    # Re-fire v11/v12 probas via the V15 helper internals (we deliberately
+    # call v15_should_keep_de3 first to populate the per-model probas onto
+    # the signal dict — that helper stashes fg/kalshi/kalshi_v12/lfo/pct/pivot).
+    # If V15 itself bails (returns True with a missing-feature reason), we
+    # fall back to V15's decision rather than firing V18 with stale probas.
+    _v15_keep, _v15_reason = v15_should_keep_de3(
+        signal, market_df=market_df, current_price=current_price,
+    )
+    needed = ("fg_proba", "kalshi_proba", "kalshi_v12_proba",
+              "lfo_proba", "pct_proba", "pivot_proba")
+    if any(signal.get(n) is None for n in needed):
+        return _v15_keep, f"v18_fallback_v15:{_v15_reason}"
+
+    # Resolve signal_price (same logic as the v15 helper).
+    if current_price is None:
+        try:
+            current_price = float(market_df["close"].iloc[-1])
+        except Exception:
+            return _v15_keep, f"v18_fallback_no_price:{_v15_reason}"
+    try:
+        signal_price = float(signal.get("entry_price") or current_price)
+    except Exception:
+        signal_price = float(current_price)
+
+    kf = _v18_kronos_features_for_candidate(market_df, signal_price)
+    if kf is None:
+        return _v15_keep, f"v18_fallback_kronos_unavailable:{_v15_reason}"
+
+    try:
+        feature_names = list(V18_DE3_BUNDLE.get("features", []) or [])
+        feature_dict = {
+            "fg_proba": float(signal.get("fg_proba", 0.0)),
+            "kalshi_proba": float(signal.get("kalshi_proba", 0.0)),
+            "kalshi_v12_proba": float(signal.get("kalshi_v12_proba", 0.0)),
+            "lfo_proba": float(signal.get("lfo_proba", 0.0)),
+            "pct_proba": float(signal.get("pct_proba", 0.0)),
+            "pivot_proba": float(signal.get("pivot_proba", 0.0)),
+            "kronos_max_high_above": float(kf.get("kronos_max_high_above", 0.0)),
+            "kronos_min_low_below": float(kf.get("kronos_min_low_below", 0.0)),
+            "kronos_pred_atr_30bar": float(kf.get("kronos_pred_atr_30bar", 0.0)),
+            "kronos_dir_move": float(kf.get("kronos_dir_move", 0.0)),
+            "kronos_close_vs_entry": float(kf.get("kronos_close_vs_entry", 0.0)),
+        }
+        X = [[feature_dict.get(f, 0.0) for f in feature_names]]
+        v18_proba = float(V18_DE3_BUNDLE["model"].predict_proba(X)[0, 1])
+    except Exception as e:
+        return _v15_keep, f"v18_fallback_predict_error:{e}:{_v15_reason}"
+
+    import math as _m
+    if not _m.isfinite(v18_proba):
+        return _v15_keep, f"v18_fallback_nan:{_v15_reason}"
+
+    # Stash on signal dict for telemetry.
+    try:
+        signal["v18_proba"] = float(v18_proba)
+        for k in ("kronos_max_high_above", "kronos_min_low_below",
+                  "kronos_pred_atr_30bar", "kronos_dir_move",
+                  "kronos_close_vs_entry", "kronos_inf_time_s"):
+            if k in kf:
+                signal[k] = float(kf[k])
+    except Exception:
+        pass
+
+    keep = v18_proba >= V18_DE3_THRESHOLD
+    if keep:
+        return True, f"v18_keep_proba={v18_proba:.4f} thr={V18_DE3_THRESHOLD:.2f}"
+    return False, f"v18_block_proba={v18_proba:.4f} thr={V18_DE3_THRESHOLD:.2f}"
+# === END LOCAL OVERRIDE ===
+
 
 def _triathlon_mark_blocked(signal, filter_name, reason=""):
     """Flip a Triathlon-recorded signal from 'fired' to 'blocked' when
@@ -1609,6 +2307,49 @@ def _apply_kalshi_trade_overlay_to_signal(
         signal["kalshi_tp_trail_enabled"] = False
         return True
 
+    # === LOCAL OVERRIDE 2026-04-25/2026-04-26 — V15 / V18-DE3 wiring (do not commit) ===
+    # Stacked meta-learner gate for DE3 candidates. Returns False here
+    # blocks the trade. Fallback semantic: when models or v11 features are
+    # not available, v15_should_keep_de3 returns True (don't block).
+    #
+    # 2026-04-26: CONFIG["LOCAL_DE3_USE_V18"] (default False) routes the gate
+    # through v18_should_keep_de3 instead of v15. V18 adds Kronos forecast
+    # features (~5-30s subprocess); on any Kronos failure V18 falls back
+    # to V15's decision so behavior is monotonically as-good-or-better.
+    if _strat.startswith("DynamicEngine3"):
+        _use_v18 = bool(CONFIG.get("LOCAL_DE3_USE_V18", False))
+        try:
+            if _use_v18:
+                _gate_keep, _gate_reason = v18_should_keep_de3(
+                    signal, market_df=market_df, current_price=current_price,
+                )
+                _gate_label = "V18_DE3"
+            else:
+                _gate_keep, _gate_reason = v15_should_keep_de3(
+                    signal, market_df=market_df, current_price=current_price,
+                )
+                _gate_label = "V15_DE3"
+        except Exception as _v15_e:
+            _gate_keep, _gate_reason = True, f"gate_exception:{_v15_e}"
+            _gate_label = "V18_DE3" if _use_v18 else "V15_DE3"
+        # Preserve v15-keyed telemetry for back-compat with downstream readers.
+        signal["v15_de3_gate_reason"] = _gate_reason
+        signal["v15_de3_gate_keep"] = bool(_gate_keep)
+        signal["de3_gate_model"] = _gate_label
+        if not _gate_keep:
+            logging.info(
+                "[%s BLOCKED] strat=%s side=%s %s",
+                _gate_label, _strat, signal.get("side", "?"), _gate_reason,
+            )
+            signal["kalshi_trade_overlay_applied"] = False
+            signal["kalshi_trade_overlay_reason"] = (
+                "v18_blocked" if _use_v18 else "v15_blocked"
+            )
+            signal["kalshi_entry_blocked"] = True
+            signal["kalshi_tp_trail_enabled"] = False
+            return False
+    # === END LOCAL OVERRIDE ===
+
     signal.setdefault("entry_price", _coerce_float(signal.get("entry_price"), current_price))
     kalshi = _get_kalshi_provider()
 
@@ -2108,6 +2849,80 @@ def _apply_kalshi_tp_trail(
     }
 
 
+# === LOCAL OVERRIDE 2026-04-26 — Recipe B tiered sizing helper (do not commit) ===
+def de3_size_from_v18_proba(proba: Optional[float]) -> Optional[int]:
+    """Return position size based on V18 confidence per Recipe B (10/4/1).
+
+    Default tiers:
+        proba >= 0.85 -> 10  (high conviction)
+        0.65 <= proba < 0.85 -> 4  (medium)
+        0.60 <= proba < 0.65 -> 1  (low; just above V18 gate threshold)
+        proba < 0.60         -> 0  (V18 gate normally blocks below this)
+
+    Returns None when:
+      - LOCAL_DE3_USE_TIERED_SIZING is disabled (let existing sizing decide)
+      - proba is None / not available (V18 not used / fallback path)
+    """
+    if not CONFIG.get("LOCAL_DE3_USE_TIERED_SIZING", True):
+        return None
+    if proba is None:
+        return None
+    try:
+        p = float(proba)
+    except Exception:
+        return None
+    if not math.isfinite(p):
+        return None
+    tiers = CONFIG.get("LOCAL_DE3_SIZE_TIERS", [(0.85, 10), (0.65, 4), (0.60, 1)])
+    try:
+        ordered = sorted(
+            [(float(t[0]), int(t[1])) for t in tiers],
+            key=lambda x: -x[0],
+        )
+    except Exception:
+        ordered = [(0.85, 10), (0.65, 4), (0.60, 1)]
+    for threshold, size in ordered:
+        if p >= threshold:
+            return int(size)
+    return 0
+
+
+def _apply_de3_v18_tiered_size_live(signal: Optional[dict], base_size: int) -> int:
+    """When a DE3 signal has been approved by V18 and a v18_proba is stashed
+    on the signal, override base_size with the Recipe B tier for that proba.
+
+    Falls through (returns base_size unchanged) when:
+      - signal is not a dict
+      - strategy is not DynamicEngine3*
+      - LOCAL_DE3_USE_TIERED_SIZING is off
+      - v18_proba missing (V15 fallback / V18 disabled)
+      - de3_size_from_v18_proba returns None
+    Never raises.
+    """
+    if not isinstance(signal, dict):
+        return int(base_size)
+    try:
+        strat = str(signal.get("strategy", "") or "")
+        if not strat.startswith("DynamicEngine3"):
+            return int(base_size)
+        # Only act when V18 actually produced a proba on this signal. In the
+        # V15 fallback path v18_proba is not stashed.
+        gate_model = str(signal.get("de3_gate_model", "") or "")
+        if signal.get("v18_proba") is None:
+            return int(base_size)
+        if gate_model and gate_model != "V18_DE3":
+            return int(base_size)
+        tiered = de3_size_from_v18_proba(signal.get("v18_proba"))
+        if tiered is None:
+            return int(base_size)
+        signal["de3_v18_tiered_size_before"] = int(base_size)
+        signal["de3_v18_tiered_size"] = int(tiered)
+        return int(tiered)
+    except Exception:
+        return int(base_size)
+# === END LOCAL OVERRIDE ===
+
+
 def _apply_live_execution_size(
     signal: Optional[dict],
     fallback_size: int,
@@ -2118,6 +2933,12 @@ def _apply_live_execution_size(
         signal,
         _signal_base_size(signal, fallback_size),
     )
+    # === LOCAL OVERRIDE 2026-04-26 — Recipe B V18 tiered sizing ===
+    # Applied AFTER the v4 confidence-tier helper so it can override the
+    # base size for V18-approved DE3 candidates. Returns base_size unchanged
+    # when V18 wasn't the gate (V15 fallback) or toggle is off.
+    size = _apply_de3_v18_tiered_size_live(signal, size)
+    # === END LOCAL OVERRIDE ===
     size = _apply_regimeadaptive_live_growth_size(signal, size, live_drawdown_state)
     size = _apply_aetherflow_live_conditional_size(signal, size, tracked_live_trades)
     size = _apply_live_drawdown_size(signal, size, live_drawdown_state)
@@ -7666,10 +8487,80 @@ async def run_bot():
 
     disabled_signal_log_ts: dict[str, float] = {}
 
-    def execution_disabled_filter(strategy_label: str, session_name: str) -> Optional[str]:
+    def execution_disabled_filter(
+        strategy_label: str,
+        session_name: str,
+        manifold_regime: Optional[str] = None,
+        signal: Optional[dict] = None,
+        market_df=None,
+        current_price: Optional[float] = None,
+    ) -> Optional[str]:
         if not strategy_label:
             return None
         strat_lower = str(strategy_label).strip().lower()
+        # === LOCAL OVERRIDE 2026-04-25 — NY-session-only override (do not commit) ===
+        # Change 3: block ALL strategies outside NY hours (NY_AM/NY_PM only).
+        sess_upper = str(session_name).upper() if session_name else ""
+        ny_sessions = {"NY_AM", "NY_PM"}
+        if bool(CONFIG.get("LOCAL_NY_ONLY_OVERRIDE", True)):
+            if sess_upper not in ny_sessions:
+                return f"StrategyDisabled:{strategy_label}@{sess_upper or 'UNKNOWN'}[NY_ONLY_OVERRIDE]"
+        # === END LOCAL OVERRIDE ===
+        # === LOCAL OVERRIDE 2026-04-25 — V17 RA NY ML gate (replaces LOCAL_RA_DISABLED_IN_NY) ===
+        # Replaces the prior blunt LOCAL_RA_DISABLED_IN_NY (which blocked 100%
+        # of RA / AuctionReversion / SmoothTrendAsia in NY). Now V17 quality
+        # classifier decides per-candidate: KEEP if proba >= 0.40 else BLOCK.
+        # Conservative fallback (BLOCK on missing features) preserves the
+        # prior safety net — V17 strictly improves over the blunt disable.
+        _is_ra_family = (
+            strat_lower.startswith("regimeadaptive")
+            or strat_lower in {"auctionreversion", "smoothtrendasia"}
+        )
+        if (
+            bool(CONFIG.get("LOCAL_RA_V17_GATE_ENABLED", True))
+            and sess_upper in ny_sessions
+            and _is_ra_family
+        ):
+            try:
+                _v17_keep, _v17_reason = v17_should_keep_ra_ny(
+                    signal, market_df=market_df, current_price=current_price,
+                )
+            except Exception as _v17_err:
+                _v17_keep, _v17_reason = False, f"v17_exception:{_v17_err}"
+            if not _v17_keep:
+                return f"StrategyDisabled:{strategy_label}@{sess_upper}[RA_V17_BLOCK:{_v17_reason}]"
+            # Stash reason on signal for telemetry when V17 keeps.
+            try:
+                if isinstance(signal, dict):
+                    signal["v17_ra_ny_reason"] = str(_v17_reason)
+            except Exception:
+                pass
+        # NOTE: LOCAL_RA_DISABLED_IN_NY is deprecated by the V17 gate and is
+        # no longer enforced here — see config.py for the deprecation note.
+        # === END LOCAL OVERRIDE ===
+        # === LOCAL OVERRIDE 2026-04-25 — AF regime allowlist (do not commit) ===
+        # Block AetherFlow unless the live manifold regime is in the allowlist.
+        # Default allowlist: ["TREND_GEODESIC", "DISPERSED"] (expanded 2026-04-26
+        # from TG-only). Conservative: if regime is unknown/missing, BLOCK
+        # (we can't verify). The manifold_regime kwarg is the live regime label
+        # from regime_manifold_engine.update(...)["regime"] (computed ~line 12673).
+        # Back-compat: LOCAL_AF_REGIME_TREND_GEODESIC_ONLY (deprecated) still
+        # forces TG-only when explicitly enabled.
+        if strat_lower.startswith("aetherflow"):
+            allowed_regimes = CONFIG.get("LOCAL_AF_REGIME_ALLOWED", []) or []
+            if bool(CONFIG.get("LOCAL_AF_REGIME_TREND_GEODESIC_ONLY", False)):
+                # Old flag is explicitly enabled — force TG-only (overrides allowlist)
+                allowed_regimes = ["TREND_GEODESIC"]
+            if allowed_regimes:
+                allowed_upper = {str(r).strip().upper() for r in allowed_regimes}
+                regime_upper = str(manifold_regime or "").strip().upper()
+                if regime_upper not in allowed_upper:
+                    tag = regime_upper if regime_upper else "UNKNOWN"
+                    return (
+                        f"StrategyDisabled:{strategy_label}@{sess_upper or 'UNKNOWN'}"
+                        f"[AF_REGIME_NOT_ALLOWED:regime={tag}]"
+                    )
+        # === END LOCAL OVERRIDE ===
         if strat_lower in exec_disabled:
             return f"StrategyDisabled:{strategy_label}"
         sess = str(session_name).upper() if session_name else ""
@@ -12897,7 +13788,14 @@ async def run_bot():
                             #    continue
 
                             strat_label = str(signal.get("strategy", strat_name) or strat_name)
-                            disabled_filter = execution_disabled_filter(strat_label, base_session)
+                            # Pass live manifold regime label for AF TREND_GEODESIC filter (LOCAL OVERRIDE 2026-04-25).
+                            _af_reg_label = str(regime_meta.get("regime", "")) if isinstance(regime_meta, dict) else None
+                            # Pass signal + market_df + current_price for the V17 RA NY ML gate (LOCAL OVERRIDE 2026-04-25).
+                            disabled_filter = execution_disabled_filter(
+                                strat_label, base_session,
+                                manifold_regime=_af_reg_label,
+                                signal=signal, market_df=new_df, current_price=current_price,
+                            )
                             if disabled_filter:
                                 maybe_log_disabled_strategy(
                                     disabled_filter,
@@ -13108,7 +14006,14 @@ async def run_bot():
                         #    continue
 
                         strat_label = str(signal.get("strategy", strat_name) or strat_name)
-                        disabled_filter = execution_disabled_filter(strat_label, base_session)
+                        # Pass live manifold regime label for AF TREND_GEODESIC filter (LOCAL OVERRIDE 2026-04-25).
+                        _af_reg_label = str(regime_meta.get("regime", "")) if isinstance(regime_meta, dict) else None
+                        # Pass signal + market_df + current_price for the V17 RA NY ML gate (LOCAL OVERRIDE 2026-04-25).
+                        disabled_filter = execution_disabled_filter(
+                            strat_label, base_session,
+                            manifold_regime=_af_reg_label,
+                            signal=signal, market_df=new_df, current_price=current_price,
+                        )
                         if disabled_filter:
                             maybe_log_disabled_strategy(
                                 disabled_filter,
@@ -13230,9 +14135,16 @@ async def run_bot():
 
                 if candidate_signals:
                     active_candidates = []
+                    # Pass live manifold regime label for AF TREND_GEODESIC filter (LOCAL OVERRIDE 2026-04-25).
+                    _af_reg_label = str(regime_meta.get("regime", "")) if isinstance(regime_meta, dict) else None
                     for priority, strat, sig, s_name in candidate_signals:
                         strat_label = str(sig.get("strategy", s_name) or s_name)
-                        disabled_filter = execution_disabled_filter(strat_label, base_session)
+                        # Pass sig + market_df + current_price for the V17 RA NY ML gate (LOCAL OVERRIDE 2026-04-25).
+                        disabled_filter = execution_disabled_filter(
+                            strat_label, base_session,
+                            manifold_regime=_af_reg_label,
+                            signal=sig, market_df=new_df, current_price=current_price,
+                        )
                         if disabled_filter:
                             # Keep the signal (for diagnostics), but don't let it affect
                             # consensus or execution.

@@ -1,0 +1,6 @@
+{
+  "stage": "filterg_v10_v2",
+  "auc_test": 0.5797594091500223,
+  "trained": true,
+  "extra_features": []
+}

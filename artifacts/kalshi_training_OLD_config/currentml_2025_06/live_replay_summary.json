@@ -1,0 +1,52 @@
+{
+  "bars_processed": 43201,
+  "closed_trades": 425,
+  "wins": 261,
+  "losses": 164,
+  "winrate": 61.411764705882355,
+  "net_pnl": -939.4299999999898,
+  "max_drawdown": 2160.6499999999915,
+  "ending_balance": 49060.570000000174,
+  "open_legs_remaining": 0,
+  "manual_closes": 53,
+  "reversals": 16,
+  "stop_updates": 376,
+  "passive_exit_counts": {
+    "stop": 127,
+    "take": 72,
+    "stop_gap": 118,
+    "take_gap": 50
+  },
+  "strategy_counts": {
+    "DynamicEngine3": 381,
+    "RegimeAdaptive": 44
+  },
+  "exit_source_counts": {
+    "stop": 127,
+    "take": 72,
+    "stop_gap": 118,
+    "close_trade_leg": 36,
+    "reverse": 21,
+    "take_gap": 50,
+    "close_position": 1
+  },
+  "mode": "full_live_loop_replay",
+  "contract_root": "MES",
+  "target_symbol": "MES.M26",
+  "account_id": 99999,
+  "range_start": "2025-06-01T00:00:00-04:00",
+  "range_end": "2025-07-01T00:00:00-04:00",
+  "simulation_dir": "/Users/wes/Downloads/JULIE001/backtest_reports/currentml_2025_06",
+  "log_markers": {
+    "level_fill_pending": 0,
+    "level_fill_fire": 30,
+    "level_fill_at_level": 429,
+    "pivot_trail_updates": 212,
+    "kalshi_tp_trail": 0,
+    "kalshi_tp_adjust": 276,
+    "kalshi_entry_blocks": 66,
+    "de3_break_even_armed": 165,
+    "trade_placed": 0,
+    "trade_rejected": 0
+  }
+}

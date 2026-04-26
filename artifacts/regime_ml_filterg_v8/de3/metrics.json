@@ -1,0 +1,5 @@
+{
+  "status": "KILL_no_threshold_passes",
+  "train_auc": 0.9344244667425028,
+  "test_auc": 0.6988869710136302
+}

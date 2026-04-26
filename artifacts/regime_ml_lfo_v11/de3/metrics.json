@@ -1,0 +1,271 @@
+{
+  "overlay": "lfo",
+  "strategy": "DE3",
+  "label": "is_big_loss",
+  "n_train": 1068,
+  "n_test": 531,
+  "train_AUC": 0.9944071342067599,
+  "test_AUC": 0.6429047746065617,
+  "features": [
+    "bf_de3_entry_ret1_atr",
+    "bf_de3_entry_body_pos1",
+    "bf_de3_entry_body1_ratio",
+    "bf_de3_entry_lower_wick_ratio",
+    "bf_de3_entry_upper_wick_ratio",
+    "bf_de3_entry_upper1_ratio",
+    "bf_de3_entry_close_pos1",
+    "bf_de3_entry_flips5",
+    "bf_de3_entry_down3",
+    "bf_de3_entry_range10_atr",
+    "bf_de3_entry_dist_high5_atr",
+    "bf_de3_entry_dist_low5_atr",
+    "bf_de3_entry_vol1_rel20",
+    "bf_de3_entry_atr14",
+    "bf_sl_dist_pts",
+    "bf_tp_dist_pts",
+    "bf_atr_ratio_to_sl",
+    "bf_dist_to_bank_below",
+    "bf_dist_to_bank_above",
+    "bf_dist_to_bank_in_dir",
+    "bf_dist_to_bank_pts",
+    "bf_bar_range_pts",
+    "bf_bar_close_pct_body",
+    "bf_atr14_pts",
+    "bf_range_30bar_pts",
+    "bf_trend_20bar_pct",
+    "bf_dist_to_20bar_hi_pct",
+    "bf_dist_to_20bar_lo_pct",
+    "bf_vel_5bar_pts_per_min",
+    "bf_vel_20bar_pts_per_min",
+    "bf_regime_vol_bp",
+    "bf_regime_eff",
+    "pct_pct_from_open",
+    "pct_signed_level",
+    "pct_abs_level",
+    "pct_level_distance_pct",
+    "pct_atr_pct_30bar",
+    "pct_range_pct_at_touch",
+    "pct_hour_edge",
+    "pct_minutes_since_open",
+    "pct_dist_to_running_hi_pct",
+    "pct_dist_to_running_lo_pct",
+    "pct_rule_confidence",
+    "fg_proba",
+    "kalshi_proba"
+  ],
+  "holdout_baseline": {
+    "trades": 531,
+    "wr_pct": 43.87947269303202,
+    "pnl": -2673.75,
+    "dd": -3927.5
+  },
+  "sweep": [
+    {
+      "threshold": 0.4,
+      "trades": 297,
+      "blocked": 234,
+      "wr_pct": 44.107744107744104,
+      "pnl": -1077.5,
+      "max_dd": -2272.5,
+      "wr_held": 0.4358974358974359,
+      "n_held": 234,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1"
+    },
+    {
+      "threshold": 0.45,
+      "trades": 334,
+      "blocked": 197,
+      "wr_pct": 44.31137724550898,
+      "pnl": -1282.5,
+      "max_dd": -2505.0,
+      "wr_held": 0.43147208121827413,
+      "n_held": 197,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1"
+    },
+    {
+      "threshold": 0.5,
+      "trades": 372,
+      "blocked": 159,
+      "wr_pct": 43.54838709677419,
+      "pnl": -1873.75,
+      "max_dd": -3073.75,
+      "wr_held": 0.44654088050314467,
+      "n_held": 159,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1"
+    },
+    {
+      "threshold": 0.55,
+      "trades": 408,
+      "blocked": 123,
+      "wr_pct": 43.872549019607845,
+      "pnl": -1872.5,
+      "max_dd": -3067.5,
+      "wr_held": 0.43902439024390244,
+      "n_held": 123,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1"
+    },
+    {
+      "threshold": 0.6,
+      "trades": 441,
+      "blocked": 90,
+      "wr_pct": 44.67120181405896,
+      "pnl": -1768.75,
+      "max_dd": -3020.0,
+      "wr_held": 0.4,
+      "n_held": 90,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1"
+    },
+    {
+      "threshold": 0.65,
+      "trades": 468,
+      "blocked": 63,
+      "wr_pct": 43.8034188034188,
+      "pnl": -2362.5,
+      "max_dd": -3623.75,
+      "wr_held": 0.4444444444444444,
+      "n_held": 63,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1"
+    },
+    {
+      "threshold": 0.7,
+      "trades": 497,
+      "blocked": 34,
+      "wr_pct": 43.66197183098591,
+      "pnl": -2387.5,
+      "max_dd": -3697.5,
+      "wr_held": 0.47058823529411764,
+      "n_held": 34,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1"
+    },
+    {
+      "threshold": 0.75,
+      "trades": 512,
+      "blocked": 19,
+      "wr_pct": 43.5546875,
+      "pnl": -2607.5,
+      "max_dd": -3885.0,
+      "wr_held": 0.5263157894736842,
+      "n_held": 19,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1"
+    },
+    {
+      "threshold": 0.8,
+      "trades": 520,
+      "blocked": 11,
+      "wr_pct": 43.65384615384615,
+      "pnl": -2623.75,
+      "max_dd": -3901.25,
+      "wr_held": 0.5454545454545454,
+      "n_held": 11,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1"
+    },
+    {
+      "threshold": 0.85,
+      "trades": 527,
+      "blocked": 4,
+      "wr_pct": 43.833017077798864,
+      "pnl": -2635.0,
+      "max_dd": -3915.0,
+      "wr_held": 0.5,
+      "n_held": 4,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1"
+    }
+  ],
+  "best_config": {
+    "threshold": 0.4,
+    "trades": 297,
+    "blocked": 234,
+    "wr_pct": 44.107744107744104,
+    "pnl": -1077.5,
+    "max_dd": -2272.5,
+    "wr_held": 0.4358974358974359,
+    "n_held": 234,
+    "gates": {
+      "G1": false,
+      "G2": true,
+      "G3": true,
+      "G4": false
+    },
+    "all_pass": false,
+    "binding_gate": "G1"
+  },
+  "ship": false,
+  "kill_marker": true,
+  "binding_gate": "G1",
+  "ship_gates": {
+    "G1_max_dd_abs": 870.0,
+    "G2": "PnL >= holdout_baseline AND trades <= holdout_baseline",
+    "G3_min_n_oos_surviving": 50,
+    "G4_min_wr_pct": 55.00000000000001
+  }
+}

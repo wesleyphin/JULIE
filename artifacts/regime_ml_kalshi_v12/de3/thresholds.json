@@ -1,0 +1,6 @@
+{
+  "threshold": 0.175,
+  "mode": "B_union_rule_or_ml",
+  "rule_min_regime_eff": 0.09,
+  "rule_max_upper_wick": 0.0353
+}

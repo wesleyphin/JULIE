@@ -1,0 +1,9 @@
+{
+  "stage": "lfo_v10_v2",
+  "auc_test": 0.541172619047619,
+  "trained": true,
+  "extra_features": [
+    "fg_v10_proba",
+    "k_v10_proba"
+  ]
+}

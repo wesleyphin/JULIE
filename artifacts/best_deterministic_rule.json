@@ -1,0 +1,42 @@
+{
+  "best_kind": "n50",
+  "best_rule": {
+    "kind": "pair",
+    "human": "(bf_regime_eff > 0.08995) AND (bf_de3_entry_upper_wick_ratio <= 0.03534)",
+    "conditions": [
+      {
+        "feature": "bf_regime_eff",
+        "operator": ">",
+        "threshold": 0.08995279476088709
+      },
+      {
+        "feature": "bf_de3_entry_upper_wick_ratio",
+        "operator": "<=",
+        "threshold": 0.035335497835497776
+      }
+    ],
+    "train": {
+      "n": 258,
+      "wr": 0.6744186046511628,
+      "pnl": 13041.25,
+      "dd": 782.5
+    },
+    "holdout": {
+      "n": 50,
+      "wr": 0.6,
+      "pnl": 1407.5,
+      "dd": 157.5
+    },
+    "gates_holdout": {
+      "G1_870": true,
+      "G1_1000": true,
+      "G2": true,
+      "G3": true,
+      "G4": true,
+      "all_870": true,
+      "all_1000": true
+    }
+  },
+  "verdict": "SHIPS",
+  "ml_enhancement": null
+}

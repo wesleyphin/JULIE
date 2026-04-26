@@ -1,0 +1,31 @@
+{
+  "audit_date": "2026-04-25",
+  "method": "max-continuous DD (formula A) recomputed independently from parquet outputs",
+  "formula": "cum = pnls.cumsum(); peak = cum.cummax(); dd = (peak - cum).max()",
+  "code_consistency": "All 9 DD-computing scripts use formula A. No file uses formula B (integrated) or C (min-equity).",
+  "recomputed": {
+    "v2_filterless": {
+      "source": "artifacts/filterless_reconstruction_14mo_v2.parquet",
+      "14mo": {"trades": 1572, "pnl": 13498.75, "max_cont_dd": 3606.25},
+      "holdout_jan_apr_2026": {"trades": 507, "pnl": -2280.0, "max_cont_dd": 3606.25, "wr_pct": 43.59}
+    },
+    "v11_friend_rule": {
+      "source": "artifacts/v11_training_corpus.parquet (allowed_by_friend_rule=True)",
+      "14mo": {"trades": 1762, "pnl": 13080.0, "max_cont_dd": 4095.0},
+      "holdout_jan_apr_2026": {"trades": 560, "pnl": -2886.25, "max_cont_dd": 4095.0, "wr_pct": 42.86}
+    },
+    "v9_v2_best_pareto": {
+      "source": "artifacts/combined_v9_stack_v2_summary.json best_pareto_winner",
+      "config": {"fg": 0.5, "k": 0.6, "lfo": 0.6, "pct": 0.6},
+      "holdout": {"trades": 483, "pnl": -2260.0, "max_cont_dd": 3468.75, "wr_pct": 43.48}
+    },
+    "v11_best_per_overlay_kalshi_de3_thr_0_40": {
+      "source": "artifacts/v11_phase2_summary.json results.kalshi_de3.best_config",
+      "holdout": {"trades": 181, "pnl": -161.25, "max_cont_dd": 1196.25, "wr_pct": 48.07}
+    }
+  },
+  "gates": {"G1_max_dd": 870.0, "G2_baseline_pnl": -2280.0, "G2_baseline_trades": 507, "G3_min_oos": 50, "G4_min_wr_pct": 55.0},
+  "any_config_passes_all_4_gates": false,
+  "closest_to_g1": {"config": "v11_kalshi_de3_thr_0.40", "dd": 1196.25, "g1_gap": 326.25, "fails_g4_wr": 48.07},
+  "verdict": "NO DD-metric error. All scripts already use standard max-continuous peak-to-trough DD. Reported numbers match independent recompute to the cent. No config flips from KILL to SHIP. Section 8.27 verdict stands."
+}

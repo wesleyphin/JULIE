@@ -1,0 +1,11 @@
+{
+  "strategy": "RegimeAdaptive",
+  "stage": "pivot_v11",
+  "n_total": 163,
+  "n_train": 134,
+  "n_test": 29,
+  "n_train_pos": 0,
+  "n_test_pos": 0,
+  "status": "SKIP_split",
+  "reason": "n_train=134 (need >=100), n_test=29 (need >=50), n_train_pos=0 (need >=5), n_test_pos=0 (need >=1)"
+}

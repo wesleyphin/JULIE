@@ -1,0 +1,18 @@
+{
+  "created_at": "2026-04-24T01:20:08.044146+00:00",
+  "updated_at": "2026-04-24T01:20:08.991037+00:00",
+  "complete": true,
+  "family_name": "transition_burst",
+  "feature_rows_total": 499691,
+  "chunk_size": 175000,
+  "overlap_rows": 160,
+  "total_chunks": 3,
+  "next_chunk": 3,
+  "completed_chunks": 3,
+  "candidate_rows_total": 4924,
+  "parts": [
+    "part_00000.parquet",
+    "part_00001.parquet",
+    "part_00002.parquet"
+  ]
+}

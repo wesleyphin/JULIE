@@ -1,0 +1,203 @@
+{
+  "15": {
+    "flagged_blocks": [
+      [
+        "LONG",
+        "forward_primary",
+        12,
+        "chop"
+      ],
+      [
+        "LONG",
+        "forward_primary",
+        11,
+        "normal"
+      ],
+      [
+        "SHORT",
+        "forward_primary",
+        13,
+        "trend"
+      ],
+      [
+        "LONG",
+        "forward_primary",
+        13,
+        "chop"
+      ],
+      [
+        "LONG",
+        "forward_primary",
+        14,
+        "trend"
+      ]
+    ],
+    "flagged_passes": [
+      [
+        "LONG",
+        "forward_primary",
+        14,
+        "trend"
+      ]
+    ],
+    "rule_pnl": -80.0,
+    "ml_pnl": -400.0,
+    "ml_dd": 480.0,
+    "lift": -320.0,
+    "capt_pct": -8.904347826086957,
+    "n_new_pass": 36,
+    "new_pass_wr": 22.22222222222222,
+    "n_new_block": 0,
+    "new_block_wr": 0.0,
+    "gates": {
+      "pnl_ok": false,
+      "dd_ratio_ok": false,
+      "n_ok": true,
+      "new_pass_wr_ok": "False",
+      "capt_ok": false
+    },
+    "ships": false
+  },
+  "30": {
+    "flagged_blocks": [
+      [
+        "LONG",
+        "forward_primary",
+        12,
+        "chop"
+      ],
+      [
+        "SHORT",
+        "forward_primary",
+        12,
+        "trend"
+      ],
+      [
+        "LONG",
+        "forward_primary",
+        11,
+        "normal"
+      ],
+      [
+        "SHORT",
+        "forward_primary",
+        15,
+        "normal"
+      ],
+      [
+        "SHORT",
+        "forward_primary",
+        13,
+        "trend"
+      ],
+      [
+        "LONG",
+        "forward_primary",
+        13,
+        "chop"
+      ],
+      [
+        "LONG",
+        "forward_primary",
+        14,
+        "trend"
+      ]
+    ],
+    "flagged_passes": [
+      [
+        "LONG",
+        "forward_primary",
+        14,
+        "trend"
+      ]
+    ],
+    "rule_pnl": -100.0,
+    "ml_pnl": -400.0,
+    "ml_dd": 540.0,
+    "lift": -300.0,
+    "capt_pct": -6.715165081141578,
+    "n_new_pass": 40,
+    "new_pass_wr": 25.0,
+    "n_new_block": 0,
+    "new_block_wr": 0.0,
+    "gates": {
+      "pnl_ok": false,
+      "dd_ratio_ok": false,
+      "n_ok": true,
+      "new_pass_wr_ok": "False",
+      "capt_ok": false
+    },
+    "ships": false
+  },
+  "60": {
+    "flagged_blocks": [
+      [
+        "LONG",
+        "forward_primary",
+        12,
+        "chop"
+      ],
+      [
+        "SHORT",
+        "forward_primary",
+        12,
+        "trend"
+      ],
+      [
+        "LONG",
+        "forward_primary",
+        11,
+        "normal"
+      ],
+      [
+        "SHORT",
+        "forward_primary",
+        15,
+        "normal"
+      ],
+      [
+        "SHORT",
+        "forward_primary",
+        13,
+        "trend"
+      ],
+      [
+        "LONG",
+        "forward_primary",
+        13,
+        "chop"
+      ],
+      [
+        "LONG",
+        "forward_primary",
+        14,
+        "trend"
+      ]
+    ],
+    "flagged_passes": [
+      [
+        "LONG",
+        "forward_primary",
+        14,
+        "trend"
+      ]
+    ],
+    "rule_pnl": -100.0,
+    "ml_pnl": -400.0,
+    "ml_dd": 540.0,
+    "lift": -300.0,
+    "capt_pct": -6.521739130434782,
+    "n_new_pass": 40,
+    "new_pass_wr": 25.0,
+    "n_new_block": 0,
+    "new_block_wr": 0.0,
+    "gates": {
+      "pnl_ok": false,
+      "dd_ratio_ok": false,
+      "n_ok": true,
+      "new_pass_wr_ok": "False",
+      "capt_ok": false
+    },
+    "ships": false
+  }
+}

@@ -5205,3 +5205,86 @@ if _bb_fp is not None:
 if _bb_balanced is not None or _bb_fp is not None:
     _kalshi_overlay_cfg["entry_block_buffer"] = _kalshi_block_buf
     CONFIG["KALSHI_TRADE_OVERLAY"] = _kalshi_overlay_cfg
+
+# === LOCAL OVERRIDE 2026-04-25 — NY-only + RA-off-in-NY (do not commit) ===
+# Wired in julie001.py:execution_disabled_filter. Both default ON.
+# Toggle via env if needed (set to "0" to disable an override).
+CONFIG["LOCAL_NY_ONLY_OVERRIDE"] = _env_flag("JULIE_LOCAL_NY_ONLY_OVERRIDE", True)
+# DEPRECATED 2026-04-25 — superseded by LOCAL_RA_V17_GATE_ENABLED below.
+# Kept for back-compat only; no longer enforced in execution_disabled_filter.
+CONFIG["LOCAL_RA_DISABLED_IN_NY"] = _env_flag("JULIE_LOCAL_RA_DISABLED_IN_NY", True)
+# === END LOCAL OVERRIDE ===
+
+# === LOCAL OVERRIDE 2026-04-25 — V17 RA NY ML gate (replaces LOCAL_RA_DISABLED_IN_NY) ===
+# When True, RegimeAdaptive (and the previously-blunt-disabled siblings
+# AuctionReversion / SmoothTrendAsia) inside NY hours are gated by the V17
+# quality classifier instead of being blanket-blocked. V17 model:
+#   artifacts/regime_ml_ra_ny_rule_v17/ra/model.joblib
+# Threshold = 0.40 (KEEP if proba >= 0.40, BLOCK otherwise).
+# Conservative fallback: BLOCK when bundle missing or features unavailable —
+# strictly improves on LOCAL_RA_DISABLED_IN_NY (only allows trades V17 endorses).
+# Wired in julie001.py:execution_disabled_filter via v17_should_keep_ra_ny().
+CONFIG["LOCAL_RA_V17_GATE_ENABLED"] = _env_flag("JULIE_LOCAL_RA_V17_GATE", True)
+# === END LOCAL OVERRIDE ===
+
+# === LOCAL OVERRIDE 2026-04-25 — AF regime allowlist (do not commit) ===
+# Backtest-justified: AF NY-only by manifold regime —
+#   TREND_GEODESIC: 14 trades / 50% WR / +$820 / $154 DD  (KEEP)
+#   DISPERSED:     47 trades / 44.68% WR / +$788 / $960 DD (KEEP, expanded 2026-04-26)
+#   CHOP_SPIRAL:   87 trades / 37.93% WR / -$558 / $1,811 DD  (loss leader — BLOCK)
+# Combined TG+DISPERSED: 61 trades / 46.4% WR / +$1,608 / ~$960 DD over 14mo.
+# UPDATED 2026-04-26: expanded from TG-only to TG+DISPERSED. Conservative
+# behavior preserved: if regime cannot be determined (UNKNOWN/missing) AF is
+# BLOCKED. Env override JULIE_LOCAL_AF_ALLOWED_REGIMES accepts a comma-separated
+# list (case-insensitive). Set to empty string to disable filter entirely.
+# Wired in julie001.py:execution_disabled_filter via the `manifold_regime`
+# parameter passed at each call site.
+_af_allowed_raw = os.environ.get("JULIE_LOCAL_AF_ALLOWED_REGIMES", "TREND_GEODESIC,DISPERSED")
+CONFIG["LOCAL_AF_REGIME_ALLOWED"] = [
+    r.strip().upper() for r in _af_allowed_raw.split(",") if r.strip()
+]
+# Back-compat: the old TG-only flag still works. When set explicitly to True
+# (env JULIE_LOCAL_AF_REGIME_TG_ONLY=1), it forces TG-only (overrides
+# LOCAL_AF_REGIME_ALLOWED). Default OFF since superseded by the allowlist.
+CONFIG["LOCAL_AF_REGIME_TREND_GEODESIC_ONLY"] = _env_flag("JULIE_LOCAL_AF_REGIME_TG_ONLY", False)
+# === END LOCAL OVERRIDE ===
+
+# === LOCAL OVERRIDE 2026-04-26 — V18-DE3 toggle (do not commit) ===
+# Default ON (flipped 2026-04-26): live bot uses V18-DE3 (V15's 6 probas
+# + 5 Kronos features). Kronos now runs as a long-lived daemon subprocess
+# in .kronos_venv (model loaded once, ~0.5-1.5s per inference). On any
+# Kronos failure (daemon spawn fails, per-call timeout=15s, model error,
+# feature build error) the gate falls back to V15 — V18 cannot make
+# behavior worse than V15.
+# Wired in julie001.py:_apply_kalshi_trade_overlay_to_signal via
+# v18_should_keep_de3() / v15_should_keep_de3().
+CONFIG["LOCAL_DE3_USE_V18"] = _env_flag("JULIE_LOCAL_DE3_USE_V18", True)
+# === END LOCAL OVERRIDE ===
+
+# === LOCAL OVERRIDE 2026-04-26 — Recipe B tiered sizing for DE3 V18 (do not commit) ===
+# When V18 approves a DE3 candidate, override the bot's default DE3 size with
+# a V18-confidence-tier-derived size: >=0.85 -> 10, 0.65-0.85 -> 4,
+# 0.60-0.65 -> 1. Tiers are descending (proba_threshold, size).
+#
+# Toggle off via JULIE_LOCAL_DE3_TIERED_SIZE=0 to restore the bot's existing
+# DE3 sizing chain. When V18 is not used (V15 fallback path) or proba is
+# unavailable, this helper returns None and the existing logic handles size.
+#
+# Override tiers via JULIE_LOCAL_DE3_SIZE_TIERS env var, e.g.:
+#   JULIE_LOCAL_DE3_SIZE_TIERS="0.90:5,0.70:2,0.60:1"
+#
+# Wired in julie001.py:de3_size_from_v18_proba() called from
+# _apply_live_execution_size when signal['v18_proba'] is present.
+CONFIG["LOCAL_DE3_USE_TIERED_SIZING"] = _env_flag("JULIE_LOCAL_DE3_TIERED_SIZE", True)
+CONFIG["LOCAL_DE3_SIZE_TIERS"] = [(0.85, 10), (0.65, 4), (0.60, 1)]
+_tiers_override = os.environ.get("JULIE_LOCAL_DE3_SIZE_TIERS")
+if _tiers_override:
+    try:
+        CONFIG["LOCAL_DE3_SIZE_TIERS"] = [
+            (float(t.split(":")[0]), int(t.split(":")[1]))
+            for t in _tiers_override.split(",")
+            if ":" in t
+        ]
+    except Exception:
+        pass
+# === END LOCAL OVERRIDE ===

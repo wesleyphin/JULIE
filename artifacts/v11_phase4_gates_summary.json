@@ -1,0 +1,120 @@
+{
+  "generated": "2026-04-25",
+  "scope": "V11 Phase 4 — strict gate synthesis across the 4 ML heads retrained on the v11 corpus.",
+  "ship_gates": {
+    "G1_max_dd_abs": 870.0,
+    "G2": "PnL >= holdout_baseline AND trades <= holdout_baseline",
+    "G3_min_n_oos_surviving": 50,
+    "G4_min_wr_pct": 55.0
+  },
+  "filterless_holdout_baselines": {
+    "no_pivot": {
+      "scope": "v11 corpus, allowed_by_friend_rule, ts >= 2026-01-01 (Phase 2 Jan-Apr 2026 holdout)",
+      "trades": 560,
+      "wr_pct": 42.86,
+      "pnl": -2886.25,
+      "dd": -4095.0,
+      "big_loss_rate_pct": 29.1,
+      "source": "/tmp/v11_phase2_train_report.md (computed from corpus)"
+    },
+    "always_pivot_de3_holdout": {
+      "scope": "v11 holdout, DE3 only, allowed_by_friend_rule, n=531 (Phase 3 stepped-SL sim)",
+      "trades": 531,
+      "wr_pct": 45.76,
+      "pnl": -2428.75,
+      "dd": -3655.0,
+      "source": "/tmp/v11_phase3_pivot_report.md / v11_pivot_labels.parquet"
+    }
+  },
+  "phase1_full_corpus_baselines": {
+    "no_pivot": {
+      "trades": 1762,
+      "wr_pct": 47.16,
+      "pnl": 13080.0,
+      "dd": -4095.0
+    },
+    "always_pivot": {
+      "trades": 1762,
+      "wr_pct": "n/a (pivot only modifies SL/exit)",
+      "pnl": 14590.0,
+      "delta_vs_no_pivot": 1510.0,
+      "armed": 190,
+      "armed_helped": 62
+    }
+  },
+  "heads": [
+    {
+      "head": "kalshi",
+      "strategy": "DE3",
+      "applicability_baseline": {"trades": 317, "wr_pct": 46.69, "pnl": -911.25, "dd": -1880.0},
+      "best": {"threshold": 0.40, "trades": 181, "wr_pct": 48.07, "pnl": -161.25, "dd": -1196.25, "gates_G1G2G3G4": "0110", "binding_gate": "G1"},
+      "test_AUC": 0.552,
+      "ship": false,
+      "kill_marker": true
+    },
+    {
+      "head": "kalshi",
+      "strategy": "RA",
+      "ship": null,
+      "status": "SKIP_split",
+      "reason": "n_train=31<100, n_test=20<50"
+    },
+    {
+      "head": "lfo",
+      "strategy": "DE3",
+      "applicability_baseline": {"trades": 531, "wr_pct": 43.88, "pnl": -2673.75, "dd": -3927.5},
+      "best": {"threshold": 0.40, "trades": 297, "wr_pct": 44.11, "pnl": -1077.50, "dd": -2272.5, "gates_G1G2G3G4": "0110", "binding_gate": "G1"},
+      "test_AUC": 0.643,
+      "ship": false,
+      "kill_marker": true
+    },
+    {
+      "head": "lfo",
+      "strategy": "RA",
+      "ship": null,
+      "status": "SKIP_split",
+      "reason": "n_test=29<50"
+    },
+    {
+      "head": "pct",
+      "strategy": "DE3",
+      "applicability_baseline": {"trades": 531, "wr_pct": 43.88, "pnl": -2673.75, "dd": -3927.5},
+      "best": {"threshold": 0.40, "trades": 298, "wr_pct": 43.29, "pnl": -1477.50, "dd": -2685.0, "gates_G1G2G3G4": "0110", "binding_gate": "G1"},
+      "test_AUC": 0.630,
+      "ship": false,
+      "kill_marker": true
+    },
+    {
+      "head": "pct",
+      "strategy": "RA",
+      "ship": null,
+      "status": "SKIP_split",
+      "reason": "n_test=29<50"
+    },
+    {
+      "head": "pivot",
+      "strategy": "DE3",
+      "applicability_baseline_no_pivot": {"trades": 531, "wr_pct": 43.88, "pnl": -2673.75, "dd": -3927.5},
+      "applicability_baseline_always_pivot": {"trades": 531, "wr_pct": 45.76, "pnl": -2428.75, "dd": -3655.0},
+      "best": {"threshold": 0.40, "n_arm": 8, "trades": 531, "wr_pct": 43.88, "pnl": -2636.25, "dd": -3890.0, "gates_G1G2G3G4": "0110", "binding_gate": "G1"},
+      "test_AUC": 0.693,
+      "ship": false,
+      "kill_marker": true,
+      "note": "ML head fails. Underlying always-pivot mechanic is +$1,510 corpus-wide / +$245 holdout — keep mechanic ON."
+    },
+    {
+      "head": "pivot",
+      "strategy": "RA",
+      "ship": null,
+      "status": "SKIP_split",
+      "reason": "n_test=29<50 AND zero positive labels (Pivot never armed in 163 RA rows)"
+    }
+  ],
+  "summary": {
+    "heads_ship": 0,
+    "heads_kill": 4,
+    "heads_skip_split": 4,
+    "binding_gate_universal": "G1 (max DD |≤ $870|) — every threshold of every head fails because the holdout baseline DD (-$4,095) is itself 4.7× the ceiling. Heads also fail G4 (WR ≥ 55%) at every config.",
+    "non_ml_positive_finding": "always-pivot stepped-SL mechanic: +$1,510 / 14mo / corpus-wide; +$245 / 4mo / holdout. Already enabled in production via JULIE_PIVOT_ACTIVE=1."
+  }
+}

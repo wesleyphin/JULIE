@@ -1,0 +1,10 @@
+{
+  "status": "KILL",
+  "test_auc": 0.7223052823604061,
+  "reason": "no threshold passes all 4 gates",
+  "holdout_baseline": {
+    "pnl": 79658.75,
+    "trades": 1477,
+    "dd": 4632.5
+  }
+}

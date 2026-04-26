@@ -1,0 +1,1749 @@
+{
+  "overlay": "lfo",
+  "strategy": "DE3",
+  "label": "is_big_loss",
+  "n_train": 1068,
+  "n_test": 531,
+  "n_train_pos": 293,
+  "n_test_pos": 163,
+  "train_AUC": 0.9983617747440272,
+  "test_AUC": 0.6581421712456655,
+  "features": [
+    "bf_de3_entry_ret1_atr",
+    "bf_de3_entry_body_pos1",
+    "bf_de3_entry_body1_ratio",
+    "bf_de3_entry_lower_wick_ratio",
+    "bf_de3_entry_upper_wick_ratio",
+    "bf_de3_entry_upper1_ratio",
+    "bf_de3_entry_close_pos1",
+    "bf_de3_entry_flips5",
+    "bf_de3_entry_down3",
+    "bf_de3_entry_range10_atr",
+    "bf_de3_entry_dist_high5_atr",
+    "bf_de3_entry_dist_low5_atr",
+    "bf_de3_entry_vol1_rel20",
+    "bf_de3_entry_atr14",
+    "bf_sl_dist_pts",
+    "bf_tp_dist_pts",
+    "bf_atr_ratio_to_sl",
+    "bf_dist_to_bank_below",
+    "bf_dist_to_bank_above",
+    "bf_dist_to_bank_in_dir",
+    "bf_dist_to_bank_pts",
+    "bf_bar_range_pts",
+    "bf_bar_close_pct_body",
+    "bf_atr14_pts",
+    "bf_range_30bar_pts",
+    "bf_trend_20bar_pct",
+    "bf_dist_to_20bar_hi_pct",
+    "bf_dist_to_20bar_lo_pct",
+    "bf_vel_5bar_pts_per_min",
+    "bf_vel_20bar_pts_per_min",
+    "bf_regime_vol_bp",
+    "bf_regime_eff",
+    "pct_pct_from_open",
+    "pct_signed_level",
+    "pct_abs_level",
+    "pct_level_distance_pct",
+    "pct_atr_pct_30bar",
+    "pct_range_pct_at_touch",
+    "pct_hour_edge",
+    "pct_minutes_since_open",
+    "pct_dist_to_running_hi_pct",
+    "pct_dist_to_running_lo_pct",
+    "pct_rule_confidence",
+    "k12_entry_probability",
+    "k12_probe_probability",
+    "k12_probe_neg_probability",
+    "k12_skew_p10",
+    "k12_skew_p25",
+    "k12_above_5",
+    "k12_above_10",
+    "k12_below_10",
+    "k12_distance_to_50",
+    "k12_momentum_5",
+    "k12_momentum_15",
+    "k12_window_active",
+    "k12_data_present",
+    "ctx_day_first60_share",
+    "ctx_day_gap_ratio",
+    "ctx_day_range_progress_ratio",
+    "ctx_day_trend_frac",
+    "ctx_day_volume_progress_ratio",
+    "ctx_shock_recent_range_ratio",
+    "ctx_shock_recent_volume_ratio",
+    "ctx_shock_score",
+    "ctx_shock_session_move_norm",
+    "ctx_shock_session_range_norm",
+    "fg_proba",
+    "kalshi_proba_v12"
+  ],
+  "holdout_baseline": {
+    "trades": 531,
+    "wr_pct": 43.87947269303202,
+    "pnl": -2673.75,
+    "dd": -3927.5,
+    "wins": 233,
+    "losses": 293
+  },
+  "ship_gates": {
+    "G1_max_dd_abs": 870.0,
+    "G3_min_n_oos_surviving": 50,
+    "G4_min_wr_pct": 55.0
+  },
+  "rule_alone_holdout": {
+    "trades": 48,
+    "wr_pct": 62.5,
+    "pnl": 1467.5,
+    "dd": -157.5,
+    "wins": 30,
+    "losses": 18,
+    "gates": {
+      "G1": true,
+      "G2": true,
+      "G3": false,
+      "G4": true
+    },
+    "binding_gate": "G3",
+    "all_pass": false
+  },
+  "sweep_C_ml_alone": [
+    {
+      "threshold": 0.1,
+      "blocked": 347,
+      "kept": 184,
+      "trades": 184,
+      "wr_pct": 47.82608695652174,
+      "pnl": 500.0,
+      "dd": -927.5,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.125,
+      "blocked": 344,
+      "kept": 187,
+      "trades": 187,
+      "wr_pct": 48.1283422459893,
+      "pnl": 473.75,
+      "dd": -976.25,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.15,
+      "blocked": 339,
+      "kept": 192,
+      "trades": 192,
+      "wr_pct": 47.91666666666667,
+      "pnl": 462.5,
+      "dd": -946.25,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.175,
+      "blocked": 335,
+      "kept": 196,
+      "trades": 196,
+      "wr_pct": 47.44897959183674,
+      "pnl": 405.0,
+      "dd": -922.5,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.2,
+      "blocked": 328,
+      "kept": 203,
+      "trades": 203,
+      "wr_pct": 48.76847290640394,
+      "pnl": 647.5,
+      "dd": -955.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.225,
+      "blocked": 321,
+      "kept": 210,
+      "trades": 210,
+      "wr_pct": 48.57142857142857,
+      "pnl": 805.0,
+      "dd": -895.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.25,
+      "blocked": 319,
+      "kept": 212,
+      "trades": 212,
+      "wr_pct": 48.113207547169814,
+      "pnl": 745.0,
+      "dd": -895.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.275,
+      "blocked": 313,
+      "kept": 218,
+      "trades": 218,
+      "wr_pct": 47.706422018348626,
+      "pnl": 571.25,
+      "dd": -1021.25,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.3,
+      "blocked": 306,
+      "kept": 225,
+      "trades": 225,
+      "wr_pct": 48.44444444444444,
+      "pnl": 707.5,
+      "dd": -1065.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.325,
+      "blocked": 301,
+      "kept": 230,
+      "trades": 230,
+      "wr_pct": 48.26086956521739,
+      "pnl": 666.25,
+      "dd": -992.5,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.35,
+      "blocked": 294,
+      "kept": 237,
+      "trades": 237,
+      "wr_pct": 48.10126582278481,
+      "pnl": 672.5,
+      "dd": -1103.75,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.375,
+      "blocked": 291,
+      "kept": 240,
+      "trades": 240,
+      "wr_pct": 47.91666666666667,
+      "pnl": 610.0,
+      "dd": -1161.25,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.4,
+      "blocked": 283,
+      "kept": 248,
+      "trades": 248,
+      "wr_pct": 47.58064516129033,
+      "pnl": 487.5,
+      "dd": -1198.75,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.425,
+      "blocked": 276,
+      "kept": 255,
+      "trades": 255,
+      "wr_pct": 48.23529411764706,
+      "pnl": 561.25,
+      "dd": -1146.25,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.45,
+      "blocked": 272,
+      "kept": 259,
+      "trades": 259,
+      "wr_pct": 49.034749034749034,
+      "pnl": 868.75,
+      "dd": -930.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.475,
+      "blocked": 261,
+      "kept": 270,
+      "trades": 270,
+      "wr_pct": 48.148148148148145,
+      "pnl": 732.5,
+      "dd": -970.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.5,
+      "blocked": 255,
+      "kept": 276,
+      "trades": 276,
+      "wr_pct": 48.188405797101446,
+      "pnl": 741.25,
+      "dd": -1020.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.525,
+      "blocked": 247,
+      "kept": 284,
+      "trades": 284,
+      "wr_pct": 47.53521126760563,
+      "pnl": 492.5,
+      "dd": -1098.75,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.55,
+      "blocked": 236,
+      "kept": 295,
+      "trades": 295,
+      "wr_pct": 47.11864406779661,
+      "pnl": 378.75,
+      "dd": -1215.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.575,
+      "blocked": 228,
+      "kept": 303,
+      "trades": 303,
+      "wr_pct": 47.194719471947195,
+      "pnl": 348.75,
+      "dd": -1243.75,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.6,
+      "blocked": 220,
+      "kept": 311,
+      "trades": 311,
+      "wr_pct": 46.62379421221865,
+      "pnl": 206.25,
+      "dd": -1331.25,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.625,
+      "blocked": 209,
+      "kept": 322,
+      "trades": 322,
+      "wr_pct": 46.8944099378882,
+      "pnl": 170.0,
+      "dd": -1337.5,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.65,
+      "blocked": 200,
+      "kept": 331,
+      "trades": 331,
+      "wr_pct": 46.22356495468278,
+      "pnl": -51.25,
+      "dd": -1515.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.675,
+      "blocked": 193,
+      "kept": 338,
+      "trades": 338,
+      "wr_pct": 46.15384615384615,
+      "pnl": -218.75,
+      "dd": -1657.5,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.7,
+      "blocked": 185,
+      "kept": 346,
+      "trades": 346,
+      "wr_pct": 46.53179190751445,
+      "pnl": -235.0,
+      "dd": -1633.75,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.725,
+      "blocked": 181,
+      "kept": 350,
+      "trades": 350,
+      "wr_pct": 47.14285714285714,
+      "pnl": -178.75,
+      "dd": -1617.5,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.75,
+      "blocked": 173,
+      "kept": 358,
+      "trades": 358,
+      "wr_pct": 47.20670391061452,
+      "pnl": -220.0,
+      "dd": -1653.75,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.775,
+      "blocked": 164,
+      "kept": 367,
+      "trades": 367,
+      "wr_pct": 46.59400544959128,
+      "pnl": -371.25,
+      "dd": -1818.75,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.8,
+      "blocked": 156,
+      "kept": 375,
+      "trades": 375,
+      "wr_pct": 46.13333333333333,
+      "pnl": -496.25,
+      "dd": -1916.25,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.825,
+      "blocked": 145,
+      "kept": 386,
+      "trades": 386,
+      "wr_pct": 45.854922279792746,
+      "pnl": -800.0,
+      "dd": -2185.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    },
+    {
+      "threshold": 0.85,
+      "blocked": 134,
+      "kept": 397,
+      "trades": 397,
+      "wr_pct": 45.34005037783375,
+      "pnl": -1097.5,
+      "dd": -2437.5,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2
+    }
+  ],
+  "sweep_A_refine_in_rule": [
+    {
+      "threshold": 0.1,
+      "trades": 17,
+      "wr_pct": 76.47058823529412,
+      "pnl": 1196.25,
+      "dd": -65.0,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 31,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.125,
+      "trades": 17,
+      "wr_pct": 76.47058823529412,
+      "pnl": 1196.25,
+      "dd": -65.0,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 31,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.15,
+      "trades": 17,
+      "wr_pct": 76.47058823529412,
+      "pnl": 1196.25,
+      "dd": -65.0,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 31,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.175,
+      "trades": 17,
+      "wr_pct": 76.47058823529412,
+      "pnl": 1196.25,
+      "dd": -65.0,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 31,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.2,
+      "trades": 17,
+      "wr_pct": 76.47058823529412,
+      "pnl": 1196.25,
+      "dd": -65.0,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 31,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.225,
+      "trades": 17,
+      "wr_pct": 76.47058823529412,
+      "pnl": 1196.25,
+      "dd": -65.0,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 31,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.25,
+      "trades": 17,
+      "wr_pct": 76.47058823529412,
+      "pnl": 1196.25,
+      "dd": -65.0,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 31,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.275,
+      "trades": 17,
+      "wr_pct": 76.47058823529412,
+      "pnl": 1196.25,
+      "dd": -65.0,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 31,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.3,
+      "trades": 18,
+      "wr_pct": 72.22222222222221,
+      "pnl": 1138.75,
+      "dd": -83.75,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 30,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.325,
+      "trades": 18,
+      "wr_pct": 72.22222222222221,
+      "pnl": 1138.75,
+      "dd": -83.75,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 30,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.35,
+      "trades": 20,
+      "wr_pct": 75.0,
+      "pnl": 1317.5,
+      "dd": -83.75,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 28,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.375,
+      "trades": 21,
+      "wr_pct": 71.42857142857143,
+      "pnl": 1291.25,
+      "dd": -91.25,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 27,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.4,
+      "trades": 21,
+      "wr_pct": 71.42857142857143,
+      "pnl": 1291.25,
+      "dd": -91.25,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 27,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.425,
+      "trades": 22,
+      "wr_pct": 72.72727272727273,
+      "pnl": 1328.75,
+      "dd": -91.25,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 26,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.45,
+      "trades": 22,
+      "wr_pct": 72.72727272727273,
+      "pnl": 1328.75,
+      "dd": -91.25,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 26,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.475,
+      "trades": 23,
+      "wr_pct": 69.56521739130434,
+      "pnl": 1320.0,
+      "dd": -91.25,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 25,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.5,
+      "trades": 23,
+      "wr_pct": 69.56521739130434,
+      "pnl": 1320.0,
+      "dd": -91.25,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 25,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.525,
+      "trades": 24,
+      "wr_pct": 70.83333333333334,
+      "pnl": 1331.25,
+      "dd": -91.25,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 24,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.55,
+      "trades": 26,
+      "wr_pct": 69.23076923076923,
+      "pnl": 1286.25,
+      "dd": -100.0,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 22,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.575,
+      "trades": 26,
+      "wr_pct": 69.23076923076923,
+      "pnl": 1286.25,
+      "dd": -100.0,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 22,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.6,
+      "trades": 26,
+      "wr_pct": 69.23076923076923,
+      "pnl": 1286.25,
+      "dd": -100.0,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 22,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.625,
+      "trades": 29,
+      "wr_pct": 72.41379310344827,
+      "pnl": 1398.75,
+      "dd": -88.75,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 19,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.65,
+      "trades": 30,
+      "wr_pct": 70.0,
+      "pnl": 1351.25,
+      "dd": -136.25,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 18,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.675,
+      "trades": 30,
+      "wr_pct": 70.0,
+      "pnl": 1351.25,
+      "dd": -136.25,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 18,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.7,
+      "trades": 30,
+      "wr_pct": 70.0,
+      "pnl": 1351.25,
+      "dd": -136.25,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 18,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.725,
+      "trades": 30,
+      "wr_pct": 70.0,
+      "pnl": 1351.25,
+      "dd": -136.25,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 18,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.75,
+      "trades": 30,
+      "wr_pct": 70.0,
+      "pnl": 1351.25,
+      "dd": -136.25,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 18,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.775,
+      "trades": 30,
+      "wr_pct": 70.0,
+      "pnl": 1351.25,
+      "dd": -136.25,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 18,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.8,
+      "trades": 30,
+      "wr_pct": 70.0,
+      "pnl": 1351.25,
+      "dd": -136.25,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 18,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.825,
+      "trades": 31,
+      "wr_pct": 67.74193548387096,
+      "pnl": 1293.75,
+      "dd": -193.75,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 17,
+      "n_gates_pass": 3
+    },
+    {
+      "threshold": 0.85,
+      "trades": 31,
+      "wr_pct": 67.74193548387096,
+      "pnl": 1293.75,
+      "dd": -193.75,
+      "gates": {
+        "G1": true,
+        "G2": true,
+        "G3": false,
+        "G4": true
+      },
+      "all_pass": false,
+      "binding_gate": "G3",
+      "blocked": 17,
+      "n_gates_pass": 3
+    }
+  ],
+  "sweep_B_union_rule_or_ml": [
+    {
+      "threshold": 0.1,
+      "trades": 215,
+      "wr_pct": 48.837209302325576,
+      "pnl": 771.25,
+      "dd": -1075.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 215
+    },
+    {
+      "threshold": 0.125,
+      "trades": 218,
+      "wr_pct": 49.08256880733945,
+      "pnl": 745.0,
+      "dd": -1102.5,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 218
+    },
+    {
+      "threshold": 0.15,
+      "trades": 223,
+      "wr_pct": 48.87892376681614,
+      "pnl": 733.75,
+      "dd": -1015.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 223
+    },
+    {
+      "threshold": 0.175,
+      "trades": 227,
+      "wr_pct": 48.458149779735685,
+      "pnl": 676.25,
+      "dd": -1021.25,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 227
+    },
+    {
+      "threshold": 0.2,
+      "trades": 234,
+      "wr_pct": 49.572649572649574,
+      "pnl": 918.75,
+      "dd": -986.25,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 234
+    },
+    {
+      "threshold": 0.225,
+      "trades": 241,
+      "wr_pct": 49.37759336099585,
+      "pnl": 1076.25,
+      "dd": -890.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 241
+    },
+    {
+      "threshold": 0.25,
+      "trades": 243,
+      "wr_pct": 48.971193415637856,
+      "pnl": 1016.25,
+      "dd": -890.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 243
+    },
+    {
+      "threshold": 0.275,
+      "trades": 249,
+      "wr_pct": 48.59437751004016,
+      "pnl": 842.5,
+      "dd": -1037.5,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 249
+    },
+    {
+      "threshold": 0.3,
+      "trades": 255,
+      "wr_pct": 49.411764705882355,
+      "pnl": 1036.25,
+      "dd": -975.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 255
+    },
+    {
+      "threshold": 0.325,
+      "trades": 260,
+      "wr_pct": 49.23076923076923,
+      "pnl": 995.0,
+      "dd": -956.25,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 260
+    },
+    {
+      "threshold": 0.35,
+      "trades": 265,
+      "wr_pct": 48.679245283018865,
+      "pnl": 822.5,
+      "dd": -1092.5,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 265
+    },
+    {
+      "threshold": 0.375,
+      "trades": 267,
+      "wr_pct": 48.68913857677903,
+      "pnl": 786.25,
+      "dd": -1150.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 267
+    },
+    {
+      "threshold": 0.4,
+      "trades": 275,
+      "wr_pct": 48.36363636363637,
+      "pnl": 663.75,
+      "dd": -1230.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 275
+    },
+    {
+      "threshold": 0.425,
+      "trades": 281,
+      "wr_pct": 48.754448398576514,
+      "pnl": 700.0,
+      "dd": -1210.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 281
+    },
+    {
+      "threshold": 0.45,
+      "trades": 285,
+      "wr_pct": 49.473684210526315,
+      "pnl": 1007.5,
+      "dd": -943.75,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 285
+    },
+    {
+      "threshold": 0.475,
+      "trades": 295,
+      "wr_pct": 48.8135593220339,
+      "pnl": 880.0,
+      "dd": -983.75,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 295
+    },
+    {
+      "threshold": 0.5,
+      "trades": 301,
+      "wr_pct": 48.837209302325576,
+      "pnl": 888.75,
+      "dd": -1056.25,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 301
+    },
+    {
+      "threshold": 0.525,
+      "trades": 308,
+      "wr_pct": 48.05194805194805,
+      "pnl": 628.75,
+      "dd": -1135.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 308
+    },
+    {
+      "threshold": 0.55,
+      "trades": 317,
+      "wr_pct": 47.63406940063091,
+      "pnl": 560.0,
+      "dd": -1155.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 317
+    },
+    {
+      "threshold": 0.575,
+      "trades": 325,
+      "wr_pct": 47.69230769230769,
+      "pnl": 530.0,
+      "dd": -1247.5,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 325
+    },
+    {
+      "threshold": 0.6,
+      "trades": 333,
+      "wr_pct": 47.147147147147145,
+      "pnl": 387.5,
+      "dd": -1426.25,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 333
+    },
+    {
+      "threshold": 0.625,
+      "trades": 341,
+      "wr_pct": 46.9208211143695,
+      "pnl": 238.75,
+      "dd": -1512.5,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 341
+    },
+    {
+      "threshold": 0.65,
+      "trades": 349,
+      "wr_pct": 46.41833810888252,
+      "pnl": 65.0,
+      "dd": -1642.5,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 349
+    },
+    {
+      "threshold": 0.675,
+      "trades": 356,
+      "wr_pct": 46.348314606741575,
+      "pnl": -102.5,
+      "dd": -1715.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 356
+    },
+    {
+      "threshold": 0.7,
+      "trades": 364,
+      "wr_pct": 46.7032967032967,
+      "pnl": -118.75,
+      "dd": -1697.5,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 364
+    },
+    {
+      "threshold": 0.725,
+      "trades": 368,
+      "wr_pct": 47.28260869565217,
+      "pnl": -62.5,
+      "dd": -1697.5,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 368
+    },
+    {
+      "threshold": 0.75,
+      "trades": 376,
+      "wr_pct": 47.340425531914896,
+      "pnl": -103.75,
+      "dd": -1680.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 376
+    },
+    {
+      "threshold": 0.775,
+      "trades": 385,
+      "wr_pct": 46.75324675324675,
+      "pnl": -255.0,
+      "dd": -1840.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 385
+    },
+    {
+      "threshold": 0.8,
+      "trades": 393,
+      "wr_pct": 46.31043256997455,
+      "pnl": -380.0,
+      "dd": -1903.75,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 393
+    },
+    {
+      "threshold": 0.825,
+      "trades": 403,
+      "wr_pct": 46.15384615384615,
+      "pnl": -626.25,
+      "dd": -2115.0,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 403
+    },
+    {
+      "threshold": 0.85,
+      "trades": 414,
+      "wr_pct": 45.65217391304348,
+      "pnl": -923.75,
+      "dd": -2367.5,
+      "gates": {
+        "G1": false,
+        "G2": true,
+        "G3": true,
+        "G4": false
+      },
+      "all_pass": false,
+      "binding_gate": "G1",
+      "n_gates_pass": 2,
+      "kept": 414
+    }
+  ],
+  "best_mode": "A_refine_in_rule",
+  "best_config": {
+    "threshold": 0.625,
+    "trades": 29,
+    "wr_pct": 72.41379310344827,
+    "pnl": 1398.75,
+    "dd": -88.75,
+    "gates": {
+      "G1": true,
+      "G2": true,
+      "G3": false,
+      "G4": true
+    },
+    "all_pass": false,
+    "binding_gate": "G3",
+    "blocked": 19,
+    "n_gates_pass": 3
+  },
+  "ship": false,
+  "kill_marker": true,
+  "binding_gate": "G3"
+}

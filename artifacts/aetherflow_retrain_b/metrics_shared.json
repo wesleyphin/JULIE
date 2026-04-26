@@ -1,0 +1,78 @@
+{
+  "version": "aetherflow_v1",
+  "trained_at": "2026-04-24T01:20:04.070463+00:00",
+  "model_type": "hgb",
+  "workers": 4,
+  "calibrated": false,
+  "input": "es_master_outrights.parquet",
+  "base_features": "artifacts/aetherflow_retrain_b/manifold_base.parquet",
+  "rows": 38450,
+  "feature_rows": 499691,
+  "candidate_coverage": 0.07694755358811746,
+  "setup_mix_all": {
+    "aligned_flow": 19052,
+    "compression_release": 10780,
+    "exhaustion_reversal": 4504,
+    "transition_burst": 4114
+  },
+  "setup_mix_train": {
+    "aligned_flow": 13331,
+    "compression_release": 7587,
+    "exhaustion_reversal": 3130,
+    "transition_burst": 2867
+  },
+  "setup_mix_val": {
+    "aligned_flow": 3020,
+    "compression_release": 1536,
+    "exhaustion_reversal": 644,
+    "transition_burst": 567
+  },
+  "setup_mix_test": {
+    "aligned_flow": 2701,
+    "compression_release": 1657,
+    "exhaustion_reversal": 730,
+    "transition_burst": 680
+  },
+  "train_rows": 26915,
+  "val_rows": 5767,
+  "test_rows": 5768,
+  "train_positive_rate": 0.3687534831878135,
+  "val_positive_rate": 0.3629269984393966,
+  "test_positive_rate": 0.34535367545076284,
+  "threshold": 0.55,
+  "validation": {
+    "threshold": 0.55,
+    "score": 0.0007075660611136764,
+    "coverage": 0.02601005722212589,
+    "mean_fold_avg_pnl": 0.13679669080167556,
+    "worst_fold_avg_pnl": -0.4118001295723004,
+    "fold_std_avg_pnl": 0.35157704493572894,
+    "positive_folds": 3,
+    "evaluated_folds": 4,
+    "trade_count": 150,
+    "avg_pnl": 0.14297375612681562,
+    "total_pnl": 21.446063419022344,
+    "win_rate": 0.41333333333333333,
+    "long_share": 0.74,
+    "short_share": 0.26
+  },
+  "test": {
+    "trade_count": 185,
+    "avg_pnl": -0.06293768811676728,
+    "total_pnl": -11.643472301601946,
+    "win_rate": 0.3891891891891892,
+    "long_share": 0.6648648648648648,
+    "short_share": 0.33513513513513515,
+    "accuracy": 0.5102288488210819,
+    "precision": 0.3424139235716988,
+    "recall": 0.4543172690763052,
+    "f1": 0.39050701186623515,
+    "roc_auc": 0.5023546250680688
+  },
+  "artifacts": {
+    "model_file": "model_shared.pkl",
+    "thresholds_file": "thresholds_shared.json",
+    "metrics_file": "metrics_shared.json",
+    "features_parquet": "features_shared.parquet"
+  }
+}

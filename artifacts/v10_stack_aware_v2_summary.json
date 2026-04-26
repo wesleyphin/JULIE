@@ -1,0 +1,243 @@
+{
+  "method": "v10 stack-aware sequential training (CORRECTED v2 corpus)",
+  "corpus": "/Users/wes/Downloads/JULIE001/artifacts/full_overlay_stack_simulation_14mo_v2.parquet",
+  "holdout_baseline_v2": {
+    "pnl": -2232.5,
+    "trades": 489,
+    "dd": -3558.75,
+    "wr": 43.76278118609407
+  },
+  "ship_gates": {
+    "G1_max_dd": 870.0,
+    "G2_pnl>=base_and_trades<=base": true,
+    "G3_min_oos": 50,
+    "G4_wr": 55.0
+  },
+  "stage_aucs": {
+    "filterg_train": 0.8857110706850959,
+    "filterg_test": 0.5797594091500223,
+    "kalshi_test_on_fg_survivors": 0.5584218923230848,
+    "lfo_test_on_fg_k_survivors": 0.541172619047619,
+    "pct_test_on_triple_survivors": null
+  },
+  "combinations_tested": 36,
+  "passing_all_gates": 0,
+  "best_pareto": {
+    "label": "loose_k_strict_rest",
+    "thresholds": {
+      "fg": 0.85,
+      "k": 0.4,
+      "lfo": 0.85,
+      "pct": 0.85
+    },
+    "fired": 452,
+    "pnl": -1980.0,
+    "wr": 43.36283185840708,
+    "dd": -3162.5,
+    "g1": false,
+    "g2": true,
+    "g3": true,
+    "g4": false,
+    "all_pass": false
+  },
+  "best_dd_floor": {
+    "label": "all=0.4",
+    "thresholds": {
+      "fg": 0.4,
+      "k": 0.4,
+      "lfo": 0.4,
+      "pct": 0.4
+    },
+    "fired": 277,
+    "pnl": -2026.25,
+    "wr": 40.794223826714806,
+    "dd": -2666.25,
+    "g1": false,
+    "g2": true,
+    "g3": true,
+    "g4": false,
+    "all_pass": false
+  },
+  "top_10_by_pnl": [
+    {
+      "label": "all=0.45",
+      "thresholds": {
+        "fg": 0.45,
+        "k": 0.45,
+        "lfo": 0.45,
+        "pct": 0.45
+      },
+      "fired": 327,
+      "pnl": -1922.5,
+      "wr": 42.813455657492355,
+      "dd": -2836.25,
+      "g1": false,
+      "g2": true,
+      "g3": true,
+      "g4": false,
+      "all_pass": false
+    },
+    {
+      "label": "loose_k_strict_rest",
+      "thresholds": {
+        "fg": 0.85,
+        "k": 0.4,
+        "lfo": 0.85,
+        "pct": 0.85
+      },
+      "fired": 452,
+      "pnl": -1980.0,
+      "wr": 43.36283185840708,
+      "dd": -3162.5,
+      "g1": false,
+      "g2": true,
+      "g3": true,
+      "g4": false,
+      "all_pass": false
+    },
+    {
+      "label": "rand_8",
+      "thresholds": {
+        "fg": 0.45,
+        "k": 0.85,
+        "lfo": 0.45,
+        "pct": 0.65
+      },
+      "fired": 329,
+      "pnl": -2012.5,
+      "wr": 42.857142857142854,
+      "dd": -2897.5,
+      "g1": false,
+      "g2": true,
+      "g3": true,
+      "g4": false,
+      "all_pass": false
+    },
+    {
+      "label": "all=0.4",
+      "thresholds": {
+        "fg": 0.4,
+        "k": 0.4,
+        "lfo": 0.4,
+        "pct": 0.4
+      },
+      "fired": 277,
+      "pnl": -2026.25,
+      "wr": 40.794223826714806,
+      "dd": -2666.25,
+      "g1": false,
+      "g2": true,
+      "g3": true,
+      "g4": false,
+      "all_pass": false
+    },
+    {
+      "label": "loose_fg_strict_rest",
+      "thresholds": {
+        "fg": 0.4,
+        "k": 0.85,
+        "lfo": 0.85,
+        "pct": 0.85
+      },
+      "fired": 277,
+      "pnl": -2048.75,
+      "wr": 41.15523465703971,
+      "dd": -2688.75,
+      "g1": false,
+      "g2": true,
+      "g3": true,
+      "g4": false,
+      "all_pass": false
+    },
+    {
+      "label": "user_spec",
+      "thresholds": {
+        "fg": 0.4,
+        "k": 0.85,
+        "lfo": 0.6,
+        "pct": 0.45
+      },
+      "fired": 277,
+      "pnl": -2048.75,
+      "wr": 41.15523465703971,
+      "dd": -2688.75,
+      "g1": false,
+      "g2": true,
+      "g3": true,
+      "g4": false,
+      "all_pass": false
+    },
+    {
+      "label": "rand_10",
+      "thresholds": {
+        "fg": 0.65,
+        "k": 0.45,
+        "lfo": 0.45,
+        "pct": 0.45
+      },
+      "fired": 435,
+      "pnl": -2067.5,
+      "wr": 43.67816091954023,
+      "dd": -3238.75,
+      "g1": false,
+      "g2": true,
+      "g3": true,
+      "g4": false,
+      "all_pass": false
+    },
+    {
+      "label": "rand_11",
+      "thresholds": {
+        "fg": 0.45,
+        "k": 0.75,
+        "lfo": 0.65,
+        "pct": 0.75
+      },
+      "fired": 330,
+      "pnl": -2111.25,
+      "wr": 42.42424242424242,
+      "dd": -2996.25,
+      "g1": false,
+      "g2": true,
+      "g3": true,
+      "g4": false,
+      "all_pass": false
+    },
+    {
+      "label": "rand_9",
+      "thresholds": {
+        "fg": 0.45,
+        "k": 0.55,
+        "lfo": 0.65,
+        "pct": 0.65
+      },
+      "fired": 330,
+      "pnl": -2123.75,
+      "wr": 42.12121212121212,
+      "dd": -3008.75,
+      "g1": false,
+      "g2": true,
+      "g3": true,
+      "g4": false,
+      "all_pass": false
+    },
+    {
+      "label": "rand_2",
+      "thresholds": {
+        "fg": 0.45,
+        "k": 0.85,
+        "lfo": 0.75,
+        "pct": 0.85
+      },
+      "fired": 330,
+      "pnl": -2141.25,
+      "wr": 42.42424242424242,
+      "dd": -3026.25,
+      "g1": false,
+      "g2": true,
+      "g3": true,
+      "g4": false,
+      "all_pass": false
+    }
+  ]
+}

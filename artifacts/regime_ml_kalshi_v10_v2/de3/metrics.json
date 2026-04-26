@@ -1,0 +1,8 @@
+{
+  "stage": "kalshi_v10_v2",
+  "auc_test": 0.5584218923230848,
+  "trained": true,
+  "extra_features": [
+    "fg_v10_proba"
+  ]
+}

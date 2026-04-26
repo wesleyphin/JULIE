@@ -1,0 +1,126 @@
+{
+  "ship_gates": {
+    "G1_max_dd_abs": 870.0,
+    "G3_min_n_oos_surviving": 50,
+    "G4_min_wr_pct": 55.0
+  },
+  "holdout_baseline": {
+    "trades": 531,
+    "wr_pct": 43.87947269303202,
+    "pnl": -2673.75,
+    "dd": -3927.5,
+    "wins": 233,
+    "losses": 293
+  },
+  "rule_min_regime_eff": 0.09,
+  "rule_max_upper_wick": 0.0353,
+  "block_log": {
+    "rule": 483,
+    "kalshi": 414,
+    "lfo": 0,
+    "pct": 0,
+    "pivot": 0
+  },
+  "final": {
+    "trades": 16,
+    "wr_pct": 81.25,
+    "pnl": 1222.5,
+    "dd": -65.0,
+    "wins": 13,
+    "losses": 3,
+    "gates": {
+      "G1": true,
+      "G2": true,
+      "G3": false,
+      "G4": true
+    },
+    "binding_gate": "G3",
+    "all_pass": false
+  },
+  "per_head_ship": {
+    "kalshi": {
+      "ship": true,
+      "best": {
+        "threshold": 0.175,
+        "trades": 149,
+        "wr_pct": 55.70469798657718,
+        "pnl": 1465.0,
+        "dd": -462.5,
+        "gates": {
+          "G1": true,
+          "G2": true,
+          "G3": true,
+          "G4": true
+        },
+        "all_pass": true,
+        "binding_gate": "",
+        "n_gates_pass": 4,
+        "kept": 149
+      },
+      "best_mode": "B_union_rule_or_ml"
+    },
+    "lfo": {
+      "ship": false,
+      "best": {
+        "threshold": 0.625,
+        "trades": 29,
+        "wr_pct": 72.41379310344827,
+        "pnl": 1398.75,
+        "dd": -88.75,
+        "gates": {
+          "G1": true,
+          "G2": true,
+          "G3": false,
+          "G4": true
+        },
+        "all_pass": false,
+        "binding_gate": "G3",
+        "blocked": 19,
+        "n_gates_pass": 3
+      },
+      "best_mode": "A_refine_in_rule"
+    },
+    "pct": {
+      "ship": false,
+      "best": {
+        "threshold": 0.1,
+        "trades": 22,
+        "wr_pct": 72.72727272727273,
+        "pnl": 1328.75,
+        "dd": -91.25,
+        "gates": {
+          "G1": true,
+          "G2": true,
+          "G3": false,
+          "G4": true
+        },
+        "all_pass": false,
+        "binding_gate": "G3",
+        "blocked": 26,
+        "n_gates_pass": 3
+      },
+      "best_mode": "A_refine_in_rule"
+    },
+    "pivot": {
+      "ship": false,
+      "best": {
+        "threshold": 0.1,
+        "trades": 27,
+        "wr_pct": 70.37037037037037,
+        "pnl": 1297.5,
+        "dd": -91.25,
+        "gates": {
+          "G1": true,
+          "G2": true,
+          "G3": false,
+          "G4": true
+        },
+        "all_pass": false,
+        "binding_gate": "G3",
+        "blocked": 21,
+        "n_gates_pass": 3
+      },
+      "best_mode": "A_refine_in_rule"
+    }
+  }
+}

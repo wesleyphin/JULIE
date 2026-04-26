@@ -1,0 +1,10 @@
+{
+  "overlay": "pct",
+  "strategy": "RA",
+  "skipped": true,
+  "reason": "n_test<50",
+  "n_train": 134,
+  "n_test": 29,
+  "kill_marker": true,
+  "ship": false
+}

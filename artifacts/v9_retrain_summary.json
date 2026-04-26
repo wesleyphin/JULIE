@@ -1,0 +1,42 @@
+{
+  "filterg_de3": {
+    "status": "KILL",
+    "auc": 0.5086058689204441
+  },
+  "filterg_ra": {
+    "status": "SKIP",
+    "reason": "split train=145 test=30"
+  },
+  "kalshi_de3": {
+    "status": "KILL",
+    "auc": 0.7223052823604061
+  },
+  "kalshi_ra": {
+    "status": "SKIP",
+    "reason": "split train=145 test=30"
+  },
+  "lfo_de3": {
+    "status": "KILL",
+    "auc": 0.5199824410283594
+  },
+  "lfo_ra": {
+    "status": "SKIP",
+    "reason": "split train=145 test=30"
+  },
+  "pct_de3": {
+    "status": "KILL",
+    "auc": 0.9065077140474427
+  },
+  "pct_ra": {
+    "status": "SKIP",
+    "reason": "split train=145 test=30"
+  },
+  "pivot_de3": {
+    "status": "DEFERRED",
+    "reason": "mid-trade simulation needs bar-replay"
+  },
+  "pivot_ra": {
+    "status": "DEFERRED",
+    "reason": "mid-trade simulation needs bar-replay"
+  }
+}

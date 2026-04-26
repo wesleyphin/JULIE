@@ -1,0 +1,10 @@
+{
+  "stage": "pct_v10_v2",
+  "auc_test": null,
+  "trained": false,
+  "extra_features": [
+    "fg_v10_proba",
+    "k_v10_proba",
+    "lfo_v10_proba"
+  ]
+}

@@ -1,0 +1,101 @@
+{
+  "thresholds_evaluated": 19,
+  "passing_all_4_gates": 0,
+  "reference_baseline": {
+    "pnl": 74000.0,
+    "trades": 1290,
+    "dd_target": 870.0
+  },
+  "holdout_baseline": {
+    "pnl": 79658.75,
+    "trades": 1477,
+    "dd": 4632.5
+  },
+  "best_pareto": {
+    "label": "loose_pct_strict_rest",
+    "thresholds": {
+      "filterg": 0.85,
+      "kalshi": 0.85,
+      "lfo": 0.85,
+      "pct": 0.45
+    },
+    "pnl": 76612.96875,
+    "dd": 2716.1875,
+    "fired": 1212,
+    "wr": 73.18481848184818
+  },
+  "top_5_by_pnl": [
+    {
+      "label": "loose_pct_strict_rest",
+      "pnl": 76612.96875,
+      "dd": 2716.1875,
+      "fired": 1212,
+      "wr": 73.18481848184818
+    },
+    {
+      "label": "strict_pct",
+      "pnl": 76441.34375,
+      "dd": 2782.4375,
+      "fired": 1212,
+      "wr": 73.18481848184818
+    },
+    {
+      "label": "all=0.85",
+      "pnl": 76145.65625,
+      "dd": 2708.03125,
+      "fired": 1212,
+      "wr": 73.18481848184818
+    },
+    {
+      "label": "strict_lfo",
+      "pnl": 76145.65625,
+      "dd": 2708.03125,
+      "fired": 1212,
+      "wr": 73.18481848184818
+    },
+    {
+      "label": "all=0.80",
+      "pnl": 72550.6875,
+      "dd": 3374.0,
+      "fired": 1233,
+      "wr": 70.88402270884022
+    }
+  ],
+  "top_5_by_dd": [
+    {
+      "label": "strict_filterg",
+      "pnl": 26463.15625,
+      "dd": 1044.78125,
+      "fired": 529,
+      "wr": 66.72967863894141
+    },
+    {
+      "label": "filterg_lfo_strict",
+      "pnl": 26463.15625,
+      "dd": 1044.78125,
+      "fired": 529,
+      "wr": 66.72967863894141
+    },
+    {
+      "label": "user_spec",
+      "pnl": 27275.9375,
+      "dd": 1249.21875,
+      "fired": 529,
+      "wr": 66.72967863894141
+    },
+    {
+      "label": "all=0.40",
+      "pnl": 21029.6875,
+      "dd": 2164.46875,
+      "fired": 543,
+      "wr": 59.48434622467772
+    },
+    {
+      "label": "dd_focused",
+      "pnl": 21029.6875,
+      "dd": 2164.46875,
+      "fired": 543,
+      "wr": 59.48434622467772
+    }
+  ]
+}

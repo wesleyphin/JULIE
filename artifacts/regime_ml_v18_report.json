@@ -1,0 +1,191 @@
+{
+  "version": "v18",
+  "comparisons": {
+    "de3": {
+      "status": "ok",
+      "features": [
+        "fg_proba",
+        "kalshi_proba",
+        "kalshi_v12_proba",
+        "lfo_proba",
+        "pct_proba",
+        "pivot_proba",
+        "kronos_max_high_above",
+        "kronos_min_low_below",
+        "kronos_pred_atr_30bar",
+        "kronos_dir_move",
+        "kronos_close_vs_entry"
+      ],
+      "best_threshold": 0.85,
+      "ship_threshold": 0.6,
+      "description": "V18-DE3 \u2014 V15 stack + Kronos. LogReg on 6 base probas + 5 Kronos.",
+      "comparison_vs_v15": {
+        "v15_baseline": {
+          "threshold": 0.65,
+          "n_keep": 91,
+          "win_rate": 0.5934,
+          "pnl_dollars": 1500.0,
+          "max_drawdown_dollars": 340.0
+        },
+        "v18_best_holdout": {
+          "threshold": 0.85,
+          "n": 25,
+          "wr": 0.84,
+          "pnl": 1663.75,
+          "dd": 57.5
+        },
+        "v18_ship_threshold": {
+          "threshold": 0.6,
+          "n": 100,
+          "wr": 0.59,
+          "pnl": 1596.25,
+          "dd": 340.0
+        },
+        "v18_holdout_auc": 0.5728749603940433,
+        "v18_train_oof_mean_auc_lr": 0.822131996528309,
+        "v18_train_oof_mean_auc_hgb": 0.8208879294963449,
+        "chosen_model": "LogReg"
+      },
+      "holdout_sweep_top3_pnl": [
+        {
+          "threshold": 0.85,
+          "n": 25,
+          "wr": 0.84,
+          "pnl": 1663.75,
+          "dd": 57.5
+        },
+        {
+          "threshold": 0.6,
+          "n": 100,
+          "wr": 0.59,
+          "pnl": 1596.25,
+          "dd": 340.0
+        },
+        {
+          "threshold": 0.65,
+          "n": 90,
+          "wr": 0.6,
+          "pnl": 1588.75,
+          "dd": 313.75
+        }
+      ]
+    },
+    "ra": {
+      "status": "ok",
+      "features": [
+        "pct_dist_to_running_hi_pct",
+        "k12_below_10",
+        "pct_minutes_since_open",
+        "kronos_max_high_above",
+        "kronos_min_low_below",
+        "kronos_pred_atr_30bar",
+        "kronos_dir_move",
+        "kronos_close_vs_entry",
+        "kronos_pred_favorable"
+      ],
+      "best_threshold": 0.35,
+      "ship_threshold": null,
+      "description": "V18-RA \u2014 V17 RA features + Kronos features (HGB-d2).",
+      "comparison_vs_v17": {
+        "v17_baseline_threshold": 0.4,
+        "v17_baseline_cv_auc": 0.7344,
+        "v18_cv_mean_auc": 0.5527911465634734,
+        "v18_holdout_auc": 0.37012987012987003,
+        "v18_best_holdout": {
+          "threshold": 0.35,
+          "n": 3,
+          "wr": 0.6666666666666666,
+          "pnl": 30.0,
+          "dd": 0.0
+        },
+        "v18_ship_threshold": null
+      },
+      "holdout_sweep_top3_pnl": [
+        {
+          "threshold": 0.35,
+          "n": 3,
+          "wr": 0.6666666666666666,
+          "pnl": 30.0,
+          "dd": 0.0
+        },
+        {
+          "threshold": 0.4,
+          "n": 3,
+          "wr": 0.6666666666666666,
+          "pnl": 30.0,
+          "dd": 0.0
+        },
+        {
+          "threshold": 0.45,
+          "n": 2,
+          "wr": 0.5,
+          "pnl": 7.5,
+          "dd": 0.0
+        }
+      ]
+    },
+    "af": {
+      "status": "ok",
+      "features": [
+        "regime_CHOP_SPIRAL",
+        "regime_DISPERSED",
+        "regime_TREND_GEODESIC",
+        "sub_transition_burst",
+        "sub_aligned_flow",
+        "sub_compression_release",
+        "side_long",
+        "hour_et",
+        "kronos_max_high_above",
+        "kronos_min_low_below",
+        "kronos_pred_atr_30bar",
+        "kronos_dir_move",
+        "kronos_close_vs_entry",
+        "kronos_pred_favorable"
+      ],
+      "best_threshold": 0.7,
+      "ship_threshold": null,
+      "description": "V18-AF \u2014 small classifier on AF NY trades + Kronos features (HGB-d2).",
+      "comparison_vs_baseline": {
+        "baseline_tg_regime": {
+          "name": "TREND_GEODESIC regime filter",
+          "n": 14,
+          "wr": 0.5,
+          "pnl": 820.0808048353807,
+          "dd": 153.96039144040685
+        },
+        "v18_cv_mean_auc": 0.5281339031339032,
+        "v18_holdout_auc": 0.4073660714285714,
+        "v18_best_holdout": {
+          "threshold": 0.7,
+          "n": 6,
+          "wr": 0.5,
+          "pnl": 178.45745995107904,
+          "dd": 153.28933848100235
+        }
+      },
+      "holdout_sweep_top3_pnl": [
+        {
+          "threshold": 0.7,
+          "n": 6,
+          "wr": 0.5,
+          "pnl": 178.45745995107904,
+          "dd": 153.28933848100235
+        },
+        {
+          "threshold": 0.75,
+          "n": 4,
+          "wr": 0.5,
+          "pnl": 156.7467984320814,
+          "dd": 134.66751152098198
+        },
+        {
+          "threshold": 0.8,
+          "n": 4,
+          "wr": 0.5,
+          "pnl": 156.7467984320814,
+          "dd": 134.66751152098198
+        }
+      ]
+    }
+  }
+}

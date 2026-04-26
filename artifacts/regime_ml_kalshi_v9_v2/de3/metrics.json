@@ -1,0 +1,197 @@
+{
+  "head": "kalshi",
+  "status": "KILL",
+  "test_auc": 0.6438328577806246,
+  "n_train": 1786,
+  "n_train_pos": 284,
+  "n_test": 1477,
+  "n_test_pos": 156,
+  "best": {
+    "thr": 0.45,
+    "trades": 481,
+    "wr": 0.4365904365904366,
+    "pnl": -2151.25,
+    "dd": -3360.0,
+    "n_oos_pre_friend": 1468,
+    "gates": {
+      "G1": false,
+      "G2": true,
+      "G3": true,
+      "G4": false
+    },
+    "binding_gates": [
+      "G1 DD>870.0",
+      "G4 WR<0.55"
+    ]
+  },
+  "closest_min_dd": {
+    "thr": 0.45,
+    "trades": 481,
+    "wr": 0.4365904365904366,
+    "pnl": -2151.25,
+    "dd": -3360.0
+  },
+  "closest_max_pnl": {
+    "thr": 0.45,
+    "trades": 481,
+    "wr": 0.4365904365904366,
+    "pnl": -2151.25,
+    "dd": -3360.0
+  },
+  "holdout_baseline": {
+    "trades": 507,
+    "pnl": -2280.0,
+    "wr": 0.4358974358974359,
+    "dd": -3606.25
+  },
+  "gates": {
+    "G1_dd_max": 870.0,
+    "G2_baseline_pnl": -2280.0,
+    "G2_baseline_trades": 507,
+    "G3_nOOS_min": 50,
+    "G4_wr_min": 0.55
+  },
+  "sweep": [
+    {
+      "thr": 0.4,
+      "trades": 471.0,
+      "wr": 0.4309978768577495,
+      "pnl": -2440.0,
+      "dd": -3648.75,
+      "n_oos_pre_friend": 1455.0,
+      "G1": false,
+      "G2": false,
+      "G3": true,
+      "G4": false,
+      "all_pass": false,
+      "passing": 1
+    },
+    {
+      "thr": 0.45,
+      "trades": 481.0,
+      "wr": 0.4365904365904366,
+      "pnl": -2151.25,
+      "dd": -3360.0,
+      "n_oos_pre_friend": 1468.0,
+      "G1": false,
+      "G2": true,
+      "G3": true,
+      "G4": false,
+      "all_pass": false,
+      "passing": 2
+    },
+    {
+      "thr": 0.5,
+      "trades": 487.0,
+      "wr": 0.4353182751540041,
+      "pnl": -2241.25,
+      "dd": -3567.5,
+      "n_oos_pre_friend": 1475.0,
+      "G1": false,
+      "G2": true,
+      "G3": true,
+      "G4": false,
+      "all_pass": false,
+      "passing": 2
+    },
+    {
+      "thr": 0.55,
+      "trades": 488.0,
+      "wr": 0.4364754098360656,
+      "pnl": -2233.75,
+      "dd": -3560.0,
+      "n_oos_pre_friend": 1476.0,
+      "G1": false,
+      "G2": true,
+      "G3": true,
+      "G4": false,
+      "all_pass": false,
+      "passing": 2
+    },
+    {
+      "thr": 0.6,
+      "trades": 489.0,
+      "wr": 0.4376278118609407,
+      "pnl": -2232.5,
+      "dd": -3558.75,
+      "n_oos_pre_friend": 1477.0,
+      "G1": false,
+      "G2": true,
+      "G3": true,
+      "G4": false,
+      "all_pass": false,
+      "passing": 2
+    },
+    {
+      "thr": 0.65,
+      "trades": 489.0,
+      "wr": 0.4376278118609407,
+      "pnl": -2232.5,
+      "dd": -3558.75,
+      "n_oos_pre_friend": 1477.0,
+      "G1": false,
+      "G2": true,
+      "G3": true,
+      "G4": false,
+      "all_pass": false,
+      "passing": 2
+    },
+    {
+      "thr": 0.7,
+      "trades": 489.0,
+      "wr": 0.4376278118609407,
+      "pnl": -2232.5,
+      "dd": -3558.75,
+      "n_oos_pre_friend": 1477.0,
+      "G1": false,
+      "G2": true,
+      "G3": true,
+      "G4": false,
+      "all_pass": false,
+      "passing": 2
+    },
+    {
+      "thr": 0.75,
+      "trades": 489.0,
+      "wr": 0.4376278118609407,
+      "pnl": -2232.5,
+      "dd": -3558.75,
+      "n_oos_pre_friend": 1477.0,
+      "G1": false,
+      "G2": true,
+      "G3": true,
+      "G4": false,
+      "all_pass": false,
+      "passing": 2
+    },
+    {
+      "thr": 0.8,
+      "trades": 489.0,
+      "wr": 0.4376278118609407,
+      "pnl": -2232.5,
+      "dd": -3558.75,
+      "n_oos_pre_friend": 1477.0,
+      "G1": false,
+      "G2": true,
+      "G3": true,
+      "G4": false,
+      "all_pass": false,
+      "passing": 2
+    },
+    {
+      "thr": 0.85,
+      "trades": 489.0,
+      "wr": 0.4376278118609407,
+      "pnl": -2232.5,
+      "dd": -3558.75,
+      "n_oos_pre_friend": 1477.0,
+      "G1": false,
+      "G2": true,
+      "G3": true,
+      "G4": false,
+      "all_pass": false,
+      "passing": 2
+    }
+  ],
+  "reason": "no threshold passes all 4 gates"
+}
