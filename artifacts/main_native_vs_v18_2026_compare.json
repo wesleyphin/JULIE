@@ -1,0 +1,77 @@
+{
+  "main_de3_native": {
+    "full_14mo": {
+      "trades": 3026,
+      "wr": 0.5406477197620622,
+      "pnl": 23783.629999999983,
+      "avg": 7.859758757435553,
+      "dd": -2484.729999999996,
+      "size_dist": {
+        "1": 449,
+        "2": 1092,
+        "3": 1485
+      }
+    },
+    "2026_only": {
+      "trades": 894,
+      "wr": 0.5268456375838926,
+      "pnl": 3270.819999999994,
+      "avg": 3.658635346756145,
+      "dd": -2165.7300000000005,
+      "months": 3.705947036063659,
+      "size_dist": {
+        "1": 122,
+        "2": 331,
+        "3": 441
+      }
+    },
+    "per_month_2026": {
+      "2026-01": {
+        "trades": 136,
+        "wr": 0.5367647058823529,
+        "pnl": 1101.7199999999998,
+        "dd": -1368.9000000000005
+      },
+      "2026-02": {
+        "trades": 186,
+        "wr": 0.532258064516129,
+        "pnl": 1146.4099999999999,
+        "dd": -1365.690000000001
+      },
+      "2026-03": {
+        "trades": 384,
+        "wr": 0.5182291666666666,
+        "pnl": -120.97000000000034,
+        "dd": -2165.730000000002
+      },
+      "2026-04": {
+        "trades": 188,
+        "wr": 0.5319148936170213,
+        "pnl": 1143.6599999999999,
+        "dd": -1297.4300000000007
+      }
+    }
+  },
+  "v18_option_4b_oos_2026": {
+    "trades": 83,
+    "wr": 0.59,
+    "pnl": 16707.5,
+    "avg": 201.29518072289156,
+    "dd": -593.75,
+    "months": 3.68
+  },
+  "deltas_v18_minus_main_on_2026": {
+    "trades": -811,
+    "wr_pp": 6.315436241610739,
+    "pnl": 13436.680000000006,
+    "avg": 197.63654537613542,
+    "dd": 1571.9800000000005
+  },
+  "structural_differences_summary": {
+    "sizing": "main runs flat per-strategy size (mostly 1-3 contracts via internal v4 confidence sizing); v18 Option 4b applies Recipe B 10/4/1 tiers gated on V18 proba",
+    "simulator": "main uses backtest_mes_et.py (legacy with \u00a78.25 phantom contract-roll bug); v18 uses simulator_trade_through.py (corrected)",
+    "candidate_stream": "main fires DE3 candidates with default config gates (selected_filters=[], so essentially raw DE3 candidates); v18 corpus is friend-rule + V18 stacker @ thr 0.60",
+    "friend_rule": "main does NOT apply friend's family-aware same-side rule at backtest level (no RA/AF in this run anyway, but DE3+DE3 stacks are allowed by main's run_de3_backtest.py); v18 corpus filters by allowed_by_friend_rule=True",
+    "single_position": "main backtest_mes_et allows multiple concurrent legs per its own internal logic; v18 enforces strict single-position via vectorized walk"
+  }
+}
