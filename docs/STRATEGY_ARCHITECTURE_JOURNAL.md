@@ -4891,3 +4891,109 @@ No live commit. No push. Working tree only.
 ---
 
 *Section 8.33 closes the per-cell override audit. The case-mismatch bug-fix is small (~50 lines), well-tested, and unambiguously correct. The v12 recalibration is the headline finding: 5 of the 9 v1 bleeding cells are wrong-direction under the corrected corpus, and the v2 table flips them to loosen (mult=1.10–1.20). The v2 JSON is saved alongside v1, not over it; the operator picks which to enable.*
+
+### 8.33.9 — Activation Impact on v11 Corpus: 3-Way Replay (Bug-Fix is Inert at Current FG Calibration)
+
+*Added 2026-04-26 by post-fix audit.*
+
+After §8.33's case-fix landed and the v2 table was written, the obvious
+follow-up question: with the per-cell layer now actually activated (instead
+of silently dormant for any non-canonical strategy string), does PnL
+move? Replayed the v11 corrected corpus
+(`artifacts/v11_corpus_with_bar_paths.parquet`, 3,438 rows / 2025-03-03 →
+2026-04-24, filterless PnL +$13,203.75) through Filter G under three
+configurations to quantify.
+
+Replay harness: `tools/percell_layer_3way_compare.py`. Same base threshold
+(0.35), regime multipliers (whipsaw 0.60 / calm_trend 1.05 / neutral 1.0),
+session multipliers (lenient 1.25 at +$100, aggressive 0.80 at -$200), and
+effective-threshold floor (0.25) across all three configs.
+
+| Config | Per-cell behavior |
+|---|---|
+| **A_DORMANT** | per-cell mult forced to 1.0 — actual 14-month live state pre-§8.33 |
+| **B_V1** | per-cell layer ON, v1 JSON (calibrated against broken sim) |
+| **C_V2** | per-cell layer ON, v2 JSON (recalibrated against v11 corpus per §8.33.4) |
+
+#### Headline result
+
+| Config | Trades | WR | Net PnL | Avg/trade | Max DD | Block rate |
+|---|---:|---:|---:|---:|---:|---:|
+| A_DORMANT | 206 | 35.44% | -$695.00 | -$3.37 | -$1,108.75 | 94.01% |
+| B_V1 | 206 | 35.44% | -$695.00 | -$3.37 | -$1,108.75 | 94.01% |
+| C_V2 | 206 | 35.44% | -$695.00 | -$3.37 | -$1,108.75 | 94.01% |
+
+**ΔC_V2 vs A_DORMANT: $0.00 PnL, +0 trades, +0.00pp WR, $0 DD.**
+Per-month and by-strategy splits are byte-identical across all three configs
+(DE3: 187 trades, -$561.25, 36.4% WR; RA: 19 trades, -$133.75, 26.3% WR
+— same in A, B, and C).
+
+#### Why nothing moves: fg_proba is bimodal
+
+Filter G's `fg_proba` distribution on the v11 corpus:
+
+| fg_proba bin | rows |
+|---|---:|
+| (0.00, 0.10] | 206 |
+| (0.10, 0.25] | 0 |
+| (0.25, 0.40] | 0 |
+| (0.40, 0.50] | **1** |
+| (0.50, 0.55] | 0 |
+| (0.55, 0.70] | 330 |
+| (0.70, 0.80] | 2,765 |
+| (0.80, 1.00] | 136 |
+
+206 rows have `fg_proba ≤ 0.10` — these always fire because no per-cell
+configuration can push the effective threshold below the 0.25 floor.
+
+3,231 rows have `fg_proba > 0.55` — these always veto. The most lenient
+per-cell mult in v2 is 1.20, which on calm_trend (regime mult 1.05)
+produces `eff_thr = 0.35 × 1.05 × 1.0 × 1.20 = 0.441`. Even with session
+mult lenient 1.25 stacked on top, max `eff_thr = 0.5512`. fg_proba ≥ 0.55
+is 3,231 rows — all vetoed regardless of per-cell.
+
+**Exactly one row sits in the boundary zone** where per-cell could matter:
+
+| ts | strategy | regime | bucket | fg_proba | A eff_thr | B eff_thr | C eff_thr |
+|---|---|---|---|---:|---:|---:|---:|
+| 2026-01-20 14:40 ET | DE3 | calm_trend | afternoon | 0.4919 | 0.3675 | 0.2756 | 0.4410 |
+
+That row's `fg_proba = 0.492` exceeds even C_V2's 0.441 effective threshold,
+so all three configs veto it. (It was a +$117.50 winner that all three
+configs blocked.) For per-cell v2 to have unblocked that trade, the cell
+mult would need to be > 1.34 — outside the v2 calibration range.
+
+#### Implication for §8.33's bug-fix story
+
+The case-mismatch bug-fix landed in §8.33.3 is still correct (silent
+dormancy is bad regardless of whether it bites in any particular window),
+and the v2 recalibration in §8.33.4 is still an improvement over v1
+(5 cells were directionally wrong against the corrected corpus). But the
+**economic impact of activation is zero** on this 14-month corpus
+because Filter G's classifier produces bimodal scores: fg_proba is
+either very low (definitely-not-big-loss, fires through floor) or very
+high (almost-certainly-big-loss, vetos), and the 0.25 floor + base × multipliers
+band cannot bridge that gap.
+
+This shifts the action item: meaningful Filter G changes on this corpus
+require changes to the **classifier itself** (retrain for calibration,
+not just better cell coverage), or removing/lowering the 0.25 floor —
+not refinements to the per-cell layer.
+
+The §8.25 verdict stands: at base threshold 0.35, Filter G blocks
+3,232/3,438 candidates (94.0%) and removes $13,898.75 of net PnL,
+leaving the bot with -$695 from the surviving 206 trades. The corpus's
+filterless baseline is +$13,203.75. **Filter G is grossly miscalibrated
+against the corrected corpus and should not be active.** This is
+consistent with the "Option B — drop overlays" recommendation in §8.26.
+
+The §8.33 bug-fix is the right thing to do (correctness), but on its own
+it is not a PnL lever. The PnL lever is upstream: replace or recalibrate
+Filter G, or disable it entirely.
+
+#### Files added
+
+- `tools/percell_layer_3way_compare.py` — replay harness
+- `artifacts/percell_3way_results.csv` — per-row annotated decisions
+- `artifacts/percell_3way_summary.json` — config summaries + deltas
+
