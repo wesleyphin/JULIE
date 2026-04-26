@@ -5825,3 +5825,106 @@ The v18-vs-main advantage **expands from +$13,437 to +$14,150** when BE-arm is p
 - `artifacts/v18_backtest_with_v6_be.json` — summary
 - `artifacts/v18_v6be_per_trade.csv` — per-trade decisions
 
+
+### 8.33.17 — NY-AM Long_Rev Native-Pipeline Bypass (2 sub-strategies)
+
+*Added 2026-04-26.* User-confirmed live wiring. Adds 2 DE3 sub-strategies
+to live deployment via a native-pipeline bypass: V18 stacker, Recipe B
+sizing, and v6_be ML BE-disable are all skipped for these specific subs.
+Restricted to hour 8 ET only.
+
+#### Sub-strategies bypassed
+
+```
+5min_06-09_Long_Rev_T2_SL10_TP25
+15min_06-09_Long_Rev_T2_SL10_TP25
+```
+
+#### Pipeline behavior matrix
+
+| Layer | Bypass subs (hour 8 ET) | All other signals |
+|---|---|---|
+| Hour filter | **Hour 8 ET only** (blocks 6, 7) | normal |
+| V18 stacker @ 0.60 | **BYPASSED** (fire raw) | active |
+| Recipe B sizing 10/4/1 | **BYPASSED** (native v4 sizing 1-3) | active |
+| Option 4b regime-aware tier-4 | **N/A** (Recipe B carries Option 4b) | active |
+| v6_be ML BE-disable | **BYPASSED** (BE always-on) | active |
+| friend's same-side rule | applied | applied |
+| single-position constraint | applied | applied |
+| Filter G case-fix v2 | applied | applied |
+
+#### Code changes (julie001.py)
+
+1. **Constants + helpers** (~50 lines, pre-`v18_should_keep_de3`):
+   - `NY_AM_LONG_REV_BYPASS = {...}` (set of 2 sub-strategy IDs)
+   - `NY_AM_BYPASS_HOUR_ET = 8`
+   - `_signal_sub_strategy_id(signal)` — extracts sub-strategy ID from signal dict
+   - `_signal_et_hour(signal)` — extracts ET hour from signal timestamp
+   - `_ny_am_bypass_decision(signal)` — returns `(fire, reason)` or `None`
+
+2. **v18_should_keep_de3** entry: bypass check before V18 logic.
+   - sub matches AND hour=8: return `(True, "ny_am_bypass:fire_native:...")`, mark signal
+   - sub matches AND hour≠8: return `(False, "ny_am_bypass:hour=N_not_8:...")`
+   - sub doesn't match: pass through to normal V18 stacker
+
+3. **_apply_de3_v18_tiered_size_live** entry: skip Recipe B if `signal["ny_am_bypass"]`.
+
+4. **_signal_birth_hook** post-`_apply_dead_tape_brackets`: re-enable BE for
+   bypass subs (counters v6_be's per-trade disable).
+
+#### Smoke test (7/7 passed)
+
+| Test case | Expected | Result |
+|---|---|---|
+| 5min_06-09 + hour 8 ET | (True, fire_native) | ✓ |
+| 5min_06-09 + hour 6 ET | (False, hour=6_not_8) | ✓ |
+| 5min_06-09 + hour 7 ET | (False, hour=7_not_8) | ✓ |
+| 15min_06-09 + hour 8:30 ET | (True, fire_native) | ✓ |
+| 15min_06-09 + hour 9 ET | (False, hour=9_not_8) | ✓ |
+| OTHER_VARIANT + hour 8 ET | None (pass through) | ✓ |
+| `de3_v4_selected_variant_id` alt key | (True, fire_native) | ✓ |
+
+#### Expected live impact (Jan-Apr 2026 OOS modeled)
+
+| Metric | v18 base alone (with v6_be) | + NY-AM bypass | Δ |
+|---|---:|---:|---:|
+| Trades | 83 | **147** | **+64 (+21/mo)** |
+| Net PnL | +$17,421 | **+$19,572** | **+$2,150** |
+| Max continuous DD | −$580 | **−$834** | **−$254 worse** |
+| Trades blocked by single-pos overlap | — | 7 bypass + 13 v18 | net wash |
+
+Per-month:
+
+| Month | Base trades | + Bypass | Δ trades | Base PnL | + Bypass PnL | Δ PnL |
+|---|---:|---:|---:|---:|---:|---:|
+| 2026-01 | 13 | 22 | +9 | $12,871 | $13,224 | +$353 |
+| 2026-02 | 24 | 33 | +9 | $1,176 | $2,380 | +$1,204 |
+| 2026-03 | 37 | 70 | +33 | $1,122 | $2,359 | +$1,237 |
+| **2026-04** | 9 | 22 | +13 | $1,538 | $894 | **−$643** ⚠ |
+
+#### Why bypass V18 + Recipe B + v6_be (not just one)
+
+Per backtest analysis on the 84 hour-8 trades:
+
+- **V18 stacker** rejects 76 of 84 (v18_proba mostly < 0.60). Without bypass, only 8 fire — defeats the trade-count uplift goal.
+- **Recipe B sizing** (10/4/1 tiers) is mismatched. Recipe B was designed for V18-stacker-selected high-conviction trend-follows; these are mean-reversion fades where 10× sizing on tier-10 is inappropriate. Native v4 sizing (1-3 contracts) is the right scale.
+- **v6_be ML** underperforms BE-on by −$1,574 on this population (§8.33.16's same-population-mismatch issue). Bypassing v6_be and using BE-always-on captures the +$2,553 BE benefit.
+- **Hours 6-7** net −$3,254 in 2026 OOS. Must be blocked. Hour-8-only filter is non-negotiable.
+
+#### Caveats
+
+1. **April 2026 yellow flag** — bypass adds netted −$643 in April vs +$1,798 across Jan-Mar. Both 5min_06-09 (n=5, 20% WR, −$537) and 15min_06-09 (n=10, 60% WR, −$64) underperformed. n=15 too small to tell if regime shift or variance. Monitor in May.
+
+2. **DD widens by $254** ($580 → $834). Extra trades = extra concurrent risk surface. Most months see small DD additions; March is the worst (most bypass adds).
+
+3. **Single-position friction is small** — 7 bypass adds blocked by v18 overlap (would have added +$753), 13 v18 trades blocked by bypass overlap (collectively −$350, so blocking actually saves PnL). Net wash.
+
+4. **Other strategies (RA, AF) unchanged.** Bypass only matches DE3 sub-strategy IDs in the 2-item set. RA's V17 RA gate, AF's regime allowlist (TG + DISPERSED), Filter G case-fix — all unaffected.
+
+5. **No env flag yet** — bypass is hardcoded via `NY_AM_LONG_REV_BYPASS` set in julie001.py. To roll back without a code change, would need a `JULIE_LOCAL_NY_AM_BYPASS_ACTIVE=0` env flag. Can be added if needed.
+
+#### Files
+
+- `julie001.py` (+101 lines: constants, helpers, 3 bypass branches)
+- This journal section (§8.33.17)
+
