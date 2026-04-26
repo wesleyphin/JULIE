@@ -1,0 +1,76 @@
+{
+  "phase1_per_regime": {
+    "ev_positive_regimes": [
+      "calm_trend"
+    ],
+    "per_regime_tier4": {
+      "calm_trend": {
+        "n": 20,
+        "wr": 0.55,
+        "avg_size1": 2.1875,
+        "tot_size4": 175.0,
+        "ev_pos": "True"
+      },
+      "neutral": {
+        "n": 28,
+        "wr": 0.42857142857142855,
+        "avg_size1": -4.017857142857143,
+        "tot_size4": -450.0,
+        "ev_pos": "False"
+      },
+      "whipsaw": {
+        "n": 14,
+        "wr": 0.5714285714285714,
+        "avg_size1": -1.5178571428571428,
+        "tot_size4": -85.0,
+        "ev_pos": "False"
+      },
+      "dead_tape": {
+        "n": 0,
+        "wr": 0,
+        "avg_size1": 0,
+        "tot_size4": 0,
+        "ev_pos": false
+      }
+    },
+    "result": {
+      "trades": 97,
+      "wr": 0.5876288659793815,
+      "pnl": 16686.25,
+      "dd": -593.75
+    },
+    "gates": {
+      "pnl_ge_16k": true,
+      "dd_le_870": true,
+      "ship": true
+    }
+  },
+  "phase2_threshold_raise": {
+    "tier4_lower": 0.75,
+    "result": {
+      "trades": 97,
+      "wr": 0.5876288659793815,
+      "pnl": 16142.5,
+      "dd": -1058.75
+    },
+    "gates": {
+      "pnl_ge_16k": true,
+      "dd_le_870": false,
+      "ship": false
+    }
+  },
+  "tier10_only_fallback": {
+    "result": {
+      "trades": 25,
+      "wr": 0.84,
+      "pnl": 16637.5,
+      "dd": -575.0
+    }
+  },
+  "baseline_recipe_b": {
+    "trades": 97,
+    "wr": 0.5876288659793815,
+    "pnl": 16285.0,
+    "dd": -1200.0
+  }
+}

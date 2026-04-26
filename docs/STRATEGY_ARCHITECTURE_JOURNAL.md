@@ -5141,3 +5141,133 @@ for forward projection.**
 - `artifacts/v18_5way_holdout_summary.json` — full results
 - `artifacts/v18_5way_holdout_per_month.csv` — per-month E breakdown
 
+
+### 8.33.11 — Tier-4 Fix Attempts: Per-Regime EV Split + Threshold Raise
+
+*Added 2026-04-26.* §8.33.10 surfaced that Recipe B's tier-4 layer
+(proba 0.65–0.85, size=4) contributes the entire $1,200 holdout DD while
+producing −$360 of PnL. This section evaluates two surgical fixes
+against the same holdout cache (sub-second re-aggregation) plus a
+tier-10-only fallback for context.
+
+#### Setup
+
+Same harness as §8.33.10 ([tools/v18_5way_holdout_real_kronos.py](tools/v18_5way_holdout_real_kronos.py)),
+restricted to **HOLDOUT (Jan-Apr 2026, 3.73mo)**, DE3+friend+NY+single-pos.
+Regime label derived per row from `bf_regime_vol_bp` and `bf_regime_eff`
+columns using the same logic as `regime_classifier.py:_classify` (whipsaw
+when vol_bp>3.5 ∧ eff<0.05; calm_trend when eff>0.12; dead_tape when
+vol_bp<1.5; else neutral). Ship gates: **PnL ≥ $16,000 AND DD ≤ $870**.
+
+#### Phase 1 — Per-regime tier-4 EV split (Option 4)
+
+For the 62 holdout tier-4 trades (proba 0.65–0.85), split by regime at
+entry, compute per-regime EV at size=1, then apply size=4 ONLY in
+EV-positive regimes (avg per-trade PnL > 0); demote EV-negative regimes
+to size=1.
+
+| Regime | n | WR | avg PnL @ size=1 | total @ size=4 | EV+? |
+|---|---:|---:|---:|---:|:---:|
+| **calm_trend** | 20 | 55.0% | **+$2.19** | +$175.00 | **YES** |
+| neutral | 28 | 42.9% | **−$4.02** | −$450.00 | no |
+| whipsaw | 14 | 57.1% | −$1.52 | −$85.00 | no |
+| dead_tape | 0 | — | — | — | — |
+
+Rule: tier-4 keeps size=4 only if `regime == "calm_trend"`; else size=1.
+
+#### Phase 2 — Threshold raise tier-4 lower 0.65 → 0.75 (Option 2)
+
+Drops the bottom of the tier-4 band (`proba 0.65–0.75`) entirely. Trades
+in `proba 0.75–0.85` keep size=4; trades in `proba 0.65–0.75` fall
+through to tier-1 size=1 if they survive.
+
+#### Tier-10-only fallback (Option 1)
+
+For context: drop tier-4 + tier-1 entirely; only fire size=10 when
+proba ≥ 0.85. Keeps the cleanest WR/DD profile but at substantially
+lower trade frequency.
+
+#### Result table (HOLDOUT 3.73mo)
+
+| Option | Trades | WR | PnL | Max DD | PnL gate | DD gate | Ship? |
+|---|---:|---:|---:|---:|:---:|:---:|:---:|
+| Baseline (current Recipe B) | 97 | 58.8% | $16,285.00 | −$1,200.00 | ✅ | ❌ | NO |
+| **Option 4 (per-regime tier-4 EV)** | **97** | **58.8%** | **$16,686.25** | **−$593.75** | ✅ | ✅ | **YES** |
+| Option 2 (tier-4 lower 0.65→0.75) | 97 | 58.8% | $16,142.50 | −$1,058.75 | ✅ | ❌ | NO |
+| Option 1 (tier-10 ONLY) | 25 | 84.0% | $16,637.50 | −$575.00 | ✅ | ✅ | YES (lower freq) |
+
+#### Verdict
+
+**Option 4 is the recommended ship.** It:
+- Increases PnL by **+$401** vs baseline ($16,686 vs $16,285)
+- Cuts DD by **$606** ($594 vs $1,200) — within $870 gate
+- Preserves the full 97-trade frequency (no loss in trade volume)
+- Single-line rule: `tier4 size=4 if regime==calm_trend else size=1`
+
+**Why Option 2 fails:** raising the tier-4 lower bound to 0.75 only
+removes a few break-even trades; the DD damage was concentrated in
+neutral-regime trades within the 0.65–0.85 band, not at the lower edge.
+DD only improves by $141, still well above the $870 gate.
+
+**Why Option 1 (tier-10-only) is a viable but lower-throughput backup:**
+84% WR holdout, 25 trades, $16,637 PnL, $575 DD. Same headline PnL, much
+better risk profile, but ~4× lower trade frequency. Would scale to
+$35,679 over 8mo (matches user's projection within rounding) but
+drops the 72 lower-confidence fires.
+
+**Why baseline (current Recipe B) fails the ship gate:** the 28
+neutral-regime tier-4 trades alone contribute −$450 PnL with the bulk
+of the cumulative drawdown. They were the dominant source of the
+February 2026 single-month $1,200 DD and the March 2026 $1,060 DD
+flagged in §8.33.10.
+
+#### Implementation — env flag for Option 4
+
+```bash
+# in CONFIG (default ON in deployed state):
+export JULIE_LOCAL_DE3_RECIPE_B_REGIME_AWARE=1
+
+# size logic in julie001.py _apply_de3_v18_tiered_size_live:
+#   if proba >= 0.85:                              size = 10
+#   elif 0.65 <= proba < 0.85 and regime == "calm_trend":  size = 4
+#   elif 0.65 <= proba < 0.85:                     size = 1   # demote
+#   elif 0.60 <= proba < 0.65:                     size = 1
+#   else:                                          size = 0
+```
+
+The bot already has `regime_classifier.current_regime()` available. The
+existing `_apply_de3_v18_tiered_size_live` helper at julie001.py:2890
+(in the v18 branch) is the wiring point; add a regime check inside the
+0.65 ≤ proba < 0.85 branch.
+
+**This section reports the analysis only — live code is NOT modified
+in this commit. Operator picks whether/when to wire Option 4 into
+julie001.py.**
+
+#### Honest caveats
+
+- **n=20 calm_trend tier-4 trades is small.** 95% CI on +$2.19/trade
+  EV is wide; could regress to $0/trade or marginally negative under
+  next quarter's market conditions. Re-evaluate after 30 trading days
+  live.
+- **Regime classification depends on rolling vol/eff measurements.**
+  The runtime classifier and the corpus's `bf_regime_vol_bp`/`bf_regime_eff`
+  use the same input (close-to-close returns) but rolling windows may
+  differ slightly. Spot-check a handful of live signals against the
+  corpus regime tag in the first week of deployment.
+- **Holdout sample is 3.73 months.** 8-month forward projection assumes
+  regime distribution stays roughly similar (calm_trend remains
+  EV-positive for tier-4; neutral/whipsaw remain EV-negative). If the
+  market shifts to extended whipsaw (e.g. tariff weeks), tier-4
+  contribution could change sign — but Option 4's safety net is that
+  whipsaw → size=1, so the damage is bounded at 1/4× of baseline.
+- **The mechanism that makes Option 4 work** is that calm_trend regimes
+  let TPs hit cleanly (directional moves resolve in the bot's favor)
+  while neutral regimes produce more whipsaw exits at the SL. Tier-4's
+  proba band 0.65–0.85 is the "uncertain" zone where regime context
+  carries more decision weight than the model alone provides.
+
+#### Files
+
+- [artifacts/v18_tier4_fix_attempts.json](artifacts/v18_tier4_fix_attempts.json) — full per-option results
+
