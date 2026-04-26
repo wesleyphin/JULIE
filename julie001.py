@@ -766,6 +766,76 @@ def _v18_kronos_features_for_candidate(market_df, signal_price):
         return None
 
 
+# === LOCAL OVERRIDE 2026-04-26 — NY-AM Long_Rev native-pipeline bypass ===
+# Per backtest analysis on 2026 OOS Jan-Apr (84 hour-8 trades for these 2 subs):
+#   - BE-always-on outperforms v6_be ML on this population by +$1,574
+#   - V18 stacker rejects most of these (v18_proba mostly < 0.60)
+#   - Recipe B 10/4/1 sizing isn't appropriate (model wasn't trained on these)
+#   - Native v4 confidence-tier sizing (1-3 contracts) + BE-always-on is best
+# This bypass routes the 2 specific sub-strategies through the NATIVE pipeline
+# (no V18 gate, no Recipe B, no v6_be ML) while restricting them to hour 8 ET
+# only (avoids the hour 6-7 bleed that nets -$3,254 on full 219-trade population).
+NY_AM_LONG_REV_BYPASS = {
+    "5min_06-09_Long_Rev_T2_SL10_TP25",
+    "15min_06-09_Long_Rev_T2_SL10_TP25",
+}
+NY_AM_BYPASS_HOUR_ET = 8
+
+
+def _signal_sub_strategy_id(signal: Optional[dict]) -> str:
+    if not isinstance(signal, dict):
+        return ""
+    for k in ("de3_v4_selected_variant_id", "sub_strategy", "variant_id"):
+        v = signal.get(k)
+        if v:
+            return str(v)
+    return ""
+
+
+def _signal_et_hour(signal: Optional[dict]) -> Optional[int]:
+    """Best-effort extraction of entry hour in America/New_York from signal."""
+    if not isinstance(signal, dict):
+        return None
+    for k in ("entry_time", "ts", "timestamp", "signal_time"):
+        v = signal.get(k)
+        if v is None:
+            continue
+        try:
+            t = pd.to_datetime(v, utc=True)
+            return int(t.tz_convert("America/New_York").hour)
+        except Exception:
+            try:
+                t = pd.Timestamp(v)
+                if t.tz is None:
+                    t = t.tz_localize("America/New_York")
+                else:
+                    t = t.tz_convert("America/New_York")
+                return int(t.hour)
+            except Exception:
+                continue
+    return None
+
+
+def _ny_am_bypass_decision(signal: Optional[dict]) -> Optional[tuple[bool, str]]:
+    """Returns (fire, reason) if this signal hits the NY-AM Long_Rev bypass list,
+    else None (signal goes through normal V18 pipeline). Mutates signal to mark
+    bypass status for downstream Recipe B / v6_be skip logic."""
+    if not isinstance(signal, dict):
+        return None
+    sub = _signal_sub_strategy_id(signal)
+    if sub not in NY_AM_LONG_REV_BYPASS:
+        return None
+    et_hour = _signal_et_hour(signal)
+    if et_hour is None or et_hour != NY_AM_BYPASS_HOUR_ET:
+        # Block hours 6 and 7 (hour-6/7 bleed netted -$3,254 in 2026 OOS)
+        return False, f"ny_am_bypass:hour={et_hour}_not_8:{sub}"
+    # Hour-8 fires: fire raw, mark bypass for downstream layers
+    signal["ny_am_bypass"] = True
+    signal["ny_am_bypass_sub"] = sub
+    return True, f"ny_am_bypass:fire_native:{sub}"
+# === END LOCAL OVERRIDE ===
+
+
 def v18_should_keep_de3(
     signal: dict,
     *,
@@ -778,6 +848,12 @@ def v18_should_keep_de3(
     On success the v18 proba is stashed on the signal dict as ``v18_proba``
     along with the 5 kronos features for downstream telemetry.
     """
+    # === LOCAL OVERRIDE — NY-AM Long_Rev native-pipeline bypass ===
+    bypass = _ny_am_bypass_decision(signal)
+    if bypass is not None:
+        return bypass
+    # === END LOCAL OVERRIDE ===
+
     if V18_DE3_BUNDLE is None:
         return v15_should_keep_de3(signal, market_df=market_df, current_price=current_price)
     if not isinstance(signal, dict):
@@ -904,6 +980,23 @@ def _signal_birth_hook(signal):
         _apply_dead_tape_brackets(signal)
     except Exception:
         pass
+    # === LOCAL OVERRIDE — NY-AM Long_Rev BE-always-on bypass ===
+    # apply_dead_tape_brackets calls apply_be_disable internally. v6_be was
+    # trained on broader DE3 population and underperforms BE-on for the
+    # specific NY-AM Long_Rev reversal sub-strategies (-$1,574 lift on 84
+    # trades). Force BE back on for these subs regardless of v6_be decision.
+    try:
+        if isinstance(signal, dict):
+            sub = _signal_sub_strategy_id(signal)
+            if sub in NY_AM_LONG_REV_BYPASS:
+                signal["de3_break_even_enabled"] = True
+                signal["de3_break_even_activate_on_next_bar"] = True
+                if signal.get("be_disabled") is True:
+                    signal["be_disabled"] = False
+                    signal["be_disabled_overridden"] = "ny_am_bypass"
+    except Exception:
+        pass
+    # === END LOCAL OVERRIDE ===
     try:
         _apply_regime_size_cap(signal)
     except Exception:
@@ -2991,6 +3084,14 @@ def _apply_de3_v18_tiered_size_live(signal: Optional[dict], base_size: int) -> i
     """
     if not isinstance(signal, dict):
         return int(base_size)
+    # === LOCAL OVERRIDE — NY-AM Long_Rev native-pipeline bypass ===
+    # These specific sub-strategies use native v4 confidence-tier sizing
+    # (1-3 contracts), NOT Recipe B's 10/4/1 tiers. Recipe B was designed for
+    # V18-stacker-selected high-conviction trend-follows; these are mean-
+    # reversion fades where Recipe B is inappropriate.
+    if signal.get("ny_am_bypass") is True:
+        return int(base_size)
+    # === END LOCAL OVERRIDE ===
     try:
         strat = str(signal.get("strategy", "") or "")
         if not strat.startswith("DynamicEngine3"):
