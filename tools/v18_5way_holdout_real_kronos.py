@@ -30,10 +30,27 @@ Methodology:
   - Recipe B sizing: proba>=0.85→10, 0.65-0.85→4, 0.60-0.65→1
   - $7.50/trade haircut (already applied in net_pnl_after_haircut from corrected sim)
 
-Caveats explicitly NOT modeled:
-  - Regime ML (v5_brackets, v6_size, v6_be) — features not cached + bracket changes need re-sim
-  - SameSide ML — features not cached + concurrency violates single-position model
-  - Downstream Kalshi/LFO/PCT/Pivot overlays — V18 IS the meta over their probas
+Regime ML stack — what IS and ISN'T modeled here:
+  - v6_be (BE-disable ML)        : NOT modeled in this 5-way harness; see
+                                    §8.33.15 / tools that runs v6_be
+                                    (`v18_backtest_with_v6_be.json`).
+  - v5_brackets (scalp brackets) : EXPLICITLY OUT OF SCOPE. v5 was trained
+                                    on the broader DE3 candidate population
+                                    and predicts "scalp" on 92.8% of V18-
+                                    selected fires, switching TP/SL to 3/5
+                                    and destroying tier-10 alpha. §8.33.16
+                                    backtest showed enabling this drops
+                                    PnL from $17,421 → $2,529 (-86% loss).
+                                    The canonical V18 backtest does NOT
+                                    apply this layer. Do NOT enable until
+                                    v5 is retrained on V18-filtered data.
+  - v6_size (size reduction ML)  : EXPLICITLY OUT OF SCOPE for the same
+                                    reason — population mismatch with V18
+                                    selection. Do NOT enable without retrain.
+
+Other caveats:
+  - SameSide ML — features not cached + concurrency violates single-position
+  - Downstream Kalshi/LFO/PCT/Pivot — V18 IS the meta over their probas
 """
 from __future__ import annotations
 

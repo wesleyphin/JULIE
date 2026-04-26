@@ -30,8 +30,8 @@ from process_singleton import acquire_singleton_lock
 TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 
 
-# === LOCAL OVERRIDE 2026-04-26 — Regime ML defaults ON (do not commit to main) ===
-# Activate the regime classifier + ML BE-disable layer by default for live runs.
+# === LOCAL OVERRIDE 2026-04-26 — Regime ML state (do not commit to main) ===
+# Activate ONLY the regime classifier master + v6_be BE-disable ML layer.
 # These env vars MUST be set BEFORE `from regime_classifier import ...` because
 # regime_classifier reads os.environ at module-load time and caches the values.
 #
@@ -39,19 +39,36 @@ TRUTHY_ENV_VALUES = {"1", "true", "yes", "on"}
 #   JULIE_REGIME_CLASSIFIER  — master switch for the regime classifier module
 #   JULIE_REGIME_ML_BE       — v6_be ML model drives BE-disable decisions
 #                              (else falls back to rule: only disable BE in dead_tape)
-# Default OFF (operator can flip via shell env if desired):
-#   JULIE_REGIME_ML_BRACKETS — v5_brackets ML drives scalp-bracket switching
-#   JULIE_REGIME_ML_SIZE     — v6_size ML drives size-reduction
+#
+# Default OFF (DO NOT ENABLE without retraining the models on V18-filtered data):
+#   JULIE_REGIME_ML_BRACKETS — v5_brackets ML; says "scalp" on 92.8% of V18
+#                              fires, switches TP/SL from 25/10 to 3/5, which
+#                              caps tier-10 wins at 1/16th. §8.33.16 backtest
+#                              showed enabling this DESTROYS −$13,375 of
+#                              tier-10 PnL on the 2026 OOS slice.
+#   JULIE_REGIME_ML_SIZE     — v6_size ML; forces size=1 on ~46% of V18 fires,
+#                              compounding the Recipe B sizing damage when
+#                              paired with brackets switch. Less catastrophic
+#                              alone but still net-negative on V18 selection.
+#
+# Both v5_brackets and v6_size were trained on the BROADER DE3 candidate
+# population without V18 stacker filtering. Running them on V18-selected
+# high-conviction trend-follows is out-of-distribution inference. Do NOT
+# enable until the models are retrained on V18-filtered candidates.
 #
 # Note: v6_be uses an `a_pred_scalp` feature derived from v5_brackets. With
-# JULIE_REGIME_ML_BRACKETS=0 (default), a_pred falls back to a rule-based
-# heuristic — v6_be still works but with slight feature drift vs training.
-# To run the full Regime ML stack at training fidelity, set both.
+# JULIE_REGIME_ML_BRACKETS=0, a_pred falls back to a rule-based heuristic —
+# v6_be still works with slight feature drift vs training. The lift on the
+# v18 backtest is +$714 (§8.33.15) — modest but positive and DD-improving.
 #
 # Operator can override per-run by setting these env vars BEFORE launching
 # the bot (e.g. `JULIE_REGIME_ML_BE=0 python3 julie001.py` to disable BE-ML).
+# Setting JULIE_REGIME_ML_BRACKETS=1 or JULIE_REGIME_ML_SIZE=1 should NOT
+# be done in production without first retraining v5/v6 on V18-filtered data.
 os.environ.setdefault("JULIE_REGIME_CLASSIFIER", "1")
 os.environ.setdefault("JULIE_REGIME_ML_BE", "1")
+os.environ.setdefault("JULIE_REGIME_ML_BRACKETS", "0")  # DO NOT ENABLE — see §8.33.16
+os.environ.setdefault("JULIE_REGIME_ML_SIZE", "0")      # DO NOT ENABLE — see §8.33.16
 # === END LOCAL OVERRIDE ===
 
 
