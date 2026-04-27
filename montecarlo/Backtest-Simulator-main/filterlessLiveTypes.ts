@@ -148,6 +148,21 @@ export interface FilterlessPricePoint {
   price: number | null;
 }
 
+export interface FilterlessOhlcBar {
+  /** ISO-8601 string of the bar's start (NY-local). */
+  t: string;
+  /** Open. */
+  o: number;
+  /** High. */
+  h: number;
+  /** Low. */
+  l: number;
+  /** Close. */
+  c: number;
+  /** Volume in contracts. */
+  v: number;
+}
+
 export interface FilterlessKalshiStrike {
   strike: number;
   probability: number;
@@ -299,6 +314,7 @@ export interface FilterlessLiveState {
     current_position?: FilterlessPosition | null;
     current_positions?: FilterlessPosition[] | null;
     price_history: FilterlessPricePoint[];
+    price_history_ohlc?: FilterlessOhlcBar[] | null;
     risk: FilterlessBotRisk;
     warnings: string[];
   };

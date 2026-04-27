@@ -1,8 +1,21 @@
 import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  AreaSeries,
+  CandlestickSeries,
+  ColorType,
+  LineSeries,
+  LineStyle,
+  createChart,
+  type IChartApi,
+  type IPriceLine,
+  type ISeriesApi,
+  type UTCTimestamp,
+} from 'lightweight-charts';
 import type {
   FilterlessEvent,
   FilterlessKalshiMetrics,
   FilterlessLiveState,
+  FilterlessOhlcBar,
   FilterlessPipelineState,
   FilterlessPosition,
   FilterlessSentimentMetrics,
@@ -227,7 +240,7 @@ h1, h2, h3, p { margin: 0; }
 .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.overview-layout { grid-template-columns: minmax(260px, 0.78fr) minmax(0, 1.55fr) minmax(280px, 0.78fr); margin-top: 10px; }
+.overview-layout { grid-template-columns: minmax(220px, 0.55fr) minmax(0, 2.6fr) minmax(240px, 0.55fr); margin-top: 10px; }
 .aether-layout { grid-template-columns: minmax(0, 1.52fr) minmax(340px, 0.72fr); margin-top: 10px; }
 .kalshi-layout, .news-layout, .journal-layout { grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr); margin-top: 10px; }
 .panel, .metric, .event, .position, .terminal-row, .tile { min-width: 0; background: rgba(10, 5, 18, 0.94); border: 1px solid var(--line); box-shadow: var(--shadow); }
@@ -250,7 +263,7 @@ h1, h2, h3, p { margin: 0; }
 .badge.watch { color: var(--amber); border-color: rgba(255, 179, 71, 0.45); }
 .badge.block { color: var(--red); border-color: rgba(255, 56, 100, 0.52); }
 .badge.info { color: var(--cyan); border-color: rgba(53, 245, 255, 0.45); }
-.chart { height: 370px; background: #050109; }
+.chart { height: 620px; background: #050109; }
 .scene-wrap { position: relative; min-height: 650px; background: #030006; }
 .aetherflow-scene { width: 100%; height: 650px; cursor: grab; touch-action: none; user-select: none; }
 .aetherflow-scene:active { cursor: grabbing; }
@@ -1061,112 +1074,767 @@ const FlowBars: React.FC<{ values: Array<{ label: string; value: number; tail?: 
   </div>
 );
 
+// ─── Pine-script-port: session levels + ORB + bank levels ───────────────
+// Original Pine: True Open / Sessions / ORB / SPY indicator (PT-defined).
+// All session boundaries below are EXPRESSED IN ET — same absolute moments,
+// just different clock labels. PT 18:00 == ET 21:00, etc.
+//
+// Sessions (ET):
+//   Asia:    21:00 - 02:59 ET (wraps midnight)
+//   London:  03:00 - 08:59 ET
+//   NY:      09:00 - 14:59 ET
+//   PM:      15:00 - 20:59 ET
+//
+// True Open: bar AT (session_start + 1.5h). e.g. NY TO bar = 10:30 ET.
+// Daily Open: 18:00 ET (futures session start).
+// Midnight ORB: 03:00 - 03:30 ET (was 00:00 - 00:30 PT).
+// Morning ORB:  09:30 - 10:00 ET (was 06:30 - 07:00 PT).
+
+type SessionId = 'Asia' | 'London' | 'NY' | 'PM';
+
+interface ETBar {
+  ts: Date;            // wall-clock as ET-interpreted Date (for hour/min ops)
+  unix: number;        // unix seconds (chart time axis)
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
+function etPartsFor(unixSec: number): { hour: number; minute: number; date: string } {
+  const d = new Date(unixSec * 1000);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d);
+  const get = (k: string) => Number(parts.find((p) => p.type === k)?.value ?? '0');
+  const h = get('hour') % 24;
+  return {
+    hour: h,
+    minute: get('minute'),
+    date: `${parts.find((p) => p.type === 'year')?.value}-${parts.find((p) => p.type === 'month')?.value}-${parts.find((p) => p.type === 'day')?.value}`,
+  };
+}
+
+function sessionForET(hourET: number): SessionId {
+  if (hourET >= 21 || hourET < 3) return 'Asia';
+  if (hourET >= 3 && hourET < 9) return 'London';
+  if (hourET >= 9 && hourET < 15) return 'NY';
+  return 'PM';
+}
+
+interface Level {
+  price: number;
+  setAt: number;  // unix sec of the bar where the level was established
+}
+
+interface SessionLevels {
+  currentSession: SessionId | null;
+  prevSession: SessionId | null;
+  prevHigh: Level | null;
+  prevLow: Level | null;
+  q1High: Level | null;
+  q1Low: Level | null;
+  trueOpen: Level | null;
+  dailyOpen: Level | null;
+  midOrbHigh: Level | null;
+  midOrbLow: Level | null;
+  mornOrbHigh: Level | null;
+  mornOrbLow: Level | null;
+  sessionAnchor: number | null;
+}
+
+function computeSessionLevels(bars: FilterlessOhlcBar[]): SessionLevels {
+  const result: SessionLevels = {
+    currentSession: null, prevSession: null,
+    prevHigh: null, prevLow: null,
+    q1High: null, q1Low: null,
+    trueOpen: null, dailyOpen: null,
+    midOrbHigh: null, midOrbLow: null,
+    mornOrbHigh: null, mornOrbLow: null,
+    sessionAnchor: null,
+  };
+  if (bars.length === 0) return result;
+
+  let curSession: SessionId | null = null;
+  // Running session H/L tracking
+  let sessHigh = -Infinity, sessHighAt = 0;
+  let sessLow = Infinity, sessLowAt = 0;
+  let q1Active = true;
+  let q1High = -Infinity, q1HighAt = 0;
+  let q1Low = Infinity, q1LowAt = 0;
+  let toCaptured = false;
+  let trueOpen: Level | null = null;
+  // Levels carried forward
+  let prevSession: SessionId | null = null;
+  let prevHigh: Level | null = null;
+  let prevLow: Level | null = null;
+  let dailyOpen: Level | null = null;
+  let midOrbHigh: Level | null = null;
+  let midOrbLow: Level | null = null;
+  let mornOrbHigh: Level | null = null;
+  let mornOrbLow: Level | null = null;
+  let anchor: number | null = null;
+
+  for (const bar of bars) {
+    const unix = Math.floor(new Date(bar.t).getTime() / 1000);
+    if (!Number.isFinite(unix) || unix <= 0) continue;
+    const { hour, minute } = etPartsFor(unix);
+    const sess = sessionForET(hour);
+
+    // Session transition
+    if (sess !== curSession) {
+      if (curSession !== null) {
+        prevSession = curSession;
+        prevHigh = sessHigh === -Infinity ? null : { price: sessHigh, setAt: sessHighAt };
+        prevLow = sessLow === Infinity ? null : { price: sessLow, setAt: sessLowAt };
+      }
+      curSession = sess;
+      sessHigh = bar.h; sessHighAt = unix;
+      sessLow = bar.l;  sessLowAt = unix;
+      q1Active = true;
+      q1High = bar.h; q1HighAt = unix;
+      q1Low = bar.l;  q1LowAt = unix;
+      trueOpen = null;
+      toCaptured = false;
+      anchor = bar.o;  // session open price
+    } else {
+      if (bar.h > sessHigh) { sessHigh = bar.h; sessHighAt = unix; }
+      if (bar.l < sessLow)  { sessLow = bar.l;  sessLowAt = unix; }
+    }
+
+    // Q1 tracking (until True Open bar fires)
+    if (q1Active) {
+      if (bar.h > q1High) { q1High = bar.h; q1HighAt = unix; }
+      if (bar.l < q1Low)  { q1Low = bar.l;  q1LowAt = unix; }
+    }
+
+    // True Open bar (90 min into session)
+    const isToBar =
+      (sess === 'Asia' && hour === 22 && minute === 30) ||
+      (sess === 'London' && hour === 4 && minute === 30) ||
+      (sess === 'NY' && hour === 10 && minute === 30) ||
+      (sess === 'PM' && hour === 16 && minute === 30);
+    if (isToBar && !toCaptured) {
+      q1Active = false;
+      toCaptured = true;
+      trueOpen = { price: bar.o, setAt: unix };
+    }
+
+    // Daily Open: 18:00 ET (futures session reopen)
+    if (hour === 18 && minute === 0) {
+      dailyOpen = { price: bar.o, setAt: unix };
+    }
+
+    // Midnight ORB: 03:00 - 03:30 ET (window start at exactly 03:00)
+    if (hour === 3 && minute === 0) {
+      midOrbHigh = { price: bar.h, setAt: unix };
+      midOrbLow = { price: bar.l, setAt: unix };
+    } else if (hour === 3 && minute < 30 && midOrbHigh !== null && midOrbLow !== null) {
+      if (bar.h > midOrbHigh.price) midOrbHigh = { price: bar.h, setAt: unix };
+      if (bar.l < midOrbLow.price)  midOrbLow = { price: bar.l, setAt: unix };
+    }
+
+    // Morning ORB: 09:30 - 10:00 ET
+    if (hour === 9 && minute === 30) {
+      mornOrbHigh = { price: bar.h, setAt: unix };
+      mornOrbLow = { price: bar.l, setAt: unix };
+    } else if (hour === 9 && minute > 30 && mornOrbHigh !== null && mornOrbLow !== null) {
+      if (bar.h > mornOrbHigh.price) mornOrbHigh = { price: bar.h, setAt: unix };
+      if (bar.l < mornOrbLow.price)  mornOrbLow = { price: bar.l, setAt: unix };
+    }
+  }
+
+  result.currentSession = curSession;
+  result.prevSession = prevSession;
+  result.prevHigh = prevHigh;
+  result.prevLow = prevLow;
+  result.q1High = q1High === -Infinity ? null : { price: q1High, setAt: q1HighAt };
+  result.q1Low = q1Low === Infinity ? null : { price: q1Low, setAt: q1LowAt };
+  result.trueOpen = trueOpen;
+  result.dailyOpen = dailyOpen;
+  result.midOrbHigh = midOrbHigh;
+  result.midOrbLow = midOrbLow;
+  result.mornOrbHigh = mornOrbHigh;
+  result.mornOrbLow = mornOrbLow;
+  result.sessionAnchor = anchor;
+  return result;
+}
+
+// ET-formatted tick + crosshair time labels for Lightweight Charts.
+// Lightweight Charts passes UTCTimestamp (seconds since epoch).
+function formatETTime(unixSec: number, includeSeconds: boolean): string {
+  const d = new Date(unixSec * 1000);
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    hour: '2-digit', minute: '2-digit',
+    second: includeSeconds ? '2-digit' : undefined,
+    hour12: false,
+  }).format(d);
+}
+
+function formatETTickMark(unixSec: number): string {
+  const d = new Date(unixSec * 1000);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    month: 'short', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d);
+  const month = parts.find((p) => p.type === 'month')?.value ?? '';
+  const day = parts.find((p) => p.type === 'day')?.value ?? '';
+  const hh = parts.find((p) => p.type === 'hour')?.value ?? '00';
+  const mm = parts.find((p) => p.type === 'minute')?.value ?? '00';
+  // If midnight ET, show date label; otherwise show HH:MM ET
+  if (hh === '00' && mm === '00') {
+    return `${month} ${day}`;
+  }
+  return `${hh}:${mm}`;
+}
+
 const PriceCanvas: React.FC<{ state: FilterlessLiveState; position: FilterlessPosition | null }> = ({ state, position }) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  // Two series — only one is active at a time depending on whether OHLC is available.
+  const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const areaSeriesRef = useRef<ISeriesApi<'Area'> | null>(null);
+  const priceLinesRef = useRef<{ series: ISeriesApi<'Candlestick'> | ISeriesApi<'Area'>; line: IPriceLine }[]>([]);
+  // fitContent() snaps to the full data range — we only want that ONCE, on
+  // first non-empty load of each series mode. After that, leave the user's
+  // scroll/zoom alone. New bars still stream in via setData(); the time
+  // window just doesn't reset under their finger.
+  const candleFitDoneRef = useRef(false);
+  const areaFitDoneRef = useRef(false);
+  // Pine-port overlay split into two refs:
+  //   overlayLineSeriesRef: bar-anchored level lines (session H/L, Q1, TO,
+  //     Daily Open, ORBs, midpoints). Each is its own LineSeries so the
+  //     line can START at the candle where the level was set and extend
+  //     rightward — matching the original Pine behavior.
+  //   overlayBankLinesRef: bank-level horizontals ($12.50 increments) drawn
+  //     as full-width createPriceLine calls — Pine uses extend.both for
+  //     these. Red above price, green below price, no labels.
+  const overlayLineSeriesRef = useRef<ISeriesApi<'Line'>[]>([]);
+  const overlayBankLinesRef = useRef<{ series: ISeriesApi<'Candlestick'> | ISeriesApi<'Area'>; line: IPriceLine }[]>([]);
+  // Inline DOM-overlay labels for each session level — positioned at the
+  // RIGHT end of each line via timeToCoordinate/priceToCoordinate so they
+  // float inline with the candles instead of pinning to the right axis.
+  const [overlayLabels, setOverlayLabels] = useState<Array<{
+    key: string;
+    time: UTCTimestamp;
+    price: number;
+    color: string;
+    bg: string;
+    text: string;
+  }>>([]);
+  // DOM refs to each label element so the RAF loop can update positions
+  // directly without going through React's render cycle (eliminates lag
+  // during pan/zoom — React state updates were too slow).
+  const labelDomRefs = useRef<Array<HTMLDivElement | null>>([]);
+  // Live in-progress minute bar — Topstep's REST history endpoint only
+  // returns closed bars, so without this the chart would always be one
+  // minute behind. We synthesize the current minute's OHLC from
+  // state.bot.price ticks and append it to the chart series.
+  const liveBarRef = useRef<{ minute: number; open: number; high: number; low: number; close: number } | null>(null);
 
+  // Stable references to incoming data so dependency arrays compare cleanly.
+  const ohlcBars: FilterlessOhlcBar[] = (state.bot.price_history_ohlc as FilterlessOhlcBar[] | undefined | null) || [];
+  const hasOhlc = ohlcBars.length > 0;
+
+  // Mount/unmount: create chart + both possible series. We swap visibility via setData([]) on the inactive one.
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const setup = setupCanvas(canvas);
-    if (!setup) return;
-    const { ctx, width, height, dpr } = setup;
-    ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = '#040107';
-    ctx.fillRect(0, 0, width, height);
+    const container = containerRef.current;
+    if (!container) return;
+    const chart = createChart(container, {
+      layout: {
+        background: { type: ColorType.Solid, color: '#040107' },
+        textColor: COLORS.muted,
+        fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+        fontSize: 11,
+      },
+      grid: {
+        vertLines: { color: 'rgba(168, 85, 255, 0.06)' },
+        horzLines: { color: 'rgba(168, 85, 255, 0.11)' },
+      },
+      rightPriceScale: {
+        borderColor: 'rgba(168, 85, 255, 0.18)',
+        scaleMargins: { top: 0.1, bottom: 0.08 },
+      },
+      // All time labels rendered in America/New_York (ET) regardless of viewer's
+      // local timezone. Crosshair = HH:MM ET; tick marks = HH:MM ET (or "Mon DD"
+      // at midnight ET).
+      timeScale: {
+        borderColor: 'rgba(168, 85, 255, 0.18)',
+        timeVisible: true,
+        secondsVisible: false,  // 1-min bars; minute precision is enough
+        tickMarkFormatter: (time: UTCTimestamp) => formatETTickMark(time as number),
+      },
+      localization: {
+        timeFormatter: (time: UTCTimestamp) => formatETTime(time as number, false) + ' ET',
+      },
+      crosshair: {
+        mode: 1,
+        vertLine: { color: 'rgba(168, 85, 255, 0.4)', width: 1, style: 0 },
+        horzLine: { color: 'rgba(168, 85, 255, 0.4)', width: 1, style: 0 },
+      },
+      handleScroll: true,
+      handleScale: true,
+      autoSize: true,
+    });
+    const candleSeries = chart.addSeries(CandlestickSeries, {
+      upColor: COLORS.green,
+      downColor: COLORS.red,
+      borderUpColor: COLORS.green,
+      borderDownColor: COLORS.red,
+      wickUpColor: COLORS.green,
+      wickDownColor: COLORS.red,
+      priceLineVisible: false,
+      lastValueVisible: true,
+    });
+    const areaSeries = chart.addSeries(AreaSeries, {
+      topColor: 'rgba(168, 85, 255, 0.32)',
+      bottomColor: 'rgba(168, 85, 255, 0.02)',
+      lineColor: COLORS.purple,
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: true,
+      crosshairMarkerVisible: true,
+      crosshairMarkerRadius: 4,
+      crosshairMarkerBackgroundColor: COLORS.cyan,
+      crosshairMarkerBorderColor: COLORS.purple,
+    });
+    chartRef.current = chart;
+    candleSeriesRef.current = candleSeries;
+    areaSeriesRef.current = areaSeries;
 
-    const history = state.bot.price_history
-      .filter((point) => point.price != null && !Number.isNaN(point.price))
-      .slice(-150);
-    const current = getPositionCurrentPrice(position, state.bot.price);
-    const entry = getPositionEntryPrice(position);
+    return () => {
+      chart.remove();
+      chartRef.current = null;
+      candleSeriesRef.current = null;
+      areaSeriesRef.current = null;
+      priceLinesRef.current = [];
+      overlayLineSeriesRef.current = [];
+      overlayBankLinesRef.current = [];
+    };
+  }, []);
+
+  // Continuous RAF loop: updates inline label positions directly via DOM
+  // transform writes. Bypasses React's render cycle entirely so labels
+  // track the chart with zero perceptible lag during pan/zoom.
+  // Re-armed whenever the label set changes (data refresh ~ every 3s).
+  // Labels are CLIPPED to the chart's plot area — when their pixel coords
+  // fall outside the bounds (price out of range, time scrolled off-screen)
+  // they're hidden so they don't escape into the rest of the page.
+  useEffect(() => {
+    let rafId = 0;
+    const tick = () => {
+      const chart = chartRef.current;
+      const container = containerRef.current;
+      const series: ISeriesApi<'Candlestick'> | ISeriesApi<'Area'> | null =
+        chart && container
+          ? (hasOhlc ? candleSeriesRef.current : areaSeriesRef.current)
+          : null;
+      if (chart && series && container) {
+        const ts = chart.timeScale();
+        // Plot area = container size minus axes. Subtract a small margin
+        // so labels don't bleed visibly past the price/time scale borders.
+        const W = container.clientWidth;
+        const H = container.clientHeight;
+        let priceAxisW = 0;
+        let timeAxisH = 0;
+        try { priceAxisW = chart.priceScale('right').width(); } catch { /* api drift */ }
+        try { timeAxisH = ts.height(); } catch { /* api drift */ }
+        const plotRight = W - priceAxisW - 4;
+        const plotBottom = H - timeAxisH - 4;
+        for (let i = 0; i < overlayLabels.length; i += 1) {
+          const lbl = overlayLabels[i];
+          const el = labelDomRefs.current[i];
+          if (!el) continue;
+          const x = ts.timeToCoordinate(lbl.time);
+          const y = (series as ISeriesApi<'Line'>).priceToCoordinate(lbl.price);
+          // Hide if coord null OR outside plot area. Use a small padding
+          // so a label that's barely peeking off-screen is hidden cleanly.
+          if (
+            x == null || y == null ||
+            x < 4 || x > plotRight ||
+            y < 4 || y > plotBottom
+          ) {
+            el.style.visibility = 'hidden';
+            continue;
+          }
+          el.style.visibility = 'visible';
+          // translate3d engages GPU compositing; avoids layout reflow.
+          el.style.transform = `translate3d(${x + 2}px, ${y - 7}px, 0)`;
+        }
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [overlayLabels, hasOhlc]);
+
+  // Feed OHLC candles when available; otherwise feed area-line close prices.
+  useEffect(() => {
+    const candle = candleSeriesRef.current;
+    const area = areaSeriesRef.current;
+    if (!candle || !area) return;
+
+    if (hasOhlc) {
+      const points = ohlcBars
+        .map((bar) => {
+          if (!bar || bar.o == null || bar.h == null || bar.l == null || bar.c == null) return null;
+          const ts = Math.floor(new Date(bar.t).getTime() / 1000);
+          if (!Number.isFinite(ts) || ts <= 0) return null;
+          return { time: ts as UTCTimestamp, open: bar.o, high: bar.h, low: bar.l, close: bar.c };
+        })
+        .filter((p): p is { time: UTCTimestamp; open: number; high: number; low: number; close: number } => p !== null)
+        .sort((a, b) => a.time - b.time);
+      const dedup: typeof points = [];
+      for (const p of points) {
+        if (dedup.length > 0 && dedup[dedup.length - 1].time === p.time) {
+          dedup[dedup.length - 1] = p;
+        } else {
+          dedup.push(p);
+        }
+      }
+      // Append a synthetic in-progress bar for the current minute so the
+      // chart isn't 1-min behind the live tape. Topstep's REST history
+      // endpoint only returns CLOSED bars; without this synthesis the most
+      // recent candle would be the previous minute. The bar advances H/L
+      // as state.bot.price ticks arrive between dashboard polls.
+      const livePrice = state.bot.price;
+      if (livePrice != null && Number.isFinite(livePrice)) {
+        const nowMin = Math.floor(Date.now() / 1000 / 60) * 60;
+        const lastHistTime = dedup.length > 0 ? (dedup[dedup.length - 1].time as number) : 0;
+        if (nowMin > lastHistTime) {
+          // New minute or no history yet — start (or update) the live bar
+          if (liveBarRef.current == null || liveBarRef.current.minute !== nowMin) {
+            liveBarRef.current = { minute: nowMin, open: livePrice, high: livePrice, low: livePrice, close: livePrice };
+          } else {
+            liveBarRef.current.close = livePrice;
+            if (livePrice > liveBarRef.current.high) liveBarRef.current.high = livePrice;
+            if (livePrice < liveBarRef.current.low) liveBarRef.current.low = livePrice;
+          }
+          dedup.push({
+            time: liveBarRef.current.minute as UTCTimestamp,
+            open: liveBarRef.current.open,
+            high: liveBarRef.current.high,
+            low: liveBarRef.current.low,
+            close: liveBarRef.current.close,
+          });
+        } else if (nowMin === lastHistTime) {
+          // Last historical bar IS the current minute (rare, only if API
+          // ever returns the in-progress bar). Update its close + extend
+          // H/L from live ticks; clear the synthetic ref since the real
+          // bar has taken over.
+          liveBarRef.current = null;
+          const last = dedup[dedup.length - 1];
+          if (livePrice > last.high) last.high = livePrice;
+          if (livePrice < last.low) last.low = livePrice;
+          last.close = livePrice;
+        }
+      }
+      candle.setData(dedup);
+      area.setData([]);  // hide area when candles are live
+      if (dedup.length > 0 && !candleFitDoneRef.current) {
+        chartRef.current?.timeScale().fitContent();
+        candleFitDoneRef.current = true;
+      }
+    } else {
+      // Fallback to close-only line via AreaSeries
+      const points = state.bot.price_history
+        .map((point) => {
+          if (point.price == null || Number.isNaN(point.price)) return null;
+          const ts = Math.floor(new Date(point.time).getTime() / 1000);
+          if (!Number.isFinite(ts) || ts <= 0) return null;
+          return { time: ts as UTCTimestamp, value: point.price as number };
+        })
+        .filter((point): point is { time: UTCTimestamp; value: number } => point !== null)
+        .sort((a, b) => a.time - b.time);
+      const dedup: typeof points = [];
+      for (const p of points) {
+        if (dedup.length > 0 && dedup[dedup.length - 1].time === p.time) {
+          dedup[dedup.length - 1] = p;
+        } else {
+          dedup.push(p);
+        }
+      }
+      area.setData(dedup);
+      candle.setData([]);
+      if (dedup.length > 0 && !areaFitDoneRef.current) {
+        chartRef.current?.timeScale().fitContent();
+        areaFitDoneRef.current = true;
+      }
+    }
+  }, [hasOhlc, ohlcBars, state.bot.price_history, state.bot.price]);
+
+  // Refresh the STOP / ENTRY / TP horizontal lines whenever the position OR active series changes.
+  useEffect(() => {
+    const series: ISeriesApi<'Candlestick'> | ISeriesApi<'Area'> | null =
+      hasOhlc ? candleSeriesRef.current : areaSeriesRef.current;
+    if (!series) return;
+    for (const entry of priceLinesRef.current) {
+      try { entry.series.removePriceLine(entry.line); } catch { /* chart may be torn down */ }
+    }
+    priceLinesRef.current = [];
     const stop = positionStop(position);
+    const entry = getPositionEntryPrice(position);
     const target = positionTarget(position);
-    const values = history.map((point) => point.price as number).concat([current, entry, stop, target].filter((value): value is number => value != null && !Number.isNaN(value)));
-    if (values.length < 2) {
-      ctx.fillStyle = COLORS.muted;
-      ctx.font = `${12 * dpr}px "JetBrains Mono", monospace`;
-      ctx.fillText('waiting for live price history', 24 * dpr, 42 * dpr);
-      return;
+    const overlays: Array<{ price: number | null; color: string; title: string }> = [
+      { price: stop, color: COLORS.red, title: 'STOP' },
+      { price: entry, color: COLORS.cyan, title: 'ENTRY' },
+      { price: target, color: COLORS.green, title: 'TP' },
+    ];
+    for (const overlay of overlays) {
+      if (overlay.price == null || Number.isNaN(overlay.price)) continue;
+      const line = series.createPriceLine({
+        price: overlay.price,
+        color: overlay.color,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        title: overlay.title,
+      });
+      priceLinesRef.current.push({ series, line });
+    }
+  }, [position, hasOhlc]);
+
+  // Pine-script-port overlay.
+  // (1) Session-anchored level lines (PrevH/L, Q1, TO, DO, ORBs, midpoints):
+  //     each is its own LineSeries with two data points — start at the
+  //     candle where the level was set, end ~12 bars past current. Only
+  //     ONE of each line type exists at any time; old ones get removed
+  //     before drawing new ones (matches Pine's line.delete/line.new
+  //     refresh on every session boundary).
+  // (2) Bank levels: createPriceLine for full-width horizontals. Red if
+  //     above current price, green if below. NO labels (axisLabelVisible
+  //     false, title empty) per user spec.
+  useEffect(() => {
+    const chart = chartRef.current;
+    const overlaySeries: ISeriesApi<'Candlestick'> | ISeriesApi<'Area'> | null =
+      hasOhlc ? candleSeriesRef.current : areaSeriesRef.current;
+    if (!chart || !overlaySeries) return;
+
+    // Clear all old overlay artifacts.
+    for (const s of overlayLineSeriesRef.current) {
+      try { chart.removeSeries(s); } catch { /* chart torn down */ }
+    }
+    overlayLineSeriesRef.current = [];
+    for (const entry of overlayBankLinesRef.current) {
+      try { entry.series.removePriceLine(entry.line); } catch { /* chart torn down */ }
+    }
+    overlayBankLinesRef.current = [];
+
+    if (!hasOhlc || ohlcBars.length === 0) return;
+
+    const levels = computeSessionLevels(ohlcBars);
+    const lastBarUnix = Math.floor(new Date(ohlcBars[ohlcBars.length - 1].t).getTime() / 1000);
+    if (!Number.isFinite(lastBarUnix) || lastBarUnix <= 0) return;
+    // Extend lines ~12 bars past current to mimic Pine's `bar_index + offset`.
+    // 1-min bars => 12 minutes ahead.
+    const extendTo = (lastBarUnix + 12 * 60) as UTCTimestamp;
+
+    // Collect label data alongside drawing — rendered as DOM overlays
+    // anchored to the line's right endpoint (at extendTo time).
+    const labels: Array<{ key: string; time: UTCTimestamp; price: number; color: string; bg: string; text: string }> = [];
+
+    const drawAnchored = (
+      level: Level | null,
+      color: string,
+      title: string,
+      style: LineStyle = LineStyle.Solid,
+      width: 1 | 2 = 1,
+      labelBg: string = 'rgba(67, 70, 81, 0.85)',
+    ): void => {
+      if (level == null || !Number.isFinite(level.price)) return;
+      const startTime = level.setAt as UTCTimestamp;
+      const safeStart = (level.setAt > lastBarUnix ? lastBarUnix : level.setAt) as UTCTimestamp;
+      try {
+        const lineSeries = chart.addSeries(LineSeries, {
+          color,
+          lineWidth: width,
+          lineStyle: style,
+          // No right-axis chip — we render an inline DOM label at the line's
+          // right tip instead, matching the TradingView Pine-script visual.
+          lastValueVisible: false,
+          priceLineVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        lineSeries.setData([
+          { time: startTime <= extendTo ? startTime : safeStart, value: level.price },
+          { time: extendTo, value: level.price },
+        ]);
+        overlayLineSeriesRef.current.push(lineSeries);
+      } catch { /* chart may be torn down */ }
+      labels.push({
+        key: `${title}-${level.setAt}-${level.price}`,
+        time: extendTo,
+        price: level.price,
+        color,
+        bg: labelBg,
+        text: `${title} ${level.price.toFixed(2)}`,
+      });
+    };
+
+    const drawAnchoredMidpoint = (
+      hi: Level | null,
+      lo: Level | null,
+      color: string,
+      title: string,
+    ): void => {
+      if (hi == null || lo == null) return;
+      const mid = (hi.price + lo.price) / 2;
+      // "Lock onto the candlestick on that midpoint": walk bars backwards
+      // from current and find the most recent bar whose [low, high] range
+      // contains the midpoint price. Anchor the midpoint line there so it
+      // visually emerges from a candle that touched it. Falls back to the
+      // later of (hi.setAt, lo.setAt) if no bar in range touched the mid.
+      let setAt = Math.max(hi.setAt, lo.setAt);
+      for (let i = ohlcBars.length - 1; i >= 0; i -= 1) {
+        const bar = ohlcBars[i];
+        const barUnix = Math.floor(new Date(bar.t).getTime() / 1000);
+        if (!Number.isFinite(barUnix)) continue;
+        if (barUnix < setAt) break;  // don't search before the midpoint becomes valid
+        if (bar.l <= mid && mid <= bar.h) {
+          setAt = barUnix;
+          break;
+        }
+      }
+      drawAnchored({ price: mid, setAt }, color, title, LineStyle.Dotted, 1, 'rgba(20, 12, 30, 0.65)');
+    };
+
+    const sessName = levels.currentSession ?? 'SESS';
+    const prevName = levels.prevSession ?? 'PREV';
+
+    // Previous session H/L + midpoint
+    drawAnchored(levels.prevHigh, '#ffffff', `${prevName} High`, LineStyle.Solid, 1);
+    drawAnchored(levels.prevLow, '#ffffff', `${prevName} Low`, LineStyle.Solid, 1);
+    drawAnchoredMidpoint(levels.prevHigh, levels.prevLow, COLORS.muted, 'Prev Session Midpoint');
+
+    // Q1 H/L + midpoint
+    drawAnchored(levels.q1High, '#ffffff', `Q1H-${sessName}`, LineStyle.Dashed, 1);
+    drawAnchored(levels.q1Low, '#ffffff', `Q1L-${sessName}`, LineStyle.Dashed, 1);
+    drawAnchoredMidpoint(levels.q1High, levels.q1Low, COLORS.muted, 'Q1 Midpoint');
+
+    // True Open
+    drawAnchored(levels.trueOpen, '#ffffff', `TO-${sessName}`, LineStyle.Solid, 1);
+
+    // Daily Open
+    drawAnchored(levels.dailyOpen, '#ffffff', 'Daily Open', LineStyle.Solid, 2);
+
+    // Midnight ORB
+    drawAnchored(levels.midOrbHigh, COLORS.red, 'Mid ORB High', LineStyle.Solid, 1);
+    drawAnchored(levels.midOrbLow, COLORS.green, 'Mid ORB Low', LineStyle.Solid, 1);
+    drawAnchoredMidpoint(levels.midOrbHigh, levels.midOrbLow, COLORS.muted, 'Midnight ORB Midpoint');
+
+    // Morning ORB
+    drawAnchored(levels.mornOrbHigh, COLORS.red, 'Morn ORB High', LineStyle.Solid, 1);
+    drawAnchored(levels.mornOrbLow, COLORS.green, 'Morn ORB Low', LineStyle.Solid, 1);
+    drawAnchoredMidpoint(levels.mornOrbHigh, levels.mornOrbLow, COLORS.muted, 'Morn ORB Midpoint');
+
+    // Bank levels: $12.50 increments, full-width horizontals.
+    // Red if level is above price (resistance), green if below (support).
+    // No labels, no axis labels — pure visual reference grid.
+    const lastClose = ohlcBars[ohlcBars.length - 1].c;
+    const STEP = 12.5;
+    const ABS_RANGE = 5;   // ±5 absolute bank levels around current price
+    const REL_RANGE = 5;   // ±5 relative bank levels anchored to session open
+    const drawBank = (price: number): void => {
+      if (!Number.isFinite(price)) return;
+      const isAbove = price > lastClose;
+      const color = isAbove
+        ? 'rgba(255, 56, 100, 0.40)'   // red — resistance above
+        : 'rgba(69, 255, 200, 0.40)';  // green — support below
+      try {
+        const line = overlaySeries.createPriceLine({
+          price,
+          color,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: false,
+          title: '',
+        });
+        overlayBankLinesRef.current.push({ series: overlaySeries, line });
+      } catch { /* chart may be torn down */ }
+    };
+    if (Number.isFinite(lastClose)) {
+      const baseAbs = Math.floor(lastClose / STEP) * STEP;
+      for (let i = -ABS_RANGE; i <= ABS_RANGE; i += 1) {
+        const lvl = baseAbs + i * STEP;
+        if (Math.abs(lvl - lastClose) < 0.01) continue;
+        drawBank(lvl);
+      }
+    }
+    if (levels.sessionAnchor != null && Number.isFinite(levels.sessionAnchor)) {
+      for (let i = -REL_RANGE; i <= REL_RANGE; i += 1) {
+        if (i === 0) continue;
+        drawBank(levels.sessionAnchor + i * STEP);
+      }
     }
 
-    const min = Math.min(...values) - 1;
-    const max = Math.max(...values) + 1;
-    const left = 34 * dpr;
-    const right = width - 86 * dpr;
-    const top = 32 * dpr;
-    const bottom = height - 30 * dpr;
-    const yFor = (price: number) => bottom - ((price - min) / (max - min || 1)) * (bottom - top);
+    setOverlayLabels(labels);
+  }, [hasOhlc, ohlcBars]);
 
-    ctx.strokeStyle = 'rgba(168, 85, 255, 0.11)';
-    ctx.lineWidth = 1 * dpr;
-    for (let i = 0; i < 5; i += 1) {
-      const y = top + ((bottom - top) * i) / 4;
-      ctx.beginPath();
-      ctx.moveTo(left, y);
-      ctx.lineTo(right, y);
-      ctx.stroke();
-    }
+  const hasAnyData = hasOhlc || state.bot.price_history.some((point) => point.price != null && !Number.isNaN(point.price));
 
-    [
-      ['STOP', stop, COLORS.red],
-      ['ENTRY', entry, COLORS.cyan],
-      ['TP', target, COLORS.green],
-    ].forEach(([label, price, color]) => {
-      if (typeof price !== 'number' || Number.isNaN(price)) return;
-      const y = yFor(price);
-      ctx.strokeStyle = color as string;
-      ctx.globalAlpha = label === 'ENTRY' ? 0.82 : 0.64;
-      ctx.setLineDash([8 * dpr, 7 * dpr]);
-      ctx.beginPath();
-      ctx.moveTo(left, y);
-      ctx.lineTo(right, y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = color as string;
-      ctx.font = `${10 * dpr}px "JetBrains Mono", monospace`;
-      ctx.fillText(String(label), right + 10 * dpr, y + 3 * dpr);
-    });
+  // Trim the labelDomRefs array to match current overlayLabels count so
+  // stale refs from previous renders don't accumulate or cause null reads.
+  if (labelDomRefs.current.length > overlayLabels.length) {
+    labelDomRefs.current.length = overlayLabels.length;
+  }
 
-    const grad = ctx.createLinearGradient(0, top, 0, bottom);
-    grad.addColorStop(0, 'rgba(168,85,255,0.28)');
-    grad.addColorStop(1, 'rgba(168,85,255,0)');
-    ctx.beginPath();
-    history.forEach((point, index) => {
-      const x = left + ((right - left) * index) / Math.max(1, history.length - 1);
-      const y = yFor(point.price as number);
-      if (index === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.lineTo(right, bottom);
-    ctx.lineTo(left, bottom);
-    ctx.closePath();
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    ctx.beginPath();
-    history.forEach((point, index) => {
-      const x = left + ((right - left) * index) / Math.max(1, history.length - 1);
-      const y = yFor(point.price as number);
-      if (index === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.strokeStyle = COLORS.purple;
-    ctx.shadowBlur = 18 * dpr;
-    ctx.shadowColor = COLORS.purple;
-    ctx.lineWidth = 2 * dpr;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    if (typeof current === 'number' && !Number.isNaN(current)) {
-      ctx.fillStyle = regimeColor('CHOP_SPIRAL');
-      ctx.beginPath();
-      ctx.arc(right, yFor(current), 4 * dpr, 0, TAU);
-      ctx.fill();
-    }
-  }, [state, position]);
-
-  return <canvas ref={canvasRef} className="chart" />;
+  return (
+    <div className="chart" style={{ position: 'relative' }}>
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+      {!hasAnyData ? (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: COLORS.muted, fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 11,
+          pointerEvents: 'none',
+        }}>
+          waiting for live price history
+        </div>
+      ) : null}
+      {hasOhlc ? (
+        <div style={{
+          position: 'absolute', top: 8, left: 12,
+          color: COLORS.muted, fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 9,
+          letterSpacing: 1, opacity: 0.6, pointerEvents: 'none',
+        }}>
+          1m · ohlc
+        </div>
+      ) : null}
+      {/* Inline TradingView-style level labels. Position is updated every
+          frame by the RAF loop above (see useEffect on overlayLabels) — NOT
+          by React state, so there's zero pan/zoom lag. Initial transform
+          parks them off-screen until the first RAF tick lands them. */}
+      {overlayLabels.map((lbl, i) => (
+        <div
+          key={lbl.key}
+          ref={(el) => { labelDomRefs.current[i] = el; }}
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            transform: 'translate3d(-9999px, -9999px, 0)',
+            color: lbl.color,
+            background: lbl.bg,
+            padding: '1px 4px',
+            borderRadius: 2,
+            fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+            fontSize: 8,
+            lineHeight: '12px',
+            whiteSpace: 'nowrap',
+            pointerEvents: 'none',
+            zIndex: 2,
+            opacity: 0.92,
+            willChange: 'transform',
+          }}
+        >
+          {lbl.text}
+        </div>
+      ))}
+    </div>
+  );
 };
 
 const SentimentCanvas: React.FC<{ sentiment: FilterlessSentimentMetrics }> = ({ sentiment }) => {
@@ -1777,65 +2445,63 @@ function FilterlessLiveCockpit() {
 
   const renderOverview = () => (
     <section className="screen">
-      <div className="grid overview-layout">
-        <div className="stack">
-          <Panel title="Execution Logic" subtitle="Execution score, guard rails, and live context." badge={<Badge tone={features.noTrade ? 'block' : 'live'}>{features.noTrade ? 'guard' : 'armed'}</Badge>}>
-            <div className="terminal">
-              {logicRows.map(([title, text, tone]) => (
-                <TerminalRow key={title} time={state.generated_at} title={title} text={text} badge={<Badge tone={tone === 'block' ? 'block' : tone === 'watch' ? 'watch' : 'info'}>{tone}</Badge>} />
-              ))}
-            </div>
-          </Panel>
-          <Panel title="Risk Monitor" subtitle="Kelly, drawdown, and correlation pressure." badge={<Badge tone={state.bot.risk.circuit_tripped ? 'block' : 'watch'}>{state.bot.risk.circuit_tripped ? 'tripped' : 'watch'}</Badge>}>
-            <div className="panel-body">
-              <Meter label="risk mult" value={features.riskMult / 1.5} text={`${fmt(features.riskMult)}x`} color={COLORS.purple} />
-              <Meter label="drawdown" value={clip01(Math.abs(dailyPnl ?? 0) / 2000)} text={formatMoney(dailyPnl)} color={COLORS.red} />
-              <Meter label="correlation" value={features.R} text={fmt(features.R)} color={COLORS.cyan} />
-            </div>
-          </Panel>
+      {/* TOP: Full-width execution chart with position metadata strip */}
+      <Panel title="Execution Chart" subtitle="Price path with entry, stop, and take-profit rails." badge={<Badge tone={primaryPosition ? 'info' : 'watch'}>{primaryPosition ? 'live trade' : 'flat'}</Badge>}>
+        <PriceCanvas state={state} position={primaryPosition} />
+        <div className="mini-grid">
+          <div className="mini"><span className="label">position</span><strong className={`truncate ${sideTone(primaryPosition?.side)}`}>{primaryPosition ? `${primaryPosition.side} ${primaryPosition.size ?? '--'} MES` : 'FLAT'}</strong></div>
+          <div className="mini"><span className="label">entry</span><strong className="truncate info">{formatPrice(entry)}</strong></div>
+          <div className="mini"><span className="label">stop</span><strong className="truncate down">{formatPrice(stop)}</strong></div>
+          <div className="mini"><span className="label">tp route</span><strong className="truncate up">{formatPrice(target)}</strong></div>
         </div>
+      </Panel>
 
-        <div className="stack">
-          <Panel title="Execution Chart" subtitle="Price path with entry, stop, and take-profit rails." badge={<Badge tone={primaryPosition ? 'info' : 'watch'}>{primaryPosition ? 'live trade' : 'flat'}</Badge>}>
-            <PriceCanvas state={state} position={primaryPosition} />
-            <div className="mini-grid">
-              <div className="mini"><span className="label">position</span><strong className={`truncate ${sideTone(primaryPosition?.side)}`}>{primaryPosition ? `${primaryPosition.side} ${primaryPosition.size ?? '--'} MES` : 'FLAT'}</strong></div>
-              <div className="mini"><span className="label">entry</span><strong className="truncate info">{formatPrice(entry)}</strong></div>
-              <div className="mini"><span className="label">stop</span><strong className="truncate down">{formatPrice(stop)}</strong></div>
-              <div className="mini"><span className="label">tp route</span><strong className="truncate up">{formatPrice(target)}</strong></div>
-            </div>
-          </Panel>
-          <div className="grid cols-3">
-            <Metric label="last price" value={formatPrice(price)} hint="streaming tape" color={COLORS.cyan} />
-            <Metric label="open pnl" value={primaryPosition ? formatMoney(totalOpenPnl) : '--'} hint="broker shadow" color={totalOpenPnl >= 0 ? COLORS.lime : COLORS.amber} />
-            <Metric label="target room" value={targetRoom == null ? '--' : `${fmt(targetRoom, 1)}pt`} hint="to active TP" color={COLORS.lime} />
+      {/* MIDDLE: 3-card metric row (price / pnl / target room) — full width */}
+      <div className="grid cols-3 mt-panel">
+        <Metric label="last price" value={formatPrice(price)} hint="streaming tape" color={COLORS.cyan} />
+        <Metric label="open pnl" value={primaryPosition ? formatMoney(totalOpenPnl) : '--'} hint="broker shadow" color={totalOpenPnl >= 0 ? COLORS.lime : COLORS.amber} />
+        <Metric label="target room" value={targetRoom == null ? '--' : `${fmt(targetRoom, 1)}pt`} hint="to active TP" color={COLORS.lime} />
+      </div>
+
+      {/* BOTTOM: All four side panels (Execution Logic / Risk Monitor /
+          Active Positions / Order Flow) in a single row beneath the chart. */}
+      <div className="grid cols-4 mt-panel">
+        <Panel title="Execution Logic" subtitle="Execution score, guard rails, and live context." badge={<Badge tone={features.noTrade ? 'block' : 'live'}>{features.noTrade ? 'guard' : 'armed'}</Badge>}>
+          <div className="terminal">
+            {logicRows.map(([title, text, tone]) => (
+              <TerminalRow key={title} time={state.generated_at} title={title} text={text} badge={<Badge tone={tone === 'block' ? 'block' : tone === 'watch' ? 'watch' : 'info'}>{tone}</Badge>} />
+            ))}
           </div>
-        </div>
-
-        <div className="stack">
-          <Panel title="Active Positions" subtitle="Live P/L and route notes." badge={<Badge tone={openPositions.length ? 'live' : 'watch'}>{openPositions.length ? `${openPositions.length} live` : 'flat'}</Badge>}>
-            <div className="terminal">
-              {openPositions.length ? openPositions.map((position, index) => (
-                <div className="position" key={`${position.strategy_id}-${position.order_id || position.opened_at || index}`}>
-                  <div>
-                    <strong className="truncate">{position.strategy_label || position.strategy_id}</strong>
-                    <p className="truncate">entry {formatPrice(getPositionEntryPrice(position))} / {formatToken(position.entry_mode || position.rule_id)}</p>
-                  </div>
-                  <span className={(position.open_pnl_dollars ?? 0) >= 0 ? 'up' : 'warn'}>{formatMoney(position.open_pnl_dollars)}</span>
+        </Panel>
+        <Panel title="Risk Monitor" subtitle="Kelly, drawdown, and correlation pressure." badge={<Badge tone={state.bot.risk.circuit_tripped ? 'block' : 'watch'}>{state.bot.risk.circuit_tripped ? 'tripped' : 'watch'}</Badge>}>
+          <div className="panel-body">
+            <Meter label="risk mult" value={features.riskMult / 1.5} text={`${fmt(features.riskMult)}x`} color={COLORS.purple} />
+            <Meter label="drawdown" value={clip01(Math.abs(dailyPnl ?? 0) / 2000)} text={formatMoney(dailyPnl)} color={COLORS.red} />
+            <Meter label="correlation" value={features.R} text={fmt(features.R)} color={COLORS.cyan} />
+          </div>
+        </Panel>
+        <Panel title="Active Positions" subtitle="Live P/L and route notes." badge={<Badge tone={openPositions.length ? 'live' : 'watch'}>{openPositions.length ? `${openPositions.length} live` : 'flat'}</Badge>}>
+          <div className="terminal">
+            {openPositions.length ? openPositions.map((position, index) => (
+              <div className="position" key={`${position.strategy_id}-${position.order_id || position.opened_at || index}`}>
+                <div>
+                  <strong className="truncate">{position.strategy_label || position.strategy_id}</strong>
+                  <p className="truncate">entry {formatPrice(getPositionEntryPrice(position))} / {formatToken(position.entry_mode || position.rule_id)}</p>
                 </div>
-              )) : <TerminalRow title="FLAT" text="No filterless positions are currently open." badge={<Badge tone="watch">idle</Badge>} />}
-            </div>
-          </Panel>
-          <Panel title="Order Flow" subtitle="Live pressure derived from tape and route state." badge={<Badge tone="info">depth</Badge>}>
-            <FlowBars values={[
-              { label: 'align', value: features.alignment, color: COLORS.green },
-              { label: 'smooth', value: features.smoothness, color: COLORS.cyan },
-              { label: 'stress', value: features.stress, color: COLORS.amber },
-              { label: 'burst', value: features.burstPressure, color: COLORS.pink },
-              { label: 'risk', value: features.riskMult / 1.5, color: COLORS.purple },
-            ]} />
-          </Panel>
-        </div>
+                <span className={(position.open_pnl_dollars ?? 0) >= 0 ? 'up' : 'warn'}>{formatMoney(position.open_pnl_dollars)}</span>
+              </div>
+            )) : <TerminalRow title="FLAT" text="No filterless positions are currently open." badge={<Badge tone="watch">idle</Badge>} />}
+          </div>
+        </Panel>
+        <Panel title="Order Flow" subtitle="Live pressure derived from tape and route state." badge={<Badge tone="info">depth</Badge>}>
+          <FlowBars values={[
+            { label: 'align', value: features.alignment, color: COLORS.green },
+            { label: 'smooth', value: features.smoothness, color: COLORS.cyan },
+            { label: 'stress', value: features.stress, color: COLORS.amber },
+            { label: 'burst', value: features.burstPressure, color: COLORS.pink },
+            { label: 'risk', value: features.riskMult / 1.5, color: COLORS.purple },
+          ]} />
+        </Panel>
       </div>
     </section>
   );
