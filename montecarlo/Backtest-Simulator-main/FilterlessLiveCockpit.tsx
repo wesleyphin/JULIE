@@ -2445,8 +2445,15 @@ function FilterlessLiveCockpit() {
 
   const renderOverview = () => (
     <section className="screen">
-      {/* TOP: Full-width execution chart with position metadata strip */}
-      <Panel title="Execution Chart" subtitle="Price path with entry, stop, and take-profit rails." badge={<Badge tone={primaryPosition ? 'info' : 'watch'}>{primaryPosition ? 'live trade' : 'flat'}</Badge>}>
+      {/* TOP: 3-card metric row (last price / open pnl / target room) — full width */}
+      <div className="grid cols-3">
+        <Metric label="last price" value={formatPrice(price)} hint="streaming tape" color={COLORS.cyan} />
+        <Metric label="open pnl" value={primaryPosition ? formatMoney(totalOpenPnl) : '--'} hint="broker shadow" color={totalOpenPnl >= 0 ? COLORS.lime : COLORS.amber} />
+        <Metric label="target room" value={targetRoom == null ? '--' : `${fmt(targetRoom, 1)}pt`} hint="to active TP" color={COLORS.lime} />
+      </div>
+
+      {/* MIDDLE: Full-width execution chart with position metadata strip */}
+      <Panel title="Execution Chart" subtitle="Price path with entry, stop, and take-profit rails." badge={<Badge tone={primaryPosition ? 'info' : 'watch'}>{primaryPosition ? 'live trade' : 'flat'}</Badge>} className="mt-panel">
         <PriceCanvas state={state} position={primaryPosition} />
         <div className="mini-grid">
           <div className="mini"><span className="label">position</span><strong className={`truncate ${sideTone(primaryPosition?.side)}`}>{primaryPosition ? `${primaryPosition.side} ${primaryPosition.size ?? '--'} MES` : 'FLAT'}</strong></div>
@@ -2455,13 +2462,6 @@ function FilterlessLiveCockpit() {
           <div className="mini"><span className="label">tp route</span><strong className="truncate up">{formatPrice(target)}</strong></div>
         </div>
       </Panel>
-
-      {/* MIDDLE: 3-card metric row (price / pnl / target room) — full width */}
-      <div className="grid cols-3 mt-panel">
-        <Metric label="last price" value={formatPrice(price)} hint="streaming tape" color={COLORS.cyan} />
-        <Metric label="open pnl" value={primaryPosition ? formatMoney(totalOpenPnl) : '--'} hint="broker shadow" color={totalOpenPnl >= 0 ? COLORS.lime : COLORS.amber} />
-        <Metric label="target room" value={targetRoom == null ? '--' : `${fmt(targetRoom, 1)}pt`} hint="to active TP" color={COLORS.lime} />
-      </div>
 
       {/* BOTTOM: All four side panels (Execution Logic / Risk Monitor /
           Active Positions / Order Flow) in a single row beneath the chart. */}
