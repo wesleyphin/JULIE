@@ -296,6 +296,14 @@ BRIDGE_LOG_PATH = ROOT / "logs" / "dashboard_bridge.log"
 BRIDGE_PROCESS: Optional[subprocess.Popen[Any]] = None
 BRIDGE_LOG_HANDLE = None
 
+# Tick chart poller — sidecar that pulls 15-sec OHLC bars from Topstep REST
+# and writes them to artifacts/tick_chart_ohlc.json for the dashboard
+# candlestick chart. Runs alongside the bridge; failures don't affect trading.
+POLLER_SCRIPT = ROOT / "tools" / "tick_chart_poller.py"
+POLLER_LOG_PATH = ROOT / "logs" / "tick_chart_poller.log"
+POLLER_PROCESS: Optional[subprocess.Popen[Any]] = None
+POLLER_LOG_HANDLE = None
+
 
 def _load_live_position_from_state() -> Optional[Dict[str, Any]]:
     state = load_bot_state(ROOT / "bot_state.json")
@@ -573,9 +581,71 @@ def _cleanup_bridge_process() -> None:
     BRIDGE_LOG_HANDLE = None
 
 
+def _start_poller_process() -> None:
+    """Spawn the tick chart poller sidecar. DEFAULT OFF as of 2026-04-26 —
+    the dashboard candlestick chart now reads 1-min OHLC directly from the
+    bot's existing market_df via build_persisted_state, so the separate
+    poller is redundant and would double API usage. Set
+    JULIE_TICK_CHART_POLLER=1 to opt back in (e.g. for sub-minute 15-sec bars).
+    Reads JULIE_ACCOUNT_ID from env so it authenticates to the same Topstep
+    account as the bot."""
+    global POLLER_PROCESS, POLLER_LOG_HANDLE
+    if os.environ.get("JULIE_TICK_CHART_POLLER", "0").strip() != "1":
+        return
+    if POLLER_PROCESS is not None and POLLER_PROCESS.poll() is None:
+        return
+
+    POLLER_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    POLLER_LOG_HANDLE = POLLER_LOG_PATH.open("a", encoding="utf-8", buffering=1)
+    cmd = [sys.executable, str(POLLER_SCRIPT)]
+    if os.name == "nt":
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+        POLLER_PROCESS = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=POLLER_LOG_HANDLE,
+            stderr=subprocess.STDOUT,
+            creationflags=creationflags,
+            close_fds=True,
+            env=os.environ.copy(),
+        )
+    else:
+        POLLER_PROCESS = subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=POLLER_LOG_HANDLE,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            close_fds=True,
+            env=os.environ.copy(),
+        )
+
+
+def _cleanup_poller_process() -> None:
+    global POLLER_PROCESS, POLLER_LOG_HANDLE
+    process = POLLER_PROCESS
+    if process is not None and process.poll() is None:
+        try:
+            if os.name == "nt":
+                process.terminate()
+            else:
+                os.killpg(process.pid, signal.SIGTERM)
+        except Exception:
+            pass
+    if POLLER_LOG_HANDLE is not None:
+        try:
+            POLLER_LOG_HANDLE.flush()
+            POLLER_LOG_HANDLE.close()
+        except Exception:
+            pass
+    POLLER_PROCESS = None
+    POLLER_LOG_HANDLE = None
+
+
 async def _run_all() -> None:
     kalshi_snapshot_path = DEFAULT_KALSHI_SNAPSHOT_PATH
     _start_bridge_process(kalshi_snapshot_path)
+    _start_poller_process()
     tasks = [
         asyncio.create_task(_kalshi_snapshot_loop(kalshi_snapshot_path)),
         asyncio.create_task(run_bot()),
@@ -592,4 +662,5 @@ async def _run_all() -> None:
 
 if __name__ == "__main__":
     atexit.register(_cleanup_bridge_process)
+    atexit.register(_cleanup_poller_process)
     asyncio.run(_run_all())

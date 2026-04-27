@@ -629,6 +629,7 @@ def build_empty_state(log_path: Path, state_path: Path, trade_factors_path: Path
             "position_sync_status": None,
             "current_position": None,
             "price_history": [],
+            "price_history_ohlc": [],
             "risk": {
                 "daily_pnl": None,
                 "circuit_consecutive_losses": None,
@@ -1086,6 +1087,22 @@ def apply_bot_state_snapshot(
     pipeline_snapshot = persisted_state.get("pipeline")
     if isinstance(pipeline_snapshot, dict):
         dashboard["pipeline"] = pipeline_snapshot
+
+    ohlc_snapshot = persisted_state.get("price_history_ohlc")
+    if isinstance(ohlc_snapshot, list) and ohlc_snapshot:
+        dashboard["bot"]["price_history_ohlc"] = ohlc_snapshot
+    else:
+        # Sidecar fallback: tools/tick_chart_poller.py writes 15-sec OHLC
+        # bars to artifacts/tick_chart_ohlc.json. Read it if the in-bot
+        # tick stream hasn't populated bot_state.json yet.
+        sidecar_path = ROOT / "artifacts" / "tick_chart_ohlc.json"
+        if sidecar_path.exists():
+            try:
+                sidecar_payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+                if isinstance(sidecar_payload, list) and sidecar_payload:
+                    dashboard["bot"]["price_history_ohlc"] = sidecar_payload
+            except (OSError, json.JSONDecodeError):
+                pass
 
     live_position = persisted_state.get("live_position")
     live_position_ts = None

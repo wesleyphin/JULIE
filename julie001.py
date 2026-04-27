@@ -931,6 +931,39 @@ def v18_should_keep_de3(
 # === END LOCAL OVERRIDE ===
 
 
+def _extract_ohlc_from_df(df, max_bars: int = 60) -> Optional[list]:
+    """Convert the bot's existing 1-min market_df (DataFrame indexed by ts
+    with open/high/low/close/volume cols) into the dashboard's OHLC schema.
+    Returns the last `max_bars` rows for the live candlestick chart.
+
+    Piggy-backs on bars the bot already pulls — zero extra REST calls.
+    Never raises."""
+    try:
+        if df is None:
+            return None
+        n = len(df)
+        if n == 0:
+            return None
+        tail = df.tail(max_bars)
+        bars: list = []
+        for ts, row in tail.iterrows():
+            try:
+                ts_iso = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+                bars.append({
+                    "t": ts_iso,
+                    "o": float(row["open"]),
+                    "h": float(row["high"]),
+                    "l": float(row["low"]),
+                    "c": float(row["close"]),
+                    "v": float(row.get("volume", 0.0) or 0.0),
+                })
+            except Exception:
+                continue
+        return bars if bars else None
+    except Exception:
+        return None
+
+
 def _build_pipeline_state_snapshot() -> dict:
     """Snapshot of the active V18 pipeline configuration for the live dashboard.
     Read by build_persisted_state and surfaced via filterless_dashboard_bridge ->
@@ -8524,6 +8557,21 @@ async def run_bot():
         except Exception as exc:
             logging.warning("ProjectX user stream startup failed: %s", exc)
 
+    # === LOCAL OVERRIDE 2026-04-26 — tick chart stream (disabled by default) ===
+    # The dashboard candlestick chart now reads OHLC directly from the bot's
+    # existing 1-min bar pulls (see _extract_ohlc_from_df + build_persisted_state),
+    # so this WebSocket subscription is no longer needed. Kept around as
+    # opt-in path for sub-minute granularity if ever wanted: set
+    # JULIE_TICK_CHART_STREAM=1 to subscribe to per-trade ticks and aggregate
+    # to 15-sec bars instead of using 1-min bars.
+    if os.environ.get("JULIE_TICK_CHART_STREAM", "0").strip() == "1":
+        try:
+            from tools.tick_chart_stream import start_tick_chart_stream
+            start_tick_chart_stream(jwt_token=client.token, contract_id=client.contract_id)
+        except Exception as exc:
+            logging.warning("[TICK_STREAM] startup skipped: %s", exc)
+    # === END LOCAL OVERRIDE ===
+
     filterless_only_mode = (
         str(os.environ.get("JULIE_FILTERLESS_ONLY", "")).strip().lower() in TRUTHY_ENV_VALUES
     )
@@ -11316,6 +11364,14 @@ async def run_bot():
                 else None
             ),
             "pipeline": _build_pipeline_state_snapshot(),
+            # 2-day lookback (2880 1-min bars) for the dashboard candlestick
+            # chart + Pine-script-port overlay (sessions/ORB/bank levels).
+            # Reads from master_df (the bot's full rolling history,
+            # ~13 days from the startup pull at run_bot's lookback_minutes=20000)
+            # NOT client.cached_df — the latter gets replaced to 15 minutes
+            # on every incremental fetch in the trading loop.
+            # Zero extra API calls.
+            "price_history_ohlc": _extract_ohlc_from_df(master_df, max_bars=2880),
         }
 
     def persist_runtime_state(
