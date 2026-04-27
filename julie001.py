@@ -794,26 +794,35 @@ def _signal_sub_strategy_id(signal: Optional[dict]) -> str:
 
 def _signal_et_hour(signal: Optional[dict]) -> Optional[int]:
     """Best-effort extraction of entry hour in America/New_York from signal."""
-    if not isinstance(signal, dict):
-        return None
-    for k in ("entry_time", "ts", "timestamp", "signal_time"):
-        v = signal.get(k)
-        if v is None:
-            continue
-        try:
-            t = pd.to_datetime(v, utc=True)
-            return int(t.tz_convert("America/New_York").hour)
-        except Exception:
-            try:
-                t = pd.Timestamp(v)
-                if t.tz is None:
-                    t = t.tz_localize("America/New_York")
-                else:
-                    t = t.tz_convert("America/New_York")
-                return int(t.hour)
-            except Exception:
+    if isinstance(signal, dict):
+        for k in ("entry_time", "ts", "timestamp", "signal_time"):
+            v = signal.get(k)
+            if v is None:
                 continue
-    return None
+            try:
+                t = pd.to_datetime(v, utc=True)
+                return int(t.tz_convert("America/New_York").hour)
+            except Exception:
+                try:
+                    t = pd.Timestamp(v)
+                    if t.tz is None:
+                        t = t.tz_localize("America/New_York")
+                    else:
+                        t = t.tz_convert("America/New_York")
+                    return int(t.hour)
+                except Exception:
+                    continue
+    # Live DE3 signals don't stamp entry_time/ts/timestamp on the dict —
+    # signal_out construction in dynamic_engine3_strategy.py only sets
+    # strategy/sub_strategy/side/tp_dist/sl_dist/size. The live gate runs
+    # synchronously with the current bar, so the wall-clock ET hour is
+    # the candidate's actual hour. Without this fallback, the NY-AM
+    # bypass cell mis-blocks every hour-8 candidate under reason
+    # "hour=None_not_8" instead of routing it to the native pipeline.
+    try:
+        return int(pd.Timestamp.now(tz="America/New_York").hour)
+    except Exception:
+        return None
 
 
 def _ny_am_bypass_decision(signal: Optional[dict]) -> Optional[tuple[bool, str]]:
