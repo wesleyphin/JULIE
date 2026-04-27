@@ -178,6 +178,16 @@ const NAV: Array<{ id: ScreenId; label: string; code: string; title: string; sub
 
 const COCKPIT_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Orbitron:wght@500;700;800&family=Rajdhani:wght@400;500;600;700&display=swap');
+@font-face {
+  font-family: 'Ghastly Panic';
+  src: url('/fonts/GhastlyPanic.ttf') format('truetype');
+  font-display: swap;
+}
+.display-title {
+  font-family: 'Ghastly Panic', 'Orbitron', cursive;
+  letter-spacing: 0.05em;
+  text-transform: none;
+}
 :root {
   --bg: #000;
   --line: rgba(160, 90, 255, 0.23);
@@ -979,17 +989,18 @@ function projectSurfacePoint(x: number, y: number, z: number, width: number, hei
   };
 }
 
-const Panel: React.FC<{ title: string; subtitle?: string; badge?: React.ReactNode; children: React.ReactNode; className?: string }> = ({
+const Panel: React.FC<{ title: string; subtitle?: string; badge?: React.ReactNode; children: React.ReactNode; className?: string; titleClassName?: string }> = ({
   title,
   subtitle,
   badge,
   children,
   className,
+  titleClassName,
 }) => (
   <div className={`panel ${className || ''}`}>
     <div className="panel-head">
       <div>
-        <h3>{title}</h3>
+        <h3 className={titleClassName}>{title}</h3>
         {subtitle ? <p className="truncate">{subtitle}</p> : null}
       </div>
       {badge}
@@ -1044,16 +1055,17 @@ const TerminalRow: React.FC<{ time?: string | null; title: React.ReactNode; text
   </div>
 );
 
-const Tile: React.FC<{ title: string; text: string; color?: string; badge?: React.ReactNode; active?: boolean }> = ({
+const Tile: React.FC<{ title: string; text: string; color?: string; badge?: React.ReactNode; active?: boolean; titleClassName?: string }> = ({
   title,
   text,
   color = COLORS.purple,
   badge,
   active,
+  titleClassName,
 }) => (
   <div className={`tile ${active ? 'active' : ''}`} style={{ '--tile': color } as React.CSSProperties}>
     <div className="tile-row">
-      <strong className="truncate">{title}</strong>
+      <strong className={`truncate${titleClassName ? ' ' + titleClassName : ''}`}>{title}</strong>
       {badge}
     </div>
     <p className="clamp">{text}</p>
@@ -2453,7 +2465,7 @@ function FilterlessLiveCockpit() {
       </div>
 
       {/* MIDDLE: Full-width execution chart with position metadata strip */}
-      <Panel title="Execution Chart" subtitle="Price path with entry, stop, and take-profit rails." badge={<Badge tone={primaryPosition ? 'info' : 'watch'}>{primaryPosition ? 'live trade' : 'flat'}</Badge>} className="mt-panel">
+      <Panel title="Execution Chart" titleClassName="display-title" subtitle="Price path with entry, stop, and take-profit rails." badge={<Badge tone={primaryPosition ? 'info' : 'watch'}>{primaryPosition ? 'live trade' : 'flat'}</Badge>} className="mt-panel">
         <PriceCanvas state={state} position={primaryPosition} />
         <div className="mini-grid">
           <div className="mini"><span className="label">position</span><strong className={`truncate ${sideTone(primaryPosition?.side)}`}>{primaryPosition ? `${primaryPosition.side} ${primaryPosition.size ?? '--'} MES` : 'FLAT'}</strong></div>
@@ -2466,21 +2478,21 @@ function FilterlessLiveCockpit() {
       {/* BOTTOM: All four side panels (Execution Logic / Risk Monitor /
           Active Positions / Order Flow) in a single row beneath the chart. */}
       <div className="grid cols-4 mt-panel">
-        <Panel title="Execution Logic" subtitle="Execution score, guard rails, and live context." badge={<Badge tone={features.noTrade ? 'block' : 'live'}>{features.noTrade ? 'guard' : 'armed'}</Badge>}>
+        <Panel title="Execution Logic" titleClassName="display-title" subtitle="Execution score, guard rails, and live context." badge={<Badge tone={features.noTrade ? 'block' : 'live'}>{features.noTrade ? 'guard' : 'armed'}</Badge>}>
           <div className="terminal">
             {logicRows.map(([title, text, tone]) => (
               <TerminalRow key={title} time={state.generated_at} title={title} text={text} badge={<Badge tone={tone === 'block' ? 'block' : tone === 'watch' ? 'watch' : 'info'}>{tone}</Badge>} />
             ))}
           </div>
         </Panel>
-        <Panel title="Risk Monitor" subtitle="Kelly, drawdown, and correlation pressure." badge={<Badge tone={state.bot.risk.circuit_tripped ? 'block' : 'watch'}>{state.bot.risk.circuit_tripped ? 'tripped' : 'watch'}</Badge>}>
+        <Panel title="Risk Monitor" titleClassName="display-title" subtitle="Kelly, drawdown, and correlation pressure." badge={<Badge tone={state.bot.risk.circuit_tripped ? 'block' : 'watch'}>{state.bot.risk.circuit_tripped ? 'tripped' : 'watch'}</Badge>}>
           <div className="panel-body">
             <Meter label="risk mult" value={features.riskMult / 1.5} text={`${fmt(features.riskMult)}x`} color={COLORS.purple} />
             <Meter label="drawdown" value={clip01(Math.abs(dailyPnl ?? 0) / 2000)} text={formatMoney(dailyPnl)} color={COLORS.red} />
             <Meter label="correlation" value={features.R} text={fmt(features.R)} color={COLORS.cyan} />
           </div>
         </Panel>
-        <Panel title="Active Positions" subtitle="Live P/L and route notes." badge={<Badge tone={openPositions.length ? 'live' : 'watch'}>{openPositions.length ? `${openPositions.length} live` : 'flat'}</Badge>}>
+        <Panel title="Active Positions" titleClassName="display-title" subtitle="Live P/L and route notes." badge={<Badge tone={openPositions.length ? 'live' : 'watch'}>{openPositions.length ? `${openPositions.length} live` : 'flat'}</Badge>}>
           <div className="terminal">
             {openPositions.length ? openPositions.map((position, index) => (
               <div className="position" key={`${position.strategy_id}-${position.order_id || position.opened_at || index}`}>
@@ -2493,7 +2505,7 @@ function FilterlessLiveCockpit() {
             )) : <TerminalRow title="FLAT" text="No filterless positions are currently open." badge={<Badge tone="watch">idle</Badge>} />}
           </div>
         </Panel>
-        <Panel title="Order Flow" subtitle="Live pressure derived from tape and route state." badge={<Badge tone="info">depth</Badge>}>
+        <Panel title="Order Flow" titleClassName="display-title" subtitle="Live pressure derived from tape and route state." badge={<Badge tone="info">depth</Badge>}>
           <FlowBars values={[
             { label: 'align', value: features.alignment, color: COLORS.green },
             { label: 'smooth', value: features.smoothness, color: COLORS.cyan },
@@ -2515,7 +2527,7 @@ function FilterlessLiveCockpit() {
         <Metric label="lockout" value={String(features.noTrade).toUpperCase()} hint="state guard" color={features.noTrade ? COLORS.red : COLORS.green} />
       </div>
       <div className="grid aether-layout">
-        <Panel title="AetherFlow Manifold" subtitle="Folded 3D state surface from pressure, transition, and manifold feature fields." badge={<Badge tone={features.noTrade ? 'block' : 'info'}>{features.noTrade ? 'lockout' : 'orbit live'}</Badge>}>
+        <Panel title="AetherFlow Manifold" titleClassName="display-title" subtitle="Folded 3D state surface from pressure, transition, and manifold feature fields." badge={<Badge tone={features.noTrade ? 'block' : 'info'}>{features.noTrade ? 'lockout' : 'orbit live'}</Badge>}>
           <AetherflowCanvas features={features} />
           <div className="mini-grid">
             <div className="mini"><span className="label">trend ridge</span><strong className="truncate up">alignment + smoothness</strong></div>
@@ -2525,7 +2537,7 @@ function FilterlessLiveCockpit() {
           </div>
         </Panel>
         <div className="stack">
-          <Panel title="Manifold Features" subtitle="Fields exported into AetherFlow feature space.">
+          <Panel title="Manifold Features" titleClassName="display-title" subtitle="Fields exported into AetherFlow feature space.">
             <div className="panel-body">
               <Meter label="alignment pct" value={features.alignment} color={COLORS.green} />
               <Meter label="smoothness pct" value={features.smoothness} color={COLORS.cyan} />
@@ -2534,17 +2546,17 @@ function FilterlessLiveCockpit() {
               <Meter label="novelty score" value={features.novelty} color={COLORS.pink} />
             </div>
           </Panel>
-          <Panel title="State Regions" subtitle="Active state controls marker and routing gates.">
+          <Panel title="State Regions" titleClassName="display-title" subtitle="Active state controls marker and routing gates.">
             <div className="panel-body">
               <div className="state-matrix">
-                <Tile title="TREND_GEODESIC" text="High alignment and smoothness, low dispersion." color={COLORS.green} active={features.regime === 'TREND_GEODESIC'} badge={<Badge tone="live">ridge</Badge>} />
+                <Tile title="TREND_GEODESIC" titleClassName="display-title" text="High alignment and smoothness, low dispersion." color={COLORS.green} active={features.regime === 'TREND_GEODESIC'} badge={<Badge tone="live">ridge</Badge>} />
                 <Tile title="CHOP_SPIRAL" text="Stress or roughness dominates mean-reversion routes." color={COLORS.cyan} active={features.regime === 'CHOP_SPIRAL'} badge={<Badge tone="info">shelf</Badge>} />
                 <Tile title="DISPERSED" text="Dispersion is high while alignment is weak." color={COLORS.violet} active={features.regime === 'DISPERSED'} badge={<Badge tone="watch">basin</Badge>} />
                 <Tile title="ROTATIONAL" text="Stress and dPhi create no-trade turbulence." color={COLORS.red} active={features.regime === 'ROTATIONAL_TURBULENCE'} badge={<Badge tone="block">wall</Badge>} />
               </div>
             </div>
           </Panel>
-          <Panel title="AetherFlow Setups" subtitle="Feature interactions projected onto the manifold.">
+          <Panel title="AetherFlow Setups" titleClassName="display-title" subtitle="Feature interactions projected onto the manifold.">
             <div className="panel-body">
               <Meter label="aligned_flow" value={features.alignedFlow} color={COLORS.green} />
               <Meter label="transition_burst" value={features.transitionBurst} color={COLORS.amber} />
@@ -2571,7 +2583,7 @@ function FilterlessLiveCockpit() {
           <Metric label="probability" value={pct(kalshi?.probability_60m, 1)} hint="60m contract" color={COLORS.lime} />
         </div>
         <div className="grid kalshi-layout">
-          <Panel title="Market Scanner" subtitle="Hourly ES contracts ranked by edge, pressure, and liquidity." badge={<Badge tone={route.tone}>{route.badge}</Badge>}>
+          <Panel title="Market Scanner" titleClassName="display-title" subtitle="Hourly ES contracts ranked by edge, pressure, and liquidity." badge={<Badge tone={route.tone}>{route.badge}</Badge>}>
             <table className="table">
               <thead><tr><th>contract</th><th>probability</th><th>volume</th><th>status</th><th>route</th></tr></thead>
               <tbody>
@@ -2590,7 +2602,7 @@ function FilterlessLiveCockpit() {
             </table>
           </Panel>
           <div className="stack">
-            <Panel title="Consensus Feed" subtitle="Macro consensus and headline risk.">
+            <Panel title="Consensus Feed" titleClassName="display-title" subtitle="Macro consensus and headline risk.">
               <div className="terminal">
                 <TerminalRow title="EVENT" text={kalshi?.event_ticker || 'waiting for active contract'} badge={<Badge tone="info">ticker</Badge>} />
                 <TerminalRow title="REFERENCE" text={`ES ${formatPrice(kalshi?.es_reference_price ?? price)} / SPX ${formatPrice(kalshi?.spx_reference_price)}`} badge={<Badge tone="info">basis</Badge>} />
@@ -2599,7 +2611,7 @@ function FilterlessLiveCockpit() {
                 <TerminalRow title="LIVE POSITION" text={describeKalshiPositionImpact(primaryKalshiPosition)} badge={<Badge tone={primaryKalshiPosition?.kalshi_trade_overlay_applied || primaryKalshiPosition?.kalshi_gate_applied ? 'live' : 'info'}>{primaryKalshiPosition ? 'position' : 'flat'}</Badge>} />
               </div>
             </Panel>
-            <Panel title="Spread Ladder" subtitle="Execution spread by bucket.">
+            <Panel title="Spread Ladder" titleClassName="display-title" subtitle="Execution spread by bucket.">
               <FlowBars values={[
                 { label: 'book', value: features.edge, color: COLORS.cyan },
                 { label: 'spread', value: features.spread * 8, color: COLORS.amber },
@@ -2625,17 +2637,17 @@ function FilterlessLiveCockpit() {
         </div>
         <div className="grid news-layout">
           <div className="stack">
-            <Panel title="Truth Social Monitor" subtitle="Persisted sentiment snapshot for operator context." badge={<Badge tone={sentiment.last_error ? 'block' : 'live'}>{sentiment.last_error ? 'issue' : 'healthy'}</Badge>}>
+            <Panel title="Truth Social Monitor" titleClassName="display-title" subtitle="Persisted sentiment snapshot for operator context." badge={<Badge tone={sentiment.last_error ? 'block' : 'live'}>{sentiment.last_error ? 'issue' : 'healthy'}</Badge>}>
               <div className="panel-body">
                 <div className="truth-grid">
                   <Tile title="latest post" text={excerpt || 'No post has been analyzed yet. Waiting for new Truth Social activity.'} color={COLORS.cyan} badge={<Badge tone="info">rss</Badge>} />
-                  <Tile title="model mode" text={sentiment.quantized_8bit ? 'Quantized FinBERT path is active.' : 'FinBERT runtime path is active.'} color={COLORS.purple} badge={<Badge tone="live">finbert</Badge>} />
-                  <Tile title="long-side watch" text="Negative sentiment is displayed only; position management remains unchanged." color={COLORS.amber} badge={<Badge tone="info">observe</Badge>} />
-                  <Tile title="short-side watch" text="Positive sentiment is displayed only; position management remains unchanged." color={COLORS.red} badge={<Badge tone="info">observe</Badge>} />
+                  <Tile title="model mode" titleClassName="display-title" text={sentiment.quantized_8bit ? 'Quantized FinBERT path is active.' : 'FinBERT runtime path is active.'} color={COLORS.purple} badge={<Badge tone="live">finbert</Badge>} />
+                  <Tile title="long-side watch" titleClassName="display-title" text="Negative sentiment is displayed only; position management remains unchanged." color={COLORS.amber} badge={<Badge tone="info">observe</Badge>} />
+                  <Tile title="short-side watch" titleClassName="display-title" text="Positive sentiment is displayed only; position management remains unchanged." color={COLORS.red} badge={<Badge tone="info">observe</Badge>} />
                 </div>
               </div>
             </Panel>
-            <Panel title="News Tape" subtitle="Calendar, macro, and truth-feed context." badge={<Badge tone="info">live</Badge>}>
+            <Panel title="News Tape" titleClassName="display-title" subtitle="Calendar, macro, and truth-feed context." badge={<Badge tone="info">live</Badge>}>
               <div className="terminal">
                 <TerminalRow time={sentiment.latest_post_created_at} title="TRUTH" text={sentiment.trigger_reason || sentiment.sentiment_label || 'neutral watch'} badge={<Badge tone="info">feed</Badge>} />
                 <TerminalRow time={sentiment.last_analysis_at} title="FINBERT" text={`score ${formatSigned(features.truthScore)} / confidence ${pct(sentiment.finbert_confidence)}`} badge={<Badge tone="live">model</Badge>} />
@@ -2644,10 +2656,10 @@ function FilterlessLiveCockpit() {
             </Panel>
           </div>
           <div className="stack">
-            <Panel title="Sentiment Pulse" subtitle="Truth Social score and confidence.">
+            <Panel title="Sentiment Pulse" titleClassName="display-title" subtitle="Truth Social score and confidence.">
               <SentimentCanvas sentiment={sentiment} />
             </Panel>
-            <Panel title="Monitor Status" subtitle="Observe-only sentiment health and headline-risk context.">
+            <Panel title="Monitor Status" titleClassName="display-title" subtitle="Observe-only sentiment health and headline-risk context.">
               <div className="panel-body">
                 <Meter label="finbert confidence" value={sentiment.finbert_confidence ?? 0} color={COLORS.purple} />
                 <Meter label="signal freshness" value={sentiment.last_analysis_at ? clip01(1 - ((Date.now() - new Date(sentiment.last_analysis_at).getTime()) / 3_600_000)) : 0} color={COLORS.cyan} />
@@ -2668,7 +2680,7 @@ function FilterlessLiveCockpit() {
         <Metric label="DE3" value={(state.strategies.find((strategy) => strategy.id === 'dynamic_engine3')?.status || 'WATCH').toUpperCase()} hint="ML LFO scoped" color={COLORS.amber} />
         <Metric label="truth overlay" value={sentiment.last_error ? 'ISSUE' : 'OBSERVE'} hint="sentiment context" color={COLORS.cyan} />
       </div>
-      <Panel title="Strategy Stack" subtitle="Modules mapped to manifold, news, and execution state." badge={<Badge tone="live">loaded</Badge>} className="mt-panel">
+      <Panel title="Strategy Stack" titleClassName="display-title" subtitle="Modules mapped to manifold, news, and execution state." badge={<Badge tone="live">loaded</Badge>} className="mt-panel">
         <table className="table">
           <thead><tr><th>module</th><th>state</th><th>trigger</th><th>manifold</th><th>truth</th><th>action</th></tr></thead>
           <tbody>
@@ -2731,7 +2743,7 @@ function FilterlessLiveCockpit() {
       return (
         <section className="screen">
           <Panel
-            title="V18 Pipeline"
+            title="V18 Pipeline" titleClassName="display-title"
             subtitle="Awaiting bot state snapshot for live wiring details."
             badge={<Badge tone="watch">no snapshot</Badge>}
           >
@@ -2788,7 +2800,7 @@ function FilterlessLiveCockpit() {
         </div>
 
         <Panel
-          title="Stacked Meta Gate (V18)"
+          title="Stacked Meta Gate (V18)" titleClassName="display-title"
           subtitle="LogReg meta-classifier on 6 base probas + 5 Kronos features."
           badge={<Badge tone={onTone(v18?.enabled)}>{onText(v18?.enabled)}</Badge>}
           className="mt-panel"
@@ -2814,7 +2826,7 @@ function FilterlessLiveCockpit() {
         </Panel>
 
         <Panel
-          title="Kronos Daemon"
+          title="Kronos Daemon" titleClassName="display-title"
           subtitle="Subprocess in .kronos_venv producing the 5 Kronos features per V18 candidate."
           badge={<Badge tone={kronosRowTone}>{kronosRowText}</Badge>}
           className="mt-panel"
@@ -2844,7 +2856,7 @@ function FilterlessLiveCockpit() {
         </Panel>
 
         <Panel
-          title="Recipe B Tiered Sizing (Option 4b)"
+          title="Recipe B Tiered Sizing (Option 4b)" titleClassName="display-title"
           subtitle={recipeBNote}
           badge={<Badge tone={onTone(rb?.enabled)}>{onText(rb?.enabled)}</Badge>}
           className="mt-panel"
@@ -2872,7 +2884,7 @@ function FilterlessLiveCockpit() {
         </Panel>
 
         <Panel
-          title="Regime ML Stack"
+          title="Regime ML Stack" titleClassName="display-title"
           subtitle="HGB classifiers gating BE / brackets / size from regime features."
           badge={<Badge tone={onTone(rml?.classifier_enabled)}>{onText(rml?.classifier_enabled)}</Badge>}
           className="mt-panel"
@@ -2887,7 +2899,7 @@ function FilterlessLiveCockpit() {
                 active={rml?.classifier_enabled}
               />
               <Tile
-                title="v6_be (BE-disable ML)"
+                title="v6_be (BE-disable ML)" titleClassName="display-title"
                 text="Disables breakeven on candidates the model thinks shouldn't trail."
                 color={rml?.be_disable_ml ? COLORS.green : COLORS.dim}
                 badge={<Badge tone={onTone(rml?.be_disable_ml)}>{onText(rml?.be_disable_ml)}</Badge>}
@@ -2901,7 +2913,7 @@ function FilterlessLiveCockpit() {
                 active={rml?.scalp_brackets_ml}
               />
               <Tile
-                title="v6_size (size-reduction ML)"
+                title="v6_size (size-reduction ML)" titleClassName="display-title"
                 text="OFF — net negative on V18 selection; needs retraining on V18-filtered data first."
                 color={rml?.size_reduction_ml ? COLORS.red : COLORS.dim}
                 badge={<Badge tone={rml?.size_reduction_ml ? 'block' : 'info'}>{onText(rml?.size_reduction_ml)}</Badge>}
@@ -2912,7 +2924,7 @@ function FilterlessLiveCockpit() {
         </Panel>
 
         <Panel
-          title="NY-AM Long_Rev Bypass"
+          title="NY-AM Long_Rev Bypass" titleClassName="display-title"
           subtitle={`Routes around V18 + Recipe B + v6_be for hour ${ny?.hour_et ?? '--'} ET fires.`}
           badge={<Badge tone={onTone(ny?.enabled)}>{onText(ny?.enabled)}</Badge>}
           className="mt-panel"
@@ -2937,7 +2949,7 @@ function FilterlessLiveCockpit() {
         </Panel>
 
         <Panel
-          title="Adjacent Layers"
+          title="Adjacent Layers" titleClassName="display-title"
           subtitle="SameSide ML, AF regime allowlist, Filter G, Triathlon."
           badge={<Badge tone="info">live</Badge>}
           className="mt-panel"
@@ -2952,21 +2964,21 @@ function FilterlessLiveCockpit() {
                 active={ss?.enabled}
               />
               <Tile
-                title="AF regime allowlist"
+                title="AF regime allowlist" titleClassName="display-title"
                 text={af?.allowed_regimes?.length ? af.allowed_regimes.join(' + ') : 'no restriction'}
                 color={af?.enabled ? COLORS.green : COLORS.dim}
                 badge={<Badge tone={onTone(af?.enabled)}>{onText(af?.enabled)}</Badge>}
                 active={af?.enabled}
               />
               <Tile
-                title="Filter G (case-fix)"
+                title="Filter G (case-fix)" titleClassName="display-title"
                 text="Per-cell normalized threshold — fires on active veto path (shadow-only on bypass)."
                 color={fg?.enabled ? COLORS.green : COLORS.dim}
                 badge={<Badge tone={onTone(fg?.enabled)}>{onText(fg?.enabled)}</Badge>}
                 active={fg?.enabled}
               />
               <Tile
-                title="Triathlon Engine"
+                title="Triathlon Engine" titleClassName="display-title"
                 text="Per-cell medal-driven size + priority deltas. Off in default deployment."
                 color={tri?.enabled ? COLORS.green : COLORS.dim}
                 badge={<Badge tone={onTone(tri?.enabled)}>{onText(tri?.enabled)}</Badge>}
@@ -2982,7 +2994,7 @@ function FilterlessLiveCockpit() {
   const renderJournal = () => (
     <section className="screen">
       <div className="grid journal-layout">
-        <Panel title="Trace Log" subtitle="Decision journal with trade levels, news, and manifold snapshots." badge={<Badge tone="info">live</Badge>}>
+        <Panel title="Trace Log" titleClassName="display-title" subtitle="Decision journal with trade levels, news, and manifold snapshots." badge={<Badge tone="info">live</Badge>}>
           <div className="terminal">
             {state.events.length ? state.events.slice(0, 28).map((event: FilterlessEvent, index) => (
               <TerminalRow key={`${event.event_type}-${event.time}-${index}`} time={event.time} title={event.event_type} text={event.message} badge={<Badge tone={event.severity === 'error' || event.severity === 'danger' ? 'block' : event.severity === 'warning' ? 'watch' : 'info'}>{event.severity}</Badge>} />
@@ -2990,14 +3002,14 @@ function FilterlessLiveCockpit() {
           </div>
         </Panel>
         <div className="stack">
-          <Panel title="State Summary" subtitle="Latest engine snapshot.">
+          <Panel title="State Summary" titleClassName="display-title" subtitle="Latest engine snapshot.">
             <div className="panel-body">
               <Meter label="regime" value={1} text={features.regime} color={COLORS.purple} />
               <Meter label="risk mult" value={features.riskMult / 1.5} text={`${fmt(features.riskMult)}x`} color={COLORS.lime} />
               <Meter label="truth score" value={(features.truthScore + 1) / 2} text={formatSigned(features.truthScore)} color={COLORS.pink} />
             </div>
           </Panel>
-          <Panel title="Trade Blotter" subtitle="Recent closed filterless trades.">
+          <Panel title="Trade Blotter" titleClassName="display-title" subtitle="Recent closed filterless trades.">
             <div className="terminal">
               {state.trades.length ? state.trades.slice(0, 14).map((trade: FilterlessTrade, index) => (
                 <TerminalRow
