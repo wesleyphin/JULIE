@@ -124,13 +124,25 @@ os.environ.setdefault("JULIE_REGIME_SIZE_CAP_VALUE", "1")
 os.environ.setdefault("JULIE_REGIME_GREEN_UNLOCK_PNL", "999999")  # filter E OFF (unreachable threshold)
 os.environ.setdefault("JULIE_REGIME_GREEN_UNLOCK_SIZE", "3")
 #
-# Wesley/Claude regime-ML and same-side ML layers remain importable, but the
-# current live handoff does not list them as active. Keep them shadow/manual
-# until they are revalidated against the current DE3 + AetherFlow live stack.
+# Wesley/Claude regime-ML and same-side ML layers, post §8.33 validations:
+#   - JULIE_REGIME_ML_BRACKETS=0  KEEP OFF — §8.33.16 backtest: enabling on V18
+#                                 fires destroys -$13.4k tier-10 PnL (out-of-
+#                                 distribution; v5 trained pre-V18 selection).
+#   - JULIE_REGIME_ML_SIZE=0      KEEP OFF — §8.33.16: net-negative on V18
+#                                 selection (forces size=1 on ~46% of fires).
+#   - JULIE_REGIME_ML_BE=1        FLIPPED ON 2026-04-26 — §8.33.15 backtest:
+#                                 v6_be adds +$714 on V18 OOS (modest but
+#                                 positive, DD-improving). NY-AM Long_Rev
+#                                 bypass subs force BE-on regardless via
+#                                 _signal_birth_hook (§8.33.17).
+#   - JULIE_SAMESIDE_ML=1         FLIPPED ON 2026-04-26 — ship gate (§ same-
+#                                 side launch 2026-04-24) showed +$3,320 PnL,
+#                                 58.1% WR, $590 DD on 913-event OOS holdout.
+#                                 Hard cap at 2 contracts keeps risk bounded.
 os.environ.setdefault("JULIE_REGIME_ML_BRACKETS", "0")
 os.environ.setdefault("JULIE_REGIME_ML_SIZE", "0")
-os.environ.setdefault("JULIE_REGIME_ML_BE", "0")
-os.environ.setdefault("JULIE_SAMESIDE_ML", "0")
+os.environ.setdefault("JULIE_REGIME_ML_BE", "1")
+os.environ.setdefault("JULIE_SAMESIDE_ML", "1")
 os.environ.setdefault("JULIE_SAMESIDE_ML_MAX_CONTRACTS", "2")          # hard cap
 #
 # Auto-write kill switches (2026-04-24): disable every path that

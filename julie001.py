@@ -931,6 +931,95 @@ def v18_should_keep_de3(
 # === END LOCAL OVERRIDE ===
 
 
+def _build_pipeline_state_snapshot() -> dict:
+    """Snapshot of the active V18 pipeline configuration for the live dashboard.
+    Read by build_persisted_state and surfaced via filterless_dashboard_bridge ->
+    FilterlessLiveCockpit's V18 Pipeline screen."""
+    try:
+        kronos_running = (
+            _KRONOS_DAEMON is not None and _KRONOS_DAEMON.poll() is None
+        )
+    except Exception:
+        kronos_running = False
+    try:
+        kronos_available = bool(
+            _KRONOS_PREDICT_SCRIPT.exists() and _KRONOS_VENV_PYTHON.exists()
+        )
+    except Exception:
+        kronos_available = False
+    try:
+        size_tiers = list(CONFIG.get("LOCAL_DE3_SIZE_TIERS",
+                                     [(0.85, 10), (0.65, 4), (0.60, 1)]))
+    except Exception:
+        size_tiers = [(0.85, 10), (0.65, 4), (0.60, 1)]
+    try:
+        af_allowed = list(CONFIG.get("LOCAL_AF_REGIME_ALLOWED", []) or [])
+    except Exception:
+        af_allowed = []
+    try:
+        bundle_path = str(_V18_DE3_PATH)
+    except Exception:
+        bundle_path = None
+    return {
+        "v18_stacker": {
+            "enabled": V18_DE3_BUNDLE is not None,
+            "threshold": float(V18_DE3_THRESHOLD),
+            "bundle_path": bundle_path,
+        },
+        "kronos": {
+            "available": kronos_available,
+            "daemon_running": bool(kronos_running),
+            "daemon_restarts": int(_KRONOS_DAEMON_RESTARTS),
+            "timeout_s": float(_KRONOS_TIMEOUT_S),
+        },
+        "recipe_b": {
+            "enabled": bool(CONFIG.get("LOCAL_DE3_USE_TIERED_SIZING", True)),
+            "tiers": [[float(t[0]), int(t[1])] for t in size_tiers],
+            "regime_aware_tier4": bool(
+                CONFIG.get("LOCAL_DE3_RECIPE_B_REGIME_AWARE", True)
+            ),
+            "skip_whipsaw_tier4": bool(
+                CONFIG.get("LOCAL_DE3_TIER4_SKIP_WHIPSAW", True)
+            ),
+        },
+        "regime_ml": {
+            "classifier_enabled": os.environ.get(
+                "JULIE_REGIME_CLASSIFIER", "0"
+            ).strip() == "1",
+            "be_disable_ml": os.environ.get(
+                "JULIE_REGIME_ML_BE", "0"
+            ).strip() == "1",
+            "scalp_brackets_ml": os.environ.get(
+                "JULIE_REGIME_ML_BRACKETS", "0"
+            ).strip() == "1",
+            "size_reduction_ml": os.environ.get(
+                "JULIE_REGIME_ML_SIZE", "0"
+            ).strip() == "1",
+        },
+        "ny_am_bypass": {
+            "enabled": True,
+            "subs": sorted(NY_AM_LONG_REV_BYPASS),
+            "hour_et": int(NY_AM_BYPASS_HOUR_ET),
+        },
+        "sameside_ml": {
+            "enabled": bool(_SAMESIDE_ML_ENABLED),
+            "max_contracts": int(_SAMESIDE_ML_MAX_CONTRACTS),
+        },
+        "af_regime_allowlist": {
+            "enabled": len(af_allowed) > 0,
+            "allowed_regimes": [str(r) for r in af_allowed],
+        },
+        "triathlon": {
+            "enabled": os.environ.get(
+                "JULIE_TRIATHLON_ACTIVE", "0"
+            ).strip() == "1",
+        },
+        "filter_g": {
+            "enabled": True,
+        },
+    }
+
+
 def _triathlon_mark_blocked(signal, filter_name, reason=""):
     """Flip a Triathlon-recorded signal from 'fired' to 'blocked' when
     a downstream filter rejects it. Safe no-op when the engine is off
@@ -11226,6 +11315,7 @@ async def run_bot():
                 if (regime_manifold_engine is not None and manifold_persist_state)
                 else None
             ),
+            "pipeline": _build_pipeline_state_snapshot(),
         }
 
     def persist_runtime_state(

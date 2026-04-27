@@ -648,6 +648,7 @@ def build_empty_state(log_path: Path, state_path: Path, trade_factors_path: Path
         "trades": [],
         "kalshi_metrics": None,
         "sentiment_metrics": default_sentiment_metrics(),
+        "pipeline": None,
     }
 
 
@@ -1081,6 +1082,10 @@ def apply_bot_state_snapshot(
     }
     sentiment_snapshot = build_sentiment_metrics_from_snapshot(persisted_state.get("sentiment"))
     dashboard["sentiment_metrics"] = sentiment_snapshot
+
+    pipeline_snapshot = persisted_state.get("pipeline")
+    if isinstance(pipeline_snapshot, dict):
+        dashboard["pipeline"] = pipeline_snapshot
 
     live_position = persisted_state.get("live_position")
     live_position_ts = None
