@@ -3,6 +3,7 @@ import type {
   FilterlessEvent,
   FilterlessKalshiMetrics,
   FilterlessLiveState,
+  FilterlessPipelineState,
   FilterlessPosition,
   FilterlessSentimentMetrics,
   FilterlessStrategyState,
@@ -30,7 +31,7 @@ const COLORS = {
   dim: '#5a4a72',
 };
 
-type ScreenId = 'overview' | 'aetherflow' | 'kalshi' | 'news' | 'strategies' | 'journal' | 'command';
+type ScreenId = 'overview' | 'aetherflow' | 'kalshi' | 'news' | 'strategies' | 'pipeline' | 'journal' | 'command';
 
 type ManifoldRegime = 'TREND_GEODESIC' | 'CHOP_SPIRAL' | 'DISPERSED' | 'ROTATIONAL_TURBULENCE';
 type BadgeTone = 'live' | 'watch' | 'block' | 'info';
@@ -148,6 +149,7 @@ const EMPTY_STATE: FilterlessLiveState = {
   trades: [],
   kalshi_metrics: null,
   sentiment_metrics: DEFAULT_SENTIMENT_METRICS,
+  pipeline: null,
 };
 
 const NAV: Array<{ id: ScreenId; label: string; code: string; title: string; subtitle: string }> = [
@@ -156,8 +158,9 @@ const NAV: Array<{ id: ScreenId; label: string; code: string; title: string; sub
   { id: 'kalshi', label: 'Kalshi', code: '03', title: 'KALSHI MARKET ARRAY', subtitle: 'Hourly contract routing, book edge, spread, and consensus flow.' },
   { id: 'news', label: 'News', code: '04', title: 'NEWS AND TRUTH MONITOR', subtitle: 'Truth Social sentiment, macro tape, advisory risk, and calendar context.' },
   { id: 'strategies', label: 'Strategies', code: '05', title: 'STRATEGY STACK', subtitle: 'Filterless strategy modules mapped to current live state.' },
-  { id: 'journal', label: 'Journal', code: '06', title: 'TRACE JOURNAL', subtitle: 'Decision log with trade levels, news fields, and manifold snapshots.' },
-  { id: 'command', label: 'Command', code: '07', title: 'COMMAND MATRIX', subtitle: 'Runtime controls, guard rails, and operator actions.' },
+  { id: 'pipeline', label: 'V18 Pipeline', code: '06', title: 'V18 PIPELINE', subtitle: 'Stacked-meta + Kronos + Recipe B + regime ML — current live wiring.' },
+  { id: 'journal', label: 'Journal', code: '07', title: 'TRACE JOURNAL', subtitle: 'Decision log with trade levels, news fields, and manifold snapshots.' },
+  { id: 'command', label: 'Command', code: '08', title: 'COMMAND MATRIX', subtitle: 'Runtime controls, guard rails, and operator actions.' },
 ];
 
 const COCKPIT_CSS = `
@@ -310,14 +313,65 @@ h1, h2, h3, p { margin: 0; }
   .rail-bottom { display: none; }
   .overview-layout, .aether-layout, .kalshi-layout, .news-layout, .journal-layout { grid-template-columns: 1fr; }
 }
+.pipeline-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 @media (max-width: 820px) {
   .deck { padding: 10px; }
-  .top, .ticker, .cols-2, .cols-3, .cols-4, .mini-grid, .state-matrix, .truth-grid, .command-grid, .scene-hud, .operator-footer { grid-template-columns: 1fr; }
+  .top, .ticker, .cols-2, .cols-3, .cols-4, .mini-grid, .state-matrix, .truth-grid, .command-grid, .scene-hud, .operator-footer, .pipeline-grid { grid-template-columns: 1fr; }
   .nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .nav button { height: 34px; }
   .actions { justify-content: flex-start; }
   .scene-wrap { min-height: 500px; }
   .aetherflow-scene { height: 500px; }
+}
+@media (max-width: 480px) {
+  /* iPhone 16 portrait (393 CSS px) and similar phones */
+  body { -webkit-text-size-adjust: 100%; }
+  .rail { position: static; top: auto; }
+  .deck { padding: 8px; gap: 8px; }
+  .top { gap: 8px; padding-bottom: 8px; grid-template-columns: 1fr; }
+  .top h2 { font-size: 18px; letter-spacing: 0.5px; }
+  .top p { font-size: 10px; }
+  .actions { gap: 6px; justify-content: flex-start; }
+  .actions .chip, .actions .command { font-size: 9px; height: 28px; padding: 0 8px; }
+  .ticker { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ticker .cell { padding: 7px 9px; border-right: 0; border-bottom: 1px solid rgba(155, 86, 255, 0.14); }
+  .ticker .cell:nth-child(odd) { border-right: 1px solid rgba(155, 86, 255, 0.14); }
+  .ticker .cell:nth-last-child(-n+2) { border-bottom: 0; }
+  .ticker strong { font-size: 14px; }
+  .nav { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 8px; }
+  .nav button { height: 44px; padding: 0 8px; font-size: 11px; }
+  .nav small { display: none; }
+  .panel-head { padding: 9px 10px; min-height: 42px; }
+  .panel-head h3 { font-size: 11px; }
+  .panel-body { padding: 9px; }
+  .pipeline-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cols-2, .cols-3, .cols-4, .state-matrix, .truth-grid, .mini-grid { grid-template-columns: 1fr; }
+  .metric { height: 78px; padding: 9px; }
+  .metric strong { font-size: 16px; }
+  .metric small, .label { font-size: 9px; }
+  .terminal { max-height: 360px; padding: 6px; gap: 4px; }
+  .terminal-row { grid-template-columns: 56px minmax(0, 1fr) auto; padding: 6px 7px; min-height: 36px; }
+  .command-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .command-tile { height: 96px; padding: 8px; }
+  .command-tile strong { font-size: 10px; }
+  .command-tile small { font-size: 9px; }
+  .operator-footer { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .scene-wrap { min-height: 380px; }
+  .aetherflow-scene { height: 380px; }
+  .scene-hud { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .table { font-size: 9px; display: block; overflow-x: auto; white-space: nowrap; }
+  .table th, .table td { padding: 7px 5px; }
+  .badge { height: 20px; padding: 0 6px; font-size: 9px; }
+  .chip { font-size: 9px; height: 26px; padding: 0 7px; }
+  .tile { min-height: 84px; padding: 9px; }
+  .tile strong { font-size: 10px; }
+  .tile p { font-size: 11px; line-height: 1.2; }
+  .position { padding: 8px; min-height: 48px; }
+  .feature { padding: 6px 0; }
+  .meter { height: 6px; }
+  .flow-bar { grid-template-columns: 48px minmax(0, 1fr) 44px; gap: 6px; font-size: 9px; }
+  .notice { padding: 8px 10px; font-size: 10px; }
+  .event { grid-template-columns: 60px minmax(0, 1fr) auto; padding: 8px; min-height: 52px; font-size: 9px; }
 }
 `;
 
@@ -1970,6 +2024,295 @@ function FilterlessLiveCockpit() {
     </section>
   );
 
+  const renderPipeline = () => {
+    const pipeline: FilterlessPipelineState | null = state.pipeline ?? null;
+    const v18 = pipeline?.v18_stacker;
+    const kr = pipeline?.kronos;
+    const rb = pipeline?.recipe_b;
+    const rml = pipeline?.regime_ml;
+    const ny = pipeline?.ny_am_bypass;
+    const ss = pipeline?.sameside_ml;
+    const af = pipeline?.af_regime_allowlist;
+    const tri = pipeline?.triathlon;
+    const fg = pipeline?.filter_g;
+
+    const onTone = (flag?: boolean): BadgeTone => (flag ? 'live' : 'block');
+    const onText = (flag?: boolean): string => (flag ? 'on' : 'off');
+
+    const kronosRowTone: BadgeTone = !kr
+      ? 'watch'
+      : kr.daemon_running
+        ? 'live'
+        : kr.available
+          ? 'watch'
+          : 'block';
+    const kronosRowText = !kr
+      ? 'unknown'
+      : kr.daemon_running
+        ? 'ready'
+        : kr.available
+          ? 'idle'
+          : 'missing';
+
+    const tierRows = rb?.tiers ?? [];
+    const recipeBNote = rb?.skip_whipsaw_tier4
+      ? 'tier-4 (0.65-0.85): calm_trend=4 / whipsaw=skip / neutral=1'
+      : rb?.regime_aware_tier4
+        ? 'tier-4 (0.65-0.85): calm_trend=4 / whipsaw=1 / neutral=1'
+        : 'tier-4 (0.65-0.85): flat 4 contracts (regime-blind)';
+
+    if (!pipeline) {
+      return (
+        <section className="screen">
+          <Panel
+            title="V18 Pipeline"
+            subtitle="Awaiting bot state snapshot for live wiring details."
+            badge={<Badge tone="watch">no snapshot</Badge>}
+          >
+            <div className="panel-body">
+              <p className="micro">
+                The bot has not yet written a pipeline block to bot_state.json. This populates
+                on the next bot-state save (typically every few seconds while the bot is online).
+              </p>
+            </div>
+          </Panel>
+        </section>
+      );
+    }
+
+    return (
+      <section className="screen">
+        <div className="grid pipeline-grid">
+          <Metric
+            label="V18 stacker"
+            value={onText(v18?.enabled).toUpperCase()}
+            hint={`thr ${fmt(v18?.threshold ?? 0, 2)}`}
+            color={v18?.enabled ? COLORS.green : COLORS.red}
+          />
+          <Metric
+            label="Kronos daemon"
+            value={kronosRowText.toUpperCase()}
+            hint={`restarts ${kr?.daemon_restarts ?? 0}`}
+            color={
+              kr?.daemon_running
+                ? COLORS.green
+                : kr?.available
+                  ? COLORS.amber
+                  : COLORS.red
+            }
+          />
+          <Metric
+            label="Recipe B sizing"
+            value={onText(rb?.enabled).toUpperCase()}
+            hint={
+              rb?.skip_whipsaw_tier4
+                ? 'opt 4b (skip whipsaw)'
+                : rb?.regime_aware_tier4
+                  ? 'opt 4 (demote)'
+                  : 'flat tiers'
+            }
+            color={rb?.enabled ? COLORS.cyan : COLORS.dim}
+          />
+          <Metric
+            label="Regime classifier"
+            value={onText(rml?.classifier_enabled).toUpperCase()}
+            hint="regime tag drives tier-4 + size-cap"
+            color={rml?.classifier_enabled ? COLORS.green : COLORS.dim}
+          />
+        </div>
+
+        <Panel
+          title="Stacked Meta Gate (V18)"
+          subtitle="LogReg meta-classifier on 6 base probas + 5 Kronos features."
+          badge={<Badge tone={onTone(v18?.enabled)}>{onText(v18?.enabled)}</Badge>}
+          className="mt-panel"
+        >
+          <div className="panel-body">
+            <div className="grid cols-2">
+              <Tile
+                title="Threshold"
+                text={`v18_proba >= ${fmt(v18?.threshold ?? 0, 2)} keeps the candidate; below blocks.`}
+                color={COLORS.green}
+                badge={<Badge tone="info">{fmt(v18?.threshold ?? 0, 2)}</Badge>}
+                active={v18?.enabled}
+              />
+              <Tile
+                title="Bundle"
+                text={v18?.bundle_path ? v18.bundle_path.split('/').slice(-3).join('/') : 'not loaded'}
+                color={v18?.enabled ? COLORS.cyan : COLORS.red}
+                badge={<Badge tone={onTone(v18?.enabled)}>joblib</Badge>}
+                active={v18?.enabled}
+              />
+            </div>
+          </div>
+        </Panel>
+
+        <Panel
+          title="Kronos Daemon"
+          subtitle="Subprocess in .kronos_venv producing the 5 Kronos features per V18 candidate."
+          badge={<Badge tone={kronosRowTone}>{kronosRowText}</Badge>}
+          className="mt-panel"
+        >
+          <div className="panel-body">
+            <div className="grid cols-3">
+              <Metric
+                label="Available"
+                value={onText(kr?.available).toUpperCase()}
+                hint=".kronos_venv + script present"
+                color={kr?.available ? COLORS.green : COLORS.red}
+              />
+              <Metric
+                label="Running"
+                value={onText(kr?.daemon_running).toUpperCase()}
+                hint="daemon process up"
+                color={kr?.daemon_running ? COLORS.green : COLORS.amber}
+              />
+              <Metric
+                label="Restarts"
+                value={String(kr?.daemon_restarts ?? 0)}
+                hint={`per-call timeout ${fmt(kr?.timeout_s ?? 0, 0)}s`}
+                color={COLORS.purple}
+              />
+            </div>
+          </div>
+        </Panel>
+
+        <Panel
+          title="Recipe B Tiered Sizing (Option 4b)"
+          subtitle={recipeBNote}
+          badge={<Badge tone={onTone(rb?.enabled)}>{onText(rb?.enabled)}</Badge>}
+          className="mt-panel"
+        >
+          <div className="panel-body">
+            {tierRows.length > 0 ? (
+              <table className="table">
+                <thead>
+                  <tr><th>tier</th><th>v18_proba &gt;=</th><th>contracts</th></tr>
+                </thead>
+                <tbody>
+                  {tierRows.map((row, idx) => (
+                    <tr key={`tier-${idx}`}>
+                      <td><strong>T{row[1]}</strong></td>
+                      <td>{fmt(row[0], 2)}</td>
+                      <td>{row[1]}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="micro">Tier configuration not present in snapshot.</p>
+            )}
+          </div>
+        </Panel>
+
+        <Panel
+          title="Regime ML Stack"
+          subtitle="HGB classifiers gating BE / brackets / size from regime features."
+          badge={<Badge tone={onTone(rml?.classifier_enabled)}>{onText(rml?.classifier_enabled)}</Badge>}
+          className="mt-panel"
+        >
+          <div className="panel-body">
+            <div className="grid cols-2">
+              <Tile
+                title="Classifier (master)"
+                text="Tags each bar: calm_trend / neutral / whipsaw / dead_tape."
+                color={rml?.classifier_enabled ? COLORS.green : COLORS.red}
+                badge={<Badge tone={onTone(rml?.classifier_enabled)}>{onText(rml?.classifier_enabled)}</Badge>}
+                active={rml?.classifier_enabled}
+              />
+              <Tile
+                title="v6_be (BE-disable ML)"
+                text="Disables breakeven on candidates the model thinks shouldn't trail."
+                color={rml?.be_disable_ml ? COLORS.green : COLORS.dim}
+                badge={<Badge tone={onTone(rml?.be_disable_ml)}>{onText(rml?.be_disable_ml)}</Badge>}
+                active={rml?.be_disable_ml}
+              />
+              <Tile
+                title="v5_brackets (scalp ML)"
+                text="OFF — destroyed -$13.4k tier-10 PnL on 2026 OOS (out-of-distribution on V18 fires)."
+                color={rml?.scalp_brackets_ml ? COLORS.red : COLORS.dim}
+                badge={<Badge tone={rml?.scalp_brackets_ml ? 'block' : 'info'}>{onText(rml?.scalp_brackets_ml)}</Badge>}
+                active={rml?.scalp_brackets_ml}
+              />
+              <Tile
+                title="v6_size (size-reduction ML)"
+                text="OFF — net negative on V18 selection; needs retraining on V18-filtered data first."
+                color={rml?.size_reduction_ml ? COLORS.red : COLORS.dim}
+                badge={<Badge tone={rml?.size_reduction_ml ? 'block' : 'info'}>{onText(rml?.size_reduction_ml)}</Badge>}
+                active={rml?.size_reduction_ml}
+              />
+            </div>
+          </div>
+        </Panel>
+
+        <Panel
+          title="NY-AM Long_Rev Bypass"
+          subtitle={`Routes around V18 + Recipe B + v6_be for hour ${ny?.hour_et ?? '--'} ET fires.`}
+          badge={<Badge tone={onTone(ny?.enabled)}>{onText(ny?.enabled)}</Badge>}
+          className="mt-panel"
+        >
+          <div className="panel-body">
+            {ny?.subs?.length ? (
+              <table className="table">
+                <thead><tr><th>sub-strategy</th><th>hour ET</th></tr></thead>
+                <tbody>
+                  {ny.subs.map((sub) => (
+                    <tr key={sub}>
+                      <td><strong>{sub}</strong></td>
+                      <td>{ny.hour_et}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="micro">No bypass sub-strategies configured.</p>
+            )}
+          </div>
+        </Panel>
+
+        <Panel
+          title="Adjacent Layers"
+          subtitle="SameSide ML, AF regime allowlist, Filter G, Triathlon."
+          badge={<Badge tone="info">live</Badge>}
+          className="mt-panel"
+        >
+          <div className="panel-body">
+            <div className="grid cols-2">
+              <Tile
+                title={`SameSide ML  (cap ${ss?.max_contracts ?? '--'})`}
+                text="HGB gate that endorses adding a 2nd contract to an existing same-side family position."
+                color={ss?.enabled ? COLORS.green : COLORS.dim}
+                badge={<Badge tone={onTone(ss?.enabled)}>{onText(ss?.enabled)}</Badge>}
+                active={ss?.enabled}
+              />
+              <Tile
+                title="AF regime allowlist"
+                text={af?.allowed_regimes?.length ? af.allowed_regimes.join(' + ') : 'no restriction'}
+                color={af?.enabled ? COLORS.green : COLORS.dim}
+                badge={<Badge tone={onTone(af?.enabled)}>{onText(af?.enabled)}</Badge>}
+                active={af?.enabled}
+              />
+              <Tile
+                title="Filter G (case-fix)"
+                text="Per-cell normalized threshold — fires on active veto path (shadow-only on bypass)."
+                color={fg?.enabled ? COLORS.green : COLORS.dim}
+                badge={<Badge tone={onTone(fg?.enabled)}>{onText(fg?.enabled)}</Badge>}
+                active={fg?.enabled}
+              />
+              <Tile
+                title="Triathlon Engine"
+                text="Per-cell medal-driven size + priority deltas. Off in default deployment."
+                color={tri?.enabled ? COLORS.green : COLORS.dim}
+                badge={<Badge tone={onTone(tri?.enabled)}>{onText(tri?.enabled)}</Badge>}
+                active={tri?.enabled}
+              />
+            </div>
+          </div>
+        </Panel>
+      </section>
+    );
+  };
+
   const renderJournal = () => (
     <section className="screen">
       <div className="grid journal-layout">
@@ -2098,6 +2441,7 @@ function FilterlessLiveCockpit() {
     if (activeScreen === 'kalshi') return renderKalshi();
     if (activeScreen === 'news') return renderNews();
     if (activeScreen === 'strategies') return renderStrategies();
+    if (activeScreen === 'pipeline') return renderPipeline();
     if (activeScreen === 'journal') return renderJournal();
     if (activeScreen === 'command') return renderCommand();
     return renderOverview();

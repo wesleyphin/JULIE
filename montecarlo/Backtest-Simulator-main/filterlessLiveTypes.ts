@@ -214,6 +214,69 @@ export interface FilterlessSentimentMetrics {
   metadata?: Record<string, unknown> | null;
 }
 
+export interface FilterlessPipelineV18Stacker {
+  enabled: boolean;
+  threshold: number;
+  bundle_path?: string | null;
+}
+
+export interface FilterlessPipelineKronos {
+  available: boolean;
+  daemon_running: boolean;
+  daemon_restarts: number;
+  timeout_s: number;
+}
+
+export interface FilterlessPipelineRecipeB {
+  enabled: boolean;
+  tiers: Array<[number, number]>;
+  regime_aware_tier4: boolean;
+  skip_whipsaw_tier4: boolean;
+}
+
+export interface FilterlessPipelineRegimeML {
+  classifier_enabled: boolean;
+  be_disable_ml: boolean;
+  scalp_brackets_ml: boolean;
+  size_reduction_ml: boolean;
+}
+
+export interface FilterlessPipelineNYAMBypass {
+  enabled: boolean;
+  subs: string[];
+  hour_et: number;
+}
+
+export interface FilterlessPipelineSameSideML {
+  enabled: boolean;
+  max_contracts: number;
+}
+
+export interface FilterlessPipelineAFAllowlist {
+  enabled: boolean;
+  allowed_regimes: string[];
+}
+
+export interface FilterlessPipelineTriathlon {
+  enabled: boolean;
+}
+
+export interface FilterlessPipelineFilterG {
+  enabled: boolean;
+}
+
+export interface FilterlessPipelineState {
+  v18_stacker: FilterlessPipelineV18Stacker;
+  kronos: FilterlessPipelineKronos;
+  recipe_b: FilterlessPipelineRecipeB;
+  regime_ml: FilterlessPipelineRegimeML;
+  ny_am_bypass: FilterlessPipelineNYAMBypass;
+  sameside_ml: FilterlessPipelineSameSideML;
+  af_regime_allowlist: FilterlessPipelineAFAllowlist;
+  triathlon: FilterlessPipelineTriathlon;
+  filter_g: FilterlessPipelineFilterG;
+}
+
 export interface FilterlessLiveState {
   schema_version: number;
   generated_at: string;
@@ -244,4 +307,5 @@ export interface FilterlessLiveState {
   trades: FilterlessTrade[];
   kalshi_metrics?: FilterlessKalshiMetrics | null;
   sentiment_metrics?: FilterlessSentimentMetrics | null;
+  pipeline?: FilterlessPipelineState | null;
 }
