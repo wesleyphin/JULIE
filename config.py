@@ -969,7 +969,7 @@ CONFIG = {
     "KALSHI": {
         "key_id": str(SECRETS.get("KALSHI_KEY_ID", "") or ""),
         "private_key_path": str(SECRETS.get("KALSHI_PRIVATE_KEY_PATH", "") or ""),
-        "base_url": "https://api.elections.kalshi.com/trade-api/v2",
+        "base_url": os.environ.get("KALSHI_BASE_URL", "https://api.elections.kalshi.com/trade-api/v2"),
         "series": "KXINXU",
         "polling_interval": 300,
         "cache_ttl": 120,
@@ -977,6 +977,15 @@ CONFIG = {
         "request_timeout": 15,
         "max_retries": 3,
         "enabled": True,
+        "public_read_only": _env_flag("KALSHI_PUBLIC_READ_ONLY", False),
+        "market_data_proxy_url": (
+            os.environ.get("KALSHI_MARKET_DATA_PROXY_URL")
+            or os.environ.get("MARKET_DATA_PROXY_URL", "")
+        ),
+        "trust_env": _env_flag("KALSHI_TRUST_ENV_PROXY", False),
+        "bridge_cache_path": os.environ.get("KALSHI_BRIDGE_CACHE_PATH", ""),
+        "bridge_cache_only": _env_flag("KALSHI_BRIDGE_CACHE_ONLY", False),
+        "bridge_cache_max_age_seconds": float(os.environ.get("KALSHI_BRIDGE_CACHE_MAX_AGE_SECONDS", "30")),
         "basis_offset": 0.0,
         "sentiment_thresholds": {
             "strong_bull": 0.70,

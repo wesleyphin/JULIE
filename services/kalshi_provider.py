@@ -1,10 +1,12 @@
 import base64
 import asyncio
+import json
 import logging
+import os
 import threading
 import time
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import pytz
 import requests
@@ -15,9 +17,28 @@ from cryptography.hazmat.primitives.asymmetric import padding
 logger = logging.getLogger("kalshi_provider")
 
 
+def _coerce_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        raw = value.strip().lower()
+        if raw in {"1", "true", "yes", "on", "y"}:
+            return True
+        if raw in {"0", "false", "no", "off", "n"}:
+            return False
+    return default
+
+
 class KalshiProvider:
     """
-    Authenticated Kalshi API client for KXINXU (S&P 500 above/below hourly contracts).
+    Kalshi API client for KXINXU (S&P 500 above/below hourly contracts).
+
+    Public read-only mode uses Kalshi's unauthenticated REST market-data endpoints
+    and keeps the same probability-curve interface used by the live overlay.
     """
 
     def __init__(self, config: Dict):
@@ -31,17 +52,39 @@ class KalshiProvider:
         self.max_retries = int(config.get("max_retries", 3) or 3)
         self.basis_offset = float(config.get("basis_offset", 0.0) or 0.0)
         self.enabled = bool(config.get("enabled", True))
+        self.public_read_only = _coerce_bool(config.get("public_read_only"), False)
+        self.market_data_proxy_url = str(
+            config.get("market_data_proxy_url")
+            or os.environ.get("KALSHI_MARKET_DATA_PROXY_URL")
+            or os.environ.get("MARKET_DATA_PROXY_URL")
+            or ""
+        ).strip()
+        self.trust_env = _coerce_bool(config.get("trust_env"), False)
+        self.bridge_cache_path = str(config.get("bridge_cache_path", "") or "").strip()
+        self.bridge_cache_only = _coerce_bool(config.get("bridge_cache_only"), False)
+        self.bridge_cache_max_age_seconds = float(
+            config.get("bridge_cache_max_age_seconds", 30) or 30
+        )
+
+        configured_session = config.get("session")
+        self.session = configured_session if configured_session is not None else requests.Session()
+        if hasattr(self.session, "trust_env"):
+            self.session.trust_env = self.trust_env
+        if self.market_data_proxy_url and hasattr(self.session, "proxies"):
+            self.session.proxies.update(
+                {"http": self.market_data_proxy_url, "https": self.market_data_proxy_url}
+            )
 
         self.private_key = None
         private_key_path = str(config.get("private_key_path", "") or "")
-        if private_key_path:
+        if private_key_path and not self.public_read_only:
             try:
                 with open(private_key_path, "rb") as key_file:
                     self.private_key = serialization.load_pem_private_key(key_file.read(), password=None)
             except (FileNotFoundError, OSError, ValueError) as exc:
                 logger.warning("Unable to load Kalshi private key from %s: %s", private_key_path, exc)
 
-        if not self.key_id or self.private_key is None:
+        if not self.public_read_only and (not self.key_id or self.private_key is None):
             if self.enabled:
                 logger.warning("Kalshi credentials missing or invalid; provider disabled")
             self.enabled = False
@@ -92,22 +135,25 @@ class KalshiProvider:
 
         if not self.enabled:
             return {}
-        if not self.key_id or self.private_key is None:
-            logger.warning("Kalshi credentials missing; disabling provider calls")
-            return {}
 
-        ts_str = str(int(time.time()))
-        sig = self._sign("GET", f"/trade-api/v2{path}", ts_str)
-        headers = {
-            "KALSHI-ACCESS-KEY": self.key_id,
-            "KALSHI-ACCESS-SIGNATURE": sig,
-            "KALSHI-ACCESS-TIMESTAMP": ts_str,
-        }
+        request_kwargs: Dict[str, Any] = {"params": params, "timeout": self.timeout}
+        if not self.public_read_only:
+            if not self.key_id or self.private_key is None:
+                logger.warning("Kalshi credentials missing; disabling provider calls")
+                return {}
+
+            ts_str = str(int(time.time()))
+            sig = self._sign("GET", f"/trade-api/v2{path}", ts_str)
+            request_kwargs["headers"] = {
+                "KALSHI-ACCESS-KEY": self.key_id,
+                "KALSHI-ACCESS-SIGNATURE": sig,
+                "KALSHI-ACCESS-TIMESTAMP": ts_str,
+            }
         url = f"{self.base_url}{path}"
 
         for attempt in range(self.max_retries):
             try:
-                response = requests.get(url, params=params, headers=headers, timeout=self.timeout)
+                response = self.session.get(url, **request_kwargs)
                 self._last_request_ts = time.time()
 
                 if response.status_code == 429:
@@ -132,6 +178,95 @@ class KalshiProvider:
                     return {}
                 time.sleep(2)
         return {}
+
+    def _load_bridge_markets(self, event_ticker: Optional[str] = None) -> Optional[List[Dict]]:
+        if not self.bridge_cache_path:
+            return None
+        try:
+            with open(self.bridge_cache_path, "r", encoding="utf-8") as fh:
+                snapshot = json.load(fh)
+        except (OSError, ValueError, TypeError) as exc:
+            logger.warning("Unable to read Kalshi bridge cache %s: %s", self.bridge_cache_path, exc)
+            if self.bridge_cache_only:
+                self.is_healthy = False
+            return None
+        if not isinstance(snapshot, dict):
+            if self.bridge_cache_only:
+                self.is_healthy = False
+            return None
+
+        snapshot_ts = float(snapshot.get("ts", 0.0) or 0.0)
+        if self.bridge_cache_max_age_seconds > 0:
+            age = time.time() - snapshot_ts
+            if snapshot_ts <= 0 or age > self.bridge_cache_max_age_seconds:
+                logger.warning("Kalshi bridge cache is stale: age=%.1fs", age)
+                if self.bridge_cache_only:
+                    self.is_healthy = False
+                return None
+
+        snapshot_ticker = str(snapshot.get("event_ticker", "") or "").strip()
+        requested_ticker = str(event_ticker or "").strip()
+        if requested_ticker and snapshot_ticker and requested_ticker != snapshot_ticker:
+            return None
+
+        parsed: List[Dict] = []
+        for row in snapshot.get("markets", []) or []:
+            if not isinstance(row, dict):
+                continue
+            try:
+                strike = float(row.get("strike"))
+                probability = float(row.get("probability"))
+            except (TypeError, ValueError):
+                continue
+            try:
+                volume = float(row.get("volume", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                volume = 0.0
+            parsed.append(
+                {
+                    "strike": strike,
+                    "probability": probability,
+                    "volume": volume,
+                    "status": str(row.get("status", "") or ""),
+                    "result": str(row.get("result", "") or ""),
+                }
+            )
+
+        if not parsed:
+            if self.bridge_cache_only:
+                self.is_healthy = False
+            return None
+
+        if self.bridge_cache_only and not self._markets_are_informative(parsed):
+            logger.warning("Kalshi bridge cache is not informative; ignoring snapshot")
+            self.is_healthy = False
+            return None
+
+        parsed.sort(key=lambda row: row["strike"])
+        resolved_ticker = snapshot_ticker or requested_ticker or self._current_event_ticker()
+        self.last_resolved_ticker = resolved_ticker
+        self.last_success = snapshot_ts or time.time()
+        self.is_healthy = True
+        self.consecutive_failures = 0
+        with self._cache_lock:
+            self._cache[resolved_ticker] = {"data": parsed, "ts": snapshot_ts or time.time()}
+        return parsed
+
+    @staticmethod
+    def _markets_are_informative(markets: List[Dict]) -> bool:
+        probabilities: List[float] = []
+        for row in markets:
+            try:
+                probabilities.append(float(row.get("probability")))
+            except (AttributeError, TypeError, ValueError):
+                continue
+        if len(probabilities) < 8:
+            return False
+        if (max(probabilities) - min(probabilities)) < 0.08:
+            return False
+        if len({round(probability, 4) for probability in probabilities}) < 4:
+            return False
+        return True
 
     # KXINXU settlement hours are Eastern Time (per CFTC filing: "Time will
     # be measured in Eastern Time (ET)" covering "traditional market hours
@@ -361,6 +496,12 @@ class KalshiProvider:
         return parsed
 
     def _fetch_event_markets(self, event_ticker: Optional[str] = None) -> List[Dict]:
+        bridge_markets = self._load_bridge_markets(event_ticker)
+        if bridge_markets is not None:
+            return bridge_markets
+        if self.bridge_cache_only:
+            return []
+
         # If a specific ticker was requested, return it directly
         if event_ticker is not None:
             self.last_resolved_ticker = event_ticker
