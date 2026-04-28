@@ -31,17 +31,20 @@ const OPERATOR_CONTROL_URL = 'http://127.0.0.1:3011';
 const TAU = Math.PI * 2;
 
 const COLORS = {
-  purple: '#a855ff',
-  violet: '#6d5dff',
-  cyan: '#35f5ff',
-  pink: '#ff3df2',
-  amber: '#ffb347',
-  lime: '#c7ff4a',
+  // Restricted palette per user spec: only RED, GREEN, WHITE, and shades
+  // of PURPLE for any text/UI accent. Lightened muted/dim/amber so they
+  // stay legible on the frosted-grey glass + video bg.
+  purple: '#2e1065',   // was #2e1065 — bumped lighter for legibility
+  violet: '#1e0a4a',   // was #1e0a4a — bumped lighter
+  cyan: '#5b21b6',     // light purple
+  pink: '#2e1065',     // main purple (lighter)
+  amber: '#5b21b6',    // muted purple — bumped lighter
+  lime: '#45ffc8',     // green (allowed)
   red: '#ff3864',
   green: '#45ffc8',
-  muted: '#9c8bbb',
-  text: '#f4ecff',
-  dim: '#5a4a72',
+  muted: '#5b21b6',    // matches CSS --muted
+  text: '#5b21b6',
+  dim: '#4c1d95',      // matches CSS --dim
 };
 
 type ScreenId = 'overview' | 'aetherflow' | 'kalshi' | 'news' | 'strategies' | 'pipeline' | 'journal' | 'command';
@@ -177,51 +180,145 @@ const NAV: Array<{ id: ScreenId; label: string; code: string; title: string; sub
 ];
 
 const COCKPIT_CSS = `
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Orbitron:wght@500;700;800&family=Rajdhani:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@800;900&family=Black+Han+Sans&family=Archivo+Black&family=Russo+One&family=JetBrains+Mono:wght@400;600;700&family=Rajdhani:wght@400;500;600;700&display=swap');
 @font-face {
   font-family: 'Ghastly Panic';
   src: url('/fonts/GhastlyPanic.ttf') format('truetype');
   font-display: swap;
 }
-.display-title {
-  font-family: 'Ghastly Panic', 'Orbitron', cursive;
-  letter-spacing: 0.05em;
-  text-transform: none;
+@font-face {
+  font-family: 'Zombified';
+  src: url('/fonts/Zombified.ttf') format('truetype');
+  font-display: swap;
 }
 :root {
   --bg: #000;
-  --line: rgba(160, 90, 255, 0.23);
-  --line-strong: rgba(190, 118, 255, 0.5);
-  --text: #f4ecff;
-  --muted: #9c8bbb;
-  --dim: #5a4a72;
-  --purple: #a855ff;
-  --violet: #6d5dff;
-  --cyan: #35f5ff;
-  --pink: #ff3df2;
-  --amber: #ffb347;
-  --lime: #c7ff4a;
+  /* Grey-blurred outline color — replaces the old purple. Anything that
+     references var(--line) or var(--line-strong) now reads as a soft
+     translucent grey. Hardcoded purple rgba()'s are swept separately. */
+  --line: rgba(255, 255, 255, 0.10);
+  --line-strong: rgba(255, 255, 255, 0.22);
+  --text: #5b21b6;
+  /* Lightened muted/dim shades — the original (#3b0764 / #1e0a4a) were
+     too dark on the new frosted-grey glass + video bg; subtitles, kicker
+     captions, and metric labels were washing out. New values stay in the
+     grey-purple family but read clearly. */
+  --muted: #5b21b6;
+  --dim: #4c1d95;
+  --purple: #2e1065;
+  --violet: #1e0a4a;
+  /* Restricted text palette: only red/green/white/purple-shades. The
+     non-allowed accent vars are aliased to purple shades. */
+  --cyan: #3b0764;
+  --pink: #2e1065;
+  --amber: #3b0764;
+  --lime: #45ffc8;
   --red: #ff3864;
   --green: #45ffc8;
-  --shadow: 0 0 0 1px rgba(168, 85, 255, 0.07), 0 18px 60px rgba(0, 0, 0, 0.62);
-  --display: "Orbitron", "Rajdhani", system-ui, sans-serif;
-  --body: "Rajdhani", system-ui, sans-serif;
-  --mono: "JetBrains Mono", ui-monospace, monospace;
+  --shadow: 0 0 0 1px rgba(255,255,255,0.04), 0 18px 60px rgba(0, 0, 0, 0.62);
+  /* Streetwear-style title stack: Anton (bold condensed, the Supreme/Off-
+     White poster look) → Bebas Neue (cleaner condensed) → Archivo Black
+     (heavier slab-like) as fallbacks. JetBrains Mono and Rajdhani retained
+     for data values and body text. */
+  /* Stretched-out bold display stack — serious industrial/control-panel
+     feel. Big Shoulders Display 900 is designed for wide signage; Black
+     Han Sans is extra-wide and heavy; Archivo Black and Russo One are
+     wide bold sans fallbacks. */
+  --display: 'Arial', sans-serif;
+  --body: 'Arial', sans-serif;
+  --mono: 'Arial', sans-serif;
+  /* Body / non-title font: Zombified by Chad Savage (same hand-drawn horror
+     designer as Ghastly Panic). Self-hosted at /fonts/Zombified.ttf via the
+     @font-face above. Pairs with Ghastly Panic by design lineage. */
+  --archaic: 'Arial', sans-serif;
 }
-body { background: #000; color: var(--text); font-family: var(--body); letter-spacing: 0; overflow-x: hidden; }
+body { background: #000; color: var(--text); font-family: var(--archaic); letter-spacing: 0; overflow-x: hidden; }
 button { font: inherit; color: inherit; }
 canvas { display: block; width: 100%; }
 h1, h2, h3, p { margin: 0; }
 .fl-cockpit * { box-sizing: border-box; }
-.app { min-height: 100vh; display: grid; grid-template-columns: 248px minmax(0, 1fr); background: #000; }
-.rail { min-width: 0; border-right: 1px solid var(--line); background: #050208; display: grid; grid-template-rows: auto 1fr auto; }
+/* Curved corners on every box-like surface (panels already have 14px,
+   chart 14px). Buttons, chips, badges, ticker cells, command tiles etc.
+   pick this up so the entire UI reads as rounded glassmorphism. */
+.chip, .command, .badge, .nav button, .ticker, .ticker .cell, .hud-cell,
+.command-tile, .control-tile, .operator-note, .position, .terminal-row,
+.event, .tile, .metric, .meter, .bar-track, .panel-head {
+  border-radius: 10px;
+}
+.ticker { border-radius: 14px; overflow: hidden; }
+.ticker .cell { border-radius: 0; }
+.panel { border-radius: 14px; }
+.panel-head { border-radius: 14px 14px 0 0; }
+
+/* Looping background video — covers full viewport, sits behind every UI
+   layer via negative z-index. fl-cockpit is its positioning context. */
+.fl-cockpit { position: relative; min-height: 100vh; }
+.bg-video {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
+  z-index: -2;
+  pointer-events: none;
+  /* 15% darker than before (was brightness 0.55, now 0.55 * 0.85 ≈ 0.47). */
+  filter: brightness(0.47) contrast(1.05);
+}
+/* Subtle dark veil on top of the video so text stays legible. */
+.fl-cockpit::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.42) 50%, rgba(0,0,0,0.6) 100%);
+  pointer-events: none;
+}
+/* Bouncing head easter-egg — DVD-style floating PNG. mix-blend-mode: screen
+   knocks out the black surrounding pixels so it looks like a floating head
+   rather than a black square. translate3d is updated each frame via direct
+   DOM write, no React re-render. */
+.bouncing-head {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 90px;
+  height: 90px;
+  z-index: 9999;
+  cursor: pointer;
+  pointer-events: auto;
+  will-change: transform;
+  filter: drop-shadow(0 0 14px rgba(76, 29, 149, 0.55));
+  transition: filter 0.18s ease;
+}
+.bouncing-head:hover { filter: drop-shadow(0 0 22px rgba(255, 56, 100, 0.75)); }
+.bouncing-head img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: none;
+}
+.head-explosion {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9998;
+  pointer-events: none;
+}
+/* App + rail are now transparent so video shows through to the panels.
+   Panels themselves get the frosted-grey glass treatment below. */
+.app { min-height: 100vh; display: grid; grid-template-columns: 248px minmax(0, 1fr); background: transparent; }
+.rail { min-width: 0; border-right: 1px solid rgba(255,255,255,0.08); background: rgba(20, 22, 30, 0.42); display: grid; grid-template-rows: auto 1fr auto; }
 .brand { min-width: 0; padding: 18px 16px 16px; border-bottom: 1px solid var(--line); }
-.brand h1 { font-family: var(--display); font-size: 13px; letter-spacing: 1.8px; color: var(--purple); text-shadow: 0 0 18px rgba(168, 85, 255, 0.9); }
+.brand h1 { font-family: var(--display); font-weight: 900; font-size: 13px; letter-spacing: 1.8px; color: #1e0a4a; text-shadow: 0 0 18px rgba(76, 29, 149, 0.9); }
 .brand p { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.35; font-family: var(--mono); }
-.brand .wire { height: 2px; margin-top: 15px; background: linear-gradient(90deg, var(--purple), transparent 70%); box-shadow: 0 0 18px rgba(168, 85, 255, 0.8); }
+.brand .wire { height: 2px; margin-top: 15px; background: linear-gradient(90deg, var(--purple), transparent 70%); box-shadow: 0 0 18px rgba(76, 29, 149, 0.8); }
 .nav { min-width: 0; padding: 12px; display: grid; align-content: start; gap: 6px; }
 .nav button { min-width: 0; height: 40px; border: 1px solid transparent; background: transparent; border-radius: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 0 9px; cursor: pointer; color: var(--muted); text-align: left; text-transform: uppercase; }
-.nav button:hover, .nav button.active { color: var(--text); border-color: var(--line-strong); background: rgba(168, 85, 255, 0.075); box-shadow: inset 2px 0 0 var(--purple), 0 0 20px rgba(168, 85, 255, 0.14); }
+.nav button:hover, .nav button.active { color: var(--text); border-color: var(--line-strong); background: rgba(255,255,255,0.06); box-shadow: inset 2px 0 0 var(--purple), 0 0 20px rgba(255,255,255,0.06); }
 .nav span { min-width: 0; font-weight: 700; letter-spacing: 0.8px; font-size: 12px; }
 .nav small, .micro { font-family: var(--mono); font-size: 10px; color: var(--dim); }
 .rail-bottom { min-width: 0; padding: 14px; border-top: 1px solid var(--line); display: grid; gap: 8px; }
@@ -231,20 +328,20 @@ h1, h2, h3, p { margin: 0; }
 .dot.warn-dot { background: var(--amber); box-shadow: 0 0 14px var(--amber); }
 .dot.down-dot { background: var(--red); box-shadow: 0 0 14px var(--red); }
 .deck { min-width: 0; padding: 14px; display: grid; grid-template-rows: auto auto auto 1fr; gap: 10px; }
-.top { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: start; border-bottom: 1px solid var(--line); padding-bottom: 10px; }
+.top { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: start; padding-bottom: 10px; }
 .kicker { font-family: var(--mono); color: var(--muted); font-size: 10px; text-transform: uppercase; }
-.top h2 { margin-top: 4px; font-family: var(--display); color: var(--text); font-size: clamp(19px, 2vw, 30px); letter-spacing: 1px; text-shadow: 0 0 24px rgba(168, 85, 255, 0.5); }
+.top h2 { margin-top: 4px; font-family: var(--display); font-weight: 900; color: #1e0a4a; font-size: clamp(19px, 2.0vw, 30px); letter-spacing: 1px; text-shadow: 0 0 24px rgba(76, 29, 149, 0.85); }
 .top p { margin-top: 6px; color: var(--muted); font-family: var(--mono); font-size: 11px; }
 .actions { min-width: 0; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
-.chip, .command, .badge { min-width: 0; border: 1px solid var(--line); background: rgba(168, 85, 255, 0.06); color: var(--text); height: 30px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-family: var(--mono); font-size: 10px; text-transform: uppercase; white-space: nowrap; }
+.chip, .command, .badge { min-width: 0; border: 1px solid var(--line); background: rgba(255,255,255,0.04); color: var(--text); height: 30px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-family: var(--mono); font-size: 10px; text-transform: uppercase; white-space: nowrap; }
 .command { cursor: pointer; text-decoration: none; }
-.command.primary { border-color: rgba(53, 245, 255, 0.6); color: var(--cyan); box-shadow: 0 0 18px rgba(53, 245, 255, 0.13); }
+.command.primary { border-color: rgba(91, 33, 182, 0.6); color: var(--cyan); box-shadow: 0 0 18px rgba(91, 33, 182, 0.13); }
 .notice { border: 1px solid rgba(255, 56, 100, 0.32); color: var(--red); background: rgba(255, 56, 100, 0.06); padding: 10px 12px; font-family: var(--mono); font-size: 11px; }
-.ticker { min-width: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); border: 1px solid var(--line); background: #06020b; }
-.ticker .cell { min-width: 0; padding: 9px 10px; border-right: 1px solid rgba(155, 86, 255, 0.14); }
+.ticker { min-width: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); border: 1px solid var(--line); background: rgba(20, 22, 30, 0.42); }
+.ticker .cell { min-width: 0; padding: 9px 10px; border-right: 1px solid rgba(255,255,255,0.08); }
 .ticker .cell:last-child { border-right: 0; }
 .ticker span, .label { display: block; min-width: 0; color: var(--muted); font-size: 10px; font-family: var(--mono); text-transform: uppercase; }
-.ticker strong { display: block; margin-top: 3px; color: var(--purple); font-family: var(--display); font-size: clamp(15px, 1.3vw, 22px); text-shadow: 0 0 18px rgba(168, 85, 255, 0.62); }
+.ticker strong { display: block; margin-top: 3px; color: var(--purple); font-family: var(--display); font-size: clamp(15px, 1.3vw, 22px); text-shadow: 0 0 18px rgba(76, 29, 149, 0.62); }
 .screen { min-width: 0; display: block; }
 .grid { min-width: 0; display: grid; gap: 10px; }
 .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -252,14 +349,27 @@ h1, h2, h3, p { margin: 0; }
 .cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .overview-layout { grid-template-columns: minmax(220px, 0.55fr) minmax(0, 2.6fr) minmax(240px, 0.55fr); margin-top: 10px; }
 .aether-layout { grid-template-columns: minmax(0, 1.52fr) minmax(340px, 0.72fr); margin-top: 10px; }
-.kalshi-layout, .news-layout, .journal-layout { grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr); margin-top: 10px; }
-.panel, .metric, .event, .position, .terminal-row, .tile { min-width: 0; background: rgba(10, 5, 18, 0.94); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.kalshi-layout { grid-template-columns: 1fr; margin-top: 10px; }
+.kalshi-layout-secondary { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); margin-top: 10px; gap: 10px; }
+.news-layout, .journal-layout { grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr); margin-top: 10px; }
+/* Glassmorphism: frosted grey panels with curved corners. The translucent
+   grey + backdrop-filter blur lets the video show through subtly while
+   keeping content legible. Border-radius 14px gives the curved outline
+   the user asked for. */
+.panel, .metric, .event, .position, .terminal-row, .tile {
+  min-width: 0;
+  background: rgba(20, 22, 30, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 14px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.03), 0 18px 60px rgba(0, 0, 0, 0.45);
+}
 .panel { overflow: hidden; }
-.panel-head { min-width: 0; min-height: 48px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; border-bottom: 1px solid rgba(155, 86, 255, 0.18); }
-.panel-head h3 { min-width: 0; font-family: var(--display); font-size: 12px; letter-spacing: 1px; text-transform: uppercase; }
+.panel-head { min-width: 0; min-height: 48px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; }
+.panel-head h3 { min-width: 0; font-family: var(--display); font-weight: 900; font-size: 12px; letter-spacing: 0.8px; text-transform: uppercase; color: #1e0a4a; text-shadow: 0 0 18px rgba(76, 29, 149, 0.7); }
+.brand h1, .top h2, .ticker strong, .metric strong, .command-tile strong { font-weight: 900; }
 .panel-head p { min-width: 0; margin-top: 3px; color: var(--muted); font-family: var(--mono); font-size: 10px; }
 .panel-body { padding: 10px; }
-.metric { height: 86px; padding: 11px; display: grid; align-content: space-between; border-color: rgba(155, 86, 255, 0.2); }
+.metric { height: 86px; padding: 11px; display: grid; align-content: space-between; border-color: rgba(255,255,255,0.12); }
 .metric strong { min-width: 0; font-family: var(--display); font-size: clamp(18px, 1.8vw, 30px); color: var(--metric, var(--purple)); text-shadow: 0 0 18px color-mix(in srgb, var(--metric, var(--purple)), transparent 48%); }
 .metric small { min-width: 0; color: var(--muted); font-family: var(--mono); font-size: 10px; }
 .stack { min-width: 0; display: grid; gap: 10px; align-content: start; }
@@ -268,26 +378,36 @@ h1, h2, h3, p { margin: 0; }
 .terminal-row time { color: var(--dim); }
 .terminal-row strong { min-width: 0; color: var(--text); font-weight: 700; }
 .terminal-row p { color: var(--muted); }
-.badge { height: 22px; padding: 0 7px; border-color: rgba(168, 85, 255, 0.32); color: var(--purple); }
+.badge { height: 22px; padding: 0 7px; border-color: rgba(255,255,255,0.18); color: var(--purple); }
 .badge.live { color: var(--green); border-color: rgba(69, 255, 200, 0.45); }
-.badge.watch { color: var(--amber); border-color: rgba(255, 179, 71, 0.45); }
+.badge.watch { color: var(--amber); border-color: rgba(91, 33, 182, 0.45); }
 .badge.block { color: var(--red); border-color: rgba(255, 56, 100, 0.52); }
-.badge.info { color: var(--cyan); border-color: rgba(53, 245, 255, 0.45); }
-.chart { height: 620px; background: #050109; }
-.scene-wrap { position: relative; min-height: 650px; background: #030006; }
+.badge.info { color: var(--cyan); border-color: rgba(91, 33, 182, 0.45); }
+.chart {
+  height: 620px;
+  background: rgba(20, 22, 30, 0.42);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.scene-wrap {
+  position: relative;
+  min-height: 650px;
+  background: rgba(20, 22, 30, 0.42);
+  border-radius: 14px;
+}
 .aetherflow-scene { width: 100%; height: 650px; cursor: grab; touch-action: none; user-select: none; }
 .aetherflow-scene:active { cursor: grabbing; }
 .scene-hud { position: absolute; left: 12px; right: 12px; bottom: 12px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; pointer-events: none; }
-.hud-cell { min-width: 0; border: 1px solid rgba(168, 85, 255, 0.2); background: rgba(4, 1, 8, 0.74); padding: 8px; }
+.hud-cell { min-width: 0; border: 1px solid rgba(255,255,255,0.10); background: rgba(180,184,200,0.08); padding: 8px; }
 .hud-cell strong { display: block; margin-top: 2px; font-family: var(--mono); font-size: 11px; }
-.mini-grid { min-width: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid rgba(155, 86, 255, 0.18); }
-.mini { min-width: 0; padding: 9px 10px; border-right: 1px solid rgba(155, 86, 255, 0.15); }
+.mini-grid { min-width: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid rgba(255,255,255,0.10); }
+.mini { min-width: 0; padding: 9px 10px; border-right: 1px solid rgba(255,255,255,0.08); }
 .mini:last-child { border-right: 0; }
 .mini strong { display: block; min-width: 0; margin-top: 3px; font-family: var(--mono); font-size: 12px; }
-.feature { min-width: 0; padding: 8px 0; border-bottom: 1px solid rgba(155, 86, 255, 0.13); }
+.feature { min-width: 0; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
 .feature:last-child { border-bottom: 0; }
 .feature-head { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 7px; font-family: var(--mono); font-size: 10px; color: var(--muted); text-transform: uppercase; }
-.meter { height: 8px; background: rgba(255, 255, 255, 0.045); border: 1px solid rgba(155, 86, 255, 0.18); overflow: hidden; }
+.meter { height: 8px; background: rgba(255, 255, 255, 0.045); border: 1px solid rgba(255,255,255,0.10); overflow: hidden; }
 .meter span { display: block; height: 100%; width: 50%; background: linear-gradient(90deg, var(--meter, var(--purple)), rgba(255, 255, 255, 0.2)); box-shadow: 0 0 14px var(--meter, var(--purple)); }
 .state-matrix, .truth-grid { min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .tile { min-height: 88px; padding: 10px; display: grid; align-content: space-between; }
@@ -301,10 +421,10 @@ h1, h2, h3, p { margin: 0; }
 .position p { color: var(--muted); font-family: var(--mono); font-size: 10px; }
 .flow-bars { display: grid; gap: 4px; padding: 10px; }
 .flow-bar { min-width: 0; height: 21px; display: grid; grid-template-columns: 54px minmax(0, 1fr) 52px; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10px; color: var(--muted); }
-.bar-track { height: 16px; background: rgba(255, 255, 255, 0.045); border: 1px solid rgba(155, 86, 255, 0.13); overflow: hidden; }
-.bar-fill { height: 100%; width: 50%; background: linear-gradient(90deg, rgba(168, 85, 255, 0.22), var(--purple)); }
+.bar-track { height: 16px; background: rgba(255, 255, 255, 0.045); border: 1px solid rgba(255,255,255,0.06); overflow: hidden; }
+.bar-fill { height: 100%; width: 50%; background: linear-gradient(90deg, rgba(255,255,255,0.10), var(--purple)); }
 .table { width: 100%; border-collapse: collapse; table-layout: fixed; font-family: var(--mono); font-size: 10px; }
-.table th, .table td { min-width: 0; padding: 9px 8px; border-bottom: 1px solid rgba(155, 86, 255, 0.13); text-align: left; color: var(--muted); }
+.table th, .table td { min-width: 0; padding: 9px 8px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: left; color: var(--muted); }
 .table th { color: var(--dim); text-transform: uppercase; font-weight: 700; }
 .table td strong { color: var(--text); }
 .event { min-height: 58px; padding: 9px; display: grid; grid-template-columns: 72px minmax(0, 1fr) auto; gap: 10px; align-items: center; font-family: var(--mono); font-size: 10px; }
@@ -312,22 +432,23 @@ h1, h2, h3, p { margin: 0; }
 .event strong { min-width: 0; display: block; color: var(--text); }
 .event p { min-width: 0; margin-top: 4px; color: var(--muted); }
 .command-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
-.command-tile { height: 118px; border: 1px solid var(--line); background: rgba(10, 5, 18, 0.94); padding: 10px; display: grid; align-content: space-between; }
+.command-tile { height: 118px; border: 1px solid var(--line); background: rgba(180,184,200,0.08); padding: 10px; display: grid; align-content: space-between; }
 .command-tile strong { min-width: 0; font-family: var(--display); font-size: 11px; }
 .command-tile small { min-width: 0; color: var(--muted); font-family: var(--mono); font-size: 10px; }
 .control-tile { cursor: pointer; color: inherit; text-align: left; }
-.control-tile:hover { border-color: var(--line-strong); background: rgba(168, 85, 255, 0.1); }
+.control-tile:hover { border-color: var(--line-strong); background: rgba(255,255,255,0.08); }
 .control-tile:disabled { cursor: not-allowed; opacity: 0.48; }
 .operator-footer { min-width: 0; margin-top: 9px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.operator-note { min-height: 34px; padding: 8px 10px; border: 1px solid rgba(155, 86, 255, 0.16); background: rgba(4, 1, 8, 0.68); color: var(--muted); font-family: var(--mono); font-size: 10px; }
+.operator-note { min-height: 34px; padding: 8px 10px; border: 1px solid rgba(255,255,255,0.08); background: rgba(180,184,200,0.06); color: var(--muted); font-family: var(--mono); font-size: 10px; }
 .operator-note strong { display: block; color: var(--text); font-size: 10px; }
 .up { color: var(--green) !important; }
 .down { color: var(--red) !important; }
 .info { color: var(--cyan) !important; }
 .warn { color: var(--amber) !important; }
 .violet { color: var(--purple) !important; }
-.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.truncate { overflow: visible; white-space: normal; text-overflow: clip; word-break: break-word; overflow-wrap: anywhere; min-width: 0; }
 .clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+
 @media (max-width: 1180px) {
   .app { grid-template-columns: 1fr; }
   .rail { position: sticky; top: 0; z-index: 5; grid-template-rows: auto auto; border-right: 0; border-bottom: 1px solid var(--line); }
@@ -337,9 +458,13 @@ h1, h2, h3, p { margin: 0; }
   .overview-layout, .aether-layout, .kalshi-layout, .news-layout, .journal-layout { grid-template-columns: 1fr; }
 }
 .pipeline-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+/* Phone-only dropdown nav: hidden on desktop/tablet, shown only at <=480px */
+.nav-select { display: none; }
 @media (max-width: 820px) {
   .deck { padding: 10px; }
-  .top, .ticker, .cols-2, .cols-3, .cols-4, .mini-grid, .state-matrix, .truth-grid, .command-grid, .scene-hud, .operator-footer, .pipeline-grid { grid-template-columns: 1fr; }
+  /* Tablet: keep cols-2/3/4 multi-column (preserves desktop layout shape).
+     Only collapse the things that genuinely need single-column space. */
+  .top, .scene-hud { grid-template-columns: 1fr; }
   .nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .nav button { height: 34px; }
   .actions { justify-content: flex-start; }
@@ -347,54 +472,323 @@ h1, h2, h3, p { margin: 0; }
   .aetherflow-scene { height: 500px; }
 }
 @media (max-width: 480px) {
-  /* iPhone 16 portrait (393 CSS px) and similar phones */
+  /* iPhone 16 portrait (393 CSS px) and similar phones.
+     PRESERVE multi-column layouts (cols-2/3/4) like desktop — just shrink
+     content tight enough to fit. Chart stays as-is since it's its own
+     full-width panel. */
   body { -webkit-text-size-adjust: 100%; }
-  .rail { position: static; top: auto; }
-  .deck { padding: 8px; gap: 8px; }
-  .top { gap: 8px; padding-bottom: 8px; grid-template-columns: 1fr; }
-  .top h2 { font-size: 18px; letter-spacing: 0.5px; }
-  .top p { font-size: 10px; }
-  .actions { gap: 6px; justify-content: flex-start; }
-  .actions .chip, .actions .command { font-size: 9px; height: 28px; padding: 0 8px; }
+  /* Phone: kill the rail's frosted-grey background entirely. The rail
+     wraps the dropdown — when its bg renders, the dropdown looks like
+     it's inside a separate rounded rectangle. Going transparent + 0
+     min-height collapses that container to just the dropdown itself.
+     The 1fr grid-row that was stretching empty space (especially on
+     Strategies tab) is also collapsed via grid-template-rows: auto. */
+  .rail {
+    position: static !important;
+    top: auto !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    border: 0 !important;
+    grid-template-rows: auto !important;
+    min-height: 0 !important;
+    height: auto !important;
+    padding: 0 !important;
+  }
+  /* The .app grid was distributing the 100vh min-height across both
+     children (rail + deck) via the default align-content stretch,
+     making the rail balloon to half the screen with empty space below
+     the dropdown. align-content: start packs both children at the top
+     so the rail stays at content height (just the dropdown). */
+  .app {
+    align-content: start !important;
+    grid-auto-rows: min-content !important;
+  }
+  .deck { padding: 6px; gap: 6px; }
+  .top { gap: 6px; padding-bottom: 6px; grid-template-columns: 1fr; }
+  /* Title + subtitle wrap onto multiple rows on phone instead of being
+     truncated with an ellipsis. The .truncate class normally forces
+     nowrap+ellipsis; here we override it for the screen-level header
+     specifically so long titles like "STRATEGY STACK" and long
+     subtitles like "Live execution cockpit with entry, stop, target,
+     news, and position context." fit cleanly within the viewport. */
+  .top h2.truncate, .top p.truncate, .top .kicker {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    word-break: break-word;
+  }
+  .top h2 { font-size: 16px; letter-spacing: 0.5px; line-height: 1.15; }
+  .top p { font-size: 9px; line-height: 1.3; }
+  .top .kicker { font-size: 8px; line-height: 1.3; }
+  .actions { gap: 4px; justify-content: flex-start; }
+  .actions .chip, .actions .command { font-size: 8px; height: 24px; padding: 0 6px; }
   .ticker { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .ticker .cell { padding: 7px 9px; border-right: 0; border-bottom: 1px solid rgba(155, 86, 255, 0.14); }
-  .ticker .cell:nth-child(odd) { border-right: 1px solid rgba(155, 86, 255, 0.14); }
+  .ticker .cell { padding: 8px 10px; border-right: 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .ticker .cell:nth-child(odd) { border-right: 1px solid rgba(255,255,255,0.08); }
   .ticker .cell:nth-last-child(-n+2) { border-bottom: 0; }
-  .ticker strong { font-size: 14px; }
-  .nav { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 8px; }
-  .nav button { height: 44px; padding: 0 8px; font-size: 11px; }
-  .nav small { display: none; }
-  .panel-head { padding: 9px 10px; min-height: 42px; }
-  .panel-head h3 { font-size: 11px; }
-  .panel-body { padding: 9px; }
-  .pipeline-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .cols-2, .cols-3, .cols-4, .state-matrix, .truth-grid, .mini-grid { grid-template-columns: 1fr; }
-  .metric { height: 78px; padding: 9px; }
-  .metric strong { font-size: 16px; }
-  .metric small, .label { font-size: 9px; }
-  .terminal { max-height: 360px; padding: 6px; gap: 4px; }
-  .terminal-row { grid-template-columns: 56px minmax(0, 1fr) auto; padding: 6px 7px; min-height: 36px; }
-  .command-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-  .command-tile { height: 96px; padding: 8px; }
-  .command-tile strong { font-size: 10px; }
-  .command-tile small { font-size: 9px; }
+  .ticker strong { font-size: 10px; }
+  .ticker span { font-size: 7px; }
+  /* Phone: dropdown wrapped in a curved dark-grey blurred glass box
+     matching the panel/chart aesthetic. The wrapper provides the
+     visible box; the inner <select> is fully transparent so iOS
+     can't draw its own native rectangle inside the curve. */
+  .nav { display: none; }
+  .nav-select {
+    display: block;
+    position: relative;
+    margin: 8px 12px;
+    padding: 0;
+    background: rgba(20, 22, 30, 0.42);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.03);
+  }
+  .nav-select select {
+    width: 100%;
+    height: 38px;
+    padding: 0 30px 0 14px;
+    background: transparent !important;
+    color: var(--text);
+    border: 0 !important;
+    border-radius: 0 !important;
+    font-family: var(--display);
+    font-size: 12px;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    outline: none !important;
+    box-shadow: none !important;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .nav-select select:focus,
+  .nav-select select:focus-visible,
+  .nav-select select:active,
+  .nav-select select:hover {
+    outline: none !important;
+    box-shadow: none !important;
+    border: 0 !important;
+    background: transparent !important;
+  }
+  .nav-select-caret {
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--muted);
+    font-size: 11px;
+    pointer-events: none;
+    opacity: 0.7;
+  }
+  /* Allow paragraph text marked .truncate to wrap onto multiple lines
+     on phone instead of being clipped with "...". Headers/labels marked
+     .truncate (h1/strong/small/span) stay nowrap so tight chips don't
+     blow up vertically. */
+  p.truncate {
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    word-break: break-word;
+    line-height: 1.3;
+  }
+  .terminal-row p, .terminal-row p.truncate,
+  .event p, .event p.truncate,
+  .position p, .position p.truncate,
+  .tile p, .tile p.truncate,
+  .operator-note span, .operator-note span.truncate,
+  .command-tile small, .command-tile small.truncate {
+    white-space: normal !important;
+    overflow: visible !important;
+    text-overflow: clip !important;
+    word-break: break-word;
+    line-height: 1.25;
+  }
+  /* Stack badge UNDER the title on phone — at ~95px column width the
+     side-by-side grid was overlapping "EXECUTION LOGIC" with "armed".
+     Vertical stack uses ~6 more px but eliminates the collision entirely.
+     Inner div MUST have min-width:0 + max-width:100% or its h3/p escape
+     the grid cell and bleed past the panel border (children of grid
+     cells default to min-content size, which forces the cell wider). */
+  .panel-head {
+    padding: 7px 10px;
+    min-height: 28px;
+    gap: 3px;
+    grid-template-columns: 1fr;
+    grid-auto-rows: auto;
+    overflow: hidden;
+  }
+  .panel-head > * {
+    justify-self: start;
+    min-width: 0;
+    max-width: 100%;
+  }
+  .panel-head h3 {
+    /* Bungee is very wide — 9px keeps "EXECUTION LOGIC" / "ACTIVE
+       POSITIONS" inside a 190px phone column. */
+    font-size: 9px;
+    letter-spacing: 0.4px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 100%;
+  }
+  /* Subtitle is decorative ("Execution score, guard rails, and live
+     context." etc.). Wrap onto multiple rows + tiny font so it fits
+     under the title at ~80px column width. */
+  .panel-head p {
+    display: block;
+    font-size: 5px;
+    line-height: 1.25;
+    margin-top: 2px;
+    color: var(--muted);
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    word-break: break-word;
+  }
+  .panel-body { padding: 8px 10px; }
+  /* Multi-column rows on phone — kept multi-col so layout reads like
+     desktop, but cols-4 collapses to 2x2 so panels under the chart don't
+     end up tall+narrow (elongated). 4-col was making each panel ~95px
+     wide × 200px+ tall which looked stretched. 2-col means ~190px wide,
+     much shorter, proportionate. */
+  .cols-3 { gap: 4px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .cols-4 { gap: 4px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cols-2 { gap: 4px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pipeline-grid { gap: 4px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .state-matrix, .truth-grid, .mini-grid { gap: 4px; }
+  .grid { gap: 4px; }
+  /* Compact metric/panel content so they fit at ~95px column width.
+     Padding bumped from tight (5-6px) to comfy (8-10px) so text isn't
+     crammed against box edges. */
+  .metric { height: 70px; padding: 8px 10px; }
+  /* Big glowing values (NET / RISK / LIVE PRICE / etc) bumped 11 -> 14
+     so the headline numbers actually read on phone. */
+  .metric strong { font-size: 14px; }
+  .metric small, .label { font-size: 7px; letter-spacing: 0.4px; }
+  .mini { padding: 8px 9px; }
+  .mini strong { font-size: 9px; }
+  .terminal { max-height: 220px; padding: 6px; gap: 3px; }
+  .terminal-row { grid-template-columns: 28px minmax(0, 1fr) auto; padding: 5px 7px; min-height: 24px; gap: 4px; font-size: 6px; }
+  .terminal-row strong { font-size: 6px; }
+  .terminal-row p { font-size: 6px; }
+  .terminal-row time { font-size: 5px; }
+  .command-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+  .command-tile { height: 76px; padding: 8px 10px; }
+  .command-tile strong { font-size: 8px; }
+  .command-tile small { font-size: 7px; }
   .operator-footer { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .scene-wrap { min-height: 380px; }
   .aetherflow-scene { height: 380px; }
   .scene-hud { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .table { font-size: 9px; display: block; overflow-x: auto; white-space: nowrap; }
-  .table th, .table td { padding: 7px 5px; }
-  .badge { height: 20px; padding: 0 6px; font-size: 9px; }
-  .chip { font-size: 9px; height: 26px; padding: 0 7px; }
-  .tile { min-height: 84px; padding: 9px; }
+  /* Chart on phone — additional 20% trim. 465 * 0.80 = 372px. */
+  .chart { height: 372px; }
+  /* Inline overlay labels on the chart — even tinier on phone so they
+     don't dominate the candle area. The .ov-label class is set via React
+     on the absolute-positioned label divs. !important is needed because
+     the React inline style sets fontSize: 8 with higher specificity. */
+  .ov-label {
+    font-size: 6px !important;
+    line-height: 8px !important;
+    padding: 0px 3px !important;
+    border-radius: 1px !important;
+  }
+  /* Keep table as native table-layout (NOT display:block) so width:100%
+     works and the table fills its parent panel — display:block was
+     making the table shrink-wrap to content width and leaving a huge
+     gap to the right of e.g. the Kalshi Market Scanner. */
+  .table { font-size: 7px; width: 100%; table-layout: fixed; }
+  .table th, .table td { padding: 6px 5px; word-break: break-word; }
+  .badge { height: 16px; padding: 0 4px; font-size: 7px; }
+  .chip { font-size: 7px; height: 20px; padding: 0 5px; }
+  .tile { min-height: 70px; padding: 8px 10px; }
   .tile strong { font-size: 10px; }
-  .tile p { font-size: 11px; line-height: 1.2; }
-  .position { padding: 8px; min-height: 48px; }
-  .feature { padding: 6px 0; }
-  .meter { height: 6px; }
-  .flow-bar { grid-template-columns: 48px minmax(0, 1fr) 44px; gap: 6px; font-size: 9px; }
-  .notice { padding: 8px 10px; font-size: 10px; }
-  .event { grid-template-columns: 60px minmax(0, 1fr) auto; padding: 8px; min-height: 52px; font-size: 9px; }
+  .tile p { font-size: 8px; line-height: 1.2; margin-top: 4px; }
+  .position { padding: 7px 9px; min-height: 32px; gap: 5px; }
+  .position strong { font-size: 7px; }
+  .position p { font-size: 6px; }
+  .feature { padding: 5px 2px; }
+  .feature-head { font-size: 6px; gap: 4px; margin-bottom: 2px; }
+  .meter { height: 4px; }
+  .flow-bars { padding: 7px 9px; gap: 3px; }
+  .flow-bar { grid-template-columns: 24px minmax(0, 1fr) 28px; gap: 4px; font-size: 6px; height: 12px; }
+  .bar-track { height: 8px; }
+  .notice { padding: 5px 7px; font-size: 8px; }
+  .event { grid-template-columns: 36px minmax(0, 1fr) auto; padding: 7px 9px; min-height: 38px; font-size: 7px; gap: 6px; }
+}
+
+/* ----------------------------------------------------------------------
+   Archaic body sweep — switches all label/text/subtitle/description
+   selectors that previously used var(--mono) to var(--archaic), preserving
+   monospace on numeric value selectors for column alignment. Italic on
+   descriptive subtitle paragraphs (brand / page H2 / panel-head) for the
+   manuscript-narration feel. Title selectors (Ghastly Panic) and big
+   value selectors (var(--display) — .metric strong, .ticker strong) are
+   intentionally untouched.
+---------------------------------------------------------------------- */
+.brand p,
+.top p,
+.panel-head p,
+.tile p,
+.nav small, .micro,
+.status-line,
+.kicker,
+.chip, .command, .badge,
+.notice,
+.ticker span, .label,
+.metric small,
+.terminal-row,
+.terminal-row p,
+.terminal-row strong:not(.display-title),
+.position, .position p, .position strong,
+.feature-head, .feature-head span,
+.flow-bar, .flow-bar span,
+.table th,
+.event, .event strong, .event p,
+.command-tile small,
+.operator-note {
+  font-family: var(--archaic);
+}
+
+/* Italic on the descriptive subtitle paragraphs only — gives a manuscript
+   feel without tiring the eye on short labels. */
+.brand p,
+.top p,
+.panel-head p {
+  font-style: italic;
+}
+
+/* Numeric value displays — keep monospace for column alignment. These
+   would otherwise inherit archaic from the row/group rules above. */
+.terminal-row time,
+.feature-head strong,
+.flow-bar strong,
+.table td,
+.event time,
+.hud-cell strong,
+.mini strong {
+  font-family: var(--mono);
+}
+
+/* Description texts under titles — hidden per user. Reversible: delete
+   this rule and the descriptions return to view (JSX is untouched, the
+   subtitle props still get rendered into the DOM, just visually hidden). */
+.brand p,
+.top p,
+.panel-head p {
+  display: none !important;
+}
+
+/* Page H2 titles get Helvetica Bold for emphasis above the otherwise-uniform
+   Arial UI. Placed at end of CSS so the same-specificity rule above
+   (.top h2 { font-family: var(--display); ... }) is overridden by source
+   order. Other titles (panel headers, tiles) stay Arial regular. */
+.top h2 {
+  font-family: 'Helvetica', 'Arial', sans-serif;
+  font-weight: bold;
 }
 `;
 
@@ -983,7 +1377,9 @@ function projectSurfacePoint(x: number, y: number, z: number, width: number, hei
   const lift = height * (0.31 + scene.pitch * 0.1) * scene.zoom;
   return {
     x: (width * 0.5) + ((rx - ry) * sx),
-    y: (height * (0.62 + scene.pitch * 0.04)) + ((rx + ry) * sy) - (z * lift),
+    // Center vertically lifted from 0.62 -> 0.42 so the plot sits well
+    // above the bottom HUD (pressure x / transition y / height z / phase).
+    y: (height * (0.42 + scene.pitch * 0.04)) + ((rx + ry) * sy) - (z * lift),
     depth: ry + z * 0.7,
     z,
   };
@@ -1039,16 +1435,17 @@ const Meter: React.FC<{ label: string; value: number; color?: string; text?: str
   </div>
 );
 
-const TerminalRow: React.FC<{ time?: string | null; title: React.ReactNode; text: React.ReactNode; badge?: React.ReactNode }> = ({
+const TerminalRow: React.FC<{ time?: string | null; title: React.ReactNode; text: React.ReactNode; badge?: React.ReactNode; titleClassName?: string }> = ({
   time,
   title,
   text,
   badge,
+  titleClassName,
 }) => (
   <div className="terminal-row">
     <time>{formatShortTime(time)}</time>
     <div className="truncate">
-      <strong className="truncate">{title}</strong>
+      <strong className={`truncate${titleClassName ? ' ' + titleClassName : ''}`}>{title}</strong>
       <p className="truncate">{text}</p>
     </div>
     {badge}
@@ -1078,7 +1475,7 @@ const FlowBars: React.FC<{ values: Array<{ label: string; value: number; tail?: 
       <div className="flow-bar" key={item.label}>
         <span className="truncate">{item.label}</span>
         <div className="bar-track">
-          <div className="bar-fill" style={{ width: pct(item.value), background: item.color ? `linear-gradient(90deg, rgba(168,85,255,0.22), ${item.color})` : undefined }} />
+          <div className="bar-fill" style={{ width: pct(item.value), background: item.color ? `linear-gradient(90deg, rgba(76,29,149,0.22), ${item.color})` : undefined }} />
         </div>
         <strong className="truncate">{item.tail ?? pct(item.value)}</strong>
       </div>
@@ -1358,24 +1755,26 @@ const PriceCanvas: React.FC<{ state: FilterlessLiveState; position: FilterlessPo
     if (!container) return;
     const chart = createChart(container, {
       layout: {
-        background: { type: ColorType.Solid, color: '#040107' },
+        // Fully transparent so the .chart div's frosted-grey glass +
+        // bg video show through behind the candles.
+        background: { type: ColorType.Solid, color: 'rgba(0, 0, 0, 0)' },
         textColor: COLORS.muted,
-        fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+        fontFamily: '"Arial", sans-serif',
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: 'rgba(168, 85, 255, 0.06)' },
-        horzLines: { color: 'rgba(168, 85, 255, 0.11)' },
+        vertLines: { color: 'rgba(255,255,255,0.04)' },
+        horzLines: { color: 'rgba(76, 29, 149, 0.11)' },
       },
       rightPriceScale: {
-        borderColor: 'rgba(168, 85, 255, 0.18)',
+        borderColor: 'rgba(255,255,255,0.10)',
         scaleMargins: { top: 0.1, bottom: 0.08 },
       },
       // All time labels rendered in America/New_York (ET) regardless of viewer's
       // local timezone. Crosshair = HH:MM ET; tick marks = HH:MM ET (or "Mon DD"
       // at midnight ET).
       timeScale: {
-        borderColor: 'rgba(168, 85, 255, 0.18)',
+        borderColor: 'rgba(255,255,255,0.10)',
         timeVisible: true,
         secondsVisible: false,  // 1-min bars; minute precision is enough
         tickMarkFormatter: (time: UTCTimestamp) => formatETTickMark(time as number),
@@ -1385,8 +1784,8 @@ const PriceCanvas: React.FC<{ state: FilterlessLiveState; position: FilterlessPo
       },
       crosshair: {
         mode: 1,
-        vertLine: { color: 'rgba(168, 85, 255, 0.4)', width: 1, style: 0 },
-        horzLine: { color: 'rgba(168, 85, 255, 0.4)', width: 1, style: 0 },
+        vertLine: { color: 'rgba(255,255,255,0.22)', width: 1, style: 0 },
+        horzLine: { color: 'rgba(255,255,255,0.22)', width: 1, style: 0 },
       },
       handleScroll: true,
       handleScale: true,
@@ -1403,8 +1802,8 @@ const PriceCanvas: React.FC<{ state: FilterlessLiveState; position: FilterlessPo
       lastValueVisible: true,
     });
     const areaSeries = chart.addSeries(AreaSeries, {
-      topColor: 'rgba(168, 85, 255, 0.32)',
-      bottomColor: 'rgba(168, 85, 255, 0.02)',
+      topColor: 'rgba(255,255,255,0.18)',
+      bottomColor: 'rgba(76, 29, 149, 0.02)',
       lineColor: COLORS.purple,
       lineWidth: 2,
       priceLineVisible: false,
@@ -1683,7 +2082,9 @@ const PriceCanvas: React.FC<{ state: FilterlessLiveState; position: FilterlessPo
         price: level.price,
         color,
         bg: labelBg,
-        text: `${title} ${level.price.toFixed(2)}`,
+        // Title only — price is already shown on the right y-axis,
+        // no need to duplicate it here.
+        text: title,
       });
     };
 
@@ -1697,15 +2098,20 @@ const PriceCanvas: React.FC<{ state: FilterlessLiveState; position: FilterlessPo
       const mid = (hi.price + lo.price) / 2;
       // "Lock onto the candlestick on that midpoint": walk bars backwards
       // from current and find the most recent bar whose [low, high] range
-      // contains the midpoint price. Anchor the midpoint line there so it
-      // visually emerges from a candle that touched it. Falls back to the
-      // later of (hi.setAt, lo.setAt) if no bar in range touched the mid.
+      // contains the midpoint price. We walk the FULL bar history (no
+      // setAt cutoff) — for the prev-session midpoint specifically, the
+      // bars between when high was set and when low was set ARE in the
+      // previous session and may be the only ones whose range contains
+      // the midpoint price. By intermediate-value-theorem logic, a session
+      // whose extremes are H and L must have at least one bar straddling
+      // (H+L)/2. Falls back to the later of (hi.setAt, lo.setAt) only if
+      // no bar in the entire history touches the midpoint (shouldn't
+      // happen in practice).
       let setAt = Math.max(hi.setAt, lo.setAt);
       for (let i = ohlcBars.length - 1; i >= 0; i -= 1) {
         const bar = ohlcBars[i];
         const barUnix = Math.floor(new Date(bar.t).getTime() / 1000);
         if (!Number.isFinite(barUnix)) continue;
-        if (barUnix < setAt) break;  // don't search before the midpoint becomes valid
         if (bar.l <= mid && mid <= bar.h) {
           setAt = barUnix;
           break;
@@ -1800,7 +2206,7 @@ const PriceCanvas: React.FC<{ state: FilterlessLiveState; position: FilterlessPo
       {!hasAnyData ? (
         <div style={{
           position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: COLORS.muted, fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 11,
+          color: COLORS.muted, fontFamily: '"Arial", sans-serif', fontSize: 13, fontStyle: 'italic',
           pointerEvents: 'none',
         }}>
           waiting for live price history
@@ -1809,8 +2215,8 @@ const PriceCanvas: React.FC<{ state: FilterlessLiveState; position: FilterlessPo
       {hasOhlc ? (
         <div style={{
           position: 'absolute', top: 8, left: 12,
-          color: COLORS.muted, fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 9,
-          letterSpacing: 1, opacity: 0.6, pointerEvents: 'none',
+          color: COLORS.muted, fontFamily: '"Arial", sans-serif', fontSize: 11,
+          letterSpacing: 1, opacity: 0.6, pointerEvents: 'none', fontStyle: 'italic',
         }}>
           1m · ohlc
         </div>
@@ -1822,6 +2228,7 @@ const PriceCanvas: React.FC<{ state: FilterlessLiveState; position: FilterlessPo
       {overlayLabels.map((lbl, i) => (
         <div
           key={lbl.key}
+          className="ov-label"
           ref={(el) => { labelDomRefs.current[i] = el; }}
           style={{
             position: 'absolute',
@@ -1832,9 +2239,9 @@ const PriceCanvas: React.FC<{ state: FilterlessLiveState; position: FilterlessPo
             background: lbl.bg,
             padding: '1px 4px',
             borderRadius: 2,
-            fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-            fontSize: 8,
-            lineHeight: '12px',
+            fontFamily: '"Arial", sans-serif',
+            fontSize: 10,
+            lineHeight: '14px',
             whiteSpace: 'nowrap',
             pointerEvents: 'none',
             zIndex: 2,
@@ -1859,11 +2266,11 @@ const SentimentCanvas: React.FC<{ sentiment: FilterlessSentimentMetrics }> = ({ 
     if (!setup) return;
     const { ctx, width, height, dpr } = setup;
     const score = clip(sentiment.sentiment_score ?? 0, -1, 1);
+    // Transparent canvas so parent panel's frosted-grey glass + video bg
+    // show through. clearRect alone is enough.
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = '#040107';
-    ctx.fillRect(0, 0, width, height);
     const mid = height * 0.52;
-    ctx.strokeStyle = 'rgba(168,85,255,0.18)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
     ctx.lineWidth = 1 * dpr;
     ctx.beginPath();
     ctx.moveTo(20 * dpr, mid);
@@ -1887,7 +2294,7 @@ const SentimentCanvas: React.FC<{ sentiment: FilterlessSentimentMetrics }> = ({ 
     ctx.stroke();
     ctx.shadowBlur = 0;
     ctx.fillStyle = COLORS.muted;
-    ctx.font = `${10 * dpr}px "JetBrains Mono", monospace`;
+    ctx.font = `${10.0 * dpr}px "Arial", sans-serif`;
     ctx.fillText(`score ${formatSigned(score)}`, 20 * dpr, 24 * dpr);
     ctx.fillText(`confidence ${pct(sentiment.finbert_confidence)}`, 20 * dpr, 42 * dpr);
   }, [sentiment]);
@@ -1920,13 +2327,14 @@ const AetherflowCanvas: React.FC<{ features: AetherFeatures }> = ({ features }) 
       const { ctx, width, height, dpr } = setup;
       const timeSeconds = reduceMotion ? 0 : frameTime / 1000;
       const waveStrength = reduceMotion ? 0 : (dragRef.current.dragging ? 0.36 : 1);
+      // clearRect alone leaves the canvas transparent so the parent
+      // .scene-wrap's frosted-grey glass + the page video bg show through.
+      // Previously this filled solid #030006 black, blocking the bg.
       ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = '#030006';
-      ctx.fillRect(0, 0, width, height);
 
       const drawLabel = (text: string, point: { x: number; y: number }, color: string, align: CanvasTextAlign = 'center') => {
         ctx.save();
-        ctx.font = `${10 * dpr}px "JetBrains Mono", monospace`;
+        ctx.font = `italic ${12.0 * dpr}px "Arial", sans-serif`;
         ctx.textAlign = align;
         ctx.textBaseline = 'middle';
         ctx.shadowBlur = 13 * dpr;
@@ -2007,7 +2415,7 @@ const AetherflowCanvas: React.FC<{ features: AetherFeatures }> = ({ features }) 
         ctx.closePath();
         ctx.fillStyle = shadedColor(fillColor, shade, 0.7 + (0.06 * waveStrength));
         ctx.fill();
-        ctx.strokeStyle = v10Height > 0.78 ? 'rgba(255,255,255,0.16)' : `rgba(168,85,255,${0.12 + (0.05 * waveStrength)})`;
+        ctx.strokeStyle = v10Height > 0.78 ? 'rgba(255,255,255,0.16)' : `rgba(76,29,149,${0.12 + (0.05 * waveStrength)})`;
         ctx.lineWidth = 0.68 * dpr;
         ctx.stroke();
       });
@@ -2023,7 +2431,7 @@ const AetherflowCanvas: React.FC<{ features: AetherFeatures }> = ({ features }) 
           if (step === 0) ctx.moveTo(p.x, p.y);
           else ctx.lineTo(p.x, p.y);
         }
-        ctx.strokeStyle = index % 2 ? `rgba(168,85,255,${0.24 + (0.1 * waveStrength)})` : `rgba(53,245,255,${0.21 + (0.08 * waveStrength)})`;
+        ctx.strokeStyle = index % 2 ? `rgba(76,29,149,${0.24 + (0.1 * waveStrength)})` : `rgba(53,245,255,${0.21 + (0.08 * waveStrength)})`;
         ctx.stroke();
       });
       ctx.restore();
@@ -2033,12 +2441,12 @@ const AetherflowCanvas: React.FC<{ features: AetherFeatures }> = ({ features }) 
       const nearRight = projectSurfacePoint(1.1, 1.08, 0, width, height, scene);
       const nearLeft = projectSurfacePoint(-1.08, 1.08, 0, width, height, scene);
       const axisZ = { x: origin.x, y: origin.y - height * 0.43 };
-      strokePath([origin, farRight, nearRight, nearLeft, origin], 'rgba(168,85,255,0.42)', 1.5);
-      strokePath([origin, axisZ], 'rgba(168,85,255,0.72)', 1.5);
-      strokePath([origin, nearLeft], 'rgba(168,85,255,0.42)', 1.2);
+      strokePath([origin, farRight, nearRight, nearLeft, origin], 'rgba(76,29,149,0.42)', 1.5);
+      strokePath([origin, axisZ], 'rgba(76,29,149,0.72)', 1.5);
+      strokePath([origin, nearLeft], 'rgba(76,29,149,0.42)', 1.2);
 
       ctx.save();
-      ctx.font = `${10 * dpr}px "JetBrains Mono", monospace`;
+      ctx.font = `italic ${12.0 * dpr}px "Arial", sans-serif`;
       ctx.fillStyle = alphaColor(COLORS.muted, 0.92);
       const pressureLabel = projectSurfacePoint(1.14, 0.66, 0.1, width, height, scene);
       const transitionLabelX = clip(nearLeft.x + 8 * dpr, 8 * dpr, width - 96 * dpr);
@@ -2067,7 +2475,7 @@ const AetherflowCanvas: React.FC<{ features: AetherFeatures }> = ({ features }) 
       ctx.arc(marker.x, marker.y, (6 + (1.2 * waveStrength * (0.5 + (0.5 * Math.sin(timeSeconds * 1.8))))) * dpr, 0, TAU);
       ctx.fill();
       ctx.shadowBlur = 0;
-      ctx.font = `${11 * dpr}px "JetBrains Mono", monospace`;
+      ctx.font = `italic ${13.0 * dpr}px "Arial", sans-serif`;
       ctx.textBaseline = 'middle';
       ctx.fillStyle = COLORS.text;
       ctx.fillText(features.regime, marker.x + 13 * dpr, marker.y - 8 * dpr);
@@ -2087,7 +2495,7 @@ const AetherflowCanvas: React.FC<{ features: AetherFeatures }> = ({ features }) 
       const dotX = cx + Math.sin(scene.yaw) * rx;
       const dotY = cy - scene.pitch * 38 * dpr;
       ctx.save();
-      ctx.strokeStyle = 'rgba(168,85,255,0.36)';
+      ctx.strokeStyle = 'rgba(76,29,149,0.36)';
       ctx.lineWidth = 1 * dpr;
       ctx.beginPath();
       ctx.ellipse(cx, cy, rx, ry, 0, 0, TAU);
@@ -2141,8 +2549,12 @@ const AetherflowCanvas: React.FC<{ features: AetherFeatures }> = ({ features }) 
     const dx = event.clientX - dragRef.current.x;
     const dy = event.clientY - dragRef.current.y;
     setScene({
-      yaw: clip(dragRef.current.yaw - (dx / Math.max(1, rect.width)) * 1.45, -0.62, 0.62),
-      pitch: clip(dragRef.current.pitch + (dy / Math.max(1, rect.height)) * 0.84, -0.28, 0.42),
+      // Wider rotation envelope so you can spin the manifold around more
+      // freely. Sensitivity (1.45 / 0.84 multipliers) kept the same so
+      // dragging the same distance still moves about the same — only the
+      // clip-stops are pushed further out.
+      yaw: clip(dragRef.current.yaw - (dx / Math.max(1, rect.width)) * 1.45, -1.4, 1.4),
+      pitch: clip(dragRef.current.pitch + (dy / Math.max(1, rect.height)) * 0.84, -0.7, 0.9),
       zoom: scene.zoom,
     });
   };
@@ -2158,7 +2570,11 @@ const AetherflowCanvas: React.FC<{ features: AetherFeatures }> = ({ features }) 
 
   const onWheel = (event: React.WheelEvent<HTMLCanvasElement>) => {
     event.preventDefault();
-    setScene((current) => ({ ...current, zoom: clip(current.zoom * (event.deltaY > 0 ? 0.93 : 1.07), 0.72, 1.42) }));
+    // Wider zoom range (was 0.72-1.42, now 0.45-2.6) for more pull-out
+    // and push-in headroom. Per-tick scale (0.93/1.07 = ~7% per scroll
+    // line) kept the same so the wheel still feels controlled, just
+    // covers more ground over a longer scroll.
+    setScene((current) => ({ ...current, zoom: clip(current.zoom * (event.deltaY > 0 ? 0.93 : 1.07), 0.45, 2.6) }));
   };
 
   return (
@@ -2184,6 +2600,366 @@ const AetherflowCanvas: React.FC<{ features: AetherFeatures }> = ({ features }) 
     </div>
   );
 };
+
+/* ----------------------------------------------------------------------
+   BouncingHeads — DVD-screensaver-style heads that bounce around the
+   viewport, off the walls, and off each other. Click any head to detonate
+   it into a fire explosion. Each head respawns 5 minutes after its own
+   explosion and resumes bouncing. The loop is infinite, per-head.
+---------------------------------------------------------------------- */
+const HEAD_SRC = '/head.png';
+const HEAD_SIZE = 90;
+const HEAD_RESPAWN_MS = 5 * 60 * 1000;
+const HEAD_COUNT = 4;
+
+type HeadPhase = 'bouncing' | 'hidden';
+
+const HEAD_PARTICLE_STEP = 3;
+
+interface PixelParticle {
+  x: number; y: number;
+  vx: number; vy: number;
+  size: number;
+  color: string;
+  life: number;
+}
+
+// Module-scope pixel cache: filled once when the head image first loads.
+// Click → explode reads this synchronously so there's no async wait.
+let HEAD_PIXEL_DATA: Uint8ClampedArray | null = null;
+let HEAD_PRELOAD_PROMISE: Promise<void> | null = null;
+
+function preloadHeadPixels(): Promise<void> {
+  if (HEAD_PIXEL_DATA) return Promise.resolve();
+  if (HEAD_PRELOAD_PROMISE) return HEAD_PRELOAD_PROMISE;
+  HEAD_PRELOAD_PROMISE = new Promise<void>((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const off = document.createElement('canvas');
+        off.width = HEAD_SIZE;
+        off.height = HEAD_SIZE;
+        const octx = off.getContext('2d');
+        if (!octx) { resolve(); return; }
+        octx.drawImage(img, 0, 0, HEAD_SIZE, HEAD_SIZE);
+        HEAD_PIXEL_DATA = octx.getImageData(0, 0, HEAD_SIZE, HEAD_SIZE).data;
+      } catch { /* CORS — leave cache null */ }
+      resolve();
+    };
+    img.onerror = () => resolve();
+    img.src = HEAD_SRC;
+  });
+  return HEAD_PRELOAD_PROMISE;
+}
+
+/* Pixel-explosion: sample the head image into colored particles bursting
+   outward from the head center. Skips near-black background pixels so the
+   burst is only the face/hair. */
+function spawnExplosionParticles(list: PixelParticle[], ox: number, oy: number): void {
+  const data = HEAD_PIXEL_DATA;
+  if (!data) return;
+  const cx = HEAD_SIZE / 2;
+  const cy = HEAD_SIZE / 2;
+  const baseX = ox - HEAD_SIZE / 2;
+  const baseY = oy - HEAD_SIZE / 2;
+  for (let py = 0; py < HEAD_SIZE; py += HEAD_PARTICLE_STEP) {
+    for (let px = 0; px < HEAD_SIZE; px += HEAD_PARTICLE_STEP) {
+      const i = (py * HEAD_SIZE + px) * 4;
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const a = data[i + 3];
+      if (a < 30) continue;
+      if (r < 22 && g < 22 && b < 22) continue; // skip black surround
+      const dx = px - cx;
+      const dy = py - cy;
+      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+      const speed = 3 + Math.random() * 5;
+      const jitter = (Math.random() - 0.5) * 1.4;
+      list.push({
+        x: baseX + px,
+        y: baseY + py,
+        vx: (dx / dist) * speed + jitter,
+        vy: (dy / dist) * speed + jitter - 1.5,
+        size: HEAD_PARTICLE_STEP,
+        color: `rgb(${r},${g},${b})`,
+        life: 1,
+      });
+    }
+  }
+}
+
+/* Each head moves independently with its own velocity. Heads bounce off
+   viewport walls AND off each other (treated as equal-mass circles, with
+   elastic collisions). One shared rAF drives all motion, integration,
+   and collision resolution. Initial positions are pre-staggered so no two
+   heads overlap on spawn. */
+interface HeadMotion {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  angle: number;
+  angularV: number;
+}
+
+function initialHeadMotion(idx: number): HeadMotion {
+  const w = typeof window !== 'undefined' ? window.innerWidth : 1200;
+  const h = typeof window !== 'undefined' ? window.innerHeight : 800;
+  // Pre-stagger across the diagonal so no two heads start overlapping
+  // even on a narrow phone viewport.
+  const fracX = (idx + 1) / (HEAD_COUNT + 1);
+  const fracY = idx % 2 === 0 ? 0.25 : 0.65;
+  const dir = idx % 2 === 0 ? 1 : -1;
+  const speed = 2.6 + idx * 0.4;
+  const heading = (Math.PI / 4) + idx * 0.7;
+  return {
+    x: Math.max(20, fracX * w - HEAD_SIZE / 2),
+    y: Math.max(20, fracY * h - HEAD_SIZE / 2),
+    vx: Math.cos(heading) * speed * dir,
+    vy: Math.sin(heading) * speed,
+    angle: idx * 47,
+    angularV: (idx % 2 === 0 ? 1 : -1) * (0.25 + (idx * 0.07)),
+  };
+}
+
+const BouncingHead: React.FC = React.memo(() => {
+  const [phases, setPhases] = useState<HeadPhase[]>(() => Array(HEAD_COUNT).fill('bouncing'));
+  const [imgLoadFailed, setImgLoadFailed] = useState(false);
+
+  const headRefs = useRef<Array<HTMLDivElement | null>>(Array(HEAD_COUNT).fill(null));
+  const motionsRef = useRef<HeadMotion[]>(
+    Array.from({ length: HEAD_COUNT }, (_, i) => initialHeadMotion(i)),
+  );
+  const phasesRef = useRef<HeadPhase[]>(phases);
+  useEffect(() => { phasesRef.current = phases; }, [phases]);
+
+  // Shared explosion canvas — all clicks dump particles into one list and
+  // get rendered on one canvas. Prevents stacked canvases that previously
+  // made multiple explosions appear on top of each other when heads were
+  // clicked in quick succession.
+  const explosionCanvasRef = useRef<HTMLCanvasElement>(null);
+  const particlesRef = useRef<PixelParticle[]>([]);
+  const fireRafRef = useRef<number | null>(null);
+
+  useEffect(() => { void preloadHeadPixels(); }, []);
+
+  // Size the explosion canvas once mounted and on resize.
+  useEffect(() => {
+    const setup = () => {
+      const canvas = explosionCanvasRef.current;
+      if (!canvas) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      canvas.width = w * dpr;
+      canvas.height = h * dpr;
+      canvas.style.width = `${w}px`;
+      canvas.style.height = `${h}px`;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.scale(dpr, dpr);
+      }
+    };
+    setup();
+    window.addEventListener('resize', setup);
+    return () => window.removeEventListener('resize', setup);
+  }, []);
+
+  // Drive the fire-explosion render loop only while particles are alive.
+  // When all particles die, the rAF self-cancels — no idle work, no
+  // residual frames lingering on the canvas. Re-armed on each click.
+  const runFireLoop = useCallback(() => {
+    if (fireRafRef.current !== null) return; // already running
+    const canvas = explosionCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+
+    const tick = () => {
+      const particles = particlesRef.current;
+      if (particles.length === 0) {
+        ctx.clearRect(0, 0, w, h);
+        fireRafRef.current = null;
+        return;
+      }
+
+      // Hard clear each frame — no motion blur. Pixel particles look right
+      // as crisp dots; trails would just look smeared.
+      ctx.clearRect(0, 0, w, h);
+
+      for (const p of particles) {
+        if (p.life <= 0) continue;
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.18;
+        p.vx *= 0.992;
+        p.life -= 0.011;
+        ctx.globalAlpha = Math.max(0, p.life);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, p.size, p.size);
+      }
+      ctx.globalAlpha = 1;
+
+      particlesRef.current = particles.filter((p) => p.life > 0);
+      fireRafRef.current = requestAnimationFrame(tick);
+    };
+    fireRafRef.current = requestAnimationFrame(tick);
+  }, []);
+
+  // Single shared rAF: integrate motion, resolve wall + head-to-head
+  // collisions, write each head's transform directly to its DOM node.
+  useEffect(() => {
+    let w = window.innerWidth;
+    let h = window.innerHeight;
+    const onResize = () => {
+      w = window.innerWidth;
+      h = window.innerHeight;
+    };
+    window.addEventListener('resize', onResize, { passive: true });
+
+    const RADIUS = HEAD_SIZE / 2;
+    const COLLISION_DIST = HEAD_SIZE; // sum of radii for two equal heads
+
+    let raf = 0;
+    const step = () => {
+      const motions = motionsRef.current;
+      const activePhases = phasesRef.current;
+
+      // 1. Integrate position + wall bounces (only for active heads)
+      for (let i = 0; i < HEAD_COUNT; i++) {
+        if (activePhases[i] !== 'bouncing') continue;
+        const m = motions[i];
+        m.x += m.vx;
+        m.y += m.vy;
+        m.angle += m.angularV;
+        if (m.x <= 0) { m.x = 0; m.vx = Math.abs(m.vx); m.angularV = -m.angularV; }
+        if (m.x + HEAD_SIZE >= w) { m.x = w - HEAD_SIZE; m.vx = -Math.abs(m.vx); m.angularV = -m.angularV; }
+        if (m.y <= 0) { m.y = 0; m.vy = Math.abs(m.vy); }
+        if (m.y + HEAD_SIZE >= h) { m.y = h - HEAD_SIZE; m.vy = -Math.abs(m.vy); }
+      }
+
+      // 2. Pairwise elastic collisions between active heads
+      for (let i = 0; i < HEAD_COUNT; i++) {
+        if (activePhases[i] !== 'bouncing') continue;
+        for (let j = i + 1; j < HEAD_COUNT; j++) {
+          if (activePhases[j] !== 'bouncing') continue;
+          const a = motions[i];
+          const b = motions[j];
+          const ax = a.x + RADIUS;
+          const ay = a.y + RADIUS;
+          const bx = b.x + RADIUS;
+          const by = b.y + RADIUS;
+          const dx = bx - ax;
+          const dy = by - ay;
+          const distSq = dx * dx + dy * dy;
+          if (distSq >= COLLISION_DIST * COLLISION_DIST || distSq === 0) continue;
+          const dist = Math.sqrt(distSq);
+          const nx = dx / dist;
+          const ny = dy / dist;
+          // Push apart so they don't stick when overlapping
+          const overlap = (COLLISION_DIST - dist) / 2;
+          a.x -= nx * overlap;
+          a.y -= ny * overlap;
+          b.x += nx * overlap;
+          b.y += ny * overlap;
+          // Relative velocity along the normal
+          const rvx = b.vx - a.vx;
+          const rvy = b.vy - a.vy;
+          const velAlongNormal = rvx * nx + rvy * ny;
+          if (velAlongNormal > 0) continue; // already separating
+          // Equal-mass elastic collision: swap velocity components along the normal
+          a.vx += velAlongNormal * nx;
+          a.vy += velAlongNormal * ny;
+          b.vx -= velAlongNormal * nx;
+          b.vy -= velAlongNormal * ny;
+          // Reverse rotation directions to add visual punch on contact
+          a.angularV = -a.angularV;
+          b.angularV = -b.angularV;
+        }
+      }
+
+      // 3. Write transforms
+      for (let i = 0; i < HEAD_COUNT; i++) {
+        if (activePhases[i] !== 'bouncing') continue;
+        const m = motions[i];
+        const el = headRefs.current[i];
+        if (el) {
+          el.style.transform = `translate3d(${m.x}px, ${m.y}px, 0) rotate(${m.angle}deg)`;
+        }
+      }
+      raf = requestAnimationFrame(step);
+    };
+    raf = requestAnimationFrame(step);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+    };
+  }, []);
+
+  // Respawn each hidden head 5 minutes after its own explosion.
+  useEffect(() => {
+    const timers: number[] = [];
+    phases.forEach((phase, i) => {
+      if (phase !== 'hidden') return;
+      const t = window.setTimeout(() => {
+        setPhases((prev) => {
+          if (prev[i] !== 'hidden') return prev;
+          const next = [...prev];
+          next[i] = 'bouncing';
+          return next;
+        });
+      }, HEAD_RESPAWN_MS);
+      timers.push(t);
+    });
+    return () => { for (const t of timers) window.clearTimeout(t); };
+  }, [phases]);
+
+  const handleClick = useCallback((idx: number) => {
+    const m = motionsRef.current[idx];
+    const ox = m.x + HEAD_SIZE / 2;
+    const oy = m.y + HEAD_SIZE / 2;
+    spawnExplosionParticles(particlesRef.current, ox, oy);
+    runFireLoop();
+    setPhases((prev) => {
+      const next = [...prev];
+      next[idx] = 'hidden';
+      return next;
+    });
+  }, [runFireLoop]);
+
+  if (imgLoadFailed) return null;
+
+  return (
+    <>
+      <canvas ref={explosionCanvasRef} className="head-explosion" />
+      {phases.map((phase, i) => (
+        <React.Fragment key={i}>
+          {phase === 'bouncing' ? (
+            <div
+              ref={(el) => { headRefs.current[i] = el; }}
+              className="bouncing-head"
+              onClick={() => handleClick(i)}
+              role="button"
+              aria-label="floating head"
+            >
+              <img
+                src={HEAD_SRC}
+                alt=""
+                draggable={false}
+                onError={() => setImgLoadFailed(true)}
+              />
+            </div>
+          ) : null}
+        </React.Fragment>
+      ))}
+    </>
+  );
+});
 
 function FilterlessLiveCockpit() {
   const [state, setState] = useState<FilterlessLiveState>(EMPTY_STATE);
@@ -2582,44 +3358,46 @@ function FilterlessLiveCockpit() {
           <Metric label="strategy impact" value="DE3 / RA / AF" hint="entry, size, TP, exits" color={COLORS.amber} />
           <Metric label="probability" value={pct(kalshi?.probability_60m, 1)} hint="60m contract" color={COLORS.lime} />
         </div>
-        <div className="grid kalshi-layout">
-          <Panel title="Market Scanner" titleClassName="display-title" subtitle="Hourly ES contracts ranked by edge, pressure, and liquidity." badge={<Badge tone={route.tone}>{route.badge}</Badge>}>
-            <table className="table">
-              <thead><tr><th>contract</th><th>probability</th><th>volume</th><th>status</th><th>route</th></tr></thead>
-              <tbody>
-                {rows.length ? rows.map((strike, index) => (
-                  <tr key={`${strike.strike}-${index}`}>
-                    <td><strong>{fmt(strike.strike, 0)}</strong></td>
-                    <td>{pct(strike.probability, 2)}</td>
-                    <td>{strike.volume ?? '--'}</td>
-                    <td>{strike.status || strike.result || '--'}</td>
-                    <td>{route.row}</td>
-                  </tr>
-                )) : (
-                  <tr><td colSpan={5}>No Kalshi ladder is available in the current snapshot.</td></tr>
-                )}
-              </tbody>
-            </table>
+        {/* Market Scanner — full width so the strike table fills the
+            section box instead of being cramped in a 1.35fr column with
+            empty space to the right. */}
+        <Panel title="Market Scanner" titleClassName="display-title" subtitle="Hourly ES contracts ranked by edge, pressure, and liquidity." badge={<Badge tone={route.tone}>{route.badge}</Badge>} className="mt-panel">
+          <table className="table">
+            <thead><tr><th>contract</th><th>probability</th><th>volume</th><th>status</th><th>route</th></tr></thead>
+            <tbody>
+              {rows.length ? rows.map((strike, index) => (
+                <tr key={`${strike.strike}-${index}`}>
+                  <td><strong>{fmt(strike.strike, 0)}</strong></td>
+                  <td>{pct(strike.probability, 2)}</td>
+                  <td>{strike.volume ?? '--'}</td>
+                  <td>{strike.status || strike.result || '--'}</td>
+                  <td>{route.row}</td>
+                </tr>
+              )) : (
+                <tr><td colSpan={5}>No Kalshi ladder is available in the current snapshot.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </Panel>
+        {/* Consensus + Spread side by side under the scanner. */}
+        <div className="grid kalshi-layout-secondary">
+          <Panel title="Consensus Feed" titleClassName="display-title" subtitle="Macro consensus and headline risk.">
+            <div className="terminal">
+              <TerminalRow title="EVENT" titleClassName="display-title" text={kalshi?.event_ticker || 'waiting for active contract'} badge={<Badge tone="info">ticker</Badge>} />
+              <TerminalRow title="REFERENCE" titleClassName="display-title" text={`ES ${formatPrice(kalshi?.es_reference_price ?? price)} / SPX ${formatPrice(kalshi?.spx_reference_price)}`} badge={<Badge tone="info">basis</Badge>} />
+              <TerminalRow title="ROUTE STATE" titleClassName="display-title" text={route.detail} badge={<Badge tone={route.tone}>{route.badge}</Badge>} />
+              <TerminalRow title="STRATEGY IMPACT" titleClassName="display-title" text={route.impact} badge={<Badge tone={route.tone}>{route.value.toLowerCase()}</Badge>} />
+              <TerminalRow title="LIVE POSITION" titleClassName="display-title" text={describeKalshiPositionImpact(primaryKalshiPosition)} badge={<Badge tone={primaryKalshiPosition?.kalshi_trade_overlay_applied || primaryKalshiPosition?.kalshi_gate_applied ? 'live' : 'info'}>{primaryKalshiPosition ? 'position' : 'flat'}</Badge>} />
+            </div>
           </Panel>
-          <div className="stack">
-            <Panel title="Consensus Feed" titleClassName="display-title" subtitle="Macro consensus and headline risk.">
-              <div className="terminal">
-                <TerminalRow title="EVENT" text={kalshi?.event_ticker || 'waiting for active contract'} badge={<Badge tone="info">ticker</Badge>} />
-                <TerminalRow title="REFERENCE" text={`ES ${formatPrice(kalshi?.es_reference_price ?? price)} / SPX ${formatPrice(kalshi?.spx_reference_price)}`} badge={<Badge tone="info">basis</Badge>} />
-                <TerminalRow title="ROUTE STATE" text={route.detail} badge={<Badge tone={route.tone}>{route.badge}</Badge>} />
-                <TerminalRow title="STRATEGY IMPACT" text={route.impact} badge={<Badge tone={route.tone}>{route.value.toLowerCase()}</Badge>} />
-                <TerminalRow title="LIVE POSITION" text={describeKalshiPositionImpact(primaryKalshiPosition)} badge={<Badge tone={primaryKalshiPosition?.kalshi_trade_overlay_applied || primaryKalshiPosition?.kalshi_gate_applied ? 'live' : 'info'}>{primaryKalshiPosition ? 'position' : 'flat'}</Badge>} />
-              </div>
-            </Panel>
-            <Panel title="Spread Ladder" titleClassName="display-title" subtitle="Execution spread by bucket.">
-              <FlowBars values={[
-                { label: 'book', value: features.edge, color: COLORS.cyan },
-                { label: 'spread', value: features.spread * 8, color: COLORS.amber },
-                { label: 'prob', value: kalshi?.probability_60m ?? 0, color: COLORS.lime },
-                { label: 'stress', value: features.stress, color: COLORS.red },
-              ]} />
-            </Panel>
-          </div>
+          <Panel title="Spread Ladder" titleClassName="display-title" subtitle="Execution spread by bucket.">
+            <FlowBars values={[
+              { label: 'book', value: features.edge, color: COLORS.cyan },
+              { label: 'spread', value: features.spread * 8, color: COLORS.amber },
+              { label: 'prob', value: kalshi?.probability_60m ?? 0, color: COLORS.lime },
+              { label: 'stress', value: features.stress, color: COLORS.red },
+            ]} />
+          </Panel>
         </div>
       </section>
     );
@@ -2649,9 +3427,9 @@ function FilterlessLiveCockpit() {
             </Panel>
             <Panel title="News Tape" titleClassName="display-title" subtitle="Calendar, macro, and truth-feed context." badge={<Badge tone="info">live</Badge>}>
               <div className="terminal">
-                <TerminalRow time={sentiment.latest_post_created_at} title="TRUTH" text={sentiment.trigger_reason || sentiment.sentiment_label || 'neutral watch'} badge={<Badge tone="info">feed</Badge>} />
-                <TerminalRow time={sentiment.last_analysis_at} title="FINBERT" text={`score ${formatSigned(features.truthScore)} / confidence ${pct(sentiment.finbert_confidence)}`} badge={<Badge tone="live">model</Badge>} />
-                <TerminalRow time={state.generated_at} title="ADVISORY" text={`pressure ${pct(features.advisoryPressure)} / headline risk ${pct(features.headlineRisk)}`} badge={<Badge tone={features.truthRiskWatch ? 'watch' : 'info'}>{features.truthRiskWatch ? 'watch' : 'clear'}</Badge>} />
+                <TerminalRow time={sentiment.latest_post_created_at} title="TRUTH" titleClassName="display-title" text={sentiment.trigger_reason || sentiment.sentiment_label || 'neutral watch'} badge={<Badge tone="info">feed</Badge>} />
+                <TerminalRow time={sentiment.last_analysis_at} title="FINBERT" titleClassName="display-title" text={`score ${formatSigned(features.truthScore)} / confidence ${pct(sentiment.finbert_confidence)}`} badge={<Badge tone="live">model</Badge>} />
+                <TerminalRow time={state.generated_at} title="ADVISORY" titleClassName="display-title" text={`pressure ${pct(features.advisoryPressure)} / headline risk ${pct(features.headlineRisk)}`} badge={<Badge tone={features.truthRiskWatch ? 'watch' : 'info'}>{features.truthRiskWatch ? 'watch' : 'clear'}</Badge>} />
               </div>
             </Panel>
           </div>
@@ -2724,13 +3502,32 @@ function FilterlessLiveCockpit() {
         : kr.available
           ? 'watch'
           : 'block';
+    // Tri-state language for the Kronos status. The daemon is lazy-spawned
+    // on first need (see _ensure_kronos_daemon in julie001.py) — so a
+    // dormant-but-available state is normal, not an outage. STANDBY makes
+    // that distinction explicit instead of reading as "OFF / broken".
     const kronosRowText = !kr
       ? 'unknown'
       : kr.daemon_running
         ? 'ready'
         : kr.available
-          ? 'idle'
+          ? 'standby'
           : 'missing';
+    const kronosRunningText = kr?.daemon_running
+      ? 'ON'
+      : kr?.available
+        ? 'STANDBY'
+        : 'OFF';
+    const kronosRunningColor = kr?.daemon_running
+      ? COLORS.green
+      : kr?.available
+        ? COLORS.amber
+        : COLORS.red;
+    const kronosRunningHint = kr?.daemon_running
+      ? 'daemon process up'
+      : kr?.available
+        ? 'spawns lazily on first non-bypass DE3 candidate'
+        : 'unavailable — venv or script missing';
 
     const tierRows = rb?.tiers ?? [];
     const recipeBNote = rb?.skip_whipsaw_tier4
@@ -2841,9 +3638,9 @@ function FilterlessLiveCockpit() {
               />
               <Metric
                 label="Running"
-                value={onText(kr?.daemon_running).toUpperCase()}
-                hint="daemon process up"
-                color={kr?.daemon_running ? COLORS.green : COLORS.amber}
+                value={kronosRunningText}
+                hint={kronosRunningHint}
+                color={kronosRunningColor}
               />
               <Metric
                 label="Restarts"
@@ -3128,6 +3925,22 @@ function FilterlessLiveCockpit() {
   return (
     <div className="fl-cockpit">
       <style>{`${COCKPIT_CSS}.mt-panel{margin-top:10px;}`}</style>
+      {/* Looping video background — sits behind everything via z-index.
+          The .mov is the active backdrop; bg.mp4 stays as a fallback for
+          any browser that can't decode the QuickTime H.264. */}
+      <video
+        className="bg-video"
+        autoPlay
+        muted
+        loop
+        playsInline
+        preload="auto"
+        aria-hidden="true"
+      >
+        <source src="/bg.mov" type="video/quicktime" />
+        <source src="/bg.mov" type="video/mp4" />
+        <source src="/bg.mp4" type="video/mp4" />
+      </video>
       <div className="app">
         <aside className="rail">
           <div className="brand">
@@ -3143,6 +3956,20 @@ function FilterlessLiveCockpit() {
               </button>
             ))}
           </nav>
+          {/* Phone-only sleek dropdown — replaces the button grid at <=480px */}
+          <div className="nav-select" aria-label="Live screens (phone)">
+            <select
+              value={activeScreen}
+              onChange={(e) => setActiveScreen(e.target.value as ScreenId)}
+            >
+              {NAV.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.code} · {item.label}
+                </option>
+              ))}
+            </select>
+            <span className="nav-select-caret" aria-hidden="true">&#x25BE;</span>
+          </div>
           <div className="rail-bottom">
             <div className="status-line"><span className="truncate">bridge</span><strong><span className={`dot ${effectiveStatus === 'online' ? '' : effectiveStatus === 'stale' ? 'warn-dot' : 'down-dot'}`} />{effectiveStatus}</strong></div>
             <div className="status-line"><span className="truncate">regime</span><strong className="truncate">{features.regime.replace('_', ' ')}</strong></div>
@@ -3182,6 +4009,7 @@ function FilterlessLiveCockpit() {
           {renderScreen()}
         </main>
       </div>
+      <BouncingHead />
     </div>
   );
 }

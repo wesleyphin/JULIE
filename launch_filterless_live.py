@@ -304,6 +304,15 @@ POLLER_LOG_PATH = ROOT / "logs" / "tick_chart_poller.log"
 POLLER_PROCESS: Optional[subprocess.Popen[Any]] = None
 POLLER_LOG_HANDLE = None
 
+# Cloudflare tunnel — exposes the dashboard on a permanent public URL via
+# the named tunnel `julie-bot` (set up with cert + DNS pointing at
+# dash.julieml.com → localhost:3000). Default ON; disable with
+# JULIE_CLOUDFLARED_TUNNEL=0 if you want a different tunneling solution.
+CLOUDFLARED_LOG_PATH = ROOT / "logs" / "cloudflared_named.log"
+CLOUDFLARED_PROCESS: Optional[subprocess.Popen[Any]] = None
+CLOUDFLARED_LOG_HANDLE = None
+CLOUDFLARED_TUNNEL_NAME = os.environ.get("JULIE_CLOUDFLARED_TUNNEL_NAME", "julie-bot")
+
 
 def _load_live_position_from_state() -> Optional[Dict[str, Any]]:
     state = load_bot_state(ROOT / "bot_state.json")
@@ -642,10 +651,86 @@ def _cleanup_poller_process() -> None:
     POLLER_LOG_HANDLE = None
 
 
+def _start_cloudflared_process() -> None:
+    """Spawn the named Cloudflare tunnel `julie-bot` so the dashboard is
+    reachable at https://dash.julieml.com without ngrok bandwidth caps.
+    Idempotent — won't start a second instance if one's already running.
+    Default ON; disable with JULIE_CLOUDFLARED_TUNNEL=0."""
+    global CLOUDFLARED_PROCESS, CLOUDFLARED_LOG_HANDLE
+    if os.environ.get("JULIE_CLOUDFLARED_TUNNEL", "1").strip() != "1":
+        return
+    if CLOUDFLARED_PROCESS is not None and CLOUDFLARED_PROCESS.poll() is None:
+        return
+    # If cloudflared was already started outside our launcher (e.g. user
+    # ran it in a separate terminal earlier), don't double-spawn.
+    try:
+        existing = subprocess.run(
+            ["pgrep", "-f", f"cloudflared tunnel run {CLOUDFLARED_TUNNEL_NAME}"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if existing.returncode == 0 and existing.stdout.strip():
+            return
+    except Exception:
+        pass
+
+    CLOUDFLARED_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CLOUDFLARED_LOG_HANDLE = CLOUDFLARED_LOG_PATH.open("a", encoding="utf-8", buffering=1)
+    cmd = ["cloudflared", "tunnel", "run", CLOUDFLARED_TUNNEL_NAME]
+    try:
+        if os.name == "nt":
+            creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+            CLOUDFLARED_PROCESS = subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=CLOUDFLARED_LOG_HANDLE,
+                stderr=subprocess.STDOUT,
+                creationflags=creationflags,
+                close_fds=True,
+            )
+        else:
+            CLOUDFLARED_PROCESS = subprocess.Popen(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=CLOUDFLARED_LOG_HANDLE,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+                close_fds=True,
+            )
+    except FileNotFoundError:
+        # cloudflared not installed — degrade gracefully.
+        if CLOUDFLARED_LOG_HANDLE is not None:
+            try: CLOUDFLARED_LOG_HANDLE.close()
+            except Exception: pass
+            CLOUDFLARED_LOG_HANDLE = None
+        CLOUDFLARED_PROCESS = None
+
+
+def _cleanup_cloudflared_process() -> None:
+    global CLOUDFLARED_PROCESS, CLOUDFLARED_LOG_HANDLE
+    process = CLOUDFLARED_PROCESS
+    if process is not None and process.poll() is None:
+        try:
+            if os.name == "nt":
+                process.terminate()
+            else:
+                os.killpg(process.pid, signal.SIGTERM)
+        except Exception:
+            pass
+    if CLOUDFLARED_LOG_HANDLE is not None:
+        try:
+            CLOUDFLARED_LOG_HANDLE.flush()
+            CLOUDFLARED_LOG_HANDLE.close()
+        except Exception:
+            pass
+    CLOUDFLARED_PROCESS = None
+    CLOUDFLARED_LOG_HANDLE = None
+
+
 async def _run_all() -> None:
     kalshi_snapshot_path = DEFAULT_KALSHI_SNAPSHOT_PATH
     _start_bridge_process(kalshi_snapshot_path)
     _start_poller_process()
+    _start_cloudflared_process()
     tasks = [
         asyncio.create_task(_kalshi_snapshot_loop(kalshi_snapshot_path)),
         asyncio.create_task(run_bot()),
@@ -663,4 +748,5 @@ async def _run_all() -> None:
 if __name__ == "__main__":
     atexit.register(_cleanup_bridge_process)
     atexit.register(_cleanup_poller_process)
+    atexit.register(_cleanup_cloudflared_process)
     asyncio.run(_run_all())

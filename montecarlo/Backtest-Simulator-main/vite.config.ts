@@ -13,6 +13,8 @@ export default defineConfig(({ mode }) => {
           '127.0.0.1',
           '.ngrok-free.dev',
           '.ngrok.app',
+          '.trycloudflare.com',
+          '.julieml.com',
         ],
         watch: {
           ignored: [

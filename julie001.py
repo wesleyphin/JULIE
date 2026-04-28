@@ -781,6 +781,15 @@ NY_AM_LONG_REV_BYPASS = {
 }
 NY_AM_BYPASS_HOUR_ET = 8
 
+# Hour-8 ML rule (Rule B). Per validation on 380 hour-8 trades 2025-03 to 2026-04:
+#   block hour-8 fire if (day_drift_pts < -15) OR (vol_z_30 < -0.72) OR (gap_pts > 0)
+# Result on full 14mo: PnL +$3,412 -> +$7,109, DD -$2,214 -> -$619, WR 50.8% -> 62.1%
+# 2026 OOS: PnL +$750 -> +$2,312 (+$1,562), DD -$2,185 -> -$415, WR 48.1% -> 60.4%
+# Random-feature sanity: 0% random trials beat real (n=30) -> definitive signal.
+NY_AM_BYPASS_RULE_DAY_DRIFT_MIN = -15.0   # block if day already dropped >15 pts from open
+NY_AM_BYPASS_RULE_VOL_Z_MIN = -0.72        # block if volume unusually low (z < -0.72)
+NY_AM_BYPASS_RULE_GAP_MAX = 0.0            # block if positive gap from prior close (gap up)
+
 
 def _signal_sub_strategy_id(signal: Optional[dict]) -> str:
     if not isinstance(signal, dict):
@@ -825,7 +834,61 @@ def _signal_et_hour(signal: Optional[dict]) -> Optional[int]:
         return None
 
 
-def _ny_am_bypass_decision(signal: Optional[dict]) -> Optional[tuple[bool, str]]:
+def _compute_bypass_rule_features(market_df, current_close: Optional[float]) -> Optional[Tuple[float, float, float]]:
+    """Compute (day_drift_pts, vol_z_30, gap_pts) from market_df at current bar.
+    day_drift_pts = current_close - day_open
+    vol_z_30      = (current_volume - rolling_30 mean) / rolling_30 std
+    gap_pts       = day_open - prior_session_close
+    Returns None if not enough data to compute reliably."""
+    try:
+        if market_df is None or len(market_df) < 30:
+            return None
+        idx = market_df.index
+        last_ts = pd.Timestamp(idx[-1])
+        if last_ts.tz is None:
+            last_ts = last_ts.tz_localize("America/New_York")
+        else:
+            last_ts = last_ts.tz_convert("America/New_York")
+        today = last_ts.date()
+        # Find rows for today
+        ts_series = pd.Series([pd.Timestamp(t) for t in idx])
+        ts_series = ts_series.apply(
+            lambda t: t.tz_localize("America/New_York") if t.tz is None else t.tz_convert("America/New_York")
+        )
+        today_mask = ts_series.dt.date == today
+        if not today_mask.any():
+            return None
+        day_bars = market_df.loc[today_mask.values]
+        day_open = float(day_bars["open"].iloc[0])
+        close_now = float(current_close) if current_close is not None else float(market_df["close"].iloc[-1])
+        day_drift_pts = close_now - day_open
+
+        # Volume z-score over last 30 bars
+        vol = pd.to_numeric(market_df["volume"].iloc[-30:], errors="coerce").astype(float)
+        v_mean = float(vol.mean())
+        v_std = float(vol.std()) if float(vol.std()) > 1e-9 else 1e-9
+        v_now = float(market_df["volume"].iloc[-1])
+        vol_z_30 = (v_now - v_mean) / v_std
+
+        # Gap: day_open - prior session close (last close NOT on today)
+        prior_mask = ~today_mask
+        if prior_mask.any():
+            prior_close = float(market_df.loc[prior_mask.values, "close"].iloc[-1])
+            gap_pts = day_open - prior_close
+        else:
+            gap_pts = 0.0
+
+        return float(day_drift_pts), float(vol_z_30), float(gap_pts)
+    except Exception:
+        return None
+
+
+def _ny_am_bypass_decision(
+    signal: Optional[dict],
+    *,
+    market_df=None,
+    current_close: Optional[float] = None,
+) -> Optional[tuple[bool, str]]:
     """Returns (fire, reason) if this signal hits the NY-AM Long_Rev bypass list,
     else None (signal goes through normal V18 pipeline). Mutates signal to mark
     bypass status for downstream Recipe B / v6_be skip logic."""
@@ -838,6 +901,21 @@ def _ny_am_bypass_decision(signal: Optional[dict]) -> Optional[tuple[bool, str]]
     if et_hour is None or et_hour != NY_AM_BYPASS_HOUR_ET:
         # Block hours 6 and 7 (hour-6/7 bleed netted -$3,254 in 2026 OOS)
         return False, f"ny_am_bypass:hour={et_hour}_not_8:{sub}"
+
+    # Hour-8 ML rule (Rule B): require favorable day_drift, vol_z, gap conditions.
+    # Behind env flag JULIE_AF_BYPASS_ML_RULE (default 1 = ON).
+    # If market_df unavailable, fall back to original "fire all hour-8" behavior.
+    if os.environ.get("JULIE_AF_BYPASS_ML_RULE", "1") == "1":
+        feats = _compute_bypass_rule_features(market_df, current_close)
+        if feats is not None:
+            day_drift_pts, vol_z_30, gap_pts = feats
+            if day_drift_pts < NY_AM_BYPASS_RULE_DAY_DRIFT_MIN:
+                return False, f"ny_am_bypass:day_drift_too_low ({day_drift_pts:+.1f}<{NY_AM_BYPASS_RULE_DAY_DRIFT_MIN}):{sub}"
+            if vol_z_30 < NY_AM_BYPASS_RULE_VOL_Z_MIN:
+                return False, f"ny_am_bypass:vol_z_too_low ({vol_z_30:+.2f}<{NY_AM_BYPASS_RULE_VOL_Z_MIN}):{sub}"
+            if gap_pts > NY_AM_BYPASS_RULE_GAP_MAX:
+                return False, f"ny_am_bypass:gap_too_high ({gap_pts:+.1f}>{NY_AM_BYPASS_RULE_GAP_MAX}):{sub}"
+
     # Hour-8 fires: fire raw, mark bypass for downstream layers
     signal["ny_am_bypass"] = True
     signal["ny_am_bypass_sub"] = sub
@@ -858,7 +936,7 @@ def v18_should_keep_de3(
     along with the 5 kronos features for downstream telemetry.
     """
     # === LOCAL OVERRIDE — NY-AM Long_Rev native-pipeline bypass ===
-    bypass = _ny_am_bypass_decision(signal)
+    bypass = _ny_am_bypass_decision(signal, market_df=market_df, current_close=current_price)
     if bypass is not None:
         return bypass
     # === END LOCAL OVERRIDE ===
