@@ -18,6 +18,7 @@ pydantic==2.12.5
 python-dotenv==1.2.2
 python-socketio==5.16.1
 requests==2.33.0
+PySocks==1.7.1
 cryptography>=42.0.0
 pytz>=2024.1
 rich==14.3.3
