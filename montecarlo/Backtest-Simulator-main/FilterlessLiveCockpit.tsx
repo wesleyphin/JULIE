@@ -11,7 +11,6 @@ import {
   type ISeriesApi,
   type UTCTimestamp,
 } from 'lightweight-charts';
-import Plotly from 'plotly.js-dist';
 import type {
   FilterlessEvent,
   FilterlessKalshiMetrics,
@@ -373,6 +372,15 @@ h1, h2, h3, p { margin: 0; }
 .metric small { min-width: 0; color: var(--muted); font-family: var(--mono); font-size: 10px; }
 .stack { min-width: 0; display: grid; gap: 10px; align-content: start; }
 .terminal { padding: 8px; display: grid; gap: 6px; max-height: 520px; overflow: auto; }
+.terminal-tall { max-height: none; height: 100%; min-height: 360px; }
+.journal-layout-tall { align-items: stretch; }
+.journal-layout-tall > .panel { display: flex; flex-direction: column; }
+.journal-layout-tall .journal-trace-panel { min-height: 720px; }
+.journal-layout-tall .journal-trace-panel .terminal-tall { flex: 1 1 auto; max-height: none; }
+.journal-layout-tall .journal-blotter-panel { display: flex; flex-direction: column; }
+.journal-layout-tall .journal-blotter-panel .terminal-tall { flex: 1 1 auto; max-height: 600px; }
+.journal-layout-tall .stack { display: flex; flex-direction: column; gap: 10px; min-height: 720px; }
+.journal-layout-tall .stack > .panel:last-child { flex: 1 1 auto; display: flex; flex-direction: column; }
 .terminal-row { min-height: 38px; padding: 7px 8px; display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10px; }
 .terminal-row time { color: var(--dim); }
 .terminal-row strong { min-width: 0; color: var(--text); font-weight: 700; }
@@ -1059,30 +1067,6 @@ h1, h2, h3, p { margin: 0; }
   line-height: 1.35;
   border-radius: 0 3px 3px 0;
   opacity: 0.85;
-}
-
-/* === Trade-lifecycle charts (MFE/MAE scatter + Sankey) === */
-.lifecycle-chart-wrap {
-  position: relative;
-  width: 100%;
-  height: 460px;
-  min-height: 380px;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 6px;
-  padding: 8px;
-}
-.lifecycle-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  font-family: 'SF Mono', 'Menlo', monospace;
-  font-size: 11px;
-  opacity: 0.55;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
 }
 
 /* === Docs (README.pdf) viewer === */
@@ -4484,355 +4468,7 @@ function FilterlessLiveCockpit() {
     );
   };
 
-  // ===========================================================================
-  // Trade-lifecycle helpers (used by MFE/MAE scatter + Sankey)
-  // ===========================================================================
-
-  // Compute Maximum Favorable Excursion (MFE) and Maximum Adverse Excursion
-  // (MAE) for a trade by scanning OHLC bars between opened_at and time.
-  // Returns nulls if entry_price or opened_at is missing, or if no bars
-  // overlap the trade window. Both are returned as POINTS (positive numbers).
-  const computeMfeMae = (
-    trade: FilterlessTrade,
-    bars: FilterlessOhlcBar[],
-  ): { mfe: number | null; mae: number | null; durationSec: number | null } => {
-    const entry = trade.entry_price ?? null;
-    const openedAt = (trade as any).opened_at as string | null | undefined;
-    const closedAt = trade.time ?? null;
-    if (entry == null || !openedAt || !closedAt || !bars || bars.length === 0) {
-      return { mfe: null, mae: null, durationSec: null };
-    }
-    const t0 = new Date(openedAt).getTime();
-    const t1 = new Date(closedAt).getTime();
-    if (!Number.isFinite(t0) || !Number.isFinite(t1) || t1 < t0) {
-      return { mfe: null, mae: null, durationSec: null };
-    }
-    let highest = -Infinity;
-    let lowest = Infinity;
-    for (const bar of bars) {
-      const ts = new Date(bar.t).getTime();
-      if (!Number.isFinite(ts)) continue;
-      if (ts < t0 || ts > t1) continue;
-      if (bar.h > highest) highest = bar.h;
-      if (bar.l < lowest) lowest = bar.l;
-    }
-    if (!Number.isFinite(highest) || !Number.isFinite(lowest)) {
-      return { mfe: null, mae: null, durationSec: Math.max(0, (t1 - t0) / 1000) };
-    }
-    const isLong = String(trade.side || '').toUpperCase() === 'LONG';
-    const mfe = isLong ? Math.max(0, highest - entry) : Math.max(0, entry - lowest);
-    const mae = isLong ? Math.max(0, entry - lowest) : Math.max(0, highest - entry);
-    return { mfe, mae, durationSec: Math.max(0, (t1 - t0) / 1000) };
-  };
-
-  // Bucket the exit reason from available fields. Without an explicit
-  // exit_reason column we use the result + price proximity as a proxy.
-  const inferExitReason = (trade: FilterlessTrade): string => {
-    const result = String(trade.result || '').toLowerCase();
-    if (result === 'win' || result === 'tp' || result === 'take_profit') return 'Take Profit';
-    if (result === 'loss' || result === 'sl' || result === 'stop_loss') return 'Stop Loss';
-    if (result === 'timeout' || result === 'time_out') return 'Time-Out';
-    if (result === 'flat' || result === 'breakeven' || result === 'be') return 'Breakeven';
-    // Fallback: use realized PnL sign
-    const pnl = trade.pnl_dollars_net ?? trade.pnl_dollars ?? trade.pnl_points ?? 0;
-    if (pnl > 0) return 'Take Profit';
-    if (pnl < 0) return 'Stop Loss';
-    return 'Other';
-  };
-
-  const inferEntryType = (trade: FilterlessTrade): string => {
-    const mode = ((trade as any).entry_mode as string | null | undefined) || '';
-    if (mode) {
-      const m = mode.toLowerCase();
-      if (m.includes('limit')) return 'Limit';
-      if (m.includes('market')) return 'Market';
-      if (m.includes('stop')) return 'Stop';
-      return mode;
-    }
-    return 'Market';
-  };
-
-  const inferSignalSource = (trade: FilterlessTrade): string => {
-    const label = (trade.strategy_label || '').trim();
-    if (label) return label;
-    const id = (trade.strategy_id || '').trim();
-    return id || 'Unknown';
-  };
-
-  // ===========================================================================
-  // MFE / MAE Efficiency Scatter
-  // ===========================================================================
-
-  const MfeMaeScatterChart: React.FC<{ trades: FilterlessTrade[]; bars: FilterlessOhlcBar[] }> = ({ trades, bars }) => {
-    const ref = useRef<HTMLDivElement>(null);
-
-    const points = useMemo(() => {
-      const enriched = trades.map((t) => {
-        const ex = computeMfeMae(t, bars);
-        const pnlPts = t.pnl_points ?? 0;
-        const pnlDollars = t.pnl_dollars_net ?? t.pnl_dollars ?? 0;
-        // If we have no OHLC overlap, fall back to using realized pnl as the
-        // observed favorable/adverse magnitude. This still produces a useful
-        // scatter — just less precise than true MFE/MAE.
-        const mfe = ex.mfe ?? Math.max(0, pnlPts);
-        const mae = ex.mae ?? Math.max(0, -pnlPts);
-        const exitReason = inferExitReason(t);
-        const isWin = (pnlDollars ?? 0) > 0 || /win|tp/i.test(t.result || '');
-        return {
-          mfe, mae,
-          pnlPts,
-          pnlDollars,
-          isWin,
-          win: isWin ? 'Win' : 'Loss',
-          source: inferSignalSource(t),
-          exitReason,
-          side: String(t.side || '').toUpperCase(),
-          entry: t.entry_price ?? null,
-          exit: t.exit_price ?? null,
-          time: t.time ?? null,
-          duration: ex.durationSec,
-          inferred: ex.mfe == null,
-        };
-      }).filter((p) => p.mfe != null && p.mae != null);
-      return enriched;
-    }, [trades, bars]);
-
-    useEffect(() => {
-      if (!ref.current) return;
-      if (!points.length) {
-        try { Plotly.purge(ref.current); } catch { /* noop */ }
-        return;
-      }
-      const wins = points.filter((p) => p.isWin);
-      const losses = points.filter((p) => !p.isWin);
-
-      const traceFor = (pts: typeof points, name: string, color: string) => ({
-        x: pts.map((p) => p.mae),
-        y: pts.map((p) => p.mfe),
-        text: pts.map((p) =>
-          `<b>${p.source}</b> · ${p.side}<br>` +
-          `MFE: ${p.mfe.toFixed(2)} pts<br>` +
-          `MAE: ${p.mae.toFixed(2)} pts<br>` +
-          `Realized: ${p.pnlPts.toFixed(2)} pts ($${(p.pnlDollars ?? 0).toFixed(2)})<br>` +
-          `Exit: ${p.exitReason}<br>` +
-          `Duration: ${p.duration != null ? `${(p.duration / 60).toFixed(1)} min` : '—'}<br>` +
-          `Time: ${p.time || '—'}` +
-          (p.inferred ? '<br><i>(approx — no OHLC overlap)</i>' : '')
-        ),
-        hoverinfo: 'text' as const,
-        mode: 'markers' as const,
-        type: 'scatter' as const,
-        name,
-        marker: {
-          size: 10,
-          color,
-          line: { color: 'rgba(255,255,255,0.4)', width: 0.5 },
-          opacity: 0.85,
-        },
-      });
-
-      // 45° diagonal MFE = MAE: anything below this line means the trade went
-      // further against you than for you (a likely "wasted edge").
-      const allMags = points.flatMap((p) => [p.mfe, p.mae]);
-      const maxMag = Math.max(1, ...allMags) * 1.1;
-
-      const data: any[] = [
-        traceFor(losses, 'Losses', COLORS.red),
-        traceFor(wins, 'Wins', COLORS.green),
-        {
-          x: [0, maxMag], y: [0, maxMag],
-          mode: 'lines', type: 'scatter',
-          name: 'MFE = MAE',
-          line: { color: 'rgba(255,255,255,0.25)', width: 1, dash: 'dash' },
-          hoverinfo: 'skip',
-          showlegend: true,
-        },
-      ];
-
-      const layout: any = {
-        autosize: true,
-        margin: { l: 56, r: 24, t: 16, b: 48 },
-        paper_bgcolor: 'rgba(0,0,0,0)',
-        plot_bgcolor: 'rgba(0,0,0,0)',
-        font: { color: '#d6d6d6', family: 'JetBrains Mono, monospace', size: 11 },
-        xaxis: {
-          title: { text: 'MAE — points against you', font: { size: 11 } },
-          gridcolor: 'rgba(255,255,255,0.06)',
-          zerolinecolor: 'rgba(255,255,255,0.18)',
-          range: [0, maxMag],
-        },
-        yaxis: {
-          title: { text: 'MFE — points in your favor', font: { size: 11 } },
-          gridcolor: 'rgba(255,255,255,0.06)',
-          zerolinecolor: 'rgba(255,255,255,0.18)',
-          range: [0, maxMag],
-        },
-        legend: {
-          orientation: 'h' as const,
-          y: 1.08, x: 0,
-          bgcolor: 'rgba(0,0,0,0)',
-          font: { size: 10 },
-        },
-        hoverlabel: { bgcolor: '#1a1a1a', bordercolor: 'rgba(255,255,255,0.2)' },
-      };
-
-      const config: any = { displayModeBar: false, responsive: true };
-      Plotly.newPlot(ref.current, data, layout, config);
-      const onResize = () => { if (ref.current) Plotly.Plots.resize(ref.current); };
-      window.addEventListener('resize', onResize);
-      return () => {
-        window.removeEventListener('resize', onResize);
-        if (ref.current) try { Plotly.purge(ref.current); } catch { /* noop */ }
-      };
-    }, [points]);
-
-    return (
-      <div className="lifecycle-chart-wrap">
-        {points.length === 0 ? (
-          <div className="lifecycle-empty">No closed trades with OHLC overlap yet.</div>
-        ) : (
-          <div ref={ref} style={{ width: '100%', height: '100%' }} />
-        )}
-      </div>
-    );
-  };
-
-  // ===========================================================================
-  // Trade Lifecycle Sankey: Signal Source → Entry Type → Exit Reason
-  // ===========================================================================
-
-  const TradeLifecycleSankey: React.FC<{ trades: FilterlessTrade[] }> = ({ trades }) => {
-    const ref = useRef<HTMLDivElement>(null);
-
-    const sankeyData = useMemo(() => {
-      if (!trades.length) return null;
-      // Build node + link tables
-      const nodeSet: string[] = [];
-      const nodeIndex = new Map<string, number>();
-      const addNode = (label: string): number => {
-        if (nodeIndex.has(label)) return nodeIndex.get(label)!;
-        const i = nodeSet.length;
-        nodeSet.push(label);
-        nodeIndex.set(label, i);
-        return i;
-      };
-
-      // Group A: signal sources (strategies)
-      // Group B: entry types
-      // Group C: exit reasons
-      const linkCounts = new Map<string, { source: number; target: number; count: number; pnl: number }>();
-      const bumpLink = (a: number, b: number, pnlDelta: number) => {
-        const key = `${a}->${b}`;
-        const prior = linkCounts.get(key);
-        if (prior) {
-          prior.count += 1;
-          prior.pnl += pnlDelta;
-        } else {
-          linkCounts.set(key, { source: a, target: b, count: 1, pnl: pnlDelta });
-        }
-      };
-
-      for (const t of trades) {
-        const src = `Signal · ${inferSignalSource(t)}`;
-        const ent = `Entry · ${inferEntryType(t)}`;
-        const exi = `Exit · ${inferExitReason(t)}`;
-        const a = addNode(src);
-        const b = addNode(ent);
-        const c = addNode(exi);
-        const pnl = t.pnl_dollars_net ?? t.pnl_dollars ?? 0;
-        bumpLink(a, b, pnl);
-        bumpLink(b, c, pnl);
-      }
-
-      const links = Array.from(linkCounts.values());
-      // Color exit-reason links by tone
-      const linkColors = links.map((l) => {
-        const targetLabel = nodeSet[l.target];
-        if (targetLabel.startsWith('Exit · Take Profit')) return 'rgba(0, 230, 118, 0.35)';
-        if (targetLabel.startsWith('Exit · Stop Loss')) return 'rgba(255, 64, 90, 0.35)';
-        if (targetLabel.startsWith('Exit · Time-Out')) return 'rgba(255, 200, 0, 0.35)';
-        if (targetLabel.startsWith('Exit · Breakeven')) return 'rgba(180, 180, 180, 0.35)';
-        return 'rgba(120, 130, 200, 0.30)';
-      });
-
-      const nodeColors = nodeSet.map((label) => {
-        if (label.startsWith('Signal · ')) return 'rgba(120, 130, 230, 0.85)';
-        if (label.startsWith('Entry · ')) return 'rgba(180, 180, 180, 0.85)';
-        if (label.startsWith('Exit · Take Profit')) return 'rgba(0, 230, 118, 0.85)';
-        if (label.startsWith('Exit · Stop Loss')) return 'rgba(255, 64, 90, 0.85)';
-        if (label.startsWith('Exit · Time-Out')) return 'rgba(255, 200, 0, 0.85)';
-        if (label.startsWith('Exit · Breakeven')) return 'rgba(180, 180, 180, 0.85)';
-        return 'rgba(140, 140, 140, 0.85)';
-      });
-
-      return {
-        nodes: nodeSet.map((label) => label.replace(/^[^·]+·\s*/, '')),
-        nodeColors,
-        sources: links.map((l) => l.source),
-        targets: links.map((l) => l.target),
-        values: links.map((l) => l.count),
-        labels: links.map((l) => `count: ${l.count} · net PnL: $${l.pnl.toFixed(2)}`),
-        linkColors,
-      };
-    }, [trades]);
-
-    useEffect(() => {
-      if (!ref.current) return;
-      if (!sankeyData) { try { Plotly.purge(ref.current); } catch { /* noop */ } return; }
-
-      const data: any[] = [{
-        type: 'sankey',
-        orientation: 'h',
-        valueformat: 'd',
-        node: {
-          pad: 14,
-          thickness: 18,
-          line: { color: 'rgba(255,255,255,0.15)', width: 0.5 },
-          label: sankeyData.nodes,
-          color: sankeyData.nodeColors,
-        },
-        link: {
-          source: sankeyData.sources,
-          target: sankeyData.targets,
-          value: sankeyData.values,
-          color: sankeyData.linkColors,
-          customdata: sankeyData.labels,
-          hovertemplate: '%{source.label} → %{target.label}<br>%{customdata}<extra></extra>',
-        },
-      }];
-
-      const layout: any = {
-        autosize: true,
-        margin: { l: 8, r: 8, t: 16, b: 8 },
-        paper_bgcolor: 'rgba(0,0,0,0)',
-        plot_bgcolor: 'rgba(0,0,0,0)',
-        font: { color: '#d6d6d6', family: 'JetBrains Mono, monospace', size: 11 },
-        hoverlabel: { bgcolor: '#1a1a1a', bordercolor: 'rgba(255,255,255,0.2)' },
-      };
-
-      const config: any = { displayModeBar: false, responsive: true };
-      Plotly.newPlot(ref.current, data, layout, config);
-      const onResize = () => { if (ref.current) Plotly.Plots.resize(ref.current); };
-      window.addEventListener('resize', onResize);
-      return () => {
-        window.removeEventListener('resize', onResize);
-        if (ref.current) try { Plotly.purge(ref.current); } catch { /* noop */ }
-      };
-    }, [sankeyData]);
-
-    return (
-      <div className="lifecycle-chart-wrap">
-        {!sankeyData ? (
-          <div className="lifecycle-empty">No trades to flow yet.</div>
-        ) : (
-          <div ref={ref} style={{ width: '100%', height: '100%' }} />
-        )}
-      </div>
-    );
-  };
-
   const renderJournal = () => {
-    const ohlcBars: FilterlessOhlcBar[] = (state.bot as any).price_history_ohlc || [];
     const journals = (state as any).daily_journals as Array<any> | undefined;
     const fmtDailyDate = (iso?: string | null): string => {
       if (!iso) return '—';
@@ -4907,36 +4543,16 @@ function FilterlessLiveCockpit() {
         </div>
       </Panel>
 
-      {/* === MFE/MAE Efficiency Scatter — every closed trade as a coordinate === */}
-      <Panel
-        title="MFE / MAE Efficiency"
-        titleClassName="display-title"
-        subtitle="Each trade plotted by max favorable excursion (Y) vs max adverse excursion (X). Below the diagonal = wasted edge. Wins green, losses red."
-        badge={<Badge tone={state.trades.length ? 'live' : 'watch'}>{state.trades.length ? `${state.trades.length} trades` : 'no data'}</Badge>}
-        className="mt-panel"
-      >
-        <div className="panel-body">
-          <MfeMaeScatterChart trades={state.trades || []} bars={ohlcBars} />
-        </div>
-      </Panel>
-
-      {/* === Trade Lifecycle Sankey — Signal → Entry → Exit flow attribution === */}
-      <Panel
-        title="Trade Lifecycle Flow"
-        titleClassName="display-title"
-        subtitle="Signal source → entry type → exit reason. Width = trade count, color = exit tone (green TP, red SL, yellow time-out)."
-        badge={<Badge tone={state.trades.length ? 'live' : 'watch'}>{state.trades.length ? `${state.trades.length} trades` : 'no data'}</Badge>}
-        className="mt-panel"
-      >
-        <div className="panel-body">
-          <TradeLifecycleSankey trades={state.trades || []} />
-        </div>
-      </Panel>
-
-      <div className="grid journal-layout mt-panel">
-        <Panel title="Trace Log" titleClassName="display-title" subtitle="Decision journal with trade levels, news, and manifold snapshots." badge={<Badge tone="info">live</Badge>}>
-          <div className="terminal">
-            {state.events.length ? state.events.slice(0, 28).map((event: FilterlessEvent, index) => (
+      <div className="grid journal-layout journal-layout-tall mt-panel">
+        <Panel
+          title="Trace Log"
+          titleClassName="display-title"
+          subtitle="Decision journal with trade levels, news, and manifold snapshots."
+          badge={<Badge tone="info">{state.events.length} events</Badge>}
+          className="journal-trace-panel"
+        >
+          <div className="terminal terminal-tall">
+            {state.events.length ? state.events.map((event: FilterlessEvent, index) => (
               <TerminalRow key={`${event.event_type}-${event.time}-${index}`} time={event.time} title={event.event_type} text={event.message} badge={<Badge tone={event.severity === 'error' || event.severity === 'danger' ? 'block' : event.severity === 'warning' ? 'watch' : 'info'}>{event.severity}</Badge>} />
             )) : <TerminalRow title="WAIT" text="No filterless events have been bridged yet." badge={<Badge tone="watch">idle</Badge>} />}
           </div>
@@ -4949,9 +4565,15 @@ function FilterlessLiveCockpit() {
               <Meter label="truth score" value={(features.truthScore + 1) / 2} text={formatSigned(features.truthScore)} color={COLORS.pink} />
             </div>
           </Panel>
-          <Panel title="Trade Blotter" titleClassName="display-title" subtitle="Recent closed filterless trades.">
-            <div className="terminal">
-              {state.trades.length ? state.trades.slice(0, 14).map((trade: FilterlessTrade, index) => (
+          <Panel
+            title="Trade Blotter"
+            titleClassName="display-title"
+            subtitle="All closed filterless trades."
+            badge={<Badge tone="info">{state.trades.length} trades</Badge>}
+            className="journal-blotter-panel"
+          >
+            <div className="terminal terminal-tall">
+              {state.trades.length ? state.trades.map((trade: FilterlessTrade, index) => (
                 <TerminalRow
                   key={`${trade.time}-${index}`}
                   time={trade.time}
