@@ -1621,8 +1621,23 @@ def build_dashboard_state(
                         strategy["last_signal_time"] = iso_or_none(logged_at)
                         strategy["last_signal_side"] = details.get("side")
                         strategy["last_signal_price"] = safe_float(details.get("price"))
-                        strategy["tp_dist"] = safe_float(details.get("tp_dist"))
-                        strategy["sl_dist"] = safe_float(details.get("sl_dist"))
+                        # tp_dist/sl_dist on BLOCKED signals are reporting
+                        # placeholders (0.00/0.00) because gate filters fire
+                        # before bracket resolution — see julie001.py blocked-
+                        # signal logger and aetherflow_strategy resolution
+                        # order. Preserve the last *real* bracket from a
+                        # CANDIDATE/QUEUED/EXECUTED signal so the dashboard
+                        # card shows the true designed brackets, not zeros.
+                        incoming_tp = safe_float(details.get("tp_dist"))
+                        incoming_sl = safe_float(details.get("sl_dist"))
+                        is_blocked_zero_bracket = (
+                            raw_status == "BLOCKED"
+                            and (incoming_tp in (None, 0, 0.0))
+                            and (incoming_sl in (None, 0, 0.0))
+                        )
+                        if not is_blocked_zero_bracket:
+                            strategy["tp_dist"] = incoming_tp
+                            strategy["sl_dist"] = incoming_sl
                         strategy["priority"] = details.get("priority")
                         strategy["last_reason"] = event_message
                         strategy["sub_strategy"] = details.get("sub_strategy")
