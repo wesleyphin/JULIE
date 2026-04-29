@@ -3107,3 +3107,223 @@ Examples include:
 Those files are useful for development and backtesting, but they are not the
 best starting point for understanding how the current live bot works. The best
 starting point is the filterless path described in this README.
+
+## 16. Recent Changes (2026-04-26 → 2026-04-29)
+
+This section catalogs the production deltas that landed on branch
+`live/v18-deploy-2026-04-26`. Older sections describe the steady-state design;
+this section is the changelog for what just shipped.
+
+### 16.1 New Strategy: FibH1214 (Fibonacci, hours 12–14 ET)
+
+A new rule-based strategy lives in `fib_h1214_strategy.py` and is registered
+alongside DynamicEngine3, RegimeAdaptive, MLPhysics, and AetherFlow.
+
+What it does:
+
+- **Window**: only fires between 12:00–14:59 ET. Outside that window it is silent.
+- **AM swing**: each day it computes the 09:30–11:59 ET high/low and the
+  resulting Fibonacci retracement levels at the 7 standard ratios
+  (0.236, 0.382, 0.500, 0.618, 0.705, 0.786, 1.000).
+- **Trigger**: a long is taken when price retraces into a fib level from above
+  and prints a counter-bar (close > prev_close) AND the bar is the extremum of
+  the trailing 8 bars (the literal Fibonacci number 8). Shorts are the mirror.
+- **Bracket**: 5-tick TP, 5-tick SL on entry. Live brackets may be modified
+  downstream by the dead-tape/Kalshi overlays — see 16.2.
+- **Sizing**: constant 10 MES contracts. Earlier iterations had an adaptive
+  rolling-20-day sizing layer; that was flattened to a constant after we
+  confirmed via random-control verification that rule + size was already
+  optimal and ML overlays did not improve PnL.
+- **Sub-strategies**: each fib ratio is exposed as a sub-strategy chip on the
+  dashboard (`fib_236`, `fib_382`, `fib_500`, `fib_618`, `fib_705`, `fib_786`,
+  `fib_1000`).
+
+Wiring:
+
+- `julie001.py` imports `FibH1214Strategy`, registers it in
+  `standard_strategies`, calls `record_trade_pnl()` on every closed FibH1214
+  trade, and persists/restores the strategy state across restarts via
+  `state_for_persist()` / `restore_state()` hooks.
+- `tools/filterless_dashboard_bridge.py` lists `"fib_h1214"` in
+  `STRATEGY_ORDER`, maps it to the label `"Fibonacci"`, and recognizes any
+  `fibh1214*` slug in `canonical_strategy_id()`.
+
+### 16.2 Bracket-Override Behavior (Kept On)
+
+We briefly added skip-guards in `julie001.py` so the dead-tape overlay and
+Kalshi trade overlay would not modify FibH1214 brackets. After testing we
+**rolled the skip-guards back** (commit `32484d5`). Live FibH1214 trades
+therefore continue to have their TP/SL re-shaped by the same overlays that
+apply to every other strategy. Concretely, the original 1.25-pt TP can be
+moved to 3.0 pts by the dead-tape filter and then trimmed to 2.75 pts by
+Kalshi.
+
+The relevant code paths that participate in this rewrite are:
+
+- `_signal_birth_hook` (around line 1334)
+- `_apply_live_drawdown_size` (around line 2493)
+- `_apply_kalshi_trade_overlay_to_signal` (around line 2799)
+
+This is intentional. Section 16 of this README documents the choice rather
+than the toggle.
+
+### 16.3 Strategy Attribution Fix (ProjectX Backfill Clobber)
+
+When a position is restored from the broker (via the ProjectX history
+backfill), the restored object initially carries placeholder strategy fields
+(`projectxhistorybackfill`, `restoredliveposition`). Previously, the
+trade-merge step blindly overwrote the strategy attribution that was already
+on the closed-trade record, which caused FibH1214 trades to display in the
+journal as `ProjectXHistoryBackfill`.
+
+Fix at `julie001.py:9956`: a normalized check of incoming strategy fields
+against a placeholder set, with the existing non-placeholder value preserved:
+
+```python
+STRATEGY_PLACEHOLDERS = {
+    "projectxhistorybackfill", "restoredliveposition", ""
+}
+STRATEGY_FIELDS = ("strategy", "strategy_label", "sub_strategy", "combo_key")
+
+def _norm_strategy(v):
+    return "".join(ch for ch in str(v).lower() if ch.isalnum())
+
+for key, value in closed_trade.items():
+    if value in (None, ""):
+        continue
+    if key in STRATEGY_FIELDS:
+        incoming_norm = _norm_strategy(value)
+        existing_value = existing_trade.get(key)
+        if (incoming_norm in STRATEGY_PLACEHOLDERS
+            and existing_value not in (None, "")):
+            continue
+    merged_trade[key] = value
+```
+
+### 16.4 Filterless Dashboard Bridge — FibH1214 Recognition
+
+`tools/filterless_dashboard_bridge.py`:
+
+- `STRATEGY_ORDER` now ends with `"fib_h1214"`.
+- `STRATEGY_LABELS` maps `"fib_h1214" → "Fibonacci"`.
+- `canonical_strategy_id()` recognizes any slug starting with `fibh1214`.
+- A new helper `load_recent_daily_journals(max_entries=14)` reads
+  `ai_loop_data/journals/*.json`, sorts them newest-first, and slims each
+  entry to the fields the dashboard needs (`date`, `summary`,
+  `breakdown_by_layer`, `pattern_flags`, and a small `price_context` block).
+- The bridge attaches the resulting list as `dashboard["daily_journals"]`
+  every time the live state is rebuilt, so the dashboard always has up to
+  the last 14 EOD summaries available.
+
+### 16.5 Strategies UI Redesign
+
+`montecarlo/Backtest-Simulator-main/FilterlessLiveCockpit.tsx`:
+
+- The flat Strategies table was replaced with a **card grid**, one card per
+  strategy. Cards show: status pill, last-signal time, last-trade PnL, last
+  block reason (if any), and a row of **sub-strategy chips**.
+- A frontend-side `STRATEGY_ROSTER` force-renders all five strategy cards
+  even if the backend only sent a partial list. This was added to avoid the
+  Fibonacci card disappearing when the bridge state was momentarily stale.
+- A `SUBSTRATEGIES` dictionary defines the chip set for each strategy.
+  Fibonacci ships seven chips (one per ratio); DynamicEngine3, AetherFlow,
+  MLPhysics, and RegimeAdaptive each have their own chip sets.
+- `matchSubstrategy()` returns one of `idle` / `recent` / `active` per chip
+  based on recent signals/trades.
+- `statusTone()` and `statusLabel()` were updated to render `STANDBY`
+  (instead of `AWAITING DATA`) for `awaiting_snapshot` so the card no longer
+  visually reads like an error.
+- `lastTradeForStrategy()` now has a regex fallback that scans `state.trades`
+  for `/fib/i` if the bridge did not surface a `last_trade_*` block on the
+  Fibonacci strategy state.
+- The card grid is centered (flexbox + `justify-content:center`) so the
+  trailing card is not pinned to the right edge of a 3-column layout.
+
+### 16.6 EOD Trade Journal → UI Daily Summary Panel
+
+The nightly EOD journal now drives a Daily Summary panel inside the
+dashboard's Journal screen.
+
+- `filterlessLiveTypes.ts` adds a `FilterlessDailyJournal` interface and
+  `daily_journals?: FilterlessDailyJournal[] | null` on `FilterlessLiveState`.
+- `FilterlessLiveCockpit.tsx`'s `renderJournal()` shows up to 14 day cards
+  (newest first), each with: date header, total PnL, trade count, win rate,
+  max drawdown, signals fired vs blocked, and a small price-context line
+  (range / trend direction / open–close).
+- New launchd descriptor `tools/ai_loop/com.julie.eod-journal.plist` runs
+  `python3 -m tools.ai_loop.run_daily --skip-apply` nightly at 02:05 local.
+  Logs go to `ai_loop_data/run_daily.log`.
+
+We also backfilled `ai_loop_data/journals/2026-04-22.json` through
+`2026-04-29.json` so the Journal screen has content from day one of the
+deploy rather than an empty list.
+
+### 16.7 Smart Date+Time Formatter
+
+The trade blotter and the strategy-card last-trade row both use a single
+helper for time stamps:
+
+- `formatShortTime()` — date-aware: shows just `HH:MM:SS` for today, and
+  prepends a date for any earlier day.
+- `splitTimeForStackedDisplay()` — splits date and time so the blotter can
+  render the date on a top row and the time on a bottom row, two lines, when
+  the trade is not from today. Today's trades stay on a single line.
+
+This was the user-requested fix to disambiguate "is this from today or last
+week" at a glance.
+
+### 16.8 NY-AM Long_Rev Hour-8 Bypass ML Rule
+
+`FilterlessPipelineNYAMBypass` exposes the new bypass on the dashboard:
+which strategies bypass ML in the NY-AM hour, and which hour the bypass
+applies to. The current default is `hour_et: 8` for the long_rev sub-bucket.
+The exact ML toggles are described in Section 11.
+
+### 16.9 UI Asset Updates
+
+- `bg.mov` — new background video (≈76 MB) committed via Git LFS / HTTP/1.1
+  fallback (`git -c http.version=HTTP/1.1 -c http.postBuffer=524288000 push`)
+  after the default HTTPS push surfaced an LibreSSL "bad record mac" error.
+- New CSS (~140 lines) for strategy cards, sub-strategy chips, daily-journal
+  cards, and stacked time stamps.
+
+### 16.10 Build / Push Notes
+
+- All work lives on branch `live/v18-deploy-2026-04-26`. Do not push to
+  `main` for this deploy.
+- The launchd descriptor must be loaded once with
+  `launchctl load -w ~/Library/LaunchAgents/com.julie.eod-journal.plist`
+  (or copied into `~/Library/LaunchAgents/` first) for the nightly journal
+  to fire.
+- The dashboard reads `montecarlo/Backtest-Simulator-main/public/filterless_live_state.json`
+  in dev and `dist/filterless_live_state.json` in the bundled build. The
+  bridge writes the public copy; the deploy script syncs it to dist.
+
+### 16.11 Files Added / Changed
+
+| Path | Status | Purpose |
+|------|--------|---------|
+| `fib_h1214_strategy.py` | new | FibH1214 rule + sizing + persistence |
+| `julie001.py` | modified | imports/registers FibH1214; placeholder-guarded merge; persist hooks |
+| `tools/filterless_dashboard_bridge.py` | modified | FibH1214 ordering/labels; `load_recent_daily_journals()` |
+| `tools/ai_loop/com.julie.eod-journal.plist` | new | nightly EOD journal launchd job |
+| `montecarlo/Backtest-Simulator-main/FilterlessLiveCockpit.tsx` | modified | strategy card grid, sub-strategy chips, daily-summary panel, stacked timestamps |
+| `montecarlo/Backtest-Simulator-main/filterlessLiveTypes.ts` | modified | `FilterlessDailyJournal` interface, `daily_journals` field |
+| `montecarlo/Backtest-Simulator-main/public/bg.mov` | new | UI background video |
+| `ai_loop_data/journals/2026-04-22.json` … `2026-04-29.json` | new | backfill so Journal screen has content |
+
+### 16.12 Caveats and Known Issues
+
+- **MLPhysics silent disable**: when the legacy SessionManager detaches,
+  `self.sm` becomes `None` and `model_loaded` flips to `False`, which in
+  turn fails the `julie001.py:9020` gate. This was diagnosed but not fixed
+  in this deploy — see the line-531 fix discussed in the change log. The
+  symptom is "MLPhysics silently produces no signals" while the dashboard
+  status still reads green.
+- **Backtest dollar units**: the original FibH1214 backtest used
+  `DOLLAR_PER_PT=12.5` (full ES tick value) while the live bot trades MES
+  ($1.25/tick). This is the reason `FIXED_SIZE` was bumped to 10 MES — to
+  match the dollar-per-trade target the backtest was optimized against.
+- **TP rewrite by overlays**: see 16.2. FibH1214 designed brackets are
+  intentionally not protected from the dead-tape/Kalshi rewrites in this
+  deploy.

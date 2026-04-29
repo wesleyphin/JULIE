@@ -48,7 +48,7 @@ const COLORS = {
   dim: '#ffffff',
 };
 
-type ScreenId = 'overview' | 'aetherflow' | 'kalshi' | 'news' | 'strategies' | 'pipeline' | 'journal' | 'command';
+type ScreenId = 'overview' | 'aetherflow' | 'kalshi' | 'news' | 'strategies' | 'pipeline' | 'journal' | 'command' | 'docs';
 
 type ManifoldRegime = 'TREND_GEODESIC' | 'CHOP_SPIRAL' | 'DISPERSED' | 'ROTATIONAL_TURBULENCE';
 type BadgeTone = 'live' | 'watch' | 'block' | 'info';
@@ -178,6 +178,7 @@ const NAV: Array<{ id: ScreenId; label: string; code: string; title: string; sub
   { id: 'pipeline', label: 'V18 Pipeline', code: '06', title: 'V18 PIPELINE', subtitle: 'Stacked-meta + Kronos + Recipe B + regime ML — current live wiring.' },
   { id: 'journal', label: 'Journal', code: '07', title: 'TRACE JOURNAL', subtitle: 'Decision log with trade levels, news fields, and manifold snapshots.' },
   { id: 'command', label: 'Command', code: '08', title: 'COMMAND MATRIX', subtitle: 'Runtime controls, guard rails, and operator actions.' },
+  { id: 'docs', label: 'Docs', code: '09', title: 'DOCUMENTATION', subtitle: 'Filterless live README — architecture, strategies, and recent changes.' },
 ];
 
 const COCKPIT_CSS = `
@@ -969,15 +970,15 @@ h1, h2, h3, p { margin: 0; }
 
 /* === Daily Journal cards === */
 .daily-journal-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
   margin-top: 4px;
+  align-items: stretch;
+  justify-items: stretch;
 }
 .daily-journal-card {
-  flex: 0 1 280px;
-  min-width: 240px;
-  max-width: 320px;
+  width: 100%;
   background: rgba(0, 0, 0, 0.35);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
@@ -1057,6 +1058,71 @@ h1, h2, h3, p { margin: 0; }
   line-height: 1.35;
   border-radius: 0 3px 3px 0;
   opacity: 0.85;
+}
+
+/* === Docs (README.pdf) viewer === */
+.docs-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.docs-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.docs-link {
+  font-family: var(--display, 'Helvetica', sans-serif);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 4px;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.docs-link:hover {
+  border-color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.05);
+}
+.docs-hint {
+  margin-left: auto;
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-size: 10px;
+  opacity: 0.55;
+}
+.docs-viewer {
+  position: relative;
+  width: 100%;
+  height: calc(100vh - 240px);
+  min-height: 540px;
+  background: #1c1c1c;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.docs-viewer object,
+.docs-viewer iframe,
+.docs-frame-fallback {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+.docs-fallback-note {
+  padding: 24px;
+  font-size: 12px;
+  opacity: 0.7;
+  text-align: center;
+}
+.docs-fallback-note a {
+  color: inherit;
+  text-decoration: underline;
 }
 `;
 
@@ -4578,12 +4644,61 @@ function FilterlessLiveCockpit() {
               <small className="truncate">state, risk, gates, events</small>
               <Badge tone="info">journal</Badge>
             </button>
+            <button className="command-tile control-tile" type="button" onClick={() => setActiveScreen('docs')}>
+              <strong className="truncate">Documentation</strong>
+              <small className="truncate">README.pdf · architecture + recent changes</small>
+              <Badge tone="info">read</Badge>
+            </button>
           </div>
           <div className="operator-footer">
             <div className="operator-note"><strong className="truncate">control</strong><span className="truncate">{controlOnline ? 'launcher API online' : controlError || 'launcher controls unavailable'}</span></div>
             <div className="operator-note"><strong className="truncate">state file</strong><span className="truncate">{formatAgeSeconds(controlStatus?.dashboard_state_age_seconds)} old</span></div>
             <div className="operator-note"><strong className="truncate">bot pid</strong><span className="truncate">{botProcess?.pid ?? '--'} / {botProcess?.running ? 'running' : 'stopped'}</span></div>
             <div className="operator-note"><strong className="truncate">last action</strong><span className="truncate">{controlMessage || 'none'}</span></div>
+          </div>
+        </div>
+      </Panel>
+    </section>
+  );
+
+  const renderDocs = () => (
+    <section className="screen">
+      <Panel
+        title="Documentation"
+        subtitle="Filterless live README — architecture, strategies, ML stack, and recent changes (Apr 26 → Apr 29)."
+        badge={<Badge tone="info">README.pdf</Badge>}
+      >
+        <div className="panel-body docs-panel-body">
+          <div className="docs-toolbar">
+            <a className="docs-link" href="/README.pdf" target="_blank" rel="noopener noreferrer">
+              Open in new tab
+            </a>
+            <a className="docs-link" href="/README.pdf" download="JULIE001-README.pdf">
+              Download
+            </a>
+            <span className="docs-hint truncate">
+              Source: README.md · regenerated by tools/render_readme_pdf.py
+            </span>
+          </div>
+          <div className="docs-viewer">
+            <object
+              data="/README.pdf#zoom=page-width&navpanes=0"
+              type="application/pdf"
+              aria-label="Filterless live README"
+            >
+              <iframe
+                src="/README.pdf"
+                title="Filterless live README"
+                className="docs-frame-fallback"
+              />
+              <div className="docs-fallback-note">
+                Your browser cannot display the PDF inline.{' '}
+                <a href="/README.pdf" target="_blank" rel="noopener noreferrer">
+                  Open README.pdf in a new tab
+                </a>
+                .
+              </div>
+            </object>
           </div>
         </div>
       </Panel>
@@ -4598,6 +4713,7 @@ function FilterlessLiveCockpit() {
     if (activeScreen === 'pipeline') return renderPipeline();
     if (activeScreen === 'journal') return renderJournal();
     if (activeScreen === 'command') return renderCommand();
+    if (activeScreen === 'docs') return renderDocs();
     return renderOverview();
   };
 
