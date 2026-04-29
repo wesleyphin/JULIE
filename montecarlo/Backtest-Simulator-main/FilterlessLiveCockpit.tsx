@@ -3604,6 +3604,17 @@ function FilterlessLiveCockpit() {
   };
 
   const renderStrategies = () => {
+    // Frontend-side roster (mirrors bridge's STRATEGY_ORDER). Cards render
+    // for every entry here even if the backend snapshot hasn't yet populated
+    // a strategies[].id matching it — falls back to a placeholder card.
+    const STRATEGY_ROSTER: Array<{ id: string; label: string }> = [
+      { id: 'dynamic_engine3', label: 'Dynamic Engine 3' },
+      { id: 'regime_adaptive', label: 'RegimeAdaptive' },
+      { id: 'ml_physics', label: 'ML Physics' },
+      { id: 'aetherflow', label: 'AetherFlow' },
+      { id: 'fib_h1214', label: 'Fibonacci' },
+    ];
+
     // Substrategy universe per module — chips light up when matched in live state
     const SUBSTRATEGIES: Record<string, Array<{ key: string; label: string; matchers: string[] }>> = {
       fib_h1214: [
@@ -3662,7 +3673,14 @@ function FilterlessLiveCockpit() {
       if (s === 'in_trade' || s === 'active') return 'live';
       if (s === 'idle' || s === 'ready') return 'watch';
       if (s.includes('disabled') || s.includes('block')) return 'block';
+      if (s === 'awaiting_snapshot') return 'info';
       return 'watch';
+    };
+
+    const statusLabel = (status: string): string => {
+      const s = (status || 'idle').toLowerCase();
+      if (s === 'awaiting_snapshot') return 'AWAITING DATA';
+      return (status || 'idle').toUpperCase();
     };
 
     const colorForStrategy = (id: string): string => {
@@ -3688,12 +3706,32 @@ function FilterlessLiveCockpit() {
       return (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(2);
     };
 
+    // Build the rendered list: pull each strategy from state if present,
+    // else render a placeholder card so the roster is always visible even
+    // before the bridge backend re-sends the snapshot with new strategies.
+    const renderedStrategies: FilterlessStrategyState[] = STRATEGY_ROSTER.map((entry) => {
+      const live = state.strategies.find((s) => s.id === entry.id);
+      if (live) {
+        // Override label so frontend stays the source of truth for display name.
+        return { ...live, label: entry.label };
+      }
+      return {
+        id: entry.id,
+        label: entry.label,
+        status: 'awaiting_snapshot',
+      } as FilterlessStrategyState;
+    });
+
+    const activeCount = renderedStrategies.filter((s) => (s.status || '').toLowerCase() === 'in_trade').length;
+    const readyCount = renderedStrategies.filter((s) => ['idle', 'ready'].includes((s.status || '').toLowerCase())).length;
+    const loadedCount = renderedStrategies.length;
+
     return (
       <section className="screen">
         <div className="grid cols-3">
-          <Metric label="active modules" value={String(state.strategies.filter((s) => s.status === 'in_trade').length)} hint="currently in trade" color={COLORS.green} />
-          <Metric label="ready modules" value={String(state.strategies.filter((s) => ['idle','ready'].includes((s.status || '').toLowerCase())).length)} hint="awaiting setup" color={COLORS.amber} />
-          <Metric label="loaded modules" value={String(state.strategies.length)} hint="in roster" color={COLORS.cyan} />
+          <Metric label="active modules" value={String(activeCount)} hint="currently in trade" color={COLORS.green} />
+          <Metric label="ready modules" value={String(readyCount)} hint="awaiting setup" color={COLORS.amber} />
+          <Metric label="loaded modules" value={String(loadedCount)} hint="in roster" color={COLORS.cyan} />
         </div>
 
         <Panel
@@ -3703,11 +3741,11 @@ function FilterlessLiveCockpit() {
           badge={<Badge tone="live">loaded</Badge>}
           className="mt-panel"
         >
-          {state.strategies.length === 0 ? (
+          {renderedStrategies.length === 0 ? (
             <p className="micro">No strategies are present in the live snapshot.</p>
           ) : (
             <div className="strategy-card-grid">
-              {state.strategies.map((strategy: FilterlessStrategyState) => {
+              {renderedStrategies.map((strategy: FilterlessStrategyState) => {
                 const subs = SUBSTRATEGIES[strategy.id] || [];
                 const accent = colorForStrategy(strategy.id);
                 const tone = statusTone(strategy.status);
@@ -3727,7 +3765,7 @@ function FilterlessLiveCockpit() {
                         </div>
                         <div className="strategy-card-id micro">{strategy.id}</div>
                       </div>
-                      <Badge tone={tone}>{(strategy.status || 'idle').toUpperCase()}</Badge>
+                      <Badge tone={tone}>{statusLabel(strategy.status)}</Badge>
                     </div>
 
                     {subs.length > 0 && (

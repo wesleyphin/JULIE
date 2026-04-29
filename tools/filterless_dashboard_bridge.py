@@ -55,7 +55,7 @@ STRATEGY_LABELS = {
     "regime_adaptive": "RegimeAdaptive",
     "ml_physics": "ML Physics",
     "aetherflow": "AetherFlow",
-    "fib_h1214": "Fib h12-14",
+    "fib_h1214": "Fibonacci",
 }
 FILTERLESS_LIVE_DISABLED_STRATEGIES = {
     str(value).strip().lower()
