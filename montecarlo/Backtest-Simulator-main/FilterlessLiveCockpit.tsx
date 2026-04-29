@@ -1099,8 +1099,8 @@ h1, h2, h3, p { margin: 0; }
 .docs-viewer {
   position: relative;
   width: 100%;
-  height: calc(100vh - 240px);
-  min-height: 540px;
+  height: calc(100vh - 140px);
+  min-height: 1100px;
   background: #1c1c1c;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
