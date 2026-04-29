@@ -23,7 +23,7 @@ import type {
   FilterlessTrade,
 } from './filterlessLiveTypes';
 
-const REFRESH_MS = 3000;
+const REFRESH_MS = 1000;
 const FEED_STALE_SECONDS = 90;
 const FEED_OFFLINE_SECONDS = 300;
 const MANIFOLD_IDLE_FPS = 24;
