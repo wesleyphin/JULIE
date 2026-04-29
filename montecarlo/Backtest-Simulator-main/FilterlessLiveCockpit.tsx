@@ -377,8 +377,8 @@ h1, h2, h3, p { margin: 0; }
 .journal-layout-tall > .panel { display: flex; flex-direction: column; }
 .journal-layout-tall .journal-trace-panel { min-height: 720px; }
 .journal-layout-tall .journal-trace-panel .terminal-tall { flex: 1 1 auto; max-height: none; }
-.journal-layout-tall .journal-blotter-panel { display: flex; flex-direction: column; }
-.journal-layout-tall .journal-blotter-panel .terminal-tall { flex: 1 1 auto; max-height: 600px; }
+.journal-layout-tall .journal-blotter-panel { display: flex; flex-direction: column; min-height: 540px; }
+.journal-layout-tall .journal-blotter-panel .terminal-tall { flex: 1 1 auto; max-height: none; min-height: 460px; }
 .journal-layout-tall .stack { display: flex; flex-direction: column; gap: 10px; min-height: 720px; }
 .journal-layout-tall .stack > .panel:last-child { flex: 1 1 auto; display: flex; flex-direction: column; }
 .terminal-row { min-height: 38px; padding: 7px 8px; display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10px; }
