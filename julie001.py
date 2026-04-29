@@ -9953,13 +9953,28 @@ async def run_bot():
         if duplicate_index is not None:
             existing_trade = dict(recent_closed_trades[duplicate_index])
             merged_trade = dict(existing_trade)
-            merged_trade.update(
-                {
-                    key: value
-                    for key, value in closed_trade.items()
-                    if value not in (None, "")
-                }
-            )
+            # Preserve specific strategy attribution from the existing row when
+            # the incoming row's strategy is a generic placeholder like
+            # "ProjectXHistoryBackfill" / "RestoredLivePosition" — those mean
+            # "we filled in a phantom because we couldn't find the original",
+            # which is exactly when the existing row has the real attribution.
+            STRATEGY_PLACEHOLDERS = {"projectxhistorybackfill", "restoredliveposition", ""}
+            STRATEGY_FIELDS = ("strategy", "strategy_label", "sub_strategy", "combo_key")
+            def _norm_strategy(v):
+                return "".join(ch for ch in str(v).lower() if ch.isalnum())
+            for key, value in closed_trade.items():
+                if value in (None, ""):
+                    continue
+                if key in STRATEGY_FIELDS:
+                    incoming_norm = _norm_strategy(value)
+                    existing_value = existing_trade.get(key)
+                    if (
+                        incoming_norm in STRATEGY_PLACEHOLDERS
+                        and existing_value not in (None, "")
+                    ):
+                        # Keep the existing real attribution, skip the placeholder
+                        continue
+                merged_trade[key] = value
             if merged_trade == existing_trade:
                 return False
             recent_closed_trades[duplicate_index] = merged_trade
