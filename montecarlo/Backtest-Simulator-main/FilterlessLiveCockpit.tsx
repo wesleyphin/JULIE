@@ -3678,13 +3678,17 @@ function FilterlessLiveCockpit() {
       if (s === 'in_trade' || s === 'active') return 'live';
       if (s === 'idle' || s === 'ready') return 'watch';
       if (s.includes('disabled') || s.includes('block')) return 'block';
-      if (s === 'awaiting_snapshot') return 'info';
+      if (s === 'awaiting_snapshot' || s === 'standby') return 'info';
       return 'watch';
     };
 
     const statusLabel = (status: string): string => {
       const s = (status || 'idle').toLowerCase();
-      if (s === 'awaiting_snapshot') return 'AWAITING DATA';
+      // Bridge hasn't pushed live state yet — strategy is loaded + registered
+      // but no signals/trades have flowed through the per-strategy slot.
+      // 'STANDBY' matches the Kronos daemon convention used elsewhere
+      // (loaded, available, not actively firing right now).
+      if (s === 'awaiting_snapshot') return 'STANDBY';
       return (status || 'idle').toUpperCase();
     };
 
