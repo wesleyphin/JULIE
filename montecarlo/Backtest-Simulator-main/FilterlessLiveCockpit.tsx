@@ -991,7 +991,18 @@ function formatShortTime(value?: string | null): string {
   if (!value) return '--';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '--';
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const now = new Date();
+  // Same calendar day in NY tz → show only HH:MM (compact for active session)
+  // Different day → show "MMM DD HH:MM" so multi-day events don't look like
+  // they all happened today.
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (sameDay) return time;
+  const day = date.toLocaleDateString([], { month: 'short', day: '2-digit' });
+  return `${day} ${time}`;
 }
 
 function formatRelativeTime(value?: string | null): string {
@@ -3706,7 +3717,25 @@ function FilterlessLiveCockpit() {
     const fmtTime = (iso?: string | null): string => {
       if (!iso) return '—';
       try {
-        return new Date(iso).toLocaleTimeString('en-US', { hour12: false, timeZone: 'America/New_York' }) + ' ET';
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return iso;
+        // Compute "today in NY" via Intl tz-conversion so cross-tz hosts
+        // (PT, etc.) don't show yesterday's date for events recorded today.
+        const nyToday = new Date().toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+        const tradeDay = d.toLocaleDateString('en-US', { timeZone: 'America/New_York' });
+        const time = d.toLocaleTimeString('en-US', {
+          hour12: false,
+          timeZone: 'America/New_York',
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        if (tradeDay === nyToday) return `${time} ET`;
+        const day = d.toLocaleDateString('en-US', {
+          month: 'short',
+          day: '2-digit',
+          timeZone: 'America/New_York',
+        });
+        return `${day} ${time} ET`;
       } catch { return iso; }
     };
 
