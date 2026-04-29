@@ -1382,19 +1382,15 @@ function formatShortTime(value?: string | null): string {
 }
 
 // Date/time split helper for stacked rendering (Trade Blotter, Trace Log, etc.)
-// Returns `{ date: 'Apr 28' | null, time: '14:53' }` so the UI can render the
-// date as its own row above the time when applicable.
+// Always returns a date so every row shows the trade day on top — the prior
+// "skip date when same day" branch was hiding today's date and made today's
+// ProjectX-backfill rows look unstamped next to prior-day rows that did show
+// the date.
 function splitTimeForStackedDisplay(value?: string | null): { date: string | null; time: string } {
   if (!value) return { date: null, time: '--' };
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return { date: null, time: '--' };
-  const now = new Date();
-  const sameDay =
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate();
   const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  if (sameDay) return { date: null, time };
   const datePart = d.toLocaleDateString([], { month: 'short', day: '2-digit' });
   return { date: datePart, time };
 }
@@ -3692,6 +3688,18 @@ function FilterlessLiveCockpit() {
     return lastGoodSentimentRef.current;
   }, [state.sentiment_metrics]);
   const features = useMemo(() => deriveFeatures(state, effectiveStatus, openPositions, sentiment), [state, effectiveStatus, openPositions, sentiment]);
+  // Today (NY-local) trade count — used by the headline ticker, kicker line,
+  // and Trade Blotter badge so an idle day reads "0 today" instead of the
+  // multi-day rolled-up "30 trades" history total.
+  const todayTradeCount = useMemo(() => {
+    const todayET = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    return (state.trades || []).filter((t: FilterlessTrade) => {
+      if (!t.time) return false;
+      const d = new Date(t.time);
+      if (Number.isNaN(d.getTime())) return false;
+      return d.toLocaleDateString('en-CA', { timeZone: 'America/New_York' }) === todayET;
+    }).length;
+  }, [state.trades, state.generated_at]);
   const nav = NAV.find((item) => item.id === activeScreen) ?? NAV[0];
   const price = state.bot.price ?? features.price;
   const dailyPnl = state.bot.risk.daily_pnl ?? null;
@@ -4779,7 +4787,11 @@ function FilterlessLiveCockpit() {
             title="Trade Blotter"
             titleClassName="display-title"
             subtitle="All closed filterless trades."
-            badge={<Badge tone="info">{state.trades.length} trades</Badge>}
+            badge={
+              <Badge tone={todayTradeCount > 0 ? 'live' : 'info'}>
+                {todayTradeCount} today · {state.trades.length} total
+              </Badge>
+            }
           >
             <div className="terminal terminal-fill">
               {state.trades.length ? state.trades.map((trade: FilterlessTrade, index) => (
@@ -5030,7 +5042,7 @@ function FilterlessLiveCockpit() {
         <main className="deck">
           <header className="top">
             <div>
-              <div className="kicker">markets scanned {state.kalshi_metrics?.strikes?.length ?? 0} / trades {state.trades.length} / feed {formatRelativeTime(state.generated_at)}</div>
+              <div className="kicker">markets scanned {state.kalshi_metrics?.strikes?.length ?? 0} / trades {todayTradeCount} today ({state.trades.length} total) / feed {formatRelativeTime(state.generated_at)}</div>
               <h2 className="truncate">{nav.title}</h2>
               <p className="truncate">{nav.subtitle}</p>
             </div>
@@ -5046,7 +5058,7 @@ function FilterlessLiveCockpit() {
 
           <section className="ticker" aria-label="Session metrics">
             <div className="cell"><span>net</span><strong className={dailyPnl != null && dailyPnl < 0 ? 'down' : ''}>{formatMoney(dailyPnl)}</strong></div>
-            <div className="cell"><span>trades</span><strong>{state.trades.length}</strong></div>
+            <div className="cell"><span>trades today</span><strong>{todayTradeCount}</strong></div>
             <div className="cell"><span>risk</span><strong>{fmt(features.riskMult)}x</strong></div>
             <div className="cell"><span>live price</span><strong>{formatPrice(price)}</strong></div>
             <div className="cell"><span>entry</span><strong>{formatPrice(entry)}</strong></div>
