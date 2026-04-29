@@ -66,17 +66,10 @@ AM_HOUR_START = 9
 AM_MINUTE_START = 30
 AM_HOUR_END = 12         # exclusive
 
-# Adaptive sizing thresholds (rolling 20-day strategy PnL in dollars)
-# Sized for MES at 10× to match the ES backtest dollar scale:
-#   Backtest used DOLLAR_PER_PT=12.50 (ES tick value × scale) → $62.50/win on TP=5 ticks
-#   Live runs MES (tick value $1.25) → 1/10th the per-contract dollars
-#   Multiplying base sizes 10× recovers the same dollar exposure as the backtest
-SIZE_THRESHOLDS = [
-    (-500.0, 0),    # PAUSE if rolling 20d < -$500
-    (500.0,  10),   # NORMAL — 10 MES ≈ 1 ES at TP=5 ticks: $62.50/win, $-62.50/loss
-    (1500.0, 20),   # CONFIDENT — 20 MES ≈ 2 ES: $125/win
-    (float("inf"), 30),  # FULL — 30 MES ≈ 3 ES: $187.50/win
-]
+# Position size — fixed at 10 MES per fire (≈ 1 ES at TP=5 ticks = $62.50/win).
+# Kelly tier scaling disabled per user preference; rolling 20d PnL still tracked
+# in record_trade_pnl for telemetry / future re-enable, but size is constant.
+FIXED_SIZE = 10
 ADAPTIVE_SIZING_LOOKBACK_DAYS = 20
 
 # ET tz
@@ -89,22 +82,12 @@ except ImportError:
 
 
 def _adaptive_size(rolling_20d_pnl: float) -> int:
-    """Map rolling 20-day strategy PnL to position size.
+    """Return fixed size=10 for FibH1214. Kelly tier scaling disabled.
 
-    Thresholds scaled 10× to match the ES backtest after live trades produce
-    MES-scale dollars. The Kelly-flavored mapping returns:
-       size=0  PAUSE if losing > $5,000 over 20 trading days
-       size=10 NORMAL otherwise (default)
-       size=20 CONFIDENT if up > $5,000 over 20 trading days
-       size=30 FULL if up > $15,000 over 20 trading days
+    The rolling 20-day PnL parameter is preserved in the signature for
+    telemetry consistency and easy re-enable, but currently ignored.
     """
-    if rolling_20d_pnl < -5000.0:
-        return 0
-    if rolling_20d_pnl < 5000.0:
-        return 10
-    if rolling_20d_pnl < 15000.0:
-        return 20
-    return 30
+    return FIXED_SIZE
 
 
 class FibH1214Strategy(Strategy):
