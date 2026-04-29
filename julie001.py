@@ -1331,19 +1331,6 @@ def _signal_birth_hook(signal):
          dict so later entry-path code and the close path can read them.
          Gated by JULIE_TRIATHLON_ACTIVE.
     Never raises — all failures silently no-op."""
-    # === FibH1214 sizing-only mode ===
-    # Skip ALL downstream overlays — strategy uses its own designed brackets
-    # (TP=5 ticks / SL=5 ticks) and adaptive sizing baked into the strategy
-    # module. Dead-tape rewrite, regime size-cap, BE rule, and triathlon
-    # all hurt PnL on backtest (verified 10 ML attempts, all failed random
-    # control). Pure rule + sizing only.
-    try:
-        if isinstance(signal, dict):
-            _strat = str(signal.get("strategy") or "")
-            if _strat.startswith("FibH1214"):
-                return
-    except Exception:
-        pass
     # Dead-tape bracket rewrite runs FIRST so the size-cap + shadow-log
     # see the scalp tp_dist / sl_dist values when dead_tape is active.
     try:
@@ -2490,17 +2477,6 @@ def _apply_live_drawdown_size(
     if not isinstance(signal, dict):
         return int(requested_size)
 
-    # === FibH1214 sizing-only mode ===
-    # Strategy has its own adaptive sizing (rolling 20d strategy PnL → 0/1/2/3).
-    # Skip the bot's account-level drawdown sizing so the strategy's decision
-    # doesn't get re-clamped.
-    try:
-        _strat = str(signal.get("strategy") or "")
-        if _strat.startswith("FibH1214"):
-            return int(requested_size)
-    except Exception:
-        pass
-
     exec_cfg = dict(CONFIG.get("BACKTEST_EXECUTION", {}) or {})
     scaling_source = "backtest_execution"
     try:
@@ -2794,16 +2770,6 @@ def _apply_kalshi_trade_overlay_to_signal(
     price_action_profile: Optional[dict] = None,
 ) -> bool:
     if not isinstance(signal, dict):
-        return True
-
-    # === FibH1214 sizing-only mode ===
-    # Strategy uses its own designed brackets and adaptive sizing — Kalshi TP
-    # overlay rewrites TP and Kalshi gate would block trades, both proven to
-    # hurt PnL on backtest (10 ML attempts, all failed random control).
-    _strat = str(signal.get("strategy") or "")
-    if _strat.startswith("FibH1214"):
-        signal["kalshi_trade_overlay_applied"] = False
-        signal["kalshi_trade_overlay_reason"] = "skipped_fib_h1214"
         return True
 
     overlay_cfg = CONFIG.get("KALSHI_TRADE_OVERLAY", {}) if isinstance(CONFIG, dict) else {}
