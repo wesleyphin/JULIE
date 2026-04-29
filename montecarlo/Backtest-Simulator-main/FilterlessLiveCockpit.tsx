@@ -1162,26 +1162,76 @@ h1, h2, h3, p { margin: 0; }
   .daily-journal-flags { gap: 2px; }
   .daily-journal-flag { font-size: 7px; padding: 2px 4px; line-height: 1.25; }
 
-  /* Strategy cards: 2-up on phone instead of single-column tall stack. */
-  .strategy-card-grid { gap: 6px !important; }
-  .strategy-card {
-    flex: 1 1 calc(50% - 6px) !important;
-    min-width: 0 !important;
-    max-width: calc(50% - 6px) !important;
-    padding: 8px 9px !important;
-    gap: 6px;
+  /* Strategy cards: 2-up grid on phone with shrunk internals so all the
+     content (title, chips, 3-stat block, footer) fits cleanly in ~190px
+     wide cells on a 393px viewport. */
+  .strategy-card-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+    justify-content: stretch !important;
   }
-  .strategy-card-header { gap: 4px; }
-  .strategy-card-title { font-size: 11px; letter-spacing: 0.3px; }
-  .strategy-card-id { font-size: 7px; }
+  .strategy-card {
+    flex: none !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    padding: 6px 7px !important;
+    gap: 4px !important;
+  }
+  /* Header: title + ID stack on left, badge on right. Hide the lower-case
+     ID slug at this width — the title carries the identification. */
+  .strategy-card-header {
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    gap: 3px !important;
+    align-items: center !important;
+  }
+  .strategy-card-title {
+    font-size: 9px !important;
+    letter-spacing: 0.2px !important;
+    line-height: 1.1 !important;
+    white-space: normal !important;
+    word-break: break-word;
+  }
+  .strategy-card-id { display: none !important; }
+  .strategy-card-header .badge { font-size: 6px !important; height: 14px !important; padding: 0 4px !important; }
+  /* Substrategies label + chip row — tiny chips that wrap. */
+  .strategy-substrategies-label { font-size: 6px !important; opacity: 0.5; letter-spacing: 0.3px; margin-bottom: 2px !important; }
+  .strategy-chip-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 2px !important;
+  }
+  .strategy-chip {
+    font-size: 6px !important;
+    padding: 1px 4px !important;
+    height: auto !important;
+    min-height: 12px !important;
+    line-height: 1.15 !important;
+    letter-spacing: 0.1px !important;
+    white-space: nowrap;
+  }
+  /* 3-stat block: stack vertically at 190px width — horizontal 3-col would
+     give each stat only ~55px and clip the values. */
   .strategy-card-stats {
     grid-template-columns: 1fr !important;
-    gap: 4px;
-    padding-top: 4px;
+    gap: 3px !important;
+    padding: 4px 0 !important;
   }
-  .strategy-card-footer { font-size: 7px; padding-top: 4px; gap: 3px; }
-  .strategy-chip-row { gap: 3px; }
-  .strategy-chip { font-size: 7px; padding: 2px 4px; height: auto; min-height: 16px; }
+  .strategy-stat { gap: 0 !important; }
+  .strategy-stat-label { font-size: 6px !important; letter-spacing: 0.3px !important; opacity: 0.5; }
+  .strategy-stat-value { font-size: 9px !important; line-height: 1.2 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; }
+  .strategy-stat-sub { font-size: 7px !important; opacity: 0.7; }
+  .strategy-stat-meta { font-size: 6px !important; line-height: 1.2; opacity: 0.5; }
+  /* Footer tags wrap onto new rows when they don't fit. */
+  .strategy-card-footer {
+    font-size: 6px !important;
+    padding-top: 3px !important;
+    gap: 2px !important;
+    flex-wrap: wrap !important;
+  }
+  .strategy-tag { font-size: 6px !important; padding: 1px 4px !important; height: auto !important; }
+  .strategy-tag-block { font-size: 6px !important; padding: 1px 4px !important; height: auto !important; }
+  .strategy-tag-muted { font-size: 6px !important; }
 
   /* README mobile card: rendered ONLY on phone (JS-conditional) so we can
      style it freely without worrying about desktop. */
