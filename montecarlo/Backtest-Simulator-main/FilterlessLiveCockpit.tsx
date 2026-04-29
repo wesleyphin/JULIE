@@ -178,7 +178,7 @@ const NAV: Array<{ id: ScreenId; label: string; code: string; title: string; sub
   { id: 'pipeline', label: 'V18 Pipeline', code: '06', title: 'V18 PIPELINE', subtitle: 'Stacked-meta + Kronos + Recipe B + regime ML — current live wiring.' },
   { id: 'journal', label: 'Journal', code: '07', title: 'TRACE JOURNAL', subtitle: 'Decision log with trade levels, news fields, and manifold snapshots.' },
   { id: 'command', label: 'Command', code: '08', title: 'COMMAND MATRIX', subtitle: 'Runtime controls, guard rails, and operator actions.' },
-  { id: 'docs', label: 'Docs', code: '09', title: 'DOCUMENTATION', subtitle: 'Filterless live README — architecture, strategies, and recent changes.' },
+  { id: 'docs', label: 'Readme', code: '09', title: 'README', subtitle: 'Filterless live README — architecture, strategies, and recent changes.' },
 ];
 
 const COCKPIT_CSS = `
@@ -4739,7 +4739,7 @@ function FilterlessLiveCockpit() {
       <div className="app">
         <aside className="rail">
           <div className="brand">
-            <h1 className="truncate">JULIE LIVE</h1>
+            <h1 className="truncate">JULIE</h1>
             <p className="truncate">projectx / kalshi / truth monitor</p>
             <div className="wire" aria-hidden="true" />
           </div>
