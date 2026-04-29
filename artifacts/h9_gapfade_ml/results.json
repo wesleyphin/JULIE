@@ -1,0 +1,129 @@
+{
+  "config": {
+    "gap_threshold": 0.005,
+    "tp_pct": 0.003,
+    "sl_pct": 0.004,
+    "horizon_min": 30,
+    "size_mes": 10,
+    "dollar_per_pt_mes": 5.0,
+    "commission_per_round_trip": 1.5
+  },
+  "ml_metrics": {
+    "long": {
+      "side": "long",
+      "auc_train": 1.0,
+      "auc_val": 0.5984020185029437,
+      "auc_test": 0.7027183342972816,
+      "threshold": 0.77,
+      "n_train": 262,
+      "n_val": 99,
+      "n_test": 159
+    },
+    "short": {
+      "side": "short",
+      "auc_train": 1.0,
+      "auc_val": 0.7197938877043354,
+      "auc_test": 0.8594285714285714,
+      "threshold": 0.28,
+      "n_train": 292,
+      "n_val": 151,
+      "n_test": 167
+    }
+  },
+  "random_control": {
+    "long": {
+      "real_test_auc": 0.7027183342972816,
+      "shuf_mean": 0.4650086755349913,
+      "shuf_std": 0.0496606497340159,
+      "z_score": 4.7866804005882155,
+      "shuf_aucs": [
+        0.44997108155002885,
+        0.5601503759398496,
+        0.421631000578369,
+        0.46240601503759393,
+        0.43088490456911505
+      ]
+    },
+    "short": {
+      "real_test_auc": 0.8594285714285714,
+      "shuf_mean": 0.4232380952380953,
+      "shuf_std": 0.05425369147393342,
+      "z_score": 8.03983036619816,
+      "shuf_aucs": [
+        0.36247619047619045,
+        0.36857142857142855,
+        0.5104761904761905,
+        0.43352380952380953,
+        0.44114285714285717
+      ]
+    }
+  },
+  "backtest_rule_only": {
+    "n_trades": 326,
+    "n_days": 326,
+    "trades_per_day": 1.0,
+    "n_wins": 259,
+    "n_losses": 67,
+    "win_rate": 79.4478527607362,
+    "total_pnl": 132859.71249999647,
+    "annualized_pnl": 38300.71822464382,
+    "avg_pnl": 407.5451303680873,
+    "avg_win": 776.4911679536544,
+    "avg_loss": -1018.6791044776122,
+    "max_drawdown": 4771.75,
+    "by_side": {
+      "sum": {
+        "LONG": 75858.61249999629,
+        "SHORT": 57001.100000000195
+      },
+      "count": {
+        "LONG": 159,
+        "SHORT": 167
+      }
+    },
+    "by_period": {
+      "sum": {
+        "biden": 83992.92499999776,
+        "trump2": 48866.78749999872
+      },
+      "count": {
+        "biden": 218,
+        "trump2": 108
+      }
+    }
+  },
+  "backtest_with_ml": {
+    "n_trades": 227,
+    "n_days": 227,
+    "trades_per_day": 1.0,
+    "n_wins": 187,
+    "n_losses": 40,
+    "win_rate": 82.37885462555066,
+    "total_pnl": 107176.51249999835,
+    "annualized_pnl": 30896.780734510183,
+    "avg_pnl": 472.14322687223944,
+    "avg_win": 786.1062165775317,
+    "avg_loss": -995.6337500000012,
+    "max_drawdown": 4337.262499999983,
+    "by_side": {
+      "sum": {
+        "LONG": 45474.412499998136,
+        "SHORT": 61702.10000000021
+      },
+      "count": {
+        "LONG": 71,
+        "SHORT": 156
+      }
+    },
+    "by_period": {
+      "sum": {
+        "biden": 67058.41249999902,
+        "trump2": 40118.09999999933
+      },
+      "count": {
+        "biden": 146,
+        "trump2": 81
+      }
+    }
+  }
+}
