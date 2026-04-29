@@ -376,10 +376,22 @@ h1, h2, h3, p { margin: 0; }
    Use this on Trace Log + Trade Blotter so the card always looks "full"
    regardless of how many rows the bridge surfaced. */
 .terminal-fill { height: 520px; max-height: 520px; overflow: auto; }
-.terminal-row { min-height: 38px; padding: 7px 8px; display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10px; }
+.terminal-row { min-height: 38px; padding: 7px 8px; display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10px; overflow: hidden; }
 .terminal-row time { color: var(--dim); }
-.terminal-row strong { min-width: 0; color: var(--text); font-weight: 700; }
-.terminal-row p { color: var(--muted); }
+.terminal-row strong { min-width: 0; max-width: 100%; color: var(--text); font-weight: 700; word-break: break-word; overflow-wrap: anywhere; }
+.terminal-row p { color: var(--muted); min-width: 0; max-width: 100%; word-break: break-word; overflow-wrap: anywhere; }
+/* Long event types like "POSITION_SYNC_CHECKPOINT" or long message bodies
+   used to overflow the middle column and bleed under the badge. min-width:0
+   on the wrapper + word-break/overflow-wrap on strong/p forces clean wraps. */
+.terminal-row > div { min-width: 0; max-width: 100%; overflow: hidden; }
+/* display-title strongs were rendering in monospace (wider/heavier) which
+   looked oversized vs the rest of the row — explicitly normalize them so
+   the Kalshi Consensus Feed and similar panels render cleanly. */
+.terminal-row strong.display-title { font-family: var(--archaic); font-size: 10px; letter-spacing: 0.3px; }
+/* Badges in terminal rows shouldn't push the middle column; cap their
+   width and ellipsis-truncate so a long badge label can't push titles
+   into another row. */
+.terminal-row > .badge { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 0; }
 .badge { height: 22px; padding: 0 7px; border-color: rgba(255,255,255,0.18); color: var(--purple); }
 .badge.live { color: var(--green); border-color: rgba(69, 255, 200, 0.45); }
 .badge.watch { color: var(--amber); border-color: rgba(255, 255, 255, 0.45); }
