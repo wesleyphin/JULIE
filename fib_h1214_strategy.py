@@ -67,11 +67,15 @@ AM_MINUTE_START = 30
 AM_HOUR_END = 12         # exclusive
 
 # Adaptive sizing thresholds (rolling 20-day strategy PnL in dollars)
+# Sized for MES at 10× to match the ES backtest dollar scale:
+#   Backtest used DOLLAR_PER_PT=12.50 (ES tick value × scale) → $62.50/win on TP=5 ticks
+#   Live runs MES (tick value $1.25) → 1/10th the per-contract dollars
+#   Multiplying base sizes 10× recovers the same dollar exposure as the backtest
 SIZE_THRESHOLDS = [
     (-500.0, 0),    # PAUSE if rolling 20d < -$500
-    (500.0,  1),    # NORMAL otherwise (default, also covers below pause)
-    (1500.0, 2),    # CONFIDENT if rolling 20d >= +$500
-    (float("inf"), 3),  # FULL if rolling 20d >= +$1500
+    (500.0,  10),   # NORMAL — 10 MES ≈ 1 ES at TP=5 ticks: $62.50/win, $-62.50/loss
+    (1500.0, 20),   # CONFIDENT — 20 MES ≈ 2 ES: $125/win
+    (float("inf"), 30),  # FULL — 30 MES ≈ 3 ES: $187.50/win
 ]
 ADAPTIVE_SIZING_LOOKBACK_DAYS = 20
 
@@ -85,14 +89,22 @@ except ImportError:
 
 
 def _adaptive_size(rolling_20d_pnl: float) -> int:
-    """Map rolling 20-day strategy PnL to position size (0/1/2/3)."""
-    if rolling_20d_pnl < -500.0:
+    """Map rolling 20-day strategy PnL to position size.
+
+    Thresholds scaled 10× to match the ES backtest after live trades produce
+    MES-scale dollars. The Kelly-flavored mapping returns:
+       size=0  PAUSE if losing > $5,000 over 20 trading days
+       size=10 NORMAL otherwise (default)
+       size=20 CONFIDENT if up > $5,000 over 20 trading days
+       size=30 FULL if up > $15,000 over 20 trading days
+    """
+    if rolling_20d_pnl < -5000.0:
         return 0
-    if rolling_20d_pnl < 500.0:
-        return 1
-    if rolling_20d_pnl < 1500.0:
-        return 2
-    return 3
+    if rolling_20d_pnl < 5000.0:
+        return 10
+    if rolling_20d_pnl < 15000.0:
+        return 20
+    return 30
 
 
 class FibH1214Strategy(Strategy):
