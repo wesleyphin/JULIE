@@ -787,6 +787,161 @@ h1, h2, h3, p { margin: 0; }
   font-family: 'Helvetica', 'Arial', sans-serif;
   font-weight: bold;
 }
+
+/* === Strategy Stack cards === */
+.strategy-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 12px;
+  margin-top: 4px;
+}
+.strategy-card {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+.strategy-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.strategy-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.strategy-card-title {
+  font-family: var(--display, 'Helvetica', sans-serif);
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin: 0;
+}
+.strategy-card-id {
+  opacity: 0.55;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  margin-top: 2px;
+}
+.strategy-substrategies {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.strategy-substrategies-label {
+  opacity: 0.55;
+  font-size: 9.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.strategy-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.strategy-chip {
+  font-size: 11px;
+  font-family: 'SF Mono', 'Menlo', monospace;
+  padding: 3px 8px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.03);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  transition: all 140ms ease;
+}
+.strategy-chip-idle { /* default — see base .strategy-chip */ }
+.strategy-chip-recent {
+  border-width: 1px;
+  font-weight: 600;
+}
+.strategy-chip-active {
+  border-width: 1.5px;
+  font-weight: 700;
+  box-shadow: 0 0 8px currentColor;
+  animation: chipPulse 1.6s ease-in-out infinite;
+}
+@keyframes chipPulse {
+  0%, 100% { box-shadow: 0 0 6px currentColor; }
+  50% { box-shadow: 0 0 14px currentColor; }
+}
+.strategy-card-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.strategy-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.strategy-stat-label {
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+.strategy-stat-value {
+  font-family: var(--display, 'Helvetica', sans-serif);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.strategy-stat-sub {
+  font-weight: 400;
+  opacity: 0.75;
+  font-size: 12px;
+}
+.strategy-stat-meta {
+  opacity: 0.5;
+  font-size: 10px;
+}
+.strategy-card-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  margin-top: 2px;
+}
+.strategy-tag {
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 2px;
+  border: 1px solid currentColor;
+  background: transparent;
+  letter-spacing: 0.02em;
+}
+.strategy-tag-block {
+  border-color: var(--red, #ef4444);
+  color: var(--red, #ef4444);
+}
+.strategy-tag-muted {
+  opacity: 0.55;
+}
+@media (max-width: 720px) {
+  .strategy-card-grid {
+    grid-template-columns: 1fr;
+  }
+  .strategy-card-stats {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+}
 `;
 
 function clip(value: number, low: number, high: number): number {
@@ -3448,34 +3603,227 @@ function FilterlessLiveCockpit() {
     );
   };
 
-  const renderStrategies = () => (
-    <section className="screen">
-      <div className="grid cols-3">
-        <Metric label="AetherFlow" value={(state.strategies.find((strategy) => strategy.id === 'aetherflow')?.status || 'READY').toUpperCase()} hint="routed ensemble" color={COLORS.green} />
-        <Metric label="DE3" value={(state.strategies.find((strategy) => strategy.id === 'dynamic_engine3')?.status || 'WATCH').toUpperCase()} hint="ML LFO scoped" color={COLORS.amber} />
-        <Metric label="truth overlay" value={sentiment.last_error ? 'ISSUE' : 'OBSERVE'} hint="sentiment context" color={COLORS.cyan} />
-      </div>
-      <Panel title="Strategy Stack" titleClassName="display-title" subtitle="Modules mapped to manifold, news, and execution state." badge={<Badge tone="live">loaded</Badge>} className="mt-panel">
-        <table className="table">
-          <thead><tr><th>module</th><th>state</th><th>trigger</th><th>manifold</th><th>truth</th><th>action</th></tr></thead>
-          <tbody>
-            {state.strategies.length ? state.strategies.map((strategy: FilterlessStrategyState) => (
-              <tr key={strategy.id}>
-                <td><strong>{strategy.label}</strong></td>
-                <td>{strategy.status}</td>
-                <td>{formatToken(strategy.latest_activity_type || strategy.priority || strategy.entry_mode)}</td>
-                <td>{features.regime}</td>
-                <td>{formatSigned(features.truthScore)}</td>
-                <td>{strategy.last_block_reason ? 'gate' : strategy.status === 'in_trade' ? 'manage' : 'observe'}</td>
-              </tr>
-            )) : (
-              <tr><td colSpan={6}>No strategies are present in the live snapshot.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </Panel>
-    </section>
-  );
+  const renderStrategies = () => {
+    // Substrategy universe per module — chips light up when matched in live state
+    const SUBSTRATEGIES: Record<string, Array<{ key: string; label: string; matchers: string[] }>> = {
+      fib_h1214: [
+        { key: 'fib_236', label: '0.236', matchers: ['236', 'fib_236'] },
+        { key: 'fib_382', label: '0.382', matchers: ['382', 'fib_382'] },
+        { key: 'fib_500', label: '0.500', matchers: ['500', 'fib_500'] },
+        { key: 'fib_618', label: '0.618', matchers: ['618', 'fib_618'] },
+        { key: 'fib_705', label: '0.705', matchers: ['705', 'fib_705'] },
+        { key: 'fib_786', label: '0.786', matchers: ['786', 'fib_786'] },
+        { key: 'fib_1000', label: '1.000', matchers: ['1000', 'fib_1000'] },
+      ],
+      dynamic_engine3: [
+        { key: 'long_rev_5min', label: '5m Long Rev', matchers: ['5min', 'long_rev', '5m_long_rev'] },
+        { key: 'long_rev_15min', label: '15m Long Rev', matchers: ['15min', '15m_long_rev'] },
+        { key: 'short_rev_5min', label: '5m Short Rev', matchers: ['5min_short', '5m_short_rev'] },
+        { key: 'short_rev_15min', label: '15m Short Rev', matchers: ['15min_short', '15m_short_rev'] },
+        { key: 'ny_am_bypass', label: 'NY-AM Bypass', matchers: ['06-09', 'ny_am', 'bypass'] },
+        { key: 'london_ext', label: 'London Ext', matchers: ['ldn', 'london'] },
+      ],
+      aetherflow: [
+        { key: 'aligned_flow', label: 'Aligned Flow', matchers: ['aligned_flow'] },
+        { key: 'exhaustion_reversal', label: 'Exhaustion Rev', matchers: ['exhaustion_reversal', 'exhaustion'] },
+        { key: 'transition_burst', label: 'Transition Burst', matchers: ['transition_burst', 'transition'] },
+        { key: 'compression_break', label: 'Compression Break', matchers: ['compression', 'compress'] },
+        { key: 'flow_continuation', label: 'Flow Cont.', matchers: ['continuation', 'flow_cont'] },
+      ],
+      ml_physics: [
+        { key: 'ny_am_h1011', label: 'NY-AM h10-11', matchers: ['ny_am', 'h1011', 'h10_11'] },
+        { key: 'ny_pm', label: 'NY-PM', matchers: ['ny_pm'] },
+        { key: 'asia', label: 'Asia', matchers: ['asia'] },
+        { key: 'london', label: 'London', matchers: ['london', 'ldn'] },
+      ],
+      regime_adaptive: [
+        { key: 'whipsaw', label: 'Whipsaw', matchers: ['whipsaw'] },
+        { key: 'calm_trend', label: 'Calm Trend', matchers: ['calm_trend', 'calm'] },
+        { key: 'neutral', label: 'Neutral', matchers: ['neutral'] },
+      ],
+    };
+
+    const matchSubstrategy = (strategy: FilterlessStrategyState, sub: { key: string; label: string; matchers: string[] }): 'active' | 'recent' | 'idle' => {
+      const haystack = [
+        strategy.sub_strategy,
+        strategy.combo_key,
+        strategy.rule_id,
+        strategy.latest_activity,
+        strategy.latest_activity_type,
+      ].filter(Boolean).map((v) => String(v).toLowerCase()).join(' | ');
+      const m = sub.matchers.some((token) => haystack.includes(token.toLowerCase()));
+      if (m && strategy.status === 'in_trade') return 'active';
+      if (m) return 'recent';
+      return 'idle';
+    };
+
+    const statusTone = (status: string): BadgeTone => {
+      const s = (status || '').toLowerCase();
+      if (s === 'in_trade' || s === 'active') return 'live';
+      if (s === 'idle' || s === 'ready') return 'watch';
+      if (s.includes('disabled') || s.includes('block')) return 'block';
+      return 'watch';
+    };
+
+    const colorForStrategy = (id: string): string => {
+      const m: Record<string, string> = {
+        aetherflow: COLORS.green,
+        dynamic_engine3: COLORS.amber,
+        ml_physics: COLORS.cyan,
+        regime_adaptive: COLORS.purple,
+        fib_h1214: COLORS.pink,
+      };
+      return m[id] || COLORS.cyan;
+    };
+
+    const fmtTime = (iso?: string | null): string => {
+      if (!iso) return '—';
+      try {
+        return new Date(iso).toLocaleTimeString('en-US', { hour12: false, timeZone: 'America/New_York' }) + ' ET';
+      } catch { return iso; }
+    };
+
+    const fmtMoney = (v?: number | null): string => {
+      if (v == null) return '—';
+      return (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(2);
+    };
+
+    return (
+      <section className="screen">
+        <div className="grid cols-3">
+          <Metric label="active modules" value={String(state.strategies.filter((s) => s.status === 'in_trade').length)} hint="currently in trade" color={COLORS.green} />
+          <Metric label="ready modules" value={String(state.strategies.filter((s) => ['idle','ready'].includes((s.status || '').toLowerCase())).length)} hint="awaiting setup" color={COLORS.amber} />
+          <Metric label="loaded modules" value={String(state.strategies.length)} hint="in roster" color={COLORS.cyan} />
+        </div>
+
+        <Panel
+          title="Strategy Stack"
+          titleClassName="display-title"
+          subtitle="Modules with active sub-strategies — recent fires highlighted."
+          badge={<Badge tone="live">loaded</Badge>}
+          className="mt-panel"
+        >
+          {state.strategies.length === 0 ? (
+            <p className="micro">No strategies are present in the live snapshot.</p>
+          ) : (
+            <div className="strategy-card-grid">
+              {state.strategies.map((strategy: FilterlessStrategyState) => {
+                const subs = SUBSTRATEGIES[strategy.id] || [];
+                const accent = colorForStrategy(strategy.id);
+                const tone = statusTone(strategy.status);
+                const lastSubLabel = strategy.sub_strategy || strategy.combo_key || strategy.rule_id;
+                return (
+                  <div
+                    key={strategy.id}
+                    className="strategy-card"
+                    style={{
+                      borderTop: `2px solid ${accent}`,
+                    }}
+                  >
+                    <div className="strategy-card-header">
+                      <div>
+                        <div className="strategy-card-title" style={{ color: accent }}>
+                          {strategy.label}
+                        </div>
+                        <div className="strategy-card-id micro">{strategy.id}</div>
+                      </div>
+                      <Badge tone={tone}>{(strategy.status || 'idle').toUpperCase()}</Badge>
+                    </div>
+
+                    {subs.length > 0 && (
+                      <div className="strategy-substrategies">
+                        <div className="strategy-substrategies-label micro">substrategies</div>
+                        <div className="strategy-chip-row">
+                          {subs.map((sub) => {
+                            const state = matchSubstrategy(strategy, sub);
+                            return (
+                              <span
+                                key={sub.key}
+                                className={`strategy-chip strategy-chip-${state}`}
+                                style={state !== 'idle' ? {
+                                  borderColor: accent,
+                                  color: accent,
+                                  backgroundColor: state === 'active' ? `${accent}33` : `${accent}1A`,
+                                } : undefined}
+                                title={`${sub.label} — ${state}`}
+                              >
+                                {state === 'active' ? '◉ ' : state === 'recent' ? '○ ' : ''}
+                                {sub.label}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="strategy-card-stats">
+                      <div className="strategy-stat">
+                        <div className="strategy-stat-label">last signal</div>
+                        <div className="strategy-stat-value">
+                          {strategy.last_signal_side ? (
+                            <span style={{ color: strategy.last_signal_side === 'LONG' ? COLORS.green : COLORS.red }}>
+                              {strategy.last_signal_side}
+                            </span>
+                          ) : '—'}
+                          {strategy.last_signal_price != null && (
+                            <span className="strategy-stat-sub"> @ {strategy.last_signal_price.toFixed(2)}</span>
+                          )}
+                        </div>
+                        <div className="strategy-stat-meta micro">{fmtTime(strategy.last_signal_time)}</div>
+                      </div>
+                      <div className="strategy-stat">
+                        <div className="strategy-stat-label">last trade</div>
+                        <div
+                          className="strategy-stat-value"
+                          style={{
+                            color: strategy.last_trade_pnl == null ? undefined : (strategy.last_trade_pnl >= 0 ? COLORS.green : COLORS.red),
+                          }}
+                        >
+                          {fmtMoney(strategy.last_trade_pnl)}
+                        </div>
+                        <div className="strategy-stat-meta micro">
+                          {strategy.last_trade_points != null ? `${strategy.last_trade_points >= 0 ? '+' : ''}${strategy.last_trade_points.toFixed(2)} pts` : ''}
+                          {strategy.last_trade_time ? ' • ' + fmtTime(strategy.last_trade_time) : ''}
+                        </div>
+                      </div>
+                      <div className="strategy-stat">
+                        <div className="strategy-stat-label">brackets</div>
+                        <div className="strategy-stat-value">
+                          {strategy.tp_dist != null ? `TP ${strategy.tp_dist.toFixed(2)}` : '—'}
+                          {strategy.sl_dist != null ? ` / SL ${strategy.sl_dist.toFixed(2)}` : ''}
+                        </div>
+                        <div className="strategy-stat-meta micro">
+                          {strategy.entry_mode || strategy.priority || ''}
+                        </div>
+                      </div>
+                    </div>
+
+                    {(strategy.last_block_reason || strategy.last_reason || lastSubLabel) && (
+                      <div className="strategy-card-footer">
+                        {lastSubLabel && (
+                          <span className="strategy-tag" style={{ color: accent, borderColor: accent }}>
+                            {lastSubLabel}
+                          </span>
+                        )}
+                        {strategy.last_block_reason && (
+                          <span className="strategy-tag strategy-tag-block">
+                            blocked: {strategy.last_block_reason}
+                          </span>
+                        )}
+                        {strategy.last_reason && !strategy.last_block_reason && (
+                          <span className="strategy-tag-muted micro">{strategy.last_reason}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Panel>
+      </section>
+    );
+  };
 
   const renderPipeline = () => {
     const pipeline: FilterlessPipelineState | null = state.pipeline ?? null;
