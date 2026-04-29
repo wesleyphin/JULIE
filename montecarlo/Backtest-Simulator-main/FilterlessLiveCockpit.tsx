@@ -720,6 +720,136 @@ h1, h2, h3, p { margin: 0; }
   .bar-track { height: 8px; }
   .notice { padding: 5px 7px; font-size: 8px; }
   .event { grid-template-columns: 36px minmax(0, 1fr) auto; padding: 7px 9px; min-height: 38px; font-size: 7px; gap: 6px; }
+
+  /* ----------------------------------------------------------------------
+     Phone styles for sections added in the Apr 26-29 deploy:
+     daily-journal cards, strategy substrategy chips, README docs viewer,
+     terminal-fill scrollers, and stacked-timestamp terminal rows.
+  ---------------------------------------------------------------------- */
+
+  /* Daily-journal cards — single column on phone, tighter padding/fonts. */
+  .daily-journal-grid { grid-template-columns: 1fr; gap: 8px; }
+  .daily-journal-card { padding: 10px 11px; gap: 6px; }
+  .daily-journal-date { font-size: 11px; letter-spacing: 0.4px; }
+  .daily-journal-pnl { font-size: 18px; }
+  .daily-journal-stats { gap: 3px 8px; padding-top: 5px; }
+  .daily-journal-stat { font-size: 9px; }
+  .daily-journal-stat span { font-size: 8px; letter-spacing: 0.3px; }
+  .daily-journal-stat strong { font-size: 9px; }
+  .daily-journal-context { font-size: 8px; padding: 3px 0; line-height: 1.3; }
+  .daily-journal-flag { font-size: 8px; padding: 3px 6px; line-height: 1.3; }
+
+  /* Substrategy chip row inside strategy cards. */
+  .strategy-chip-row { gap: 4px; }
+  .strategy-chip { font-size: 8px; padding: 2px 6px; height: auto; min-height: 18px; }
+
+  /* README / Docs viewer — swap inline <object> for a mobile call-to-action
+     card. iOS Safari renders embedded PDFs unreliably (often a blank or
+     half-clipped frame), so the phone-only card opens the PDF in a new tab
+     instead of trying to embed it. */
+  .docs-toolbar { gap: 6px; padding-bottom: 6px; }
+  .docs-link { font-size: 9px; padding: 5px 9px; letter-spacing: 0.04em; }
+  .docs-hint { font-size: 8px; margin-left: 0; flex-basis: 100%; }
+  .docs-viewer {
+    height: auto;
+    min-height: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    overflow: visible;
+  }
+  .docs-viewer .docs-viewer-inline { display: none !important; }
+  .docs-viewer-mobile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 10px;
+    padding: 24px 16px;
+    background: rgba(20, 22, 30, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 10px;
+    min-height: 260px;
+  }
+  .docs-mobile-icon {
+    font-family: var(--display, 'Helvetica', sans-serif);
+    font-size: 28px;
+    letter-spacing: 0.12em;
+    font-weight: 900;
+    color: var(--cyan);
+    text-shadow: 0 0 16px rgba(0, 229, 255, 0.45);
+  }
+  .docs-mobile-title {
+    font-family: var(--display, 'Helvetica', sans-serif);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .docs-mobile-sub {
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 9px;
+    line-height: 1.4;
+    opacity: 0.75;
+    max-width: 260px;
+  }
+  .docs-mobile-cta {
+    margin-top: 6px;
+    padding: 9px 22px;
+    font-family: var(--display, 'Helvetica', sans-serif);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-decoration: none;
+    color: #000;
+    background: var(--cyan);
+    border-radius: 4px;
+    border: 1px solid rgba(0, 229, 255, 0.6);
+    box-shadow: 0 0 18px rgba(0, 229, 255, 0.35);
+  }
+  .docs-mobile-secondary {
+    font-family: var(--display, 'Helvetica', sans-serif);
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: inherit;
+    text-decoration: none;
+    padding: 5px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 4px;
+  }
+  .docs-mobile-hint {
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 7px;
+    opacity: 0.55;
+    line-height: 1.4;
+    max-width: 260px;
+  }
+
+  /* Trace Log + Trade Blotter — match desktop "fill the card" feel on
+     phone. The base .terminal already gets max-height: 220px on phone;
+     .terminal-fill needs the same treatment so it doesn't try to be 520px. */
+  .terminal-fill { height: 220px; max-height: 220px; }
+
+  /* Terminal-row at phone was 6px font with a 28px time column — unreadable
+     and the stacked date+time stamp didn't fit. Bump to 9-10px text and a
+     56px time column so "APR 23" + "12:34:56" both render legibly, with
+     the row growing tall enough to host the 2-line stamp. */
+  .terminal-row {
+    grid-template-columns: 56px minmax(0, 1fr) auto;
+    padding: 6px 8px;
+    min-height: 32px;
+    gap: 6px;
+    font-size: 9px;
+  }
+  .terminal-row strong { font-size: 9px; }
+  .terminal-row p { font-size: 9px; line-height: 1.25; }
+  .terminal-row time { font-size: 8px; }
+  .terminal-row time.terminal-stamp-stacked { gap: 1px; }
+  .terminal-row .terminal-stamp-date { font-size: 7px; letter-spacing: 0.3px; }
+  .terminal-row .terminal-stamp-time { font-size: 8px; }
 }
 
 /* ----------------------------------------------------------------------
@@ -1128,6 +1258,8 @@ h1, h2, h3, p { margin: 0; }
   color: inherit;
   text-decoration: underline;
 }
+/* Phone-only README card — desktop hides this and shows the inline PDF. */
+.docs-viewer-mobile { display: none; }
 `;
 
 function clip(value: number, low: number, high: number): number {
@@ -4696,6 +4828,7 @@ function FilterlessLiveCockpit() {
           </div>
           <div className="docs-viewer">
             <object
+              className="docs-viewer-inline"
               data="/README.pdf#zoom=page-width&navpanes=0"
               type="application/pdf"
               aria-label="Filterless live README"
@@ -4713,6 +4846,25 @@ function FilterlessLiveCockpit() {
                 .
               </div>
             </object>
+            {/* Phone-only call-to-action — iOS Safari can't render embedded
+                PDFs reliably, so we replace the inline viewer with a clean
+                "tap to open" card on small screens. Hidden on desktop. */}
+            <div className="docs-viewer-mobile">
+              <div className="docs-mobile-icon">README</div>
+              <div className="docs-mobile-title">Filterless Live README</div>
+              <div className="docs-mobile-sub">
+                Architecture, strategies, ML stack, and the Apr 26 → Apr 29 changelog.
+              </div>
+              <a className="docs-mobile-cta" href="/README.pdf" target="_blank" rel="noopener noreferrer">
+                Open PDF
+              </a>
+              <a className="docs-mobile-secondary" href="/README.pdf" download="JULIE001-README.pdf">
+                Download
+              </a>
+              <div className="docs-mobile-hint">
+                Inline preview is desktop-only — phones open the PDF in a new tab.
+              </div>
+            </div>
           </div>
         </div>
       </Panel>
