@@ -10,7 +10,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -653,6 +653,7 @@ def build_empty_state(log_path: Path, state_path: Path, trade_factors_path: Path
         "kalshi_metrics": None,
         "sentiment_metrics": default_sentiment_metrics(),
         "pipeline": None,
+        "daily_journals": [],
     }
 
 
@@ -1481,7 +1482,70 @@ def finalize_dashboard(dashboard: Dict[str, Any]) -> Dict[str, Any]:
     dashboard["strategies"] = [dashboard["strategies"][strategy_id] for strategy_id in STRATEGY_ORDER]
     dashboard["events"] = list(reversed(dashboard["events"]))
     dashboard["trades"] = list(reversed(dashboard["trades"]))
+    # Hydrate daily-journal summaries (most recent first, capped at 14 days)
+    try:
+        dashboard["daily_journals"] = load_recent_daily_journals(max_entries=14)
+    except Exception as exc:
+        logging.debug("load_recent_daily_journals failed: %s", exc)
+        dashboard["daily_journals"] = []
     return dashboard
+
+
+_JOURNAL_DIR = Path(__file__).resolve().parent.parent / "ai_loop_data" / "journals"
+
+
+def load_recent_daily_journals(max_entries: int = 14) -> List[Dict[str, Any]]:
+    """Return the most recent EOD journal summaries from ai_loop_data/journals/.
+
+    Ignores backtest_*.json. Sorted newest-first. Each entry is a slim dict
+    with the fields the dashboard needs (date, summary, breakdown_by_layer,
+    pattern_flags, price_context.range_pts/trend_pts/trend_dir).
+    """
+    if not _JOURNAL_DIR.exists():
+        return []
+    candidates: List[Tuple[str, Path]] = []
+    for child in _JOURNAL_DIR.glob("*.json"):
+        if child.name.startswith("backtest_"):
+            continue
+        # Expect 'YYYY-MM-DD.json' filenames
+        stem = child.stem
+        if len(stem) == 10 and stem[4] == "-" and stem[7] == "-":
+            candidates.append((stem, child))
+    candidates.sort(reverse=True)
+    out: List[Dict[str, Any]] = []
+    for date_str, path in candidates[:max_entries]:
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        summary = payload.get("summary") or {}
+        price = payload.get("price_context") or {}
+        out.append({
+            "date": payload.get("date") or date_str,
+            "summary": {
+                "total_pnl": summary.get("total_pnl"),
+                "n_trades": summary.get("n_trades"),
+                "n_wins": summary.get("n_wins"),
+                "n_losses": summary.get("n_losses"),
+                "win_rate": summary.get("win_rate"),
+                "max_drawdown": summary.get("max_drawdown"),
+                "n_signals_fired": summary.get("n_signals_fired"),
+                "n_kalshi_blocks": summary.get("n_kalshi_blocks"),
+                "n_signals_blocked_strategy": summary.get("n_signals_blocked_strategy"),
+            },
+            "breakdown_by_layer": payload.get("breakdown_by_layer") or {},
+            "pattern_flags": payload.get("pattern_flags") or [],
+            "price_context": {
+                "range_pts": price.get("range_pts"),
+                "trend_pts": price.get("trend_pts"),
+                "trend_dir": price.get("trend_dir"),
+                "open": price.get("open"),
+                "close": price.get("close"),
+                "high": price.get("high"),
+                "low": price.get("low"),
+            },
+        })
+    return out
 
 
 def record_event(dashboard: Dict[str, Any], max_events: int, when: Optional[datetime], event_type: str, message: str,

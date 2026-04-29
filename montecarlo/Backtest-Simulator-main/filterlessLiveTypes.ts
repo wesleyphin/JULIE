@@ -106,6 +106,32 @@ export interface FilterlessStrategyState {
   vol_regime?: string | null;
 }
 
+export interface FilterlessDailyJournal {
+  date: string;
+  summary: {
+    total_pnl?: number | null;
+    n_trades?: number | null;
+    n_wins?: number | null;
+    n_losses?: number | null;
+    win_rate?: number | null;
+    max_drawdown?: number | null;
+    n_signals_fired?: number | null;
+    n_kalshi_blocks?: number | null;
+    n_signals_blocked_strategy?: number | null;
+  };
+  breakdown_by_layer?: Record<string, number>;
+  pattern_flags?: string[];
+  price_context?: {
+    range_pts?: number | null;
+    trend_pts?: number | null;
+    trend_dir?: string | null;
+    open?: number | null;
+    close?: number | null;
+    high?: number | null;
+    low?: number | null;
+  };
+}
+
 export interface FilterlessEvent {
   time?: string | null;
   event_type: string;
@@ -324,4 +350,5 @@ export interface FilterlessLiveState {
   kalshi_metrics?: FilterlessKalshiMetrics | null;
   sentiment_metrics?: FilterlessSentimentMetrics | null;
   pipeline?: FilterlessPipelineState | null;
+  daily_journals?: FilterlessDailyJournal[] | null;
 }

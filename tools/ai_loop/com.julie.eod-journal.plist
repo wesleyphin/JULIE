@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.julie.eod-journal</string>
+
+  <!-- Run nightly at 02:05 ET (server-local). Adjust StartCalendarInterval if
+       your machine is on a different timezone. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/bin/env</string>
+    <string>bash</string>
+    <string>-lc</string>
+    <string>cd /Users/wes/Downloads/JULIE001 &amp;&amp; /opt/homebrew/Caskroom/miniconda/base/bin/python3 -m tools.ai_loop.run_daily --skip-apply &gt;&gt; ai_loop_data/run_daily.log 2&gt;&amp;1</string>
+  </array>
+
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>2</integer>
+    <key>Minute</key>
+    <integer>5</integer>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/wes/Downloads/JULIE001/ai_loop_data/run_daily.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/wes/Downloads/JULIE001/ai_loop_data/run_daily.log</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/wes/Downloads/JULIE001</string>
+</dict>
+</plist>

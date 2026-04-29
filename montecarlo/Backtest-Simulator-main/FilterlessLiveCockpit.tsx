@@ -947,6 +947,117 @@ h1, h2, h3, p { margin: 0; }
     gap: 6px;
   }
 }
+
+/* === Terminal-row stacked timestamp (Trade Blotter, Trace Log) === */
+.terminal-row time.terminal-stamp-stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  line-height: 1.05;
+}
+.terminal-row .terminal-stamp-date {
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  font-family: 'SF Mono', 'Menlo', monospace;
+}
+.terminal-row .terminal-stamp-time {
+  font-variant-numeric: tabular-nums;
+}
+
+/* === Daily Journal cards === */
+.daily-journal-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+.daily-journal-card {
+  flex: 0 1 280px;
+  min-width: 240px;
+  max-width: 320px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+}
+.daily-journal-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+.daily-journal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+.daily-journal-date {
+  font-family: var(--display, 'Helvetica', sans-serif);
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.daily-journal-pnl {
+  font-family: var(--display, 'Helvetica', sans-serif);
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+.daily-journal-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 10px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.daily-journal-stat {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+}
+.daily-journal-stat span {
+  opacity: 0.55;
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.daily-journal-stat strong {
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.daily-journal-context {
+  padding: 4px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  opacity: 0.7;
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-size: 10px;
+  letter-spacing: 0.01em;
+}
+.daily-journal-flags {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.daily-journal-flag {
+  background: rgba(255, 56, 100, 0.06);
+  border-left: 2px solid rgba(255, 56, 100, 0.4);
+  padding: 4px 8px;
+  font-size: 10px;
+  line-height: 1.35;
+  border-radius: 0 3px 3px 0;
+  opacity: 0.85;
+}
 `;
 
 function clip(value: number, low: number, high: number): number {
@@ -992,9 +1103,6 @@ function formatShortTime(value?: string | null): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '--';
   const now = new Date();
-  // Same calendar day in NY tz → show only HH:MM (compact for active session)
-  // Different day → show "MMM DD HH:MM" so multi-day events don't look like
-  // they all happened today.
   const sameDay =
     date.getFullYear() === now.getFullYear() &&
     date.getMonth() === now.getMonth() &&
@@ -1003,6 +1111,24 @@ function formatShortTime(value?: string | null): string {
   if (sameDay) return time;
   const day = date.toLocaleDateString([], { month: 'short', day: '2-digit' });
   return `${day} ${time}`;
+}
+
+// Date/time split helper for stacked rendering (Trade Blotter, Trace Log, etc.)
+// Returns `{ date: 'Apr 28' | null, time: '14:53' }` so the UI can render the
+// date as its own row above the time when applicable.
+function splitTimeForStackedDisplay(value?: string | null): { date: string | null; time: string } {
+  if (!value) return { date: null, time: '--' };
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return { date: null, time: '--' };
+  const now = new Date();
+  const sameDay =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+  const time = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (sameDay) return { date: null, time };
+  const datePart = d.toLocaleDateString([], { month: 'short', day: '2-digit' });
+  return { date: datePart, time };
 }
 
 function formatRelativeTime(value?: string | null): string {
@@ -1609,16 +1735,22 @@ const TerminalRow: React.FC<{ time?: string | null; title: React.ReactNode; text
   text,
   badge,
   titleClassName,
-}) => (
-  <div className="terminal-row">
-    <time>{formatShortTime(time)}</time>
-    <div className="truncate">
-      <strong className={`truncate${titleClassName ? ' ' + titleClassName : ''}`}>{title}</strong>
-      <p className="truncate">{text}</p>
+}) => {
+  const stamp = splitTimeForStackedDisplay(time);
+  return (
+    <div className="terminal-row">
+      <time className={stamp.date ? 'terminal-stamp-stacked' : 'terminal-stamp'}>
+        {stamp.date ? <span className="terminal-stamp-date">{stamp.date}</span> : null}
+        <span className="terminal-stamp-time">{stamp.time}</span>
+      </time>
+      <div className="truncate">
+        <strong className={`truncate${titleClassName ? ' ' + titleClassName : ''}`}>{title}</strong>
+        <p className="truncate">{text}</p>
+      </div>
+      {badge}
     </div>
-    {badge}
-  </div>
-);
+  );
+};
 
 const Tile: React.FC<{ title: string; text: string; color?: string; badge?: React.ReactNode; active?: boolean; titleClassName?: string }> = ({
   title,
@@ -4261,9 +4393,82 @@ function FilterlessLiveCockpit() {
     );
   };
 
-  const renderJournal = () => (
+  const renderJournal = () => {
+    const journals = (state as any).daily_journals as Array<any> | undefined;
+    const fmtDailyDate = (iso?: string | null): string => {
+      if (!iso) return '—';
+      try {
+        return new Date(iso + 'T12:00:00Z').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: '2-digit', timeZone: 'America/New_York' });
+      } catch { return iso; }
+    };
+    const fmtMoney = (v?: number | null): string => {
+      if (v == null || Number.isNaN(v)) return '—';
+      const sign = v >= 0 ? '+' : '−';
+      return `${sign}$${Math.abs(v).toFixed(2)}`;
+    };
+
+    return (
     <section className="screen">
-      <div className="grid journal-layout">
+      {/* Daily Summary panel — hydrated from ai_loop_data/journals/*.json by the bridge */}
+      <Panel
+        title="Daily Summary"
+        titleClassName="display-title"
+        subtitle="End-of-day journal — most recent days first."
+        badge={<Badge tone={journals && journals.length ? 'live' : 'watch'}>{journals && journals.length ? `${journals.length} days` : 'no data'}</Badge>}
+      >
+        <div className="daily-journal-grid">
+          {journals && journals.length > 0 ? journals.slice(0, 7).map((j: any, i: number) => {
+            const s = j.summary || {};
+            const pnl = s.total_pnl ?? 0;
+            const wr = s.win_rate ?? 0;
+            const pc = j.price_context || {};
+            const flags: string[] = j.pattern_flags || [];
+            const tone: BadgeTone = pnl > 0 ? 'live' : pnl < 0 ? 'block' : 'watch';
+            return (
+              <div key={`${j.date}-${i}`} className="daily-journal-card" style={{ borderTop: `2px solid ${pnl > 0 ? COLORS.green : pnl < 0 ? COLORS.red : COLORS.purple}` }}>
+                <div className="daily-journal-head">
+                  <div>
+                    <div className="daily-journal-date">{fmtDailyDate(j.date)}</div>
+                    <div className="micro" style={{ opacity: 0.55 }}>{j.date}</div>
+                  </div>
+                  <Badge tone={tone}>{pnl > 0 ? 'WIN DAY' : pnl < 0 ? 'LOSS DAY' : 'FLAT'}</Badge>
+                </div>
+                <div className="daily-journal-pnl" style={{ color: pnl >= 0 ? COLORS.green : COLORS.red }}>
+                  {fmtMoney(pnl)}
+                </div>
+                <div className="daily-journal-stats">
+                  <div className="daily-journal-stat"><span className="micro">trades</span><strong>{s.n_trades ?? '—'}</strong></div>
+                  <div className="daily-journal-stat"><span className="micro">WR</span><strong>{wr != null ? `${wr.toFixed(1)}%` : '—'}</strong></div>
+                  <div className="daily-journal-stat"><span className="micro">W/L</span><strong>{(s.n_wins ?? 0)}/{(s.n_losses ?? 0)}</strong></div>
+                  <div className="daily-journal-stat"><span className="micro">max DD</span><strong>{s.max_drawdown != null ? `$${s.max_drawdown.toFixed(0)}` : '—'}</strong></div>
+                  <div className="daily-journal-stat"><span className="micro">signals</span><strong>{s.n_signals_fired ?? '—'}</strong></div>
+                  <div className="daily-journal-stat"><span className="micro">kalshi blocks</span><strong>{s.n_kalshi_blocks ?? '—'}</strong></div>
+                </div>
+                {pc && (pc.range_pts != null || pc.trend_pts != null) && (
+                  <div className="daily-journal-context micro">
+                    range {pc.range_pts != null ? `${pc.range_pts.toFixed(1)} pts` : '—'}
+                    {pc.trend_pts != null ? ` · trend ${pc.trend_pts >= 0 ? '+' : ''}${pc.trend_pts.toFixed(1)} pts ${pc.trend_dir || ''}` : ''}
+                    {pc.open != null && pc.close != null ? ` · ${pc.open.toFixed(2)} → ${pc.close.toFixed(2)}` : ''}
+                  </div>
+                )}
+                {flags.length > 0 && (
+                  <div className="daily-journal-flags">
+                    {flags.slice(0, 3).map((f, fi) => (
+                      <div key={fi} className="daily-journal-flag micro">{f.replace(/^[⚠✅⚑]\s*/, '⚠ ')}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          }) : (
+            <p className="micro" style={{ padding: '8px 0' }}>
+              No daily journals available yet. Bridge reads from <code>ai_loop_data/journals/YYYY-MM-DD.json</code> — run <code>python3 -m tools.ai_loop.run_daily</code> nightly (or set up cron) to generate.
+            </p>
+          )}
+        </div>
+      </Panel>
+
+      <div className="grid journal-layout mt-panel">
         <Panel title="Trace Log" titleClassName="display-title" subtitle="Decision journal with trade levels, news, and manifold snapshots." badge={<Badge tone="info">live</Badge>}>
           <div className="terminal">
             {state.events.length ? state.events.slice(0, 28).map((event: FilterlessEvent, index) => (
@@ -4295,7 +4500,8 @@ function FilterlessLiveCockpit() {
         </div>
       </div>
     </section>
-  );
+    );
+  };
 
   const renderCommand = () => (
     <section className="screen">
