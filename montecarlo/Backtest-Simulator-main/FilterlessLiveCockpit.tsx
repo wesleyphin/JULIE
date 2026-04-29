@@ -1322,21 +1322,23 @@ h1, h2, h3, p { margin: 0; }
   /* Trace Log + Trade Blotter: 220px terminal so it doesn't try to be 520. */
   .terminal-fill { height: 220px !important; max-height: 220px !important; }
 
-  /* Terminal-row at phone: bump from 6px font / 28px time col to readable
-     9-10px font / 56px time col so the stacked date+time stamp fits. */
+  /* Terminal-row at phone: smaller density-friendly fonts so more rows
+     fit per scroll page. Earlier 9px felt too compact relative to row
+     padding — dropped to 7px text with tighter padding to match. */
   .terminal-row {
-    grid-template-columns: 56px minmax(0, 1fr) auto !important;
-    padding: 6px 8px !important;
-    min-height: 32px !important;
-    gap: 6px !important;
-    font-size: 9px !important;
+    grid-template-columns: 50px minmax(0, 1fr) auto !important;
+    padding: 4px 7px !important;
+    min-height: 26px !important;
+    gap: 5px !important;
+    font-size: 7px !important;
   }
-  .terminal-row strong { font-size: 9px !important; }
-  .terminal-row p { font-size: 9px !important; line-height: 1.25 !important; }
-  .terminal-row time { font-size: 8px !important; }
-  .terminal-row time.terminal-stamp-stacked { gap: 1px; }
-  .terminal-row .terminal-stamp-date { font-size: 7px; letter-spacing: 0.3px; }
-  .terminal-row .terminal-stamp-time { font-size: 8px; }
+  .terminal-row strong { font-size: 7px !important; line-height: 1.2 !important; }
+  .terminal-row p { font-size: 7px !important; line-height: 1.2 !important; }
+  .terminal-row time { font-size: 6px !important; }
+  .terminal-row time.terminal-stamp-stacked { gap: 0px; }
+  .terminal-row .terminal-stamp-date { font-size: 6px !important; letter-spacing: 0.2px !important; }
+  .terminal-row .terminal-stamp-time { font-size: 7px !important; }
+  .terminal-row > .badge { font-size: 6px !important; height: 14px !important; padding: 0 4px !important; max-width: 70px !important; }
 }
 `;
 
