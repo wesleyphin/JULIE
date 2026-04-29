@@ -790,12 +790,16 @@ h1, h2, h3, p { margin: 0; }
 
 /* === Strategy Stack cards === */
 .strategy-card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: 12px;
   margin-top: 4px;
 }
 .strategy-card {
+  flex: 0 1 380px;
+  min-width: 320px;
+  max-width: 460px;
   background: rgba(0, 0, 0, 0.35);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 6px;
@@ -934,8 +938,9 @@ h1, h2, h3, p { margin: 0; }
   opacity: 0.55;
 }
 @media (max-width: 720px) {
-  .strategy-card-grid {
-    grid-template-columns: 1fr;
+  .strategy-card {
+    flex: 1 1 100%;
+    max-width: 100%;
   }
   .strategy-card-stats {
     grid-template-columns: 1fr;
@@ -3706,14 +3711,66 @@ function FilterlessLiveCockpit() {
       return (v >= 0 ? '+$' : '-$') + Math.abs(v).toFixed(2);
     };
 
+    // Pull last-trade info from state.trades as a fallback when the
+    // strategy-state entry doesn't have it yet (e.g., bridge hasn't been
+    // restarted to pick up a new strategy_id, so per-strategy state is stale
+    // but the trades list still has the entry once canonical_strategy_id
+    // matches the strategy name).
+    const lastTradeForStrategy = (id: string) => {
+      const trades = state.trades || [];
+      // Search by canonical id first
+      let match = [...trades].reverse().find((t) => t.strategy_id === id);
+      // Fallback for fib_h1214: also match anything containing "fib"
+      // (e.g., strategy_label="FibH1214_fib_236") in case bridge canonical id
+      // matcher is stale.
+      if (!match && id === 'fib_h1214') {
+        match = [...trades].reverse().find((t) =>
+          /fib/i.test(String(t.strategy_label || '')) ||
+          /fib/i.test(String(t.strategy_id || ''))
+        );
+      }
+      return match;
+    };
+
     // Build the rendered list: pull each strategy from state if present,
     // else render a placeholder card so the roster is always visible even
     // before the bridge backend re-sends the snapshot with new strategies.
     const renderedStrategies: FilterlessStrategyState[] = STRATEGY_ROSTER.map((entry) => {
       const live = state.strategies.find((s) => s.id === entry.id);
+      // If we have a trade in state.trades that matches but no strategy state
+      // entry, synthesize one so the card shows real PnL data.
+      const fallbackTrade = lastTradeForStrategy(entry.id);
       if (live) {
         // Override label so frontend stays the source of truth for display name.
+        // If live state lacks last_trade fields but state.trades has one, hydrate.
+        if (!live.last_trade_pnl && fallbackTrade) {
+          return {
+            ...live,
+            label: entry.label,
+            last_trade_pnl: fallbackTrade.pnl_dollars ?? null,
+            last_trade_points: fallbackTrade.pnl_points ?? null,
+            last_trade_time: fallbackTrade.time ?? null,
+            last_trade_side: fallbackTrade.side ?? null,
+            last_trade_entry: fallbackTrade.entry_price ?? null,
+            last_trade_exit: fallbackTrade.exit_price ?? null,
+          };
+        }
         return { ...live, label: entry.label };
+      }
+      // No live strategy state — synthesize from any matching trade
+      if (fallbackTrade) {
+        return {
+          id: entry.id,
+          label: entry.label,
+          status: 'ready',
+          last_trade_pnl: fallbackTrade.pnl_dollars ?? null,
+          last_trade_points: fallbackTrade.pnl_points ?? null,
+          last_trade_time: fallbackTrade.time ?? null,
+          last_trade_side: fallbackTrade.side ?? null,
+          last_trade_entry: fallbackTrade.entry_price ?? null,
+          last_trade_exit: fallbackTrade.exit_price ?? null,
+          sub_strategy: fallbackTrade.strategy_label?.replace(/^FibH1214_/i, '') ?? null,
+        } as FilterlessStrategyState;
       }
       return {
         id: entry.id,
