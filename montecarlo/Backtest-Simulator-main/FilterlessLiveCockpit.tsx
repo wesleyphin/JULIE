@@ -720,170 +720,6 @@ h1, h2, h3, p { margin: 0; }
   .bar-track { height: 8px; }
   .notice { padding: 5px 7px; font-size: 8px; }
   .event { grid-template-columns: 36px minmax(0, 1fr) auto; padding: 7px 9px; min-height: 38px; font-size: 7px; gap: 6px; }
-
-  /* ----------------------------------------------------------------------
-     Phone styles for sections added in the Apr 26-29 deploy:
-     daily-journal cards, strategy substrategy chips, README docs viewer,
-     terminal-fill scrollers, and stacked-timestamp terminal rows.
-  ---------------------------------------------------------------------- */
-
-  /* Daily-journal cards — keep desktop's multi-column shape on phone (2-up
-     grid instead of 1 tall stack) so the layout reads the same as desktop.
-     Internal padding/fonts are scaled down so 2 cards fit a 393px column. */
-  .daily-journal-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px;
-  }
-  .daily-journal-card { padding: 8px 9px; gap: 5px; }
-  .daily-journal-date { font-size: 9px; letter-spacing: 0.3px; }
-  .daily-journal-pnl { font-size: 14px; }
-  .daily-journal-head { gap: 4px; }
-  .daily-journal-head .badge { font-size: 6px; height: 14px; padding: 0 4px; }
-  .daily-journal-stats {
-    grid-template-columns: 1fr 1fr;
-    gap: 2px 5px;
-    padding-top: 4px;
-  }
-  .daily-journal-stat { font-size: 8px; gap: 2px; }
-  .daily-journal-stat span { font-size: 6px; letter-spacing: 0.2px; }
-  .daily-journal-stat strong { font-size: 8px; }
-  .daily-journal-context { font-size: 7px; padding: 2px 0; line-height: 1.25; }
-  .daily-journal-flags { gap: 2px; }
-  .daily-journal-flag { font-size: 7px; padding: 2px 4px; line-height: 1.25; }
-
-  /* Strategy cards — 2-up on phone instead of 1-up (desktop is 3-up). The
-     base CSS sets min-width:320px which forces 1 card per phone column;
-     we override min-width and flex basis here so two cards fit at ~190px.
-     Internal layout collapses stat row to a single column at this width. */
-  .strategy-card-grid { gap: 6px; }
-  .strategy-card {
-    flex: 1 1 calc(50% - 6px);
-    min-width: 0;
-    max-width: calc(50% - 6px);
-    padding: 8px 9px;
-    gap: 6px;
-  }
-  .strategy-card-header { gap: 4px; }
-  .strategy-card-title { font-size: 11px; letter-spacing: 0.3px; }
-  .strategy-card-id { font-size: 7px; }
-  .strategy-card-stats {
-    grid-template-columns: 1fr;
-    gap: 4px;
-    padding-top: 4px;
-  }
-  .strategy-card-footer { font-size: 7px; padding-top: 4px; gap: 3px; }
-
-  /* Substrategy chip row inside strategy cards. */
-  .strategy-chip-row { gap: 3px; }
-  .strategy-chip { font-size: 7px; padding: 2px 4px; height: auto; min-height: 16px; }
-
-  /* README / Docs viewer — swap inline <object> for a mobile call-to-action
-     card. iOS Safari renders embedded PDFs unreliably (often a blank or
-     half-clipped frame), so the phone-only card opens the PDF in a new tab
-     instead of trying to embed it. */
-  .docs-toolbar { gap: 6px; padding-bottom: 6px; }
-  .docs-link { font-size: 9px; padding: 5px 9px; letter-spacing: 0.04em; }
-  .docs-hint { font-size: 8px; margin-left: 0; flex-basis: 100%; }
-  .docs-viewer {
-    height: auto;
-    min-height: 0;
-    background: transparent;
-    border: 0;
-    border-radius: 0;
-    overflow: visible;
-  }
-  .docs-viewer .docs-viewer-inline { display: none !important; }
-  .docs-viewer-mobile {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    gap: 10px;
-    padding: 24px 16px;
-    background: rgba(20, 22, 30, 0.55);
-    border: 1px solid rgba(255, 255, 255, 0.10);
-    border-radius: 10px;
-    min-height: 260px;
-  }
-  .docs-mobile-icon {
-    font-family: var(--display, 'Helvetica', sans-serif);
-    font-size: 28px;
-    letter-spacing: 0.12em;
-    font-weight: 900;
-    color: var(--cyan);
-    text-shadow: 0 0 16px rgba(0, 229, 255, 0.45);
-  }
-  .docs-mobile-title {
-    font-family: var(--display, 'Helvetica', sans-serif);
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-  }
-  .docs-mobile-sub {
-    font-family: 'SF Mono', 'Menlo', monospace;
-    font-size: 9px;
-    line-height: 1.4;
-    opacity: 0.75;
-    max-width: 260px;
-  }
-  .docs-mobile-cta {
-    margin-top: 6px;
-    padding: 9px 22px;
-    font-family: var(--display, 'Helvetica', sans-serif);
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    text-decoration: none;
-    color: #000;
-    background: var(--cyan);
-    border-radius: 4px;
-    border: 1px solid rgba(0, 229, 255, 0.6);
-    box-shadow: 0 0 18px rgba(0, 229, 255, 0.35);
-  }
-  .docs-mobile-secondary {
-    font-family: var(--display, 'Helvetica', sans-serif);
-    font-size: 9px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: inherit;
-    text-decoration: none;
-    padding: 5px 14px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-    border-radius: 4px;
-  }
-  .docs-mobile-hint {
-    font-family: 'SF Mono', 'Menlo', monospace;
-    font-size: 7px;
-    opacity: 0.55;
-    line-height: 1.4;
-    max-width: 260px;
-  }
-
-  /* Trace Log + Trade Blotter — match desktop "fill the card" feel on
-     phone. The base .terminal already gets max-height: 220px on phone;
-     .terminal-fill needs the same treatment so it doesn't try to be 520px. */
-  .terminal-fill { height: 220px; max-height: 220px; }
-
-  /* Terminal-row at phone was 6px font with a 28px time column — unreadable
-     and the stacked date+time stamp didn't fit. Bump to 9-10px text and a
-     56px time column so "APR 23" + "12:34:56" both render legibly, with
-     the row growing tall enough to host the 2-line stamp. */
-  .terminal-row {
-    grid-template-columns: 56px minmax(0, 1fr) auto;
-    padding: 6px 8px;
-    min-height: 32px;
-    gap: 6px;
-    font-size: 9px;
-  }
-  .terminal-row strong { font-size: 9px; }
-  .terminal-row p { font-size: 9px; line-height: 1.25; }
-  .terminal-row time { font-size: 8px; }
-  .terminal-row time.terminal-stamp-stacked { gap: 1px; }
-  .terminal-row .terminal-stamp-date { font-size: 7px; letter-spacing: 0.3px; }
-  .terminal-row .terminal-stamp-time { font-size: 8px; }
 }
 
 /* ----------------------------------------------------------------------
@@ -1106,7 +942,10 @@ h1, h2, h3, p { margin: 0; }
 .strategy-tag-muted {
   opacity: 0.55;
 }
-@media (max-width: 720px) {
+/* Tablet-only single-column for strategy cards. The lower bound 481px
+   prevents this from clobbering the phone @media block that lives at the
+   end of the CSS — phones get a 2-up grid there. */
+@media (min-width: 481px) and (max-width: 720px) {
   .strategy-card {
     flex: 1 1 100%;
     max-width: 100%;
@@ -1292,8 +1131,151 @@ h1, h2, h3, p { margin: 0; }
   color: inherit;
   text-decoration: underline;
 }
-/* Phone-only README card — desktop hides this and shows the inline PDF. */
-.docs-viewer-mobile { display: none; }
+
+/* ===================================================================
+   Phone overrides for the Apr 26-29 deploy. Placed AT THE END of
+   COCKPIT_CSS so source-order wins over any earlier base rules
+   (.daily-journal-grid, .strategy-card, .docs-viewer-mobile, etc.
+   were defined later in the file than the original 480px @media block,
+   which silently clobbered every phone override).
+=================================================================== */
+@media (max-width: 480px) {
+  /* Daily-summary cards: 2-up grid on phone (matches desktop multi-col). */
+  .daily-journal-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+  }
+  .daily-journal-card { padding: 8px 9px; gap: 5px; }
+  .daily-journal-date { font-size: 9px; letter-spacing: 0.3px; }
+  .daily-journal-pnl { font-size: 14px; }
+  .daily-journal-head { gap: 4px; }
+  .daily-journal-head .badge { font-size: 6px; height: 14px; padding: 0 4px; }
+  .daily-journal-stats {
+    grid-template-columns: 1fr 1fr !important;
+    gap: 2px 5px;
+    padding-top: 4px;
+  }
+  .daily-journal-stat { font-size: 8px; gap: 2px; }
+  .daily-journal-stat span { font-size: 6px; letter-spacing: 0.2px; }
+  .daily-journal-stat strong { font-size: 8px; }
+  .daily-journal-context { font-size: 7px; padding: 2px 0; line-height: 1.25; }
+  .daily-journal-flags { gap: 2px; }
+  .daily-journal-flag { font-size: 7px; padding: 2px 4px; line-height: 1.25; }
+
+  /* Strategy cards: 2-up on phone instead of single-column tall stack. */
+  .strategy-card-grid { gap: 6px !important; }
+  .strategy-card {
+    flex: 1 1 calc(50% - 6px) !important;
+    min-width: 0 !important;
+    max-width: calc(50% - 6px) !important;
+    padding: 8px 9px !important;
+    gap: 6px;
+  }
+  .strategy-card-header { gap: 4px; }
+  .strategy-card-title { font-size: 11px; letter-spacing: 0.3px; }
+  .strategy-card-id { font-size: 7px; }
+  .strategy-card-stats {
+    grid-template-columns: 1fr !important;
+    gap: 4px;
+    padding-top: 4px;
+  }
+  .strategy-card-footer { font-size: 7px; padding-top: 4px; gap: 3px; }
+  .strategy-chip-row { gap: 3px; }
+  .strategy-chip { font-size: 7px; padding: 2px 4px; height: auto; min-height: 16px; }
+
+  /* README mobile card: rendered ONLY on phone (JS-conditional) so we can
+     style it freely without worrying about desktop. */
+  .docs-toolbar { gap: 6px; padding-bottom: 6px; }
+  .docs-link { font-size: 9px; padding: 5px 9px; letter-spacing: 0.04em; }
+  .docs-hint { font-size: 8px; margin-left: 0; flex-basis: 100%; }
+  .docs-viewer-mobile {
+    display: flex !important;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 10px;
+    padding: 24px 16px;
+    background: rgba(20, 22, 30, 0.55);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 10px;
+    min-height: 260px;
+  }
+  .docs-mobile-icon {
+    font-family: var(--display, 'Helvetica', sans-serif);
+    font-size: 28px;
+    letter-spacing: 0.12em;
+    font-weight: 900;
+    color: var(--cyan);
+    text-shadow: 0 0 16px rgba(0, 229, 255, 0.45);
+  }
+  .docs-mobile-title {
+    font-family: var(--display, 'Helvetica', sans-serif);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  .docs-mobile-sub {
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 9px;
+    line-height: 1.4;
+    opacity: 0.75;
+    max-width: 260px;
+  }
+  .docs-mobile-cta {
+    margin-top: 6px;
+    padding: 9px 22px;
+    font-family: var(--display, 'Helvetica', sans-serif);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    text-decoration: none;
+    color: #000;
+    background: var(--cyan);
+    border-radius: 4px;
+    border: 1px solid rgba(0, 229, 255, 0.6);
+    box-shadow: 0 0 18px rgba(0, 229, 255, 0.35);
+  }
+  .docs-mobile-secondary {
+    font-family: var(--display, 'Helvetica', sans-serif);
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: inherit;
+    text-decoration: none;
+    padding: 5px 14px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 4px;
+  }
+  .docs-mobile-hint {
+    font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 7px;
+    opacity: 0.55;
+    line-height: 1.4;
+    max-width: 260px;
+  }
+
+  /* Trace Log + Trade Blotter: 220px terminal so it doesn't try to be 520. */
+  .terminal-fill { height: 220px !important; max-height: 220px !important; }
+
+  /* Terminal-row at phone: bump from 6px font / 28px time col to readable
+     9-10px font / 56px time col so the stacked date+time stamp fits. */
+  .terminal-row {
+    grid-template-columns: 56px minmax(0, 1fr) auto !important;
+    padding: 6px 8px !important;
+    min-height: 32px !important;
+    gap: 6px !important;
+    font-size: 9px !important;
+  }
+  .terminal-row strong { font-size: 9px !important; }
+  .terminal-row p { font-size: 9px !important; line-height: 1.25 !important; }
+  .terminal-row time { font-size: 8px !important; }
+  .terminal-row time.terminal-stamp-stacked { gap: 1px; }
+  .terminal-row .terminal-stamp-date { font-size: 7px; letter-spacing: 0.3px; }
+  .terminal-row .terminal-stamp-time { font-size: 8px; }
+}
 `;
 
 function clip(value: number, low: number, high: number): number {
