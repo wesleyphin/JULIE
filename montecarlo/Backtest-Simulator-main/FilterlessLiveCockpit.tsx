@@ -34,17 +34,18 @@ const COLORS = {
   // Restricted palette per user spec: only RED, GREEN, WHITE, and shades
   // of PURPLE for any text/UI accent. Lightened muted/dim/amber so they
   // stay legible on the frosted-grey glass + video bg.
-  purple: '#2e1065',   // was #2e1065 — bumped lighter for legibility
-  violet: '#1e0a4a',   // was #1e0a4a — bumped lighter
-  cyan: '#5b21b6',     // light purple
-  pink: '#2e1065',     // main purple (lighter)
-  amber: '#5b21b6',    // muted purple — bumped lighter
+  // Unified pink palette — all pink/purple/rose variants point to the same shade.
+  purple: '#ffffff',
+  violet: '#ffffff',
+  cyan: '#ffffff',
+  pink: '#ffffff',     // canonical pink
+  amber: '#ffffff',
   lime: '#45ffc8',     // green (allowed)
   red: '#ff3864',
   green: '#45ffc8',
-  muted: '#5b21b6',    // matches CSS --muted
-  text: '#5b21b6',
-  dim: '#4c1d95',      // matches CSS --dim
+  muted: '#ffffff',
+  text: '#ffffff',
+  dim: '#ffffff',
 };
 
 type ScreenId = 'overview' | 'aetherflow' | 'kalshi' | 'news' | 'strategies' | 'pipeline' | 'journal' | 'command';
@@ -198,20 +199,16 @@ const COCKPIT_CSS = `
      translucent grey. Hardcoded purple rgba()'s are swept separately. */
   --line: rgba(255, 255, 255, 0.10);
   --line-strong: rgba(255, 255, 255, 0.22);
-  --text: #5b21b6;
-  /* Lightened muted/dim shades — the original (#3b0764 / #1e0a4a) were
-     too dark on the new frosted-grey glass + video bg; subtitles, kicker
-     captions, and metric labels were washing out. New values stay in the
-     grey-purple family but read clearly. */
-  --muted: #5b21b6;
-  --dim: #4c1d95;
-  --purple: #2e1065;
-  --violet: #1e0a4a;
-  /* Restricted text palette: only red/green/white/purple-shades. The
-     non-allowed accent vars are aliased to purple shades. */
-  --cyan: #3b0764;
-  --pink: #2e1065;
-  --amber: #3b0764;
+  --text: #ffffff;
+  /* Unified pink palette — every pink/purple/rose variant points to the same
+     canonical pink so the dashboard reads with one consistent accent. */
+  --muted: #ffffff;
+  --dim: #ffffff;
+  --purple: #ffffff;
+  --violet: #ffffff;
+  --cyan: #ffffff;
+  --pink: #ffffff;
+  --amber: #ffffff;
   --lime: #45ffc8;
   --red: #ff3864;
   --green: #45ffc8;
@@ -287,7 +284,7 @@ h1, h2, h3, p { margin: 0; }
   cursor: pointer;
   pointer-events: auto;
   will-change: transform;
-  filter: drop-shadow(0 0 14px rgba(76, 29, 149, 0.55));
+  filter: drop-shadow(0 0 14px rgba(255, 255, 255, 0.55));
   transition: filter 0.18s ease;
 }
 .bouncing-head:hover { filter: drop-shadow(0 0 22px rgba(255, 56, 100, 0.75)); }
@@ -313,9 +310,9 @@ h1, h2, h3, p { margin: 0; }
 .app { min-height: 100vh; display: grid; grid-template-columns: 248px minmax(0, 1fr); background: transparent; }
 .rail { min-width: 0; border-right: 1px solid rgba(255,255,255,0.08); background: rgba(20, 22, 30, 0.42); display: grid; grid-template-rows: auto 1fr auto; }
 .brand { min-width: 0; padding: 18px 16px 16px; border-bottom: 1px solid var(--line); }
-.brand h1 { font-family: var(--display); font-weight: 900; font-size: 13px; letter-spacing: 1.8px; color: #1e0a4a; text-shadow: 0 0 18px rgba(76, 29, 149, 0.9); }
+.brand h1 { font-family: var(--display); font-weight: 900; font-size: 13px; letter-spacing: 1.8px; color: #ffffff; text-shadow: 0 0 18px rgba(255, 255, 255, 0.9); }
 .brand p { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.35; font-family: var(--mono); }
-.brand .wire { height: 2px; margin-top: 15px; background: linear-gradient(90deg, var(--purple), transparent 70%); box-shadow: 0 0 18px rgba(76, 29, 149, 0.8); }
+.brand .wire { height: 2px; margin-top: 15px; background: linear-gradient(90deg, var(--purple), transparent 70%); box-shadow: 0 0 18px rgba(255, 255, 255, 0.8); }
 .nav { min-width: 0; padding: 12px; display: grid; align-content: start; gap: 6px; }
 .nav button { min-width: 0; height: 40px; border: 1px solid transparent; background: transparent; border-radius: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 0 9px; cursor: pointer; color: var(--muted); text-align: left; text-transform: uppercase; }
 .nav button:hover, .nav button.active { color: var(--text); border-color: var(--line-strong); background: rgba(255,255,255,0.06); box-shadow: inset 2px 0 0 var(--purple), 0 0 20px rgba(255,255,255,0.06); }
@@ -330,18 +327,18 @@ h1, h2, h3, p { margin: 0; }
 .deck { min-width: 0; padding: 14px; display: grid; grid-template-rows: auto auto auto 1fr; gap: 10px; }
 .top { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px; align-items: start; padding-bottom: 10px; }
 .kicker { font-family: var(--mono); color: var(--muted); font-size: 10px; text-transform: uppercase; }
-.top h2 { margin-top: 4px; font-family: var(--display); font-weight: 900; color: #1e0a4a; font-size: clamp(19px, 2.0vw, 30px); letter-spacing: 1px; text-shadow: 0 0 24px rgba(76, 29, 149, 0.85); }
+.top h2 { margin-top: 4px; font-family: var(--display); font-weight: 900; color: #ffffff; font-size: clamp(19px, 2.0vw, 30px); letter-spacing: 1px; text-shadow: 0 0 24px rgba(255, 255, 255, 0.85); }
 .top p { margin-top: 6px; color: var(--muted); font-family: var(--mono); font-size: 11px; }
 .actions { min-width: 0; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .chip, .command, .badge { min-width: 0; border: 1px solid var(--line); background: rgba(255,255,255,0.04); color: var(--text); height: 30px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; font-family: var(--mono); font-size: 10px; text-transform: uppercase; white-space: nowrap; }
 .command { cursor: pointer; text-decoration: none; }
-.command.primary { border-color: rgba(91, 33, 182, 0.6); color: var(--cyan); box-shadow: 0 0 18px rgba(91, 33, 182, 0.13); }
+.command.primary { border-color: rgba(255, 255, 255, 0.6); color: var(--cyan); box-shadow: 0 0 18px rgba(255, 255, 255, 0.13); }
 .notice { border: 1px solid rgba(255, 56, 100, 0.32); color: var(--red); background: rgba(255, 56, 100, 0.06); padding: 10px 12px; font-family: var(--mono); font-size: 11px; }
 .ticker { min-width: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); border: 1px solid var(--line); background: rgba(20, 22, 30, 0.42); }
 .ticker .cell { min-width: 0; padding: 9px 10px; border-right: 1px solid rgba(255,255,255,0.08); }
 .ticker .cell:last-child { border-right: 0; }
 .ticker span, .label { display: block; min-width: 0; color: var(--muted); font-size: 10px; font-family: var(--mono); text-transform: uppercase; }
-.ticker strong { display: block; margin-top: 3px; color: var(--purple); font-family: var(--display); font-size: clamp(15px, 1.3vw, 22px); text-shadow: 0 0 18px rgba(76, 29, 149, 0.62); }
+.ticker strong { display: block; margin-top: 3px; color: var(--purple); font-family: var(--display); font-size: clamp(15px, 1.3vw, 22px); text-shadow: 0 0 18px rgba(255, 255, 255, 0.62); }
 .screen { min-width: 0; display: block; }
 .grid { min-width: 0; display: grid; gap: 10px; }
 .cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -365,7 +362,7 @@ h1, h2, h3, p { margin: 0; }
 }
 .panel { overflow: hidden; }
 .panel-head { min-width: 0; min-height: 48px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; }
-.panel-head h3 { min-width: 0; font-family: var(--display); font-weight: 900; font-size: 12px; letter-spacing: 0.8px; text-transform: uppercase; color: #1e0a4a; text-shadow: 0 0 18px rgba(76, 29, 149, 0.7); }
+.panel-head h3 { min-width: 0; font-family: var(--display); font-weight: 900; font-size: 12px; letter-spacing: 0.8px; text-transform: uppercase; color: #ffffff; text-shadow: 0 0 18px rgba(255, 255, 255, 0.7); }
 .brand h1, .top h2, .ticker strong, .metric strong, .command-tile strong { font-weight: 900; }
 .panel-head p { min-width: 0; margin-top: 3px; color: var(--muted); font-family: var(--mono); font-size: 10px; }
 .panel-body { padding: 10px; }
@@ -380,9 +377,9 @@ h1, h2, h3, p { margin: 0; }
 .terminal-row p { color: var(--muted); }
 .badge { height: 22px; padding: 0 7px; border-color: rgba(255,255,255,0.18); color: var(--purple); }
 .badge.live { color: var(--green); border-color: rgba(69, 255, 200, 0.45); }
-.badge.watch { color: var(--amber); border-color: rgba(91, 33, 182, 0.45); }
+.badge.watch { color: var(--amber); border-color: rgba(255, 255, 255, 0.45); }
 .badge.block { color: var(--red); border-color: rgba(255, 56, 100, 0.52); }
-.badge.info { color: var(--cyan); border-color: rgba(91, 33, 182, 0.45); }
+.badge.info { color: var(--cyan); border-color: rgba(255, 255, 255, 0.45); }
 .chart {
   height: 620px;
   background: rgba(20, 22, 30, 0.42);
@@ -1475,7 +1472,7 @@ const FlowBars: React.FC<{ values: Array<{ label: string; value: number; tail?: 
       <div className="flow-bar" key={item.label}>
         <span className="truncate">{item.label}</span>
         <div className="bar-track">
-          <div className="bar-fill" style={{ width: pct(item.value), background: item.color ? `linear-gradient(90deg, rgba(76,29,149,0.22), ${item.color})` : undefined }} />
+          <div className="bar-fill" style={{ width: pct(item.value), background: item.color ? `linear-gradient(90deg, rgba(255, 255, 255,0.22), ${item.color})` : undefined }} />
         </div>
         <strong className="truncate">{item.tail ?? pct(item.value)}</strong>
       </div>
@@ -1764,7 +1761,7 @@ const PriceCanvas: React.FC<{ state: FilterlessLiveState; position: FilterlessPo
       },
       grid: {
         vertLines: { color: 'rgba(255,255,255,0.04)' },
-        horzLines: { color: 'rgba(76, 29, 149, 0.11)' },
+        horzLines: { color: 'rgba(255, 255, 255, 0.11)' },
       },
       rightPriceScale: {
         borderColor: 'rgba(255,255,255,0.10)',
@@ -1803,7 +1800,7 @@ const PriceCanvas: React.FC<{ state: FilterlessLiveState; position: FilterlessPo
     });
     const areaSeries = chart.addSeries(AreaSeries, {
       topColor: 'rgba(255,255,255,0.18)',
-      bottomColor: 'rgba(76, 29, 149, 0.02)',
+      bottomColor: 'rgba(255, 255, 255, 0.02)',
       lineColor: COLORS.purple,
       lineWidth: 2,
       priceLineVisible: false,
@@ -2415,7 +2412,7 @@ const AetherflowCanvas: React.FC<{ features: AetherFeatures }> = ({ features }) 
         ctx.closePath();
         ctx.fillStyle = shadedColor(fillColor, shade, 0.7 + (0.06 * waveStrength));
         ctx.fill();
-        ctx.strokeStyle = v10Height > 0.78 ? 'rgba(255,255,255,0.16)' : `rgba(76,29,149,${0.12 + (0.05 * waveStrength)})`;
+        ctx.strokeStyle = v10Height > 0.78 ? 'rgba(255,255,255,0.16)' : `rgba(255, 255, 255,${0.12 + (0.05 * waveStrength)})`;
         ctx.lineWidth = 0.68 * dpr;
         ctx.stroke();
       });
@@ -2431,7 +2428,7 @@ const AetherflowCanvas: React.FC<{ features: AetherFeatures }> = ({ features }) 
           if (step === 0) ctx.moveTo(p.x, p.y);
           else ctx.lineTo(p.x, p.y);
         }
-        ctx.strokeStyle = index % 2 ? `rgba(76,29,149,${0.24 + (0.1 * waveStrength)})` : `rgba(53,245,255,${0.21 + (0.08 * waveStrength)})`;
+        ctx.strokeStyle = index % 2 ? `rgba(255, 255, 255,${0.24 + (0.1 * waveStrength)})` : `rgba(53,245,255,${0.21 + (0.08 * waveStrength)})`;
         ctx.stroke();
       });
       ctx.restore();
@@ -2441,9 +2438,9 @@ const AetherflowCanvas: React.FC<{ features: AetherFeatures }> = ({ features }) 
       const nearRight = projectSurfacePoint(1.1, 1.08, 0, width, height, scene);
       const nearLeft = projectSurfacePoint(-1.08, 1.08, 0, width, height, scene);
       const axisZ = { x: origin.x, y: origin.y - height * 0.43 };
-      strokePath([origin, farRight, nearRight, nearLeft, origin], 'rgba(76,29,149,0.42)', 1.5);
-      strokePath([origin, axisZ], 'rgba(76,29,149,0.72)', 1.5);
-      strokePath([origin, nearLeft], 'rgba(76,29,149,0.42)', 1.2);
+      strokePath([origin, farRight, nearRight, nearLeft, origin], 'rgba(255, 255, 255,0.42)', 1.5);
+      strokePath([origin, axisZ], 'rgba(255, 255, 255,0.72)', 1.5);
+      strokePath([origin, nearLeft], 'rgba(255, 255, 255,0.42)', 1.2);
 
       ctx.save();
       ctx.font = `italic ${12.0 * dpr}px "Arial", sans-serif`;
@@ -2495,7 +2492,7 @@ const AetherflowCanvas: React.FC<{ features: AetherFeatures }> = ({ features }) 
       const dotX = cx + Math.sin(scene.yaw) * rx;
       const dotY = cy - scene.pitch * 38 * dpr;
       ctx.save();
-      ctx.strokeStyle = 'rgba(76,29,149,0.36)';
+      ctx.strokeStyle = 'rgba(255, 255, 255,0.36)';
       ctx.lineWidth = 1 * dpr;
       ctx.beginPath();
       ctx.ellipse(cx, cy, rx, ry, 0, 0, TAU);

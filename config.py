@@ -584,7 +584,9 @@ CONFIG = {
     "BACKTEST_GPU_TARGET_FRACTION": 0.75,
     # Filterless live roster overrides consumed by the live runtime and dashboard.
     # Canonical values: dynamic_engine3, regime_adaptive, ml_physics, aetherflow.
-    "FILTERLESS_LIVE_DISABLED_STRATEGIES": ["ml_physics"],
+    # ml_physics is now hour-10-11 gated by ML model (see julie001.py
+    # _mlphysics_h1011_decide). Set JULIE_ML_PHYSICS_H1011_ML=0 to disable.
+    "FILTERLESS_LIVE_DISABLED_STRATEGIES": [],
     # Optional alternate artifact profile used to train/evaluate a fixed historical window.
     "EXPERIMENTAL_TRAINING": {
         # Runtime remains on full-data artifacts unless explicitly enabled.

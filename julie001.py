@@ -121,6 +121,7 @@ from level_fill_optimizer import (
 from dynamic_chop import DynamicChopAnalyzer
 from ml_physics_strategy import MLPhysicsStrategy
 from dynamic_engine3_strategy import DynamicEngine3Strategy
+from fib_h1214_strategy import FibH1214Strategy
 from dynamic_signal_engine3 import get_signal_engine
 from volume_profile import build_volume_profile
 from event_logger import event_logger
@@ -789,6 +790,153 @@ NY_AM_BYPASS_HOUR_ET = 8
 NY_AM_BYPASS_RULE_DAY_DRIFT_MIN = -15.0   # block if day already dropped >15 pts from open
 NY_AM_BYPASS_RULE_VOL_Z_MIN = -0.72        # block if volume unusually low (z < -0.72)
 NY_AM_BYPASS_RULE_GAP_MAX = 0.0            # block if positive gap from prior close (gap up)
+
+# === MLPhysics hour 10-11 ML gate ===
+# 10-model LightGBM ensemble trained 2024 only (clean OOS for 2025-2026).
+# 25 features (atr/rsi/adx/momentum/day-context/time-of-day).
+# Skip<0.20 + 1/2/3 sizing @ 0.40/0.55. Validated:
+#   2025-2026 OOS: 204 trades, 47.1% WR, +$8,911 PnL, -$704 DD
+#   2026 only:     35 trades, 51.4% WR, +$1,786 PnL, -$528 DD
+# Random-feature sanity: 1/30 random trials beat real signal.
+MLPHYSICS_H1011_HOURS_ET = {10, 11}
+_MLPHYSICS_H1011_BUNDLE = None  # cache: dict with 'models', 'features', 'threshold'
+
+
+def _mlphysics_h1011_load_bundle() -> Optional[dict]:
+    """Lazy-load the 10-model LightGBM ensemble + feature list."""
+    global _MLPHYSICS_H1011_BUNDLE
+    if _MLPHYSICS_H1011_BUNDLE is not None:
+        return _MLPHYSICS_H1011_BUNDLE
+    try:
+        import pickle
+        path = Path("artifacts/mlphysics_h1011_live/model.pkl")
+        if not path.exists():
+            return None
+        with open(path, "rb") as fh:
+            _MLPHYSICS_H1011_BUNDLE = pickle.load(fh)
+        return _MLPHYSICS_H1011_BUNDLE
+    except Exception:
+        return None
+
+
+def _mlphysics_h1011_features(market_df) -> Optional[Dict[str, float]]:
+    """Compute the 25 features the model expects from market_df at the
+    current bar. Returns None if not enough history."""
+    try:
+        if market_df is None or len(market_df) < 130:
+            return None
+        df = market_df.tail(500).copy()
+        h = df["high"].astype(float); l = df["low"].astype(float)
+        c = df["close"].astype(float); v = df["volume"].astype(float)
+        # ATR
+        tr = pd.concat([h - l, (h - c.shift()).abs(), (l - c.shift()).abs()], axis=1).max(axis=1)
+        atr14 = tr.rolling(14, min_periods=5).mean().iloc[-1]
+        atr60 = tr.rolling(60, min_periods=20).mean().iloc[-1]
+        atr_ratio = float(atr14) / max(float(atr60), 1e-3)
+        # RSI(14)
+        delta = c.diff()
+        up_e = delta.clip(lower=0).ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+        dn_e = (-delta.clip(upper=0)).ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+        rsi14 = float((100 - 100 / (1 + up_e / (dn_e + 1e-9))).iloc[-1])
+        # ADX(14)
+        up_m = h - h.shift(); dn_m = l.shift() - l
+        plus_dm = pd.Series(np.where((up_m > dn_m) & (up_m > 0), up_m, 0.0), index=h.index)
+        minus_dm = pd.Series(np.where((dn_m > up_m) & (dn_m > 0), dn_m, 0.0), index=h.index)
+        tr_smooth = tr.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+        plus_di = 100 * plus_dm.ewm(alpha=1/14, min_periods=14, adjust=False).mean() / (tr_smooth + 1e-9)
+        minus_di = 100 * minus_dm.ewm(alpha=1/14, min_periods=14, adjust=False).mean() / (tr_smooth + 1e-9)
+        dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di + 1e-9)
+        adx14 = float(dx.ewm(alpha=1/14, min_periods=14, adjust=False).mean().iloc[-1])
+        # Returns
+        ret_5 = float(c.pct_change(5).iloc[-1] or 0)
+        ret_15 = float(c.pct_change(15).iloc[-1] or 0)
+        ret_30 = float(c.pct_change(30).iloc[-1] or 0)
+        ret_60 = float(c.pct_change(60).iloc[-1] or 0)
+        # Volume z-scores
+        vol_z_30 = float(((v.iloc[-1] - v.tail(30).mean()) / (v.tail(30).std() + 1e-9)))
+        vol_z_60 = float(((v.iloc[-1] - v.tail(60).mean()) / (v.tail(60).std() + 1e-9)))
+        range_z_60 = float((((h - l).iloc[-1] - (h - l).tail(60).mean()) / ((h - l).tail(60).std() + 1e-9)))
+        # Trend persistence
+        sign = np.sign(c.diff()).fillna(0)
+        trend_persist_15 = float(sign.tail(15).sum())
+        trend_persist_60 = float(sign.tail(60).sum())
+        # Day-context: drift, range so far, gap from prior close
+        ts_now = df.index[-1]
+        ts_now = pd.Timestamp(ts_now).tz_convert("America/New_York") if pd.Timestamp(ts_now).tz is not None else pd.Timestamp(ts_now).tz_localize("America/New_York")
+        today = ts_now.date()
+        today_idx = pd.Series([pd.Timestamp(t).tz_convert("America/New_York") if pd.Timestamp(t).tz is not None else pd.Timestamp(t).tz_localize("America/New_York") for t in df.index]).dt.date == today
+        day_bars = df[today_idx.values]
+        if len(day_bars) < 1:
+            return None
+        day_open_v = float(day_bars["open"].iloc[0])
+        close_now_v = float(c.iloc[-1])
+        day_drift_pts = close_now_v - day_open_v
+        day_high_v = float(day_bars["high"].max())
+        day_low_v = float(day_bars["low"].min())
+        day_range_so_far = day_high_v - day_low_v
+        range_pct_at_entry = (close_now_v - day_low_v) / max(day_range_so_far, 1e-3)
+        # Gap
+        prior = df[~today_idx.values]
+        if len(prior) > 0:
+            gap_pts = day_open_v - float(prior["close"].iloc[-1])
+        else:
+            gap_pts = 0.0
+        gap_atr = gap_pts / max(float(atr14), 1e-3)
+        # 20-EMA distance
+        ema20 = c.ewm(span=20, min_periods=10, adjust=False).mean().iloc[-1]
+        ema20_dist_atr = (close_now_v - float(ema20)) / max(float(atr14), 1e-3)
+        # Time
+        mins_in_day = ts_now.hour * 60 + ts_now.minute
+        mins_after_ny_open = max(0, mins_in_day - 570)
+        mins_to_lunch = max(0, 720 - mins_in_day)
+        return {
+            "atr14": float(atr14), "atr60": float(atr60), "atr_ratio": float(atr_ratio),
+            "rsi14": rsi14, "adx14": adx14, "plus_di": float(plus_di.iloc[-1]),
+            "minus_di": float(minus_di.iloc[-1]), "ret_5": ret_5, "ret_15": ret_15,
+            "ret_30": ret_30, "ret_60": ret_60, "vol_z_30": vol_z_30, "vol_z_60": vol_z_60,
+            "range_z_60": range_z_60, "trend_persist_15": trend_persist_15,
+            "trend_persist_60": trend_persist_60, "day_drift_pts": day_drift_pts,
+            "day_range_so_far": day_range_so_far, "range_pct_at_entry": range_pct_at_entry,
+            "gap_pts": gap_pts, "gap_atr": gap_atr, "ema20_dist_atr": ema20_dist_atr,
+            "mins_after_ny_open": mins_after_ny_open, "mins_to_lunch": mins_to_lunch,
+            "hour_feat": ts_now.hour,
+        }
+    except Exception:
+        return None
+
+
+def _mlphysics_h1011_decide(signal: dict, market_df) -> Optional[Tuple[bool, int, str]]:
+    """Hour 10-11 ML gate for MLPhysics. Returns (block, new_size, reason).
+    block=True means skip this signal entirely.
+    new_size is the ML-recommended size (1, 2, or 3).
+    """
+    if not isinstance(signal, dict):
+        return None
+    et_hour = _signal_et_hour(signal)
+    if et_hour is None or et_hour not in MLPHYSICS_H1011_HOURS_ET:
+        return (True, 0, f"hour={et_hour}_not_10_11")
+    bundle = _mlphysics_h1011_load_bundle()
+    if bundle is None:
+        return None  # fall back to default behavior if no model
+    feats = _mlphysics_h1011_features(market_df)
+    if feats is None:
+        return None
+    try:
+        feat_names = bundle["features"]
+        x = pd.DataFrame([{f: feats.get(f, 0.0) for f in feat_names}])
+        probas = np.array([m.predict_proba(x)[0, 1] for m in bundle["models"]])
+        proba = float(probas.mean())
+        if proba < 0.20:
+            return (True, 0, f"ml_skip_proba={proba:.3f}")
+        if proba < 0.40:
+            return (False, 1, f"ml_size1_proba={proba:.3f}")
+        if proba < 0.55:
+            return (False, 2, f"ml_size2_proba={proba:.3f}")
+        return (False, 3, f"ml_size3_proba={proba:.3f}")
+    except Exception as e:
+        logging.warning(f"MLPhysics h10-11 ML decide error: {e}")
+        return None
+# === END MLPhysics hour 10-11 ML gate ===
 
 
 def _signal_sub_strategy_id(signal: Optional[dict]) -> str:
@@ -8876,6 +9024,16 @@ async def run_bot():
     else:
         logging.info("MLPhysicsStrategy skipped during live startup because it is disabled in filterless mode")
 
+    # Fib h1214 (12:00-14:59 ET continuation strategy with 8-bar Fib lookback + adaptive sizing)
+    fib_h1214_filterless_disabled = filterless_only_mode and "fib_h1214" in filterless_disabled
+    fib_h1214_strategy = None
+    if not fib_h1214_filterless_disabled:
+        fib_h1214_strategy = FibH1214Strategy()
+        standard_strategies.append(fib_h1214_strategy)
+        logging.info("FibH1214Strategy registered (hours 12-14 ET, 7 fib levels, adaptive sizing)")
+    else:
+        logging.info("FibH1214Strategy skipped during live startup because it is disabled in filterless mode")
+
     manifold_cfg = CONFIG.get("MANIFOLD_STRATEGY", {}) or {}
     if bool(manifold_cfg.get("enabled_live", False)):
         manifold_strategy = _load_manifold_strategy_runtime()()
@@ -9645,6 +9803,12 @@ async def run_bot():
     persisted_state = load_bot_state(STATE_PATH)
     set_sentiment_state(normalize_sentiment_state(persisted_state.get("sentiment")))
     live_drawdown_state = _normalize_live_drawdown_state(persisted_state.get("live_drawdown"))
+    # Restore Fib h1214 strategy state (rolling 20d PnL history for adaptive sizing)
+    if fib_h1214_strategy is not None:
+        try:
+            fib_h1214_strategy.restore_state(persisted_state.get("fib_h1214") or {})
+        except Exception as _fib_restore_exc:
+            logging.warning("[FibH1214] state restore failed: %s", _fib_restore_exc)
     last_state_save = 0.0
     last_live_drawdown_refresh = 0.0
     state_restored = False
@@ -10760,6 +10924,19 @@ async def run_bot():
         circuit_breaker.update_trade_result(pnl_dollars)
         _lfg_notify_trade_closed(closed_trade)
         _record_live_realized_pnl(live_drawdown_state, pnl_dollars, close_time=close_time)
+        # Fib h1214 adaptive sizing — feed realized PnL into rolling 20d history
+        try:
+            _ct_strat = str(closed_trade.get("strategy") or "")
+            if _ct_strat.startswith("FibH1214") and fib_h1214_strategy is not None:
+                _ct_date = close_time.astimezone(NY_TZ).date() if hasattr(close_time, "astimezone") else None
+                if _ct_date is not None:
+                    fib_h1214_strategy.record_trade_pnl(_ct_date, float(pnl_dollars))
+                    logging.debug(
+                        "[FibH1214] recorded trade PnL: date=%s pnl=$%+.2f rolling_20d=$%+.0f",
+                        _ct_date, float(pnl_dollars), fib_h1214_strategy._rolling_20d_pnl(),
+                    )
+        except Exception as _fib_pnl_exc:
+            logging.warning("[FibH1214] record_trade_pnl failed: %s", _fib_pnl_exc)
         _refresh_live_drawdown_from_client(
             client,
             live_drawdown_state,
@@ -11448,6 +11625,11 @@ async def run_bot():
             "regime_manifold": (
                 regime_manifold_engine.get_state()
                 if (regime_manifold_engine is not None and manifold_persist_state)
+                else None
+            ),
+            "fib_h1214": (
+                fib_h1214_strategy.state_for_persist()
+                if fib_h1214_strategy is not None
                 else None
             ),
             "pipeline": _build_pipeline_state_snapshot(),
@@ -14085,6 +14267,24 @@ async def run_bot():
                     if base_session in disabled_sessions:
                         logging.info(f"⚠️ MLPhysics disabled in live for session {base_session}")
                         ml_signal = None
+                    elif os.environ.get("JULIE_ML_PHYSICS_H1011_ML", "1") == "1":
+                        # Hour 10-11 ML gate: only allow MLPhysics to fire in hour 10 or 11 ET,
+                        # and apply ML-driven sizing (skip<0.20 + 1/2/3 sizing @ 0.40/0.55).
+                        decision = _mlphysics_h1011_decide(ml_signal, new_df)
+                        if decision is None:
+                            # No model loaded or features unavailable — block as safety default
+                            logging.info("⚠️ MLPhysics h10-11 ML gate: model/features unavailable, blocking")
+                            ml_signal = None
+                        else:
+                            block, new_size, reason = decision
+                            if block:
+                                logging.info(f"⚠️ MLPhysics blocked by h10-11 ML gate: {reason}")
+                                ml_signal = None
+                            else:
+                                old_size = ml_signal.get("size", 1)
+                                ml_signal["size"] = int(new_size)
+                                ml_signal["mlphysics_h1011_reason"] = reason
+                                logging.info(f"MLPhysics h10-11 ML accepts: size {old_size}->{new_size} | {reason}")
 
                 # =================================================================
                 # 🎯 HARVEST ALL SIGNALS (Solves "Ghost Signal" Problem)
