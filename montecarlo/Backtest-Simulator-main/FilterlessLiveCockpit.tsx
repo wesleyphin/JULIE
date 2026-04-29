@@ -372,15 +372,10 @@ h1, h2, h3, p { margin: 0; }
 .metric small { min-width: 0; color: var(--muted); font-family: var(--mono); font-size: 10px; }
 .stack { min-width: 0; display: grid; gap: 10px; align-content: start; }
 .terminal { padding: 8px; display: grid; gap: 6px; max-height: 520px; overflow: auto; }
-.terminal-tall { max-height: none; height: 100%; min-height: 360px; }
-.journal-layout-tall { align-items: stretch; }
-.journal-layout-tall > .panel { display: flex; flex-direction: column; }
-.journal-layout-tall .journal-trace-panel { min-height: 720px; }
-.journal-layout-tall .journal-trace-panel .terminal-tall { flex: 1 1 auto; max-height: none; }
-.journal-layout-tall .journal-blotter-panel { display: flex; flex-direction: column; min-height: 540px; }
-.journal-layout-tall .journal-blotter-panel .terminal-tall { flex: 1 1 auto; max-height: none; min-height: 460px; }
-.journal-layout-tall .stack { display: flex; flex-direction: column; gap: 10px; min-height: 720px; }
-.journal-layout-tall .stack > .panel:last-child { flex: 1 1 auto; display: flex; flex-direction: column; }
+/* Short row that fills the panel: fixed-but-modest height, scrolls inside.
+   Use this on Trace Log + Trade Blotter so the card always looks "full"
+   regardless of how many rows the bridge surfaced. */
+.terminal-fill { height: 520px; max-height: 520px; overflow: auto; }
 .terminal-row { min-height: 38px; padding: 7px 8px; display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; gap: 8px; font-family: var(--mono); font-size: 10px; }
 .terminal-row time { color: var(--dim); }
 .terminal-row strong { min-width: 0; color: var(--text); font-weight: 700; }
@@ -4543,15 +4538,14 @@ function FilterlessLiveCockpit() {
         </div>
       </Panel>
 
-      <div className="grid journal-layout journal-layout-tall mt-panel">
+      <div className="grid journal-layout mt-panel">
         <Panel
           title="Trace Log"
           titleClassName="display-title"
           subtitle="Decision journal with trade levels, news, and manifold snapshots."
           badge={<Badge tone="info">{state.events.length} events</Badge>}
-          className="journal-trace-panel"
         >
-          <div className="terminal terminal-tall">
+          <div className="terminal terminal-fill">
             {state.events.length ? state.events.map((event: FilterlessEvent, index) => (
               <TerminalRow key={`${event.event_type}-${event.time}-${index}`} time={event.time} title={event.event_type} text={event.message} badge={<Badge tone={event.severity === 'error' || event.severity === 'danger' ? 'block' : event.severity === 'warning' ? 'watch' : 'info'}>{event.severity}</Badge>} />
             )) : <TerminalRow title="WAIT" text="No filterless events have been bridged yet." badge={<Badge tone="watch">idle</Badge>} />}
@@ -4570,9 +4564,8 @@ function FilterlessLiveCockpit() {
             titleClassName="display-title"
             subtitle="All closed filterless trades."
             badge={<Badge tone="info">{state.trades.length} trades</Badge>}
-            className="journal-blotter-panel"
           >
-            <div className="terminal terminal-tall">
+            <div className="terminal terminal-fill">
               {state.trades.length ? state.trades.map((trade: FilterlessTrade, index) => (
                 <TerminalRow
                   key={`${trade.time}-${index}`}
