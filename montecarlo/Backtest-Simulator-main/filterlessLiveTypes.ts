@@ -144,6 +144,7 @@ export interface FilterlessEvent {
 
 export interface FilterlessTrade {
   time?: string | null;
+  opened_at?: string | null;
   strategy_id: string;
   strategy_label: string;
   side: string;
