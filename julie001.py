@@ -1341,11 +1341,27 @@ def _signal_birth_hook(signal):
     # bracket rewrite entirely for this strategy.
     try:
         _strat_name = str((signal or {}).get("strategy") or "").lower() if isinstance(signal, dict) else ""
-        if not _strat_name.startswith("h9gapfade"):
+        if _strat_name.startswith("h9gapfade"):
+            # Existing H9GapFade skip-guard — bypass ALL dead-tape edits.
+            if isinstance(signal, dict):
+                signal["dead_tape_skip_guard_applied"] = True
+                signal["dead_tape_skip_guard_reason"] = "h9_gapfade_designed_brackets"
+        else:
+            # Capture intended size before the wrapper potentially cuts it.
+            _orig_size = signal.get("size") if isinstance(signal, dict) else None
             _apply_dead_tape_brackets(signal)
-        elif isinstance(signal, dict):
-            signal["dead_tape_skip_guard_applied"] = True
-            signal["dead_tape_skip_guard_reason"] = "h9_gapfade_designed_brackets"
+            # FibH1214 size-skip-guard: keep TP/SL/BE edits, restore size.
+            # FibH1214 ships size=10 (rolling adaptive); dead-tape→1 was
+            # gutting the strategy's intended exposure on dead-tape days.
+            if (_strat_name.startswith("fibh1214") and isinstance(signal, dict)
+                    and signal.get("size_reduced_to_1") and _orig_size):
+                signal["size"] = int(_orig_size)
+                signal["size_reduction_skip_guard_applied"] = True
+                signal["size_reduction_skip_guard_reason"] = "fibh1214_designed_size"
+                logging.info(
+                    "FibH1214 size-skip-guard: dead-tape size→1 reverted to %d",
+                    int(_orig_size),
+                )
     except Exception:
         pass
     # === LOCAL OVERRIDE — NY-AM Long_Rev BE-always-on bypass ===
