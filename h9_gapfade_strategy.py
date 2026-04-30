@@ -111,7 +111,12 @@ class H9GapFadeStrategy:
     enabled: bool = True
     use_ml_long: bool = True
     use_ml_short: bool = True
-    skip_on_dead_tape: bool = True
+    # Default OFF — production deployment uses skip-guards in julie001.py
+    # (apply_dead_tape_brackets and Kalshi overlay both bypass H9GapFade
+    # signals) which keeps the designed 0.30%/0.40% brackets intact even
+    # on dead-tape regime days. The self-gate here remains as a fallback
+    # that can be flipped on if the skip-guards are ever removed.
+    skip_on_dead_tape: bool = False
     fixed_size: int = FIXED_SIZE
     last_signal_day: Optional[str] = None
     last_signal_time: Optional[str] = None

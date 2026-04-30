@@ -1334,8 +1334,18 @@ def _signal_birth_hook(signal):
     Never raises — all failures silently no-op."""
     # Dead-tape bracket rewrite runs FIRST so the size-cap + shadow-log
     # see the scalp tp_dist / sl_dist values when dead_tape is active.
+    # SKIP-GUARD: H9GapFade ships designed 21pt/28pt brackets that are
+    # built around capturing 30-min mean reversion. Dead-tape rewriting
+    # to 3pt/5pt + size=1 collapses that edge from $13k/yr → $278/yr
+    # (see artifacts/h9_gapfade_ml/overlay_simulation.json). Bypass the
+    # bracket rewrite entirely for this strategy.
     try:
-        _apply_dead_tape_brackets(signal)
+        _strat_name = str((signal or {}).get("strategy") or "").lower() if isinstance(signal, dict) else ""
+        if not _strat_name.startswith("h9gapfade"):
+            _apply_dead_tape_brackets(signal)
+        elif isinstance(signal, dict):
+            signal["dead_tape_skip_guard_applied"] = True
+            signal["dead_tape_skip_guard_reason"] = "h9_gapfade_designed_brackets"
     except Exception:
         pass
     # === LOCAL OVERRIDE — NY-AM Long_Rev BE-always-on bypass ===
@@ -2777,6 +2787,17 @@ def _apply_kalshi_trade_overlay_to_signal(
     if not bool((overlay_cfg or {}).get("enabled", False)):
         signal["kalshi_trade_overlay_applied"] = False
         signal["kalshi_trade_overlay_reason"] = "disabled"
+        return True
+
+    # SKIP-GUARD: H9GapFade designed brackets must not be modified by the
+    # Kalshi TP-trim overlay. Live overlay simulation showed the trim from
+    # 21pt → 2.75pt collapses the strategy's edge. Bypass entirely.
+    _strat = str(signal.get("strategy", "") or "").strip()
+    if _strat.startswith("H9GapFade"):
+        signal["kalshi_trade_overlay_applied"] = False
+        signal["kalshi_trade_overlay_reason"] = "h9_gapfade_skip_guard"
+        signal["kalshi_entry_blocked"] = False
+        signal["kalshi_tp_trail_enabled"] = False
         return True
 
     # v5.4 decision: keep Kalshi enabled for all strategies including DE3.
