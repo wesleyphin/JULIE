@@ -96,15 +96,26 @@ def _z(x: float, mean: float, std: float) -> float:
 
 @dataclass
 class H9GapFadeStrategy:
-    """H9 Gap-Fade rule with optional 39-feature ML overlay on both sides."""
+    """H9 Gap-Fade rule with optional 39-feature ML overlay on both sides.
+
+    Self-gated against dead_tape regime: the bot's downstream
+    apply_dead_tape_brackets() rewrites tp_dist→3pt and sl_dist→5pt and
+    forces size=1 whenever the regime classifier flags 'dead_tape'. With
+    H9 GapFade's designed 21pt/28pt brackets, that rewrite is destructive
+    (live simulation: $13k/yr → $278/yr). Rather than add skip-guards in
+    julie001.py, we skip the entry entirely when dead_tape is active so
+    the strategy only fires when its designed brackets will survive.
+    Set ``skip_on_dead_tape=False`` to disable the gate."""
     name: str = "h9_gapfade"
     label: str = "H9 GapFade"
     enabled: bool = True
     use_ml_long: bool = True
     use_ml_short: bool = True
+    skip_on_dead_tape: bool = True
     fixed_size: int = FIXED_SIZE
     last_signal_day: Optional[str] = None
     last_signal_time: Optional[str] = None
+    last_block_reason: Optional[str] = None
     _model_bundle: Optional[Dict[str, Any]] = field(default=None, init=False, repr=False)
     _model_load_attempted: bool = field(default=False, init=False, repr=False)
 
@@ -310,6 +321,19 @@ class H9GapFadeStrategy:
             return None
         return feats
 
+    # --- Self-gate: dead_tape regime ---
+    def _dead_tape_active(self) -> bool:
+        """Return True if the regime classifier currently reports
+        'dead_tape'. Imported lazily so this strategy module remains
+        decoupled from the rest of the bot at import time."""
+        if not self.skip_on_dead_tape:
+            return False
+        try:
+            from regime_classifier import _CLASSIFIER as _RC
+            return bool(_RC is not None and getattr(_RC, "regime", None) == "dead_tape")
+        except Exception:  # pragma: no cover
+            return False
+
     # --- Strategy entry point ---
     def on_bar(self, df: pd.DataFrame) -> Optional[Dict[str, Any]]:
         if not self.enabled or df is None or df.empty:
@@ -320,6 +344,15 @@ class H9GapFadeStrategy:
         day_key = (ts.tz_convert(NY_TZ) if ts.tz else ts.tz_localize(NY_TZ)).strftime("%Y-%m-%d")
         if self.last_signal_day == day_key:
             return None  # one signal per day per strategy
+
+        # Self-gate: skip if dead_tape regime is active. The bot's
+        # apply_dead_tape_brackets would rewrite our designed 21/28pt
+        # brackets to 3/5pt and force size=1, gutting the edge.
+        if self._dead_tape_active():
+            self.last_block_reason = "dead_tape_active"
+            LOG.info("H9GapFade: skipped — dead_tape regime active "
+                     "(would clip designed brackets)")
+            return None
 
         today_open = float(df["open"].iloc[-1])
         feats = self._build_features(df, today_open, ts)
@@ -383,9 +416,11 @@ class H9GapFadeStrategy:
             "enabled": bool(self.enabled),
             "use_ml_long": bool(self.use_ml_long),
             "use_ml_short": bool(self.use_ml_short),
+            "skip_on_dead_tape": bool(self.skip_on_dead_tape),
             "fixed_size": int(self.fixed_size),
             "last_signal_day": self.last_signal_day,
             "last_signal_time": self.last_signal_time,
+            "last_block_reason": self.last_block_reason,
         }
 
     def restore_state(self, payload: Dict[str, Any]) -> None:
@@ -394,9 +429,11 @@ class H9GapFadeStrategy:
         self.enabled = bool(payload.get("enabled", self.enabled))
         self.use_ml_long = bool(payload.get("use_ml_long", self.use_ml_long))
         self.use_ml_short = bool(payload.get("use_ml_short", self.use_ml_short))
+        self.skip_on_dead_tape = bool(payload.get("skip_on_dead_tape", self.skip_on_dead_tape))
         self.fixed_size = int(payload.get("fixed_size", self.fixed_size))
         self.last_signal_day = payload.get("last_signal_day")
         self.last_signal_time = payload.get("last_signal_time")
+        self.last_block_reason = payload.get("last_block_reason")
 
     def reset_for_new_day(self) -> None:
         self.last_signal_day = None

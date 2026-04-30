@@ -122,6 +122,7 @@ from dynamic_chop import DynamicChopAnalyzer
 from ml_physics_strategy import MLPhysicsStrategy
 from dynamic_engine3_strategy import DynamicEngine3Strategy
 from fib_h1214_strategy import FibH1214Strategy
+from h9_gapfade_strategy import H9GapFadeStrategy
 from dynamic_signal_engine3 import get_signal_engine
 from volume_profile import build_volume_profile
 from event_logger import event_logger
@@ -9034,6 +9035,18 @@ async def run_bot():
     else:
         logging.info("FibH1214Strategy skipped during live startup because it is disabled in filterless mode")
 
+    # H9 GapFade (09:30 ET cash-open mean reversion, 39-feature ML overlay,
+    # self-gates against dead_tape regime to protect designed brackets)
+    h9_gapfade_filterless_disabled = filterless_only_mode and "h9_gapfade" in filterless_disabled
+    h9_gapfade_strategy = None
+    if not h9_gapfade_filterless_disabled:
+        h9_gapfade_strategy = H9GapFadeStrategy()
+        standard_strategies.append(h9_gapfade_strategy)
+        logging.info("H9GapFadeStrategy registered (09:30 ET gap-fade, 39-feature ML, "
+                     "skip-on-dead-tape self-gate)")
+    else:
+        logging.info("H9GapFadeStrategy skipped during live startup because it is disabled in filterless mode")
+
     manifold_cfg = CONFIG.get("MANIFOLD_STRATEGY", {}) or {}
     if bool(manifold_cfg.get("enabled_live", False)):
         manifold_strategy = _load_manifold_strategy_runtime()()
@@ -9809,6 +9822,13 @@ async def run_bot():
             fib_h1214_strategy.restore_state(persisted_state.get("fib_h1214") or {})
         except Exception as _fib_restore_exc:
             logging.warning("[FibH1214] state restore failed: %s", _fib_restore_exc)
+    # Restore H9 GapFade state (last_signal_day across restarts so we don't
+    # double-fire on a same-day reboot)
+    if h9_gapfade_strategy is not None:
+        try:
+            h9_gapfade_strategy.restore_state(persisted_state.get("h9_gapfade") or {})
+        except Exception as _h9_restore_exc:
+            logging.warning("[H9GapFade] state restore failed: %s", _h9_restore_exc)
     last_state_save = 0.0
     last_live_drawdown_refresh = 0.0
     state_restored = False
@@ -10952,6 +10972,14 @@ async def run_bot():
                     )
         except Exception as _fib_pnl_exc:
             logging.warning("[FibH1214] record_trade_pnl failed: %s", _fib_pnl_exc)
+        # H9 GapFade — no-op record_trade_pnl (constant size, no adaptive layer);
+        # call kept for symmetry / future telemetry.
+        try:
+            _ct_strat_h9 = str(closed_trade.get("strategy") or "")
+            if _ct_strat_h9.startswith("H9GapFade") and h9_gapfade_strategy is not None:
+                h9_gapfade_strategy.record_trade_pnl(close_time, float(pnl_dollars))
+        except Exception as _h9_pnl_exc:
+            logging.debug("[H9GapFade] record_trade_pnl failed: %s", _h9_pnl_exc)
         _refresh_live_drawdown_from_client(
             client,
             live_drawdown_state,
@@ -11645,6 +11673,11 @@ async def run_bot():
             "fib_h1214": (
                 fib_h1214_strategy.state_for_persist()
                 if fib_h1214_strategy is not None
+                else None
+            ),
+            "h9_gapfade": (
+                h9_gapfade_strategy.state_for_persist()
+                if h9_gapfade_strategy is not None
                 else None
             ),
             "pipeline": _build_pipeline_state_snapshot(),

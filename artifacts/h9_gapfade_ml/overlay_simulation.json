@@ -1,0 +1,121 @@
+{
+  "A_designed": {
+    "label": "A_designed",
+    "n_trades": 1148,
+    "size_per_trade": 10,
+    "total_pnl": 198743.04999999353,
+    "annualized_pnl": 12999.802831751009,
+    "win_rate": 71.77700348432056,
+    "avg_win": 460.8213592232932,
+    "avg_loss": -558.5609567901236,
+    "max_drawdown": 9582.03750000002,
+    "by_side": {
+      "sum": {
+        "LONG": 108062.57499999327,
+        "SHORT": 90680.47500000024
+      },
+      "count": {
+        "LONG": 527,
+        "SHORT": 621
+      }
+    },
+    "by_period": {
+      "sum": {
+        "biden": 89347.03749999714,
+        "pre_t1": 36904.21249999857,
+        "trump1": 27010.862499999057,
+        "trump2": 45480.93749999875
+      },
+      "count": {
+        "biden": 344,
+        "pre_t1": 462,
+        "trump1": 228,
+        "trump2": 114
+      }
+    }
+  },
+  "B_dead_tape_always": {
+    "label": "B_dead_tape_always",
+    "n_trades": 1148,
+    "size_per_trade": 1,
+    "total_pnl": 4243.0,
+    "annualized_pnl": 277.5350555157593,
+    "win_rate": 75.26132404181185,
+    "avg_win": 13.492766203703704,
+    "avg_loss": -26.108274647887324,
+    "max_drawdown": 302.75,
+    "by_side": {
+      "sum": {
+        "LONG": 2069.5,
+        "SHORT": 2173.5
+      },
+      "count": {
+        "LONG": 527,
+        "SHORT": 621
+      }
+    },
+    "by_period": {
+      "sum": {
+        "biden": 1724.0,
+        "pre_t1": 1590.75,
+        "trump1": 634.25,
+        "trump2": 294.0
+      },
+      "count": {
+        "biden": 344,
+        "pre_t1": 462,
+        "trump1": 228,
+        "trump2": 114
+      }
+    }
+  },
+  "C_dead_tape_plus_kalshi": {
+    "label": "C_dead_tape_plus_kalshi",
+    "n_trades": 1148,
+    "size_per_trade": 1,
+    "total_pnl": 3401.75,
+    "annualized_pnl": 222.50880864971347,
+    "win_rate": 75.78397212543554,
+    "avg_win": 12.25,
+    "avg_loss": -26.09982014388489,
+    "max_drawdown": 334.25,
+    "by_side": {
+      "sum": {
+        "LONG": 1725.75,
+        "SHORT": 1676.0
+      },
+      "count": {
+        "LONG": 527,
+        "SHORT": 621
+      }
+    },
+    "by_period": {
+      "sum": {
+        "biden": 1462.75,
+        "pre_t1": 1242.0,
+        "trump1": 465.5,
+        "trump2": 231.5
+      },
+      "count": {
+        "biden": 344,
+        "pre_t1": 462,
+        "trump1": 228,
+        "trump2": 114
+      }
+    }
+  },
+  "D_mixed_40pct_dead_tape": {
+    "label": "D_mixed_40pct_dead_tape",
+    "n_trades": 1148,
+    "n_dead_tape": 441,
+    "n_designed": 707,
+    "total_pnl": 125372.737499996,
+    "annualized_pnl": 8200.643333071908,
+    "win_rate": 73.25783972125436,
+    "avg_win": 283.7448721759763,
+    "avg_loss": -368.9143322475572,
+    "max_drawdown": 9677.462500000012,
+    "pnl_designed_subset": 123304.237499996,
+    "pnl_dead_tape_subset": 2068.5
+  }
+}

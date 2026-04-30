@@ -4069,6 +4069,7 @@ function FilterlessLiveCockpit() {
       { id: 'ml_physics', label: 'ML Physics' },
       { id: 'aetherflow', label: 'AetherFlow' },
       { id: 'fib_h1214', label: 'Fibonacci' },
+      { id: 'h9_gapfade', label: 'H9 GapFade' },
     ];
 
     // Substrategy universe per module — chips light up when matched in live state
@@ -4107,6 +4108,10 @@ function FilterlessLiveCockpit() {
         { key: 'whipsaw', label: 'Whipsaw', matchers: ['whipsaw'] },
         { key: 'calm_trend', label: 'Calm Trend', matchers: ['calm_trend', 'calm'] },
         { key: 'neutral', label: 'Neutral', matchers: ['neutral'] },
+      ],
+      h9_gapfade: [
+        { key: 'gap_dn_long', label: 'Gap-Dn Long', matchers: ['gap_dn_long', 'gap_dn'] },
+        { key: 'gap_up_short', label: 'Gap-Up Short', matchers: ['gap_up_short', 'gap_up'] },
       ],
     };
 
@@ -4150,6 +4155,7 @@ function FilterlessLiveCockpit() {
         ml_physics: COLORS.cyan,
         regime_adaptive: COLORS.purple,
         fib_h1214: COLORS.pink,
+        h9_gapfade: COLORS.lime,
       };
       return m[id] || COLORS.cyan;
     };
@@ -4200,6 +4206,14 @@ function FilterlessLiveCockpit() {
         match = [...trades].reverse().find((t) =>
           /fib/i.test(String(t.strategy_label || '')) ||
           /fib/i.test(String(t.strategy_id || ''))
+        );
+      }
+      // Same fallback for H9 GapFade — match "H9GapFade", "h9_gapfade", or
+      // anything containing "gapfade" / "gap_fade".
+      if (!match && id === 'h9_gapfade') {
+        match = [...trades].reverse().find((t) =>
+          /h9.?gapfade|gap.?fade/i.test(String(t.strategy_label || '')) ||
+          /h9.?gapfade|gap.?fade/i.test(String(t.strategy_id || ''))
         );
       }
       return match;

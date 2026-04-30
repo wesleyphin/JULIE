@@ -49,13 +49,15 @@ MES_ROUND_TURN_FEE = round(
     2,
 )
 
-STRATEGY_ORDER = ["dynamic_engine3", "regime_adaptive", "ml_physics", "aetherflow", "fib_h1214"]
+STRATEGY_ORDER = ["dynamic_engine3", "regime_adaptive", "ml_physics",
+                  "aetherflow", "fib_h1214", "h9_gapfade"]
 STRATEGY_LABELS = {
     "dynamic_engine3": "Dynamic Engine 3",
     "regime_adaptive": "RegimeAdaptive",
     "ml_physics": "ML Physics",
     "aetherflow": "AetherFlow",
     "fib_h1214": "Fibonacci",
+    "h9_gapfade": "H9 GapFade",
 }
 FILTERLESS_LIVE_DISABLED_STRATEGIES = {
     str(value).strip().lower()
@@ -165,6 +167,8 @@ def canonical_strategy_id(raw_strategy: Optional[str]) -> Optional[str]:
         return "aetherflow"
     if normalized.startswith("fibh1214"):
         return "fib_h1214"
+    if normalized.startswith("h9gapfade") or normalized.startswith("h9_gapfade"):
+        return "h9_gapfade"
     return None
 
 
