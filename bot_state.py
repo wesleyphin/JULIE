@@ -81,7 +81,26 @@ def load_bot_state(path: Path = STATE_PATH) -> Dict[str, Any]:
         return {}
 
 
+def _json_default(obj: Any) -> Any:
+    """Coerce numpy scalar / array types to native Python types so json.dumps
+    doesn't choke. Resolves the long-running 'Object of type bool is not JSON
+    serializable' error (numpy.bool_ reproduces this exact message)."""
+    try:
+        import numpy as np
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+    except ImportError:
+        pass
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
 def save_bot_state(state: Dict[str, Any], path: Path = STATE_PATH) -> None:
     tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(state, indent=2, sort_keys=True))
+    tmp_path.write_text(json.dumps(state, indent=2, sort_keys=True, default=_json_default))
     tmp_path.replace(path)
