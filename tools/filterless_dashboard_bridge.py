@@ -448,6 +448,15 @@ def format_system_activity(strategy_id: Optional[str], message: str, details: Op
             return "AetherFlow ready"
         return "AetherFlow ready"
 
+    if strategy_id == "fib_h1214":
+        return "FibH1214 ready"
+
+    if strategy_id == "h9_gapfade":
+        # Fires once at 09:30 ET when |gap| ≥ 0.5%; on quiet days the
+        # strategy is silent — so the "ready" text serves as the dashboard
+        # status update on those days.
+        return "H9 GapFade ready"
+
     head = text.split("|", 1)[0].strip()
     return head or text
 
@@ -1964,6 +1973,34 @@ def build_dashboard_state(
                             logged_at,
                             "SYSTEM",
                             format_system_activity("aetherflow", message),
+                            severity=level,
+                        )
+                    continue
+
+                if "FibH1214Strategy registered" in message:
+                    strategy = dashboard["strategies"].get("fib_h1214")
+                    if strategy is not None:
+                        strategy["status"] = "ready"
+                        strategy["updated_at"] = iso_or_none(logged_at)
+                        set_strategy_activity(
+                            strategy,
+                            logged_at,
+                            "SYSTEM",
+                            format_system_activity("fib_h1214", message),
+                            severity=level,
+                        )
+                    continue
+
+                if "H9GapFadeStrategy registered" in message:
+                    strategy = dashboard["strategies"].get("h9_gapfade")
+                    if strategy is not None:
+                        strategy["status"] = "ready"
+                        strategy["updated_at"] = iso_or_none(logged_at)
+                        set_strategy_activity(
+                            strategy,
+                            logged_at,
+                            "SYSTEM",
+                            format_system_activity("h9_gapfade", message),
                             severity=level,
                         )
                     continue
