@@ -55,7 +55,12 @@ SL_PCT = 0.0040                # 0.40% stop loss
 HORIZON_MIN = 30               # max trade duration
 ENTRY_HOUR_ET = 9
 ENTRY_MINUTE_ET = 30
-FIXED_SIZE = 10                # 10 MES contracts (matches FibH1214)
+# Sized for $50k Topstep ($2k trailing DD). Sized-down simulation:
+#   size=2 + 3-consec-loss circuit  → worst all-time DD $1,396, ann $2,608/yr.
+# Bump up only if your funded-account DD allows: at size=N the all-time DD
+# is N × $958 and the 3-consec-loss circuit caps at N × $698.
+FIXED_SIZE = 2                 # was 10 — sized down for funded-account safety
+CIRCUIT_MAX_CONSEC_LOSSES = 3  # pause after this many consecutive losers
 ARTIFACT_DIR = Path(__file__).resolve().parent / "artifacts" / "h9_gapfade_ml"
 MODEL_PATH = ARTIFACT_DIR / "models.joblib"
 
@@ -118,6 +123,14 @@ class H9GapFadeStrategy:
     # that can be flipped on if the skip-guards are ever removed.
     skip_on_dead_tape: bool = False
     fixed_size: int = FIXED_SIZE
+    # Circuit breaker — funded-account safety. After N consecutive losing
+    # closes the next signal is skipped (and the counter resets). Sized
+    # for the worst stretches the strategy has ever seen (2021-06 to
+    # 2021-10 ran 11 SL-hits in 18 fires; the 3-loss circuit caps that
+    # bleed at $1,396 max DD at size=2).
+    circuit_max_consec_losses: int = CIRCUIT_MAX_CONSEC_LOSSES
+    consecutive_losses: int = 0
+    circuit_skips: int = 0
     last_signal_day: Optional[str] = None
     last_signal_time: Optional[str] = None
     last_block_reason: Optional[str] = None
@@ -350,6 +363,23 @@ class H9GapFadeStrategy:
         if self.last_signal_day == day_key:
             return None  # one signal per day per strategy
 
+        # Circuit breaker: skip the next entry if N consecutive losers piled
+        # up. Resets the counter so the strategy resumes on the SUBSEQUENT
+        # gap-day, not the very next 09:30 bar — buys one day of cool-down.
+        if self.consecutive_losses >= self.circuit_max_consec_losses:
+            self.last_block_reason = (
+                f"circuit_breaker_{self.consecutive_losses}_consec_losses"
+            )
+            self.last_signal_day = day_key  # mark today as "consumed" so we don't retry
+            self.circuit_skips += 1
+            self.consecutive_losses = 0
+            LOG.warning(
+                "H9GapFade: circuit-breaker tripped — skipped today's signal "
+                "after %d consecutive losses (skip #%d)",
+                self.circuit_max_consec_losses, self.circuit_skips,
+            )
+            return None
+
         # Self-gate: skip if dead_tape regime is active. The bot's
         # apply_dead_tape_brackets would rewrite our designed 21/28pt
         # brackets to 3/5pt and force size=1, gutting the edge.
@@ -423,6 +453,9 @@ class H9GapFadeStrategy:
             "use_ml_short": bool(self.use_ml_short),
             "skip_on_dead_tape": bool(self.skip_on_dead_tape),
             "fixed_size": int(self.fixed_size),
+            "circuit_max_consec_losses": int(self.circuit_max_consec_losses),
+            "consecutive_losses": int(self.consecutive_losses),
+            "circuit_skips": int(self.circuit_skips),
             "last_signal_day": self.last_signal_day,
             "last_signal_time": self.last_signal_time,
             "last_block_reason": self.last_block_reason,
@@ -436,6 +469,10 @@ class H9GapFadeStrategy:
         self.use_ml_short = bool(payload.get("use_ml_short", self.use_ml_short))
         self.skip_on_dead_tape = bool(payload.get("skip_on_dead_tape", self.skip_on_dead_tape))
         self.fixed_size = int(payload.get("fixed_size", self.fixed_size))
+        self.circuit_max_consec_losses = int(payload.get(
+            "circuit_max_consec_losses", self.circuit_max_consec_losses))
+        self.consecutive_losses = int(payload.get("consecutive_losses", 0))
+        self.circuit_skips = int(payload.get("circuit_skips", 0))
         self.last_signal_day = payload.get("last_signal_day")
         self.last_signal_time = payload.get("last_signal_time")
         self.last_block_reason = payload.get("last_block_reason")
@@ -443,6 +480,29 @@ class H9GapFadeStrategy:
     def reset_for_new_day(self) -> None:
         self.last_signal_day = None
         self.last_signal_time = None
+        # NOTE: consecutive_losses persists across days (don't reset here).
+        # That's intentional — the 2021 bleed was 4 months of mostly losers.
+        # Day-level reset would defeat the circuit; we want it to count
+        # losers ACROSS days until a winner resets the streak.
 
-    def record_trade_pnl(self, *_args, **_kwargs) -> None:
-        return None
+    def record_trade_pnl(self, _close_time, pnl_dollars) -> None:
+        """Track consecutive losses for the circuit breaker.
+
+        Called by julie001.py on every closed H9GapFade trade. A loss
+        increments the counter; a win or breakeven resets it. The on_bar
+        check then uses the counter at the next 09:30 bar to decide
+        whether to skip.
+        """
+        try:
+            pnl = float(pnl_dollars)
+        except (TypeError, ValueError):
+            return
+        if pnl < 0:
+            self.consecutive_losses += 1
+            LOG.info("H9GapFade: trade loss recorded (consec=%d, threshold=%d)",
+                     self.consecutive_losses, self.circuit_max_consec_losses)
+        else:
+            if self.consecutive_losses > 0:
+                LOG.info("H9GapFade: trade win/flat resets consec_losses (was=%d)",
+                         self.consecutive_losses)
+            self.consecutive_losses = 0
