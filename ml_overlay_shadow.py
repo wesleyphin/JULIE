@@ -846,10 +846,21 @@ def cm_breakout_gate_override_threshold() -> float:
 
 def is_cm_breakout_gate_active() -> bool:
     """When True, the live Kalshi overlay consults the ML gate INSTEAD of
-    the hand-tuned VIX/MNQ rule for override decisions. When False
-    (default), the hand-tuned rule is authoritative and the ML score is
-    only logged for comparison. Flip via JULIE_KALSHI_CM_GATE_ACTIVE=1."""
-    return os.environ.get("JULIE_KALSHI_CM_GATE_ACTIVE", "0").strip() == "1"
+    the hand-tuned VIX/MNQ rule for override decisions. When False, the
+    hand-tuned rule is authoritative and the ML score is only logged.
+
+    2026-05-01: default flipped 0 -> 1. Counterfactual on 251 historical
+    [CM_GATE_ML] events (out of 210 with would_override=True):
+      - hand-tuned rule fired 0 times in the sample (so activating ML is
+        a pure add, not a swap — no overrides are LOST by switching)
+      - 210 ML-only overrides walked forward at default DE3 brackets:
+        72.2% WR, +$3,270 net @ size 1
+      - net new lift after subtracting Fix D overlap (13-14 ET): +$582
+        across 105 trades, with +$997 lift in 11-12 ET and -$415 drag
+        at 15 ET
+    Disable via JULIE_KALSHI_CM_GATE_ACTIVE=0 if the 15 ET drag becomes
+    a problem in live."""
+    return os.environ.get("JULIE_KALSHI_CM_GATE_ACTIVE", "1").strip() == "1"
 
 
 # --- CM-breakout v2: direction-specific models ----------------------
