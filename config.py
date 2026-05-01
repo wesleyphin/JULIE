@@ -5364,3 +5364,20 @@ CONFIG["LOCAL_DE3_KALSHI_HR13_14_BYPASS"] = _env_flag(
     "JULIE_KALSHI_DE3_HR13_14_BYPASS", True
 )
 # === END LOCAL OVERRIDE ===
+
+# === LOCAL OVERRIDE 2026-05-01 — Fix E: dual-path native LONG at hr 13-14 ET ===
+# When V18 blocks a DE3 LONG candidate in ET hours 13-14, fall through to
+# V15's keep decision (native pipeline). Effectively runs native + V18 DE3
+# in parallel in the post-cash-open mean-reversion window.
+#
+# Walk-forward audit on 28 V18-blocked DE3 LONG candidates (4-day window):
+#   default brackets (TP=8.25/SL=10): 100% WR, +$1,144 / 28 trades
+#   T2 brackets (TP=25/SL=10):        100% WR, +$3,121 / 28 trades
+#
+# Default ON. SHORT side NOT included (per user — native fires LONGs only).
+# Disable via env for safe rollback. 100% WR has likely survivor bias from
+# short data window — monitor [V18_DE3 DUAL_PATH] log lines after deploy.
+CONFIG["LOCAL_DE3_DUAL_PATH_HR13_14"] = _env_flag(
+    "JULIE_LOCAL_DE3_DUAL_PATH_HR13_14", True
+)
+# === END LOCAL OVERRIDE ===

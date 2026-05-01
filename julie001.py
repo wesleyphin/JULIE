@@ -1163,6 +1163,49 @@ def v18_should_keep_de3(
     keep = v18_proba >= V18_DE3_THRESHOLD
     if keep:
         return True, f"v18_keep_proba={v18_proba:.4f} thr={V18_DE3_THRESHOLD:.2f}"
+
+    # === LOCAL OVERRIDE 2026-05-01 — Fix E: dual-path native LONG fallback at hr 13-14 ET ===
+    # When V18 blocks BUT V15 said keep AND signal is LONG in ET hours 13-14,
+    # return V15's keep decision instead. Effectively reinstates the native
+    # pre-V18 pipeline as a "second path" alongside V18 in that window.
+    #
+    # Walk-forward audit on 28 historical V18-blocked DE3 LONG candidates in
+    # 10am PT (13 ET) over 4 days of post-V18-deploy data (2026-04-28 →
+    # 2026-05-01, in-log bar series, close-only walk):
+    #   default brackets (TP=8.25/SL=10): 100% WR, +$1,144 / 28 trades
+    #   T2 brackets (TP=25/SL=10):        100% WR, +$3,121 / 28 trades
+    # Hour 14 ET (11am PT): zero V18 blocks observed in sample.
+    #
+    # 100% WR likely has survivor bias — short data window in a single
+    # trending regime. Monitor [V18_DE3 DUAL_PATH] log lines after deploy.
+    # SHORT side excluded by user request — native fires LONG only.
+    #
+    # Rollback (no redeploy): JULIE_LOCAL_DE3_DUAL_PATH_HR13_14=0
+    try:
+        _et_hour_dp = _signal_et_hour(signal)
+        _side_dp = str(signal.get("side", "") or "").upper()
+        if (
+            _et_hour_dp in (13, 14)
+            and _side_dp == "LONG"
+            and _v15_keep
+            and bool(CONFIG.get("LOCAL_DE3_DUAL_PATH_HR13_14", True))
+        ):
+            signal["de3_dual_path_native_applied"] = True
+            signal["de3_dual_path_v18_block_proba"] = float(v18_proba)
+            signal["de3_dual_path_et_hour"] = int(_et_hour_dp)
+            logging.info(
+                "[V18_DE3 DUAL_PATH] strat=DE3 side=LONG hour_et=%d "
+                "v18_block_proba=%.4f → V15 keep allowed (native path) — entry allowed",
+                int(_et_hour_dp), float(v18_proba),
+            )
+            return True, (
+                f"dual_path_v15_keep:v18_blocked_proba={v18_proba:.4f}:"
+                f"hr={_et_hour_dp}:{_v15_reason}"
+            )
+    except Exception:
+        pass
+    # === END LOCAL OVERRIDE ===
+
     return False, f"v18_block_proba={v18_proba:.4f} thr={V18_DE3_THRESHOLD:.2f}"
 # === END LOCAL OVERRIDE ===
 
