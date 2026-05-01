@@ -6628,6 +6628,31 @@ def _check_kalshi_sentiment_exit(
     """
     if not isinstance(trade, dict) or current_time is None:
         return None
+
+    # === LOCAL OVERRIDE 2026-05-01 — FibH1214 exemption from hour-turn exit ===
+    # Today's FibH1214_fib_1000 LONG @ 7263 (size 5) was early-exited at
+    # 15:01:05 ET when Kalshi prob flipped to 0.05 ("crowd flipped bearish").
+    # Within 60s, price reached the original TP (7265.25) and continued to
+    # 7266.25 the next bar — leaving ~$40 of unrealized on the table.
+    #
+    # FibH1214 setups are explicit fib-retracement continuation signals with
+    # designed brackets (TP=2-3pts) and short-to-medium hold horizons. They
+    # don't benefit from intraday Kalshi crowd-flow exit signals: the strategy's
+    # entry is already validated against an 8-bar swing extremum + counter-bar
+    # close confirmation, so a Kalshi flip mid-trade is more likely noise than
+    # genuine reversal in this strategy's regime.
+    #
+    # Hour-turn rule remains active for DE3 / AetherFlow / RegimeAdaptive.
+    # Rollback (no redeploy): JULIE_KALSHI_HOUR_TURN_FIB_DISABLED=0
+    try:
+        if bool(CONFIG.get("LOCAL_KALSHI_HOUR_TURN_FIB_DISABLED", True)):
+            _strat_ht = str(trade.get("strategy", "") or "")
+            if _strat_ht.startswith("FibH1214"):
+                return None
+    except Exception:
+        pass
+    # === END LOCAL OVERRIDE ===
+
     try:
         minute = int(getattr(current_time, "minute", 99))
     except (TypeError, ValueError):

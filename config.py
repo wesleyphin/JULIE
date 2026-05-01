@@ -5381,3 +5381,19 @@ CONFIG["LOCAL_DE3_DUAL_PATH_HR13_14"] = _env_flag(
     "JULIE_LOCAL_DE3_DUAL_PATH_HR13_14", True
 )
 # === END LOCAL OVERRIDE ===
+
+# === LOCAL OVERRIDE 2026-05-01 — FibH1214 exempt from Kalshi hour-turn exit ===
+# Today's FibH1214_fib_1000 LONG (size 5) was early-exited at 15:01:05 ET via
+# Kalshi crowd-flip rule (prob=0.05). Within 60s, price reached TP (7265.25)
+# and continued to 7266.25. Money left on table: ~$40 unrealized.
+#
+# FibH1214 setups have explicit fib-retracement entry validation (8-bar swing
+# extremum + counter-bar close) and designed short brackets. Mid-trade Kalshi
+# noise doesn't add value to this strategy's exit decision.
+#
+# Hour-turn rule still active for DE3 / AetherFlow / RegimeAdaptive.
+# Default ON (FibH1214 exempt). Disable via env to restore prior behavior.
+CONFIG["LOCAL_KALSHI_HOUR_TURN_FIB_DISABLED"] = _env_flag(
+    "JULIE_KALSHI_HOUR_TURN_FIB_DISABLED", True
+)
+# === END LOCAL OVERRIDE ===
