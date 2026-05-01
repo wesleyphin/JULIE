@@ -5345,3 +5345,22 @@ CONFIG["LOCAL_DE3_RECIPE_B_BRACKET_REVERT"] = _env_flag(
     "JULIE_RECIPE_B_BRACKET_REVERT", True
 )
 # === END LOCAL OVERRIDE ===
+
+# === LOCAL OVERRIDE 2026-05-01 — Fix D: Kalshi bypass for DE3 LONG hr 13+14 ET ===
+# Walk-forward audit on 206 historical Kalshi-blocked DE3 LONG candidates
+# in ET hours 13-14 (10-11am PT) over ~3 weeks of bot history:
+#   default brackets:  WR=80% / +$4,951 PnL / +$24/trade
+#   T2 brackets:       WR=70% / +$3,828 PnL / +$19/trade
+# Hour 12 ET deliberately EXCLUDED — Kalshi correctly filters losers there
+# (40% WR / -$1,440 default brackets if unblocked).
+#
+# Bypass: when strategy=DynamicEngine3, side=LONG, et_hour in {13,14},
+# override the Kalshi entry-blocked flag so the trade fires. The Kalshi
+# forward-primary 0.55 score gate is too strict in this window — over-blocks
+# mean-reversion winners after the first NY hour clears.
+#
+# Default ON. Disable via env var for safe rollback without redeploy.
+CONFIG["LOCAL_DE3_KALSHI_HR13_14_BYPASS"] = _env_flag(
+    "JULIE_KALSHI_DE3_HR13_14_BYPASS", True
+)
+# === END LOCAL OVERRIDE ===

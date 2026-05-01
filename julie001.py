@@ -3086,7 +3086,54 @@ def _apply_kalshi_trade_overlay_to_signal(
     if not bool(plan.get("applied", False)):
         return True
 
-    if bool(plan.get("entry_blocked", False)):
+    _plan_entry_blocked = bool(plan.get("entry_blocked", False))
+
+    # === LOCAL OVERRIDE 2026-05-01 — Fix D: Kalshi bypass for DE3 LONG hr 13+14 ET ===
+    # Walk-forward audit on 206 historical Kalshi-blocked DE3 LONG candidates
+    # in hours 13-14 ET (10-11am PT) over ~3 weeks of bot history:
+    #   default brackets:  WR=80% / +$4,951 / +$24/trade
+    #   T2 brackets:       WR=70% / +$3,828 / +$19/trade
+    # Hour 12 ET deliberately EXCLUDED — Kalshi correctly filters losers there
+    # (40% WR / -$1,440 default brackets if unblocked). Hours 13-14 ET are the
+    # mean-reversion regime after the first NY hour clears, where the Kalshi
+    # forward-primary 0.55 gate is too strict against DE3 LONGs.
+    #
+    # Bypass: when strategy=DynamicEngine3, side=LONG, et_hour in {13,14},
+    # override the entry-blocked flag so the trade fires. Telemetry (the PASS
+    # event below) still records the score for post-hoc analysis.
+    #
+    # Rollback (no redeploy): JULIE_KALSHI_DE3_HR13_14_BYPASS=0
+    if _plan_entry_blocked and bool(CONFIG.get("LOCAL_DE3_KALSHI_HR13_14_BYPASS", True)):
+        try:
+            _strat_d = str(signal.get("strategy", "") or "")
+            _side_d = str(signal.get("side", "") or "").upper()
+            _et_hour_d = _signal_et_hour(signal)
+            if (
+                _strat_d.startswith("DynamicEngine3")
+                and _side_d == "LONG"
+                and _et_hour_d in (13, 14)
+            ):
+                signal["kalshi_de3_hr13_14_bypass_applied"] = True
+                signal["kalshi_de3_hr13_14_bypass_score"] = _coerce_float(
+                    signal.get("kalshi_entry_support_score"), math.nan
+                )
+                signal["kalshi_de3_hr13_14_bypass_threshold"] = _coerce_float(
+                    signal.get("kalshi_entry_threshold"), math.nan
+                )
+                signal["kalshi_de3_hr13_14_bypass_hour_et"] = int(_et_hour_d)
+                logging.info(
+                    "[KALSHI_DE3_HR13_14_BYPASS] strat=%s side=LONG hour_et=%d "
+                    "score=%s<thresh=%s overridden — entry allowed",
+                    _strat_d, int(_et_hour_d),
+                    signal.get("kalshi_entry_support_score"),
+                    signal.get("kalshi_entry_threshold"),
+                )
+                _plan_entry_blocked = False  # release the block
+        except Exception:
+            pass
+    # === END LOCAL OVERRIDE ===
+
+    if _plan_entry_blocked:
         event_logger.log_kalshi_entry_view(
             str(signal.get("strategy", "Unknown") or "Unknown"),
             str(signal.get("side", "?") or "?"),
