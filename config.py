@@ -5319,3 +5319,29 @@ CONFIG["LOCAL_DE3_TIER4_SKIP_WHIPSAW"] = _env_flag(
     "JULIE_LOCAL_DE3_TIER4_SKIP_WHIPSAW", True
 )
 # === END LOCAL OVERRIDE ===
+
+# === LOCAL OVERRIDE 2026-04-30 — Recipe B call-order fix + bracket revert ===
+# Bug discovered 2026-04-30: _apply_de3_v18_tiered_size_live (Recipe B) was
+# called from _apply_live_execution_size BEFORE the Kalshi overlay stamped
+# v18_proba on the signal. Audit of live_trade_factors.csv: 0/143 DE3 trades
+# ever had de3_v18_tiered_size stamped — Recipe B never fired in production.
+#
+# Fix A (LOCAL_DE3_RECIPE_B_KALSHI_FIX): re-apply Recipe B sizing inside
+# _apply_kalshi_trade_overlay_to_signal AFTER V18 stamps v18_proba.
+#
+# Fix C (LOCAL_DE3_RECIPE_B_BRACKET_REVERT): when Fix A lifts size to tier
+# >= 4 AND dead-tape clipper had clipped brackets to TP=3/SL=5, restore
+# default DE3 brackets. The +$16k Q1 backtest assumes default brackets;
+# scalp brackets cap tier-10 wins at 1/16th of potential (per julie001.py
+# lines 44-48 / §8.33.16). Per-month replay 2026-01..04 shows trifecta
+# (Fix A + B + C) beats deployed by 5× ($16,794 vs $3,309) with better DD
+# (-$625 vs -$785).
+#
+# Both default ON. Disable via env for safe rollback without redeploy.
+CONFIG["LOCAL_DE3_RECIPE_B_KALSHI_FIX"] = _env_flag(
+    "JULIE_RECIPE_B_KALSHI_FIX", True
+)
+CONFIG["LOCAL_DE3_RECIPE_B_BRACKET_REVERT"] = _env_flag(
+    "JULIE_RECIPE_B_BRACKET_REVERT", True
+)
+# === END LOCAL OVERRIDE ===

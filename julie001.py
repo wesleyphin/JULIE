@@ -2880,6 +2880,87 @@ def _apply_kalshi_trade_overlay_to_signal(
             return False
     # === END LOCAL OVERRIDE ===
 
+    # === LOCAL OVERRIDE 2026-04-30 — Fix A+C: Recipe B sizing + bracket revert ===
+    # Bug discovered 2026-04-30: _apply_de3_v18_tiered_size_live (Recipe B) runs
+    # in _apply_live_execution_size BEFORE this overlay stamps v18_proba on the
+    # signal. Audit of live_trade_factors.csv shows 0/143 DE3 trades had
+    # de3_v18_tiered_size stamped — Recipe B has NEVER fired in production.
+    # Fix A: re-apply Recipe B sizing here, after V18 stashed v18_proba.
+    #
+    # Fix C (bracket revert): when V18 keep lifts size to tier >= 4 AND
+    # dead-tape clipper had clipped brackets to TP=3/SL=5, restore default DE3
+    # brackets. The +$16k Q1 backtest assumes default brackets — scalp
+    # caps tier-10 wins at 1/16th of potential (per julie001.py:44-48 /
+    # §8.33.16). Per-month replay 2026-01..04 shows trifecta beats deployed
+    # by 5× ($16,794 vs $3,309) with better DD (-$625 vs -$785).
+    #
+    # Rollback (no redeploy): JULIE_RECIPE_B_KALSHI_FIX=0 disables size lift,
+    #                         JULIE_RECIPE_B_BRACKET_REVERT=0 disables bracket revert.
+    if (
+        _strat.startswith("DynamicEngine3")
+        and signal.get("v18_proba") is not None
+        and signal.get("de3_gate_model") == "V18_DE3"
+        and bool(CONFIG.get("LOCAL_DE3_RECIPE_B_KALSHI_FIX", True))
+    ):
+        try:
+            _v18p = float(signal["v18_proba"])
+            _regime = None
+            if bool(CONFIG.get("LOCAL_DE3_RECIPE_B_REGIME_AWARE", True)):
+                try:
+                    from regime_classifier import current_regime as _cur_regime
+                    _regime = _cur_regime()
+                except Exception:
+                    _regime = None
+            _tiered = de3_size_from_v18_proba(_v18p, regime=_regime)
+            if _tiered is not None and int(_tiered) > 0:
+                _old_size = int(signal.get("size", 1) or 1)
+                if int(_tiered) != _old_size:
+                    signal["size"] = int(_tiered)
+                    signal["de3_v18_recipe_b_kalshi_applied"] = True
+                    signal["de3_v18_recipe_b_size_before"] = int(_old_size)
+                    signal["de3_v18_recipe_b_size_after"] = int(_tiered)
+                    if _regime is not None:
+                        signal["de3_v18_recipe_b_regime"] = str(_regime)
+                    logging.info(
+                        "[V18_DE3 RECIPE_B] strat=%s side=%s proba=%.4f "
+                        "size %d->%d regime=%s",
+                        _strat, signal.get("side", "?"), _v18p,
+                        _old_size, int(_tiered), _regime or "?",
+                    )
+                # Fix C: bracket revert when Recipe B lifts to tier >= 4.
+                if (
+                    int(_tiered) >= 4
+                    and signal.get("dead_tape_regime_active") is True
+                    and bool(CONFIG.get("LOCAL_DE3_RECIPE_B_BRACKET_REVERT", True))
+                ):
+                    _orig_tp = signal.get("dead_tape_original_tp_dist")
+                    _orig_sl = signal.get("dead_tape_original_sl_dist")
+                    if _orig_tp is not None and _orig_sl is not None:
+                        _scalp_tp = signal.get("tp_dist")
+                        _scalp_sl = signal.get("sl_dist")
+                        try:
+                            signal["tp_dist"] = float(_orig_tp)
+                            signal["sl_dist"] = float(_orig_sl)
+                            signal["de3_v18_bracket_revert_applied"] = True
+                            signal["de3_v18_bracket_revert_scalp_tp"] = (
+                                float(_scalp_tp) if _scalp_tp is not None else None
+                            )
+                            signal["de3_v18_bracket_revert_scalp_sl"] = (
+                                float(_scalp_sl) if _scalp_sl is not None else None
+                            )
+                            logging.info(
+                                "[V18_DE3 BRACKET_REVERT] strat=%s side=%s "
+                                "tp %s->%s sl %s->%s (tier %d)",
+                                _strat, signal.get("side", "?"),
+                                _scalp_tp, _orig_tp, _scalp_sl, _orig_sl,
+                                int(_tiered),
+                            )
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+    # === END LOCAL OVERRIDE ===
+
     signal.setdefault("entry_price", _coerce_float(signal.get("entry_price"), current_price))
     kalshi = _get_kalshi_provider()
 
@@ -9523,6 +9604,55 @@ async def run_bot():
             int(_coerce_int((CONFIG.get("KALSHI", {}) or {}).get("cache_ttl"), 120) or 120) // 2,
         )
         kalshi_updater = asyncio.create_task(kalshi_refresh_task(kalshi_provider, interval=kalshi_interval))
+
+    # === LOCAL OVERRIDE 2026-04-30 — Fix B: Kronos pre-warm thread ===
+    # Kronos daemon was lazy-spawned on the first V18 candidate, which meant
+    # morning DE3 fires (often 05:00-09:00 PT) blocked the bot for 3-90s
+    # waiting for "ready", or fell through to V15 fallback when Kronos was
+    # slow. Audit shows daemon ready times of 05:16 (today), 09:02 (Apr 29),
+    # 09:47 (Apr 28) — most morning fires got V15 fallback (no v18_proba,
+    # no Recipe B). Pre-warm Kronos in a background thread at startup so V18
+    # is ready by the time the first DE3 signal arrives. Failures are
+    # non-fatal — lazy-spawn path still works as a fallback.
+    #
+    # Rollback (no redeploy): JULIE_KRONOS_PREWARM=0
+    if (
+        bool(CONFIG.get("LOCAL_DE3_USE_V18", False))
+        and str(os.environ.get("JULIE_KRONOS_PREWARM", "1")).strip()
+            not in ("0", "false", "False")
+    ):
+        try:
+            import threading as _kronos_prewarm_threading
+            def _kronos_prewarm():
+                t0 = time.time()
+                try:
+                    proc = _ensure_kronos_daemon()
+                    elapsed = time.time() - t0
+                    if proc is not None:
+                        logging.info(
+                            "[KRONOS_PREWARM] daemon ready in %.2fs (background)",
+                            elapsed,
+                        )
+                    else:
+                        logging.warning(
+                            "[KRONOS_PREWARM] daemon spawn failed after %.2fs; "
+                            "lazy-spawn will retry on first V18 candidate",
+                            elapsed,
+                        )
+                except Exception as _kp_e:
+                    logging.warning("[KRONOS_PREWARM] error: %s", _kp_e)
+            _kronos_prewarm_threading.Thread(
+                target=_kronos_prewarm,
+                name="kronos-prewarm",
+                daemon=True,
+            ).start()
+            logging.info("[KRONOS_PREWARM] background thread started")
+        except Exception as _kp_outer_e:
+            logging.warning(
+                "[KRONOS_PREWARM] thread setup failed (non-fatal): %s",
+                _kp_outer_e,
+            )
+    # === END LOCAL OVERRIDE ===
 
     # === TRACKING VARIABLES ===
     # Position sync now handled by independent async task - removed manual tracking
