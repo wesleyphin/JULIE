@@ -3564,6 +3564,26 @@ function FilterlessLiveCockpit() {
   }, []);
   const [pollingPaused, setPollingPaused] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  // Bouncing-heads easter-egg toggle — persists to localStorage. Default ON
+  // to preserve the existing behavior; Command page exposes the toggle so
+  // operators can quiet the dashboard when they want a clean view.
+  const BOUNCING_HEADS_KEY = 'julie001.cockpit.bouncingHeads';
+  const [bouncingHeadsEnabled, setBouncingHeadsEnabled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    try {
+      const stored = window.localStorage.getItem(BOUNCING_HEADS_KEY);
+      if (stored === '0' || stored === 'false') return false;
+      return true; // default ON
+    } catch {
+      return true;
+    }
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(BOUNCING_HEADS_KEY, bouncingHeadsEnabled ? '1' : '0');
+    } catch { /* private mode / quota — ignore */ }
+  }, [bouncingHeadsEnabled]);
   const [controlStatus, setControlStatus] = useState<OperatorControlStatus | null>(null);
   const [controlError, setControlError] = useState<string | null>(null);
   const [controlMessage, setControlMessage] = useState<string | null>(null);
@@ -4914,6 +4934,18 @@ function FilterlessLiveCockpit() {
               <small className="truncate">state, risk, gates, events</small>
               <Badge tone="info">journal</Badge>
             </button>
+            <button
+              className="command-tile control-tile"
+              type="button"
+              onClick={() => setBouncingHeadsEnabled((value) => !value)}
+              aria-pressed={bouncingHeadsEnabled}
+            >
+              <strong className="truncate">Bouncing Heads</strong>
+              <small className="truncate">{bouncingHeadsEnabled ? 'easter-egg active' : 'hidden'}</small>
+              <Badge tone={bouncingHeadsEnabled ? 'live' : 'info'}>
+                {bouncingHeadsEnabled ? 'on' : 'off'}
+              </Badge>
+            </button>
             <button className="command-tile control-tile" type="button" onClick={() => setActiveScreen('docs')}>
               <strong className="truncate">Documentation</strong>
               <small className="truncate">README.pdf · architecture + recent changes</small>
@@ -5098,7 +5130,7 @@ function FilterlessLiveCockpit() {
           {renderScreen()}
         </main>
       </div>
-      <BouncingHead />
+      {bouncingHeadsEnabled ? <BouncingHead /> : null}
     </div>
   );
 }
