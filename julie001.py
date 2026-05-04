@@ -123,6 +123,7 @@ from ml_physics_strategy import MLPhysicsStrategy
 from dynamic_engine3_strategy import DynamicEngine3Strategy
 from fib_h1214_strategy import FibH1214Strategy
 from h9_gapfade_strategy import H9GapFadeStrategy
+from stdev_ml_strategy import StdevMlStrategy
 from dynamic_signal_engine3 import get_signal_engine
 from volume_profile import build_volume_profile
 from event_logger import event_logger
@@ -1392,6 +1393,8 @@ def _signal_birth_hook(signal):
         else:
             # Capture intended size before the wrapper potentially cuts it.
             _orig_size = signal.get("size") if isinstance(signal, dict) else None
+            _orig_tp = signal.get("tp_dist") if isinstance(signal, dict) else None
+            _orig_sl = signal.get("sl_dist") if isinstance(signal, dict) else None
             _apply_dead_tape_brackets(signal)
             # FibH1214 size-skip-guard: keep TP/SL/BE edits, restore size.
             # FibH1214 ships size=10 (rolling adaptive); dead-tape→1 was
@@ -1405,6 +1408,33 @@ def _signal_birth_hook(signal):
                     "FibH1214 size-skip-guard: dead-tape size→1 reverted to %d",
                     int(_orig_size),
                 )
+            # StdevMl bracket-skip-guard: restore TP/SL (and size if shrunk).
+            # StdevMl ships ATR-scaled brackets (TP=1.5×ATR, SL=1.0×ATR with
+            # 8/5-pt floors) tuned to the model's training distribution.
+            # Dead-tape stomping to TP=3/SL=5 cuts the strategy's edge below
+            # breakeven before any trade fires (observed 2026-05-04 PT 08:29).
+            elif (_strat_name.startswith("stdevml") and isinstance(signal, dict)):
+                _restored: list[str] = []
+                if signal.get("size_reduced_to_1") and _orig_size:
+                    signal["size"] = int(_orig_size)
+                    _restored.append(f"size→{int(_orig_size)}")
+                if (_orig_tp is not None
+                        and isinstance(signal.get("tp_dist"), (int, float))
+                        and abs(float(signal["tp_dist"]) - float(_orig_tp)) > 1e-9):
+                    signal["tp_dist"] = float(_orig_tp)
+                    _restored.append(f"tp→{float(_orig_tp):.2f}")
+                if (_orig_sl is not None
+                        and isinstance(signal.get("sl_dist"), (int, float))
+                        and abs(float(signal["sl_dist"]) - float(_orig_sl)) > 1e-9):
+                    signal["sl_dist"] = float(_orig_sl)
+                    _restored.append(f"sl→{float(_orig_sl):.2f}")
+                if _restored:
+                    signal["dead_tape_skip_guard_applied"] = True
+                    signal["dead_tape_skip_guard_reason"] = "stdevml_designed_brackets"
+                    logging.info(
+                        "StdevMl dead-tape skip-guard: %s",
+                        ", ".join(_restored),
+                    )
     except Exception:
         pass
     # === LOCAL OVERRIDE — NY-AM Long_Rev BE-always-on bypass ===
@@ -3423,7 +3453,14 @@ def _apply_kalshi_trade_overlay_to_signal(
     if math.isfinite(adjusted_tp) and adjusted_tp > 0.0 and math.isfinite(old_tp):
         signal["kalshi_tp_target_price"] = plan.get("target_price")
         signal["kalshi_tp_adjusted"] = bool(plan.get("tp_adjusted", False))
-        if bool(plan.get("tp_adjusted", False)) and abs(old_tp - adjusted_tp) > 1e-9:
+        # StdevMl exemption: model was trained on ATR-scaled brackets (TP=1.5×ATR
+        # with an 8-pt floor). Kalshi nearest-fade fallback was stomping TP from
+        # 3.00→2.00-2.25 — below the strategy's design floor — gutting expected
+        # value before any order fired (observed 2026-05-04 PT 08:29-08:31).
+        _kalshi_tp_strat = str(signal.get("strategy", "") or "").lower()
+        _kalshi_tp_exempt = _kalshi_tp_strat.startswith("stdevml")
+        if (bool(plan.get("tp_adjusted", False)) and abs(old_tp - adjusted_tp) > 1e-9
+                and not _kalshi_tp_exempt):
             signal["tp_dist"] = float(adjusted_tp)
             event_logger.log_kalshi_tp_adjust(
                 str(signal.get("strategy", "Unknown") or "Unknown"),
@@ -3445,6 +3482,16 @@ def _apply_kalshi_trade_overlay_to_signal(
                 signal.get("kalshi_tp_anchor_price"),
                 signal.get("kalshi_entry_probability"),
                 signal.get("kalshi_entry_support_score"),
+            )
+        elif (_kalshi_tp_exempt and bool(plan.get("tp_adjusted", False))
+                and abs(old_tp - adjusted_tp) > 1e-9):
+            signal["kalshi_tp_overlay_skip_guard_applied"] = True
+            logging.info(
+                "Kalshi TP overlay skip-guard: %s %s | preserved tp=%.2f (would have been %.2f)",
+                signal.get("strategy", "Unknown"),
+                signal.get("side", "?"),
+                float(old_tp),
+                float(adjusted_tp),
             )
 
     # Pct overlay used to chain here; Option B handles it via snapshot at
@@ -9279,6 +9326,29 @@ async def run_bot():
                      "skip-on-dead-tape self-gate)")
     else:
         logging.info("H9GapFadeStrategy skipped during live startup because it is disabled in filterless mode")
+
+    # σ-ML Strategy (ET 11:00-12:00 window, 60-min horizon, ATR×1.5 TP / ATR×1.0 SL,
+    # threshold 0.75, LONG+SHORT combined model from iter12). See SHIP_NOTES.md.
+    # Self-gates: returns None outside the ET 11-12 window; needs ≥4,800 bars warmup
+    # before the cross-sectional time-of-day features are populated.
+    stdev_ml_filterless_disabled = filterless_only_mode and "stdev_ml" in filterless_disabled
+    stdev_ml_strategy = None
+    if not stdev_ml_filterless_disabled:
+        try:
+            stdev_ml_strategy = StdevMlStrategy()
+            if stdev_ml_strategy.long_model is not None and stdev_ml_strategy.short_model is not None:
+                standard_strategies.append(stdev_ml_strategy)
+                logging.info("StdevMlStrategy registered (ET 11-12 window, ATR×1.5/1.0 brackets, "
+                             "thr=0.75, 60min horizon, LONG+SHORT combined)")
+            else:
+                logging.warning("⚠️ StdevMlStrategy skipped — model artifacts failed to load (check "
+                                "artifacts/stdev_ml_hr11_12/iter12_both_sides/iter12_1.5_1.0_{L,S}.pkl)")
+                stdev_ml_strategy = None
+        except Exception as exc:
+            logging.error("StdevMlStrategy init failed: %s — strategy disabled for this run", exc)
+            stdev_ml_strategy = None
+    else:
+        logging.info("StdevMlStrategy skipped during live startup because it is disabled in filterless mode")
 
     manifold_cfg = CONFIG.get("MANIFOLD_STRATEGY", {}) or {}
     if bool(manifold_cfg.get("enabled_live", False)):
