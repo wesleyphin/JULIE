@@ -64,6 +64,9 @@ models/
 !artifacts/signal_gate_2025/model_pivot_trail.joblib
 !artifacts/signal_gate_2025/model_kalshi_gate.joblib
 !artifacts/signal_gate_2025/model_kalshi_tp_gate.joblib
+# StdevMl live production models (loaded by stdev_ml_strategy.py:38)
+!artifacts/stdev_ml_hr11_12/iter12_both_sides/iter12_1.5_1.0_L.pkl
+!artifacts/stdev_ml_hr11_12/iter12_both_sides/iter12_1.5_1.0_S.pkl
 # RL trade-management policy (sb3 .zip; whitelist below)
 artifacts/signal_gate_2025/model_rl_management.zip
 !artifacts/signal_gate_2025/model_rl_management.zip
