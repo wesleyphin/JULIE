@@ -2500,41 +2500,77 @@ class ProjectXClient:
         prefer_order_id: Optional[int],
         settle_delay_sec: float = 0.35,
     ) -> Optional[int]:
-        stop_orders = self._list_open_stop_orders(side, expected_size=expected_size, force_refresh=True)
+        stop_orders = self._list_open_stop_orders(side, expected_size=None, force_refresh=True)
         if not stop_orders:
             return None
 
-        preferred = self._pick_preferred_stop_order(
-            stop_orders,
-            expected_price=expected_price,
-            prefer_order_id=prefer_order_id,
-        )
-        keep_order_id = self._coerce_int(preferred.get("orderId"), None) if isinstance(preferred, dict) else None
-        duplicate_orders = [
-            order for order in stop_orders
-            if self._coerce_int(order.get("orderId"), None) != keep_order_id
-        ]
-        if duplicate_orders:
+        # SIZE-AWARE CLEANUP — fix for naked-leg bug observed 2026-05-05 05:27 PT.
+        # Old logic kept exactly ONE stop and cancelled all others as "duplicates",
+        # which broke when a multi-leg position (e.g. size=2 from two separate
+        # entries) had two legitimate stops, each protecting one leg. Cancelling
+        # one left the surviving leg naked.
+        #
+        # New logic: walk stops in preference order and keep them until cumulative
+        # size meets the position size; only excess (over-protection) gets cancelled.
+        # Falls back to keep-one-cancel-rest when expected_size is unknown so behavior
+        # is unchanged for the single-leg / size=1 case.
+        position_size = self._coerce_int(expected_size, None)
+        expected_price_val = self._coerce_float(expected_price, None)
+
+        def _stop_pref_key(order: Dict) -> Tuple[float, int, int]:
+            order_id = self._coerce_int(order.get("orderId"), None) or 0
+            stop_price = self._extract_order_stop_price(order)
+            if expected_price_val is not None and stop_price is not None:
+                price_distance = abs(float(stop_price) - float(expected_price_val))
+            elif expected_price_val is None:
+                price_distance = 0.0
+            else:
+                price_distance = 1e9
+            prefer_penalty = 0 if (prefer_order_id is not None and order_id == prefer_order_id) else 1
+            freshness_penalty = -order_id  # newer order_ids → higher → more preferred
+            return (float(price_distance), int(prefer_penalty), int(freshness_penalty))
+
+        sorted_stops = sorted(stop_orders, key=_stop_pref_key)
+
+        to_keep: List[Dict] = []
+        to_cancel: List[Dict] = []
+        if position_size and position_size > 0:
+            total_kept_size = 0
+            for order in sorted_stops:
+                order_size = self._coerce_int(order.get("size"), 0) or 0
+                if total_kept_size < position_size:
+                    to_keep.append(order)
+                    total_kept_size += order_size
+                else:
+                    to_cancel.append(order)
+        else:
+            # Unknown position size — preserve old "keep one, cancel rest" behavior
+            if sorted_stops:
+                to_keep = [sorted_stops[0]]
+                to_cancel = list(sorted_stops[1:])
+
+        if to_cancel:
             logging.warning(
-                "Detected %s open stop orders for %s; keeping %s and cancelling %s duplicate(s).",
+                "Detected %s open stop orders for %s (position_size=%s); keeping %s order(s) "
+                "covering %s contract(s), cancelling %s excess.",
                 len(stop_orders),
                 str(side or "").strip().upper(),
-                keep_order_id,
-                len(duplicate_orders),
+                position_size if position_size else "unknown",
+                len(to_keep),
+                sum((self._coerce_int(o.get("size"), 0) or 0) for o in to_keep),
+                len(to_cancel),
             )
             self._cancel_order_rows(
-                duplicate_orders,
-                reason="duplicate stop cleanup",
+                to_cancel,
+                reason="duplicate stop cleanup (excess coverage)",
                 settle_delay_sec=settle_delay_sec,
             )
-            stop_orders = self._list_open_stop_orders(side, expected_size=expected_size, force_refresh=True)
-            preferred = self._pick_preferred_stop_order(
-                stop_orders,
-                expected_price=expected_price,
-                prefer_order_id=keep_order_id,
-            )
-            keep_order_id = self._coerce_int(preferred.get("orderId"), None) if isinstance(preferred, dict) else None
+            stop_orders = self._list_open_stop_orders(side, expected_size=None, force_refresh=True)
+            sorted_stops = sorted(stop_orders, key=_stop_pref_key) if stop_orders else []
+            to_keep = sorted_stops[:max(1, len(to_keep))] if sorted_stops else []
 
+        preferred = to_keep[0] if to_keep else None
+        keep_order_id = self._coerce_int(preferred.get("orderId"), None) if isinstance(preferred, dict) else None
         if keep_order_id is not None:
             self._active_stop_order_id = keep_order_id
         return keep_order_id

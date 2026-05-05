@@ -10989,6 +10989,60 @@ async def run_bot():
             float(_coerce_float(restored_trade.get("entry_price"), 0.0) or 0.0),
             restored_trade.get("strategy", "RestoredLivePosition"),
         )
+
+        # ORPHAN-POSITION EMERGENCY STOP — fix for naked-position bug observed
+        # 2026-05-05 05:27 PT. After the duplicate-stop cleanup cancelled both
+        # legs' protective stops, the surviving 1-contract position had no
+        # stop_order_id and no current_stop_price, leaving the bot tracking a
+        # naked exposure for 46 minutes. The size-aware cleanup in client.py
+        # is the root-cause fix; this is the safety net for any remaining edge
+        # case (manual UI entry, stale state on restart with broker-side
+        # position but no stop, etc.).
+        try:
+            entry_price = float(_coerce_float(restored_trade.get("entry_price"), None) or 0.0)
+            has_stop = (restored_trade.get("stop_order_id") is not None
+                        or restored_trade.get("current_stop_price") is not None)
+            broker_size_int = int(broker_size or 0)
+            if (not has_stop and entry_price > 0 and broker_size_int > 0
+                    and broker_side in ("LONG", "SHORT")):
+                emergency_stop_pts = float(
+                    CONFIG.get("ORPHAN_POSITION_EMERGENCY_STOP_PTS", 10.0) or 10.0
+                )
+                if broker_side == "LONG":
+                    emergency_stop = round((entry_price - emergency_stop_pts) * 4) / 4
+                else:
+                    emergency_stop = round((entry_price + emergency_stop_pts) * 4) / 4
+                if hasattr(client, "_place_breakeven_stop"):
+                    placed_ok = client._place_breakeven_stop(
+                        emergency_stop, broker_side, broker_size_int,
+                    )
+                    if placed_ok:
+                        new_stop_id = getattr(client, "_active_stop_order_id", None)
+                        restored_trade["stop_order_id"] = new_stop_id
+                        restored_trade["current_stop_price"] = float(emergency_stop)
+                        restored_trade["orphan_emergency_stop_applied"] = True
+                        logging.warning(
+                            "Emergency stop placed on orphan position: %s %s @ %.2f, "
+                            "stop=%.2f (%.1f pts away), order_id=%s",
+                            broker_side, broker_size_int, entry_price,
+                            emergency_stop, emergency_stop_pts, new_stop_id,
+                        )
+                    else:
+                        logging.error(
+                            "ORPHAN POSITION HAS NO STOP — emergency stop placement failed. "
+                            "Manual intervention needed: %s %s @ %.2f. "
+                            "Set CONFIG[ORPHAN_POSITION_EMERGENCY_STOP_PTS] or close manually.",
+                            broker_side, broker_size_int, entry_price,
+                        )
+                else:
+                    logging.error(
+                        "ORPHAN POSITION HAS NO STOP — client lacks _place_breakeven_stop "
+                        "method. Manual intervention needed: %s %s @ %.2f.",
+                        broker_side, broker_size_int, entry_price,
+                    )
+        except Exception as exc:
+            logging.error("Orphan emergency stop placement raised: %s", exc)
+
         return True
 
     def infer_live_de3_management_close_reason(
