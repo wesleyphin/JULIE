@@ -3834,6 +3834,31 @@ def _allow_same_side_parallel_entry(
         return False
     primary_family = _live_strategy_family_name(primary_trade.get("strategy"))
     signal_family = _live_strategy_family_name(signal.get("strategy"))
+
+    # DE3-stacking expansion (added 2026-05-05, user-confirmed).
+    # DE3 has already cleared its upstream gates (V18 stacker @ thr 0.60,
+    # Recipe B sizing, Option 4b regime-aware tier-4, friend's per-cell rule,
+    # V17 RA gate, NY-AM bypass for the 2 long_rev subs). If all of those
+    # green-lit a DE3 signal, the trade is high-conviction; same-side
+    # stacking should not be blocked by the single-position rule on either
+    # side of the pairing.
+    #
+    # Symmetric for DE3 paired with non-DE3:
+    #   • Incoming DE3 + any non-DE3 primary  → allow (DE3 high-conviction stacker)
+    #   • DE3 primary + any non-DE3 incoming  → allow (incoming stacks on V18-DE3)
+    #
+    # DE3+DE3 still routes through SameSide ML below — same-side same-strat
+    # has its own ship-tested gate. This expansion does not change that.
+    #
+    # Risk note: max simultaneous exposure rises from 1 contract to 2 (primary
+    # leg + stacker leg). Both legs hit SL → ~2× worst-case. Mitigated by
+    # DE3's V18/RecipeB/Option 4b filter cascade plus each strategy's own
+    # bracket discipline.
+    if signal_family == "de3" and primary_family != "de3":
+        return True
+    if primary_family == "de3" and signal_family != "de3":
+        return True
+
     if primary_family == "de3":
         if signal_family in {"regimeadaptive", "aetherflow"}:
             return True

@@ -6311,3 +6311,105 @@ Hour-turn rule **remains active for DE3 / AetherFlow / RegimeAdaptive**.
 - `julie001.py` (+25)
 - This journal section (§8.33.23)
 
+
+### 8.33.24 — DE3 stacking expansion: V18-DE3 ⇄ any non-DE3 strategy
+
+*Added 2026-05-05.* Operator-confirmed expansion of
+`_allow_same_side_parallel_entry` (`julie001.py:3826`). DE3 same-side
+stacking is now allowed against ANY non-DE3 primary in either direction:
+
+  • Incoming DE3 + non-DE3 primary  → allow
+  • DE3 primary + non-DE3 incoming  → allow
+
+Pre-change behavior (per §8.x stacking gate):
+
+| Primary | Incoming | Old result | New result |
+|---|---|---|---|
+| DE3 | RA | True | unchanged |
+| DE3 | AetherFlow | True | unchanged |
+| DE3 | FibH1214 / H9GapFade / StdevMl / etc. | **False** | **True** ← NEW |
+| RA / AF / FibH1214 / H9GapFade / StdevMl | DE3 | **False** | **True** ← NEW |
+| DE3 | DE3 | SameSide ML | unchanged |
+| RA | RA | SameSide ML | unchanged |
+| AF | AF | up to max_legs | unchanged |
+| All other pairs | — | False | unchanged |
+
+#### Motivation
+
+DE3 trades that reach this gate have already passed:
+
+  - V18 stacker @ thr 0.60 (§8.33.13)
+  - Recipe B 10/4/1 sizing (§8.33.10)
+  - Option 4b regime-aware tier-4 + whipsaw skip (§8.33.12)
+  - V17 RA gate (julie001.py:159, only relevant for RA)
+  - Friend's per-cell rule (§8.14)
+  - NY-AM bypass for the 2 long_rev subs (§8.33.17)
+
+By the time a DE3 signal reaches `_allow_same_side_parallel_entry`, it
+has already cleared every conviction gate the bot has. Pre-change, the
+single-position rule was over-blocking these high-conviction trades on
+days when another strategy happened to hold a position first
+(observed live 2026-05-05 PT 10:17-10:18: DE3 LONGs blocked while
+FibH1214 was open).
+
+#### Live evidence today
+
+Per `topstep_live_bot.log` post-restart 06:47 PT:
+
+  10:11 PT  FibH1214_fib_236 LONG @ 7281.50 placed (size=4)
+  10:17 PT  DE3 LONG @ 7283.50 candidate
+            → "Ignoring same-side signal while LONG already active"
+            → blocked by single-position
+  10:18 PT  DE3 LONG @ 7283.25 candidate → same block
+  10:18:22  FibH1214 closes at TP 7284.50 → +$62.52 ✓
+  10:19+    DE3 LONGs resume (blocked thereafter by V18, not single-pos)
+
+The 10:17 + 10:18 candidates would have been allowed under the new
+rule. V18 was not a constraint there (would have evaluated normally).
+
+#### Implementation
+
+Two early-return branches added in `_allow_same_side_parallel_entry`,
+BEFORE the existing primary_family-based dispatch:
+
+```python
+if signal_family == "de3" and primary_family != "de3":
+    return True
+if primary_family == "de3" and signal_family != "de3":
+    return True
+```
+
+DE3+DE3 same-side path is unchanged — it still routes through
+SameSide ML (`_sameside_ml_allows_stack`) for the existing thr=0.50
+ship-tested gate.
+
+#### Risk / caveats
+
+1. **Max simultaneous exposure rises from 1 to 2 contracts.** Both
+   legs hit SL in the worst case → ~2× SL distance combined loss.
+   Mitigated by DE3's filter cascade (each leg has independent V18 +
+   Option 4b gating) plus each strategy's own bracket discipline.
+
+2. **No env-flag rollback wired (yet).** To revert without a code
+   change you'd need to add `JULIE_LOCAL_DE3_STACK_NON_DE3_ENABLED`.
+   For now, rollback = `git revert <sha>` and restart.
+
+3. **Doesn't change DE3+DE3 stacking.** SameSide ML still gates
+   that case at thr=0.50 per §8.x SameSide ML ship.
+
+4. **Bracket-cleanup interaction.** §8.33.25 (companion fix) corrected
+   the size-aware bracket cleanup so a 2-contract stacked position
+   keeps both legs' protective stops. Without that fix, this
+   expansion would have a higher naked-leg exposure rate.
+
+#### Rollback
+
+`git revert <this commit>` and restart bot. Or temporarily disable by
+forcing `signal_family == "de3" and primary_family != "de3"` to return
+False at the function entry.
+
+#### Files
+
+- `julie001.py` (+~30 lines: 2 new early-return branches + comment block)
+- This journal section (§8.33.24)
+
