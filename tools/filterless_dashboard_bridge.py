@@ -50,7 +50,7 @@ MES_ROUND_TURN_FEE = round(
 )
 
 STRATEGY_ORDER = ["dynamic_engine3", "regime_adaptive", "ml_physics",
-                  "aetherflow", "fib_h1214", "h9_gapfade"]
+                  "aetherflow", "fib_h1214", "h9_gapfade", "stdev_ml"]
 STRATEGY_LABELS = {
     "dynamic_engine3": "Dynamic Engine 3",
     "regime_adaptive": "RegimeAdaptive",
@@ -58,6 +58,7 @@ STRATEGY_LABELS = {
     "aetherflow": "AetherFlow",
     "fib_h1214": "Fibonacci",
     "h9_gapfade": "H9 GapFade",
+    "stdev_ml": "Stdev ML",
 }
 FILTERLESS_LIVE_DISABLED_STRATEGIES = {
     str(value).strip().lower()
@@ -2101,6 +2102,40 @@ def path_signature(paths: Iterable[Path]) -> tuple[tuple[str, Optional[int], Opt
     return tuple(signature)
 
 
+def journal_dir_signature() -> tuple[tuple[str, Optional[int], Optional[int]], ...]:
+    """Signature of every dated EOD journal file + the dir's own mtime.
+
+    The directory's mtime catches NEW journal files (when one is written for
+    today's session, the dir's mtime advances). Per-file signatures catch
+    in-place updates of an existing day's journal (mid-day refreshes).
+
+    Without this watch, the bridge's run_follow loop only re-runs when one of
+    [log, bot_state, trade_factors, kalshi] changes — meaning a fresh journal
+    write goes unnoticed and the dashboard's Daily Summary panel goes stale.
+    """
+    if not _JOURNAL_DIR.exists():
+        return tuple()
+    sig: list = []
+    try:
+        dstat = _JOURNAL_DIR.stat()
+        sig.append((str(_JOURNAL_DIR), dstat.st_mtime_ns, None))
+    except OSError:
+        return tuple()
+    try:
+        children = sorted(
+            (p for p in _JOURNAL_DIR.glob("*.json") if not p.name.startswith("backtest_")),
+        )
+    except OSError:
+        children = []
+    for child in children:
+        try:
+            cs = child.stat()
+            sig.append((str(child), cs.st_mtime_ns, cs.st_size))
+        except OSError:
+            continue
+    return tuple(sig)
+
+
 def run_once(args: argparse.Namespace) -> None:
     dashboard = build_dashboard_state(
         log_path=args.log_path,
@@ -2121,9 +2156,12 @@ def run_once(args: argparse.Namespace) -> None:
 
 def run_follow(args: argparse.Namespace) -> None:
     watched = [args.log_path, args.state_path, args.trade_factors_path, args.kalshi_snapshot_path]
-    last_seen: Optional[tuple[tuple[str, Optional[int], Optional[int]], ...]] = None
+    last_seen: Optional[tuple] = None
     while True:
-        current = path_signature(watched)
+        # Combine the file-watch list with the journal-dir signature so a fresh
+        # EOD journal write triggers a rebuild even on otherwise quiet sessions
+        # (no new log lines / no bot_state churn).
+        current = path_signature(watched) + journal_dir_signature()
         if current != last_seen:
             run_once(args)
             last_seen = current

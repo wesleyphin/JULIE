@@ -5928,3 +5928,386 @@ Per backtest analysis on the 84 hour-8 trades:
 - `julie001.py` (+101 lines: constants, helpers, 3 bypass branches)
 - This journal section (§8.33.17)
 
+### 8.33.18 — bot_state JSON serializer fix (cad1db3)
+
+*Added 2026-05-03.* Resolves silent state-save failures triggered by
+non-native types (`bool`, `numpy.bool_`, `numpy.int64`, etc.) leaking into
+the bot-state dict. Logs were emitting **2,377 "Object of type bool is
+not JSON serializable" errors** on 2026-04-30 alone, each one masking a
+state-save no-op.
+
+#### Root cause
+
+`bot_state.py:save()` called `json.dumps(state, indent=2)` with no
+custom default handler. When upstream code (overlays, ML wrappers, Kalshi
+client) wrote `np.bool_` or `np.int64` into the state dict — usually via
+`.tolist()` or pandas truthiness checks — the dump raised `TypeError`,
+the save aborted, and the exception was caught and logged but state stayed
+on the previous tick's snapshot.
+
+Sustained over hours, this means downstream consumers (dashboard bridge,
+trail logic, restart-recovery) read **stale** state — the bot was alive
+and trading correctly, but its persisted state was frozen at the last
+successful dump (whenever that was).
+
+#### Fix
+
+Added `_json_default()` helper in `bot_state.py:86`:
+
+```python
+def _json_default(obj):
+    """Coerce non-native types so json.dumps doesn't raise on np/bool fallout."""
+    if isinstance(obj, (np.bool_, bool)): return bool(obj)
+    if isinstance(obj, np.integer): return int(obj)
+    if isinstance(obj, np.floating): return float(obj)
+    if isinstance(obj, np.ndarray): return obj.tolist()
+    if isinstance(obj, (datetime, date)): return obj.isoformat()
+    if hasattr(obj, "__dict__"): return obj.__dict__
+    return str(obj)  # last-resort string coercion
+```
+
+Plumbed into `save()`: `json.dumps(state, indent=2, default=_json_default)`.
+
+#### Validation
+
+- Tail of `topstep_live_bot.log` post-deploy: zero "not JSON serializable"
+  errors over the next 6 hours of live operation
+- `bot_state.json` mtime now advances every tick instead of stuck for
+  multi-hour periods
+
+#### Caveats
+
+1. **Doesn't fix the source** — upstream code still leaks `np.bool_` into
+   state. The serializer is a forgiving safety net, not a contract. The
+   right long-term fix is `state[k] = bool(v)` at the write sites.
+2. **Task 2 (ProjectX backfill mislabel) deferred** — separate bug
+   surfaced during this investigation; needs deeper design work before
+   shipping.
+
+#### Rollback
+
+`git revert cad1db3` — reverts the 21-line edit. State saves return to
+strict-mode JSON (raises on non-native types again).
+
+#### Files
+
+- `bot_state.py` (+20 / −1)
+- This journal section (§8.33.18)
+
+
+### 8.33.19 — FibH1214 dead-tape size-skip-guard (a0e972c)
+
+*Added 2026-05-03.* Dead-tape regime override was cutting FibH1214 size
+from 10 → 1 along with bracket adjustments. Per design, **FibH1214
+should run at full size in all regimes**; only TP/SL/BE should be
+modulated by dead-tape.
+
+#### Root cause
+
+The dead-tape branch in `_apply_dead_tape_brackets` rewrote `signal["size"]
+= 1` unconditionally for all strategies. FibH1214's design relies on
+size 10 for the high-conviction setups (8-bar swing extremum + counter-bar
+close validation); shrinking to 1 throws away ~80% of the strategy's
+edge while keeping bracket changes that were sized for the larger trade.
+
+#### Fix
+
+Size-skip-guard for FibH1214 in `julie001.py`:
+
+1. Capture `original_size` before dead-tape edits
+2. Apply TP/SL/BE edits as normal (these remain correct)
+3. After all bracket edits land, restore `signal["size"] = original_size`
+   if `signal["strategy"].startswith("FibH1214")`
+
+Audit trail preserved — both log lines are emitted:
+```
+Dead-tape override: size→1 (FibH1214_fib_500)
+FibH1214 size-skip-guard: size→1 reverted to 10
+```
+Both flags stamped on the signal dict for historical analysis consistency
+(so backtest replays can detect the case and reproduce live behavior).
+
+#### Validation
+
+Smoke test: signal with `strategy=FibH1214_fib_500, size=10` enters
+dead-tape branch with `size=1`, exits with `size=10`, BE/TP/SL retain
+dead-tape edits. Other strategies (DE3, AF, RA, MLPhysics, H9GapFade)
+unchanged — manually verified by side-by-side log diff.
+
+#### Caveats
+
+1. **Backtest harness needs the same exemption** — if you run a backtest
+   that uses dead-tape brackets, the harness must mirror this size-guard
+   or the backtest underestimates FibH1214 PnL. Confirmed corrected in
+   `tools/run_full_live_replay_parquet.py` (auto-flows from julie001).
+2. **Other narrow strategies may need similar guards** — H9GapFade was
+   already correctly designed to manage its own size internally; no
+   guard needed. If a future strategy is added with a fixed-size design,
+   add it to the same skip-list.
+
+#### Rollback
+
+`git revert a0e972c` — reverts the 24-line edit. FibH1214 returns to
+size→1 in dead-tape regimes. Not recommended; this fix prevents real
+PnL loss.
+
+#### Files
+
+- `julie001.py` (+20 / −4)
+- This journal section (§8.33.19)
+
+
+### 8.33.20 — Fix D: Kalshi bypass for DE3 LONG in hours 13-14 ET (63f5d2d)
+
+*Added 2026-05-03.* DE3 was firing few trades in 9-11am PT (12-14 ET)
+despite that window being historically high-edge. Funnel analysis on
+578 candidate signals across the full bot log surfaced the cause:
+**Kalshi overlay was over-blocking** at hours 13-14 ET specifically.
+
+#### Funnel breakdown (578 DE3 candidates, 12-14 ET)
+
+| Layer | Blocked | % of total |
+|---|---:|---:|
+| Kalshi overlay (forward_primary < 0.55) | 345 | 60% |
+| Same-side already active (single-position) | 127 | 22% |
+| V18 stacker (proba < 0.60) | 81 | 14% |
+| Actually placed | 26 | 4.5% |
+
+#### Walk-forward audit on Kalshi-blocked candidates
+
+Default DE3 brackets (TP=8.25 / SL=10), per-hour split:
+
+| ET hour | PT hour | n   | WR    | PnL       | Verdict |
+|---:|---:|---:|---:|---:|---|
+| 12 | 9am | 106 | 40.6% | −$1,440 | Kalshi correctly filters |
+| 13 | 10am | 88 | 77.3% | +$1,568 | ✅ over-blocks winners |
+| 14 | 11am | 118 | 86.4% | +$3,383 | ✅ over-blocks winners |
+
+T2-bracket re-audit (TP=25 / SL=10):
+- 13 ET / 10am PT: 77% WR, +$2,266
+- 14 ET / 11am PT: 63% WR, +$1,562
+
+#### Fix
+
+Override Kalshi entry-block in `_apply_kalshi_trade_overlay_to_signal`
+when **all** of:
+- `signal["strategy"] == "DynamicEngine3"`
+- `signal["side"] == "LONG"`
+- `et_hour ∈ {13, 14}`
+
+Hour 12 ET excluded — Kalshi is doing real filtering work there
+(40.6% WR / −$1,440 PnL on the blocked set). Only over-blocking hours
+get the bypass.
+
+Configurable via `JULIE_LOCAL_FIX_D_KALSHI_BYPASS_DE3_LONG_HR13_14=1`
+(default ON post-deploy; flip to 0 to roll back without code change).
+
+#### Caveats
+
+1. **LONG-only** — SHORT side excluded by design. SHORT walk-forward
+   numbers in the same window are noisy and too small a sample.
+2. **Stacks with Fix E (§8.33.22) and CM_GATE_ML override (§8.33.21)** —
+   all three target the same window. Net new lift after triple-overlap
+   reconciliation is documented in §8.33.21.
+3. **Hour 15 ET (12pm PT) drag warning** — CM_GATE_ML expansion (§8.33.21)
+   to that hour shows −$415 drag. Not addressed by Fix D (Fix D scope
+   is 13-14 only).
+
+#### Rollback
+
+`JULIE_LOCAL_FIX_D_KALSHI_BYPASS_DE3_LONG_HR13_14=0` (no code change),
+or `git revert 63f5d2d` (clean removal).
+
+#### Files
+
+- `config.py` (+19)
+- `julie001.py` (+49 / −1)
+- This journal section (§8.33.20)
+
+
+### 8.33.21 — CM_GATE_ML override activation (fd06bbf)
+
+*Added 2026-05-03.* Flips the cross-market breakout ML gate from shadow
+to authoritative for Kalshi-block override decisions. Default 0 → 1.
+
+#### Counterfactual on full bot log history
+
+- 251 `[CM_GATE_ML]` events total
+- 210 had `would_override=True` (ML wanted to unblock the candidate)
+- `hand_tuned_override` fired 0 times across all 251 → activating ML
+  is a **pure ADD, not a SWAP** (no existing overrides are LOST)
+- All 210 `would_override=True` events were also Kalshi-blocked, so
+  activating ML unblocks each one
+
+#### Walk-forward at default DE3 brackets (TP=8.25 / SL=10)
+
+n=209 (1 candidate lost to bar lookup). **WR 72.2%, +$3,270 @ size 1,
+$15.65/trade.**
+
+Per-hour split (ET, vs Fix D's 13-14 ET scope):
+
+| ET hour | PT hour | n  | WR    | PnL     | Notes |
+|---:|---:|---:|---:|---:|---|
+| 11 | 8am  | 32 | 68.8% | +$408   | ✅ new lift (no Fix D overlap) |
+| 12 | 9am  | 51 | 66.7% | +$589   | ✅ new lift (no Fix D overlap) |
+| 13 | 10am | 46 | 97.8% | +$1,689 | overlaps Fix D |
+| 14 | 11am | 58 | 74.1% | +$1,000 | overlaps Fix D |
+| 15 | 12pm | 22 | 31.8% | −$415   | ⚠️ drag |
+
+**Net new lift after Fix D overlap: +$582 across 105 trades** ($997
+positive in 11-12 ET vs $415 drag at 15 ET).
+
+#### Caveats
+
+1. **AUC is weak (~0.537)** — barely above coin-flip on the held-out
+   counterfactual set. The +$582 lift is real but small in dollar terms
+   and could fade in a regime shift. **Monitor first 60 days; revert if
+   net lift drops below +$200.**
+2. **Hour 15 ET drag (−$415)** — the ML gate over-fires in mid-day mean-
+   reversion. If this drag widens, scope the override to ET hours
+   {11, 12, 13, 14} (excluding 15) via a second config flag.
+3. **Stacks with Fix D (§8.33.20) and Fix E (§8.33.22)** — same window.
+   The headline +$582 is **after** subtracting Fix D overlap to avoid
+   double-counting.
+
+#### Rollback
+
+`JULIE_CM_GATE_ML_OVERRIDE_ACTIVE=0` (no code change). Default flips
+back to shadow-only.
+
+#### Files
+
+- `ml_overlay_shadow.py` (+15 / −4)
+- This journal section (§8.33.21)
+
+
+### 8.33.22 — Fix E: DE3 dual-path V15 fallback at hours 13-14 ET (a300430)
+
+*Added 2026-05-03.* When V18 blocks a DE3 LONG candidate in ET hours
+13-14, fall through to V15's keep decision (native path). Effectively
+runs **native + V18 DE3 in parallel** in the post-cash-open mean-reversion
+window. SHORT side excluded — only LONG fires from native path.
+
+#### Walk-forward audit on 28 V18-blocked DE3 LONG candidates
+
+4-day window (post-V18-deploy 2026-04-28 → 2026-05-01), in-log bar
+series, close-only walk:
+
+| Brackets | n  | WR     | PnL     |
+|---|---:|---:|---:|
+| Default (TP=8.25 / SL=10) | 28 | **100%** | +$1,144 |
+| T2 (TP=25 / SL=10) | 28 | **100%** | +$3,121 |
+
+Hour 14 ET (11am PT) zero V18 blocks observed in sample — patch covers
+{13, 14} for forward-compatibility, but only 13 ET has historical hits.
+
+#### Implementation
+
+V15 fallback inside `v18_should_keep_de3` (`julie001.py`). V18 already
+calls `v15_should_keep_de3` first to populate features, so the patch
+**reuses the local `_v15_keep` result** rather than re-running. ~15
+lines of behavior change in a single function.
+
+Configurable via `JULIE_LOCAL_DE3_DUAL_PATH_HR13_14=1` (default ON).
+
+#### Caveats
+
+1. **100% WR has likely survivor bias** — 4-day window in a single
+   trending regime. Expect WR to compress toward 70-80% on a wider
+   sample. The fix still adds positive expected value at that range,
+   but don't read 100% as forward-projected.
+2. **Hour 14 has zero historical hits** — included in scope for
+   forward-compat but no evidence yet. If hour 14 starts firing
+   negative-PnL trades, narrow scope to `{13}` only.
+3. **Stacks with Fix D and CM_GATE_ML** — three overlapping bypasses
+   in the same window. **Monitor `[V18_DE3 DUAL_PATH]` log lines** in
+   topstep_live_bot.log to track which path is firing each candidate.
+4. **Doesn't replace V18 anywhere else** — V18 stays authoritative
+   for SHORT side, hours outside 13-14, and any non-DE3 strategy.
+   This is a narrow patch.
+
+#### Rollback
+
+`JULIE_LOCAL_DE3_DUAL_PATH_HR13_14=0` (no code change), or
+`git revert a300430` (clean removal).
+
+#### Files
+
+- `config.py` (+17)
+- `julie001.py` (+43)
+- This journal section (§8.33.22)
+
+
+### 8.33.23 — FibH1214 hour-turn early-exit exemption (7d953a5)
+
+*Added 2026-05-03.* Disables Kalshi hour-turn early-exit for FibH1214.
+Today's incident motivated the change.
+
+#### Today's incident
+
+`FibH1214_fib_1000 LONG @ 7263.00` (size 5) opened in normal regime.
+At `15:01:05 ET` the Kalshi crowd flipped to `prob=0.05` ("crowd
+flipped bearish"), which fired the hour-turn early-exit rule and
+closed the position at +$15.65 realized.
+
+**Within 60s of the exit:**
+- Price reached the original TP target (7265.25) — 1 bar after exit
+- Continued to 7266.25 the bar after that
+- Crowd-prob signal proved wrong by 3+ pts in the next 2 minutes
+
+**Money left on the table: ~$40.** Full TP would have been ~+$56;
+realized was +$15.65.
+
+#### Why FibH1214 specifically gets the exemption
+
+- Setups are **explicit fib-retracement continuations** with 8-bar
+  swing extremum + counter-bar close validation at entry — these are
+  high-confidence pattern triggers, not directional speculation
+- **Designed brackets are short** (TP=2-3 pts) — Kalshi mid-trade
+  noise has poor signal-to-noise vs the strategy's own exit logic
+- The hour-turn rule was designed for DE3 / AF / RA where exits are
+  longer-horizon and Kalshi crowd-flip carries real signal; it
+  matches FibH1214 poorly
+
+#### Fix
+
+Early-return in `_check_kalshi_sentiment_exit` when `trade["strategy"]
+.startswith("FibH1214")`. ~5 lines guarded behind
+`LOCAL_KALSHI_HOUR_TURN_FIB_DISABLED` config flag (env override:
+`JULIE_KALSHI_HOUR_TURN_FIB_DISABLED=0` to restore prior behavior).
+
+Hour-turn rule **remains active for DE3 / AetherFlow / RegimeAdaptive**.
+
+#### Smoke tests (4/4 passed)
+
+| Case | Expected | Result |
+|---|---|---|
+| FibH1214_fib_1000 + prob=0.05 | no exit (exempt) | ✓ |
+| DynamicEngine3 + prob=0.05 | hour-turn exit | ✓ |
+| AetherFlow + prob=0.05 | hour-turn exit | ✓ |
+| FibH1214 with env flag OFF | hour-turn exit (rollback path works) | ✓ |
+
+#### Caveats
+
+1. **Only one observed incident** — n=1. The exemption is justified by
+   strategy design, not by a stat-significant population. Monitor for
+   regret cases where Kalshi correctly calls a FibH1214 reversal that
+   we'd now be holding through.
+2. **Other narrow strategies may want similar exemptions** — H9GapFade
+   has its own short-bracket design. If it shows similar regret cases,
+   add it to the exempt list using the same pattern.
+3. **Hour-turn rule still has population edge** — historical audit on
+   DE3/AF/RA shows the rule pays for itself. This isn't a "rule is
+   broken" finding; it's a "rule mismatches one strategy's design."
+
+#### Rollback
+
+`JULIE_KALSHI_HOUR_TURN_FIB_DISABLED=0` (env flip, no code change), or
+`git revert 7d953a5` (clean removal).
+
+#### Files
+
+- `config.py` (+16)
+- `julie001.py` (+25)
+- This journal section (§8.33.23)
+

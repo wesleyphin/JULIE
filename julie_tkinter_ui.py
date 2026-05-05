@@ -652,7 +652,8 @@ class JulieUI:
             "Dynamic Engine",
             "SMT Divergence",
             "VIX Reversion",
-            "Continuation"
+            "Continuation",
+            "Stdev ML"
         ]
 
         self.strategy_labels = {}
@@ -1315,7 +1316,9 @@ class JulieUI:
                     "SMTAnalyzer": "SMT Divergence",
                     "LiquiditySweep": "SMT Divergence",
                     "VIXMeanReversion": "VIX Reversion",
-                    "VIXReversion": "VIX Reversion"
+                    "VIXReversion": "VIX Reversion",
+                    "StdevMlStrategy": "Stdev ML",
+                    "StdevML": "Stdev ML"
                 }
 
                 display_name = strategy_map.get(raw_strategy, raw_strategy)

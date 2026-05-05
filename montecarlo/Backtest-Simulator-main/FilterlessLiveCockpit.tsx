@@ -4090,6 +4090,7 @@ function FilterlessLiveCockpit() {
       { id: 'aetherflow', label: 'AetherFlow' },
       { id: 'fib_h1214', label: 'Fibonacci' },
       { id: 'h9_gapfade', label: 'H9 GapFade' },
+      { id: 'stdev_ml', label: 'Stdev ML' },
     ];
 
     // Substrategy universe per module — chips light up when matched in live state
@@ -4132,6 +4133,10 @@ function FilterlessLiveCockpit() {
       h9_gapfade: [
         { key: 'gap_dn_long', label: 'Gap-Dn Long', matchers: ['gap_dn_long', 'gap_dn'] },
         { key: 'gap_up_short', label: 'Gap-Up Short', matchers: ['gap_up_short', 'gap_up'] },
+      ],
+      stdev_ml: [
+        { key: 'long', label: 'LONG', matchers: ['long', 'stdev_ml_long'] },
+        { key: 'short', label: 'SHORT', matchers: ['short', 'stdev_ml_short'] },
       ],
     };
 
@@ -4176,6 +4181,7 @@ function FilterlessLiveCockpit() {
         regime_adaptive: COLORS.purple,
         fib_h1214: COLORS.pink,
         h9_gapfade: COLORS.lime,
+        stdev_ml: COLORS.red,
       };
       return m[id] || COLORS.cyan;
     };
@@ -4668,8 +4674,8 @@ function FilterlessLiveCockpit() {
         </Panel>
 
         <Panel
-          title="NY-AM Long_Rev Bypass" titleClassName="display-title"
-          subtitle={`Routes around V18 + Recipe B + v6_be for hour ${ny?.hour_et ?? '--'} ET fires.`}
+          title="NY-AM Long_Rev Bypass (original)" titleClassName="display-title"
+          subtitle={`Routes around V18 + Recipe B + v6_be for hour ${ny?.hour_et ?? '--'} ET fires. See "Hotfix Stack" below for additional 2026-05-01 bypasses (Fix D, Fix E).`}
           badge={<Badge tone={onTone(ny?.enabled)}>{onText(ny?.enabled)}</Badge>}
           className="mt-panel"
         >
@@ -4729,6 +4735,128 @@ function FilterlessLiveCockpit() {
                 active={tri?.enabled}
               />
             </div>
+          </div>
+        </Panel>
+
+        {/* 2026-05-01 — today's deployed fix stack on live/v18-deploy-2026-04-26.
+            Status here is the *deployed default* (env-flag default ON for each).
+            Operator can flip any via env var + restart — see commit messages for
+            kill-switch names. Each card mirrors a commit on the live branch. */}
+        <Panel
+          title="2026-05-01 Hotfix Stack" titleClassName="display-title"
+          subtitle="Today's deploys — all flags default ON, env-disable available per fix."
+          badge={<Badge tone="live">5 fixes live</Badge>}
+          className="mt-panel"
+        >
+          <div className="panel-body">
+            <div className="grid cols-2">
+              <Tile
+                title="Recipe B trifecta (4445865)"
+                titleClassName="display-title"
+                text="Call-order fix + Kronos pre-warm + bracket revert. Recipe B sizing now actually fires inside the Kalshi overlay's V18-keep branch (was 0/143 historical activations); pre-warm thread brings Kronos ready in ~3s at startup; tier ≥ 4 keeps revert dead-tape's TP=3/SL=5 to original DE3 brackets."
+                color={COLORS.green}
+                badge={<Badge tone="live">live</Badge>}
+                active
+              />
+              <Tile
+                title="Fix D — Kalshi bypass DE3 LONG hr 13-14 ET (63f5d2d)"
+                titleClassName="display-title"
+                text="Walk-forward audit on 206 historical Kalshi-blocked DE3 LONGs in hours 13-14 ET: 80% WR / +$4,951 default brackets. Bypass overrides the Kalshi entry-block flag so the trade fires. Hour 12 ET excluded (Kalshi correctly filters losers there). Watch [KALSHI_DE3_HR13_14_BYPASS] log lines."
+                color={COLORS.green}
+                badge={<Badge tone="live">live</Badge>}
+                active
+              />
+              <Tile
+                title="Fix E — Dual-path V15 fallback DE3 LONG hr 13-14 ET (a300430)"
+                titleClassName="display-title"
+                text="When V18 blocks but V15 says keep AND signal is LONG in ET hours 13-14, return V15 keep instead. Effectively reinstates the native pre-V18 path as a parallel evaluator. 28 historical V18-blocked LONGs walked at 100% WR / +$1,144 default brackets (small-window survivor-bias caveat). Watch [V18_DE3 DUAL_PATH] log lines."
+                color={COLORS.green}
+                badge={<Badge tone="live">live</Badge>}
+                active
+              />
+              <Tile
+                title="CM_GATE_ML override active (fd06bbf)"
+                titleClassName="display-title"
+                text="Cross-market breakout ML gate flipped from shadow → authoritative for Kalshi-block override decisions. Hand-tuned rule never fired in 251-event sample, so this is a pure ADD (not swap). Net new lift +$582 on top of Fix D. Watch [CM_GATE_ML] active=True log lines."
+                color={COLORS.green}
+                badge={<Badge tone="live">live</Badge>}
+                active
+              />
+              <Tile
+                title="FibH1214 dead-tape size-skip-guard (a0e972c)"
+                titleClassName="display-title"
+                text="FibH1214 ships size=10 (rolling adaptive). Dead-tape regime was clipping size to 1, gutting the strategy's intended exposure. Skip-guard preserves designed size while still allowing dead-tape's bracket edits."
+                color={COLORS.green}
+                badge={<Badge tone="live">live</Badge>}
+                active
+              />
+              <Tile
+                title="FibH1214 hour-turn exempt (7d953a5)"
+                titleClassName="display-title"
+                text="Today's FibH1214_fib_1000 LONG was early-exited at 15:01 ET via Kalshi crowd-flip (prob=0.05). Within 60s price hit TP. Hour-turn rule remains active for DE3/AF/RA where it has historical edge. FibH1214 setups are explicit fib retracements with short brackets; mid-trade Kalshi noise doesn't add value."
+                color={COLORS.green}
+                badge={<Badge tone="live">live</Badge>}
+                active
+              />
+            </div>
+          </div>
+        </Panel>
+
+        {/* Today's deploy timeline — visual git-log of fixes ordered by commit time.
+            Mirrors `git log --oneline a3f8b22..7d953a5` on live/v18-deploy-2026-04-26. */}
+        <Panel
+          title="Today's Deploy Timeline" titleClassName="display-title"
+          subtitle="2026-05-01 hotfixes pushed to live/v18-deploy-2026-04-26 — newest first."
+          badge={<Badge tone="info">6 commits</Badge>}
+          className="mt-panel"
+        >
+          <div className="panel-body">
+            <table className="table">
+              <thead>
+                <tr><th>commit</th><th>fix</th><th>time PT</th><th>kill switch</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><strong>7d953a5</strong></td>
+                  <td>FibH1214 hour-turn exempt</td>
+                  <td>12:09</td>
+                  <td><code>JULIE_KALSHI_HOUR_TURN_FIB_DISABLED=0</code></td>
+                </tr>
+                <tr>
+                  <td><strong>a300430</strong></td>
+                  <td>Fix E — Dual-path V15 fallback DE3 LONG hr 13-14 ET</td>
+                  <td>10:25</td>
+                  <td><code>JULIE_LOCAL_DE3_DUAL_PATH_HR13_14=0</code></td>
+                </tr>
+                <tr>
+                  <td><strong>fd06bbf</strong></td>
+                  <td>CM_GATE_ML override active (default 0 → 1)</td>
+                  <td>~10:11</td>
+                  <td><code>JULIE_KALSHI_CM_GATE_ACTIVE=0</code></td>
+                </tr>
+                <tr>
+                  <td><strong>63f5d2d</strong></td>
+                  <td>Fix D — Kalshi bypass DE3 LONG hr 13-14 ET</td>
+                  <td>~07:00</td>
+                  <td><code>JULIE_KALSHI_DE3_HR13_14_BYPASS=0</code></td>
+                </tr>
+                <tr>
+                  <td><strong>4445865</strong></td>
+                  <td>Recipe B trifecta — call-order + Kronos prewarm + bracket revert</td>
+                  <td>~06:18</td>
+                  <td><code>JULIE_RECIPE_B_KALSHI_FIX=0</code> · <code>JULIE_KRONOS_PREWARM=0</code></td>
+                </tr>
+                <tr>
+                  <td><strong>cad1db3</strong></td>
+                  <td>bot_state JSON serializer — numpy/NaN handler</td>
+                  <td>~06:00</td>
+                  <td>—</td>
+                </tr>
+              </tbody>
+            </table>
+            <p className="micro" style={{ marginTop: '10px', opacity: 0.7 }}>
+              Bot supervisor at PID 33818 / child cycled 3× today via /command restart_bot endpoint. Position FLAT through all restarts.
+            </p>
           </div>
         </Panel>
       </section>
