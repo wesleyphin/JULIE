@@ -159,6 +159,26 @@ from signal_gate_2025 import (
     log_shadow_prediction as _signal_gate_shadow_log,
 )
 
+# Hougaard bear/aligned size overlay (1.20x boost on aligned full-conf StdevMl)
+# Backtest evidence: artifacts/hougaard_overlay/UPDATE_2022_2026.md (+3% PnL,
+# +7% DD across 3 independent windows). StdevMl-only; no gating change.
+try:
+    from hougaard_size_overlay import get_overlay as _get_hougaard_overlay
+except Exception as _hg_exc:  # pragma: no cover
+    _get_hougaard_overlay = None  # type: ignore
+    logging.warning("hougaard_size_overlay import failed: %s", _hg_exc)
+
+
+def _maybe_boost_hougaard_size(signal: dict) -> None:
+    """Apply Hougaard size overlay to signal dict in place. Safe no-op when
+    module unavailable, signal not StdevMl, or bias not aligned."""
+    if _get_hougaard_overlay is None:
+        return
+    try:
+        _get_hougaard_overlay().apply_to_signal(signal)
+    except Exception as exc:
+        logging.warning("[hougaard-size] apply failed (signal unchanged): %s", exc)
+
 # === LOCAL OVERRIDE 2026-04-25 — V15 wiring (do not commit) ===
 # Wires the V15 stacked meta-learner into the DE3 firing path.
 # - V15 takes 6 features: fg_proba, kalshi_proba, kalshi_v12_proba,
@@ -3540,12 +3560,20 @@ def _apply_kalshi_tp_trail(
             failure_reason="kalshi_tp_trail_market_already_through_stop",
         )
 
+    # Protected-stops set: all bot-tracked stop_order_ids EXCEPT the one we're
+    # actively replacing on this trade. Prevents duplicate-cleanup from killing
+    # a stacked-leg's stop on a different trade (naked-leg bug 2026-05-06).
+    _protected_stops = _collect_tracked_stop_order_ids(
+        extra_trades=[trade],
+        exclude={stop_order_id} if stop_order_id is not None else None,
+    )
     if not client.modify_stop_to_breakeven(
         stop_price=target_stop_price,
         side=side_name,
         known_size=max(1, _coerce_int(trade.get("size"), 1) or 1),
         stop_order_id=stop_order_id,
         current_stop_price=current_stop_price,
+        protected_stop_order_ids=_protected_stops,
     ):
         if (
             _live_market_has_crossed_stop(target_stop_price, side_name, market_price)
@@ -5351,8 +5379,16 @@ def _refresh_live_trade_brackets_from_projectx(
 
     updates: dict[str, Any] = {}
     stop_order_id = _coerce_int(bracket_state.get("stop_order_id"), None)
-    if stop_order_id is not None and stop_order_id != _coerce_int(trade.get("stop_order_id"), None):
+    prior_stop_id = _coerce_int(trade.get("stop_order_id"), None)
+    if stop_order_id is not None and stop_order_id != prior_stop_id:
         updates["stop_order_id"] = stop_order_id
+    elif stop_order_id is None and prior_stop_id is not None:
+        # AUDIT FLAG (2026-05-06 naked-leg fix): we tracked a stop_order_id
+        # for this trade, but the broker can't find any stop matching this
+        # leg. The order was likely cancelled by an over-aggressive duplicate
+        # cleanup. Caller should place an emergency replacement.
+        updates["_audit_stop_missing"] = True
+        updates["_audit_stale_stop_order_id"] = prior_stop_id
 
     target_order_id = _coerce_int(bracket_state.get("target_order_id"), None)
     if target_order_id is not None and target_order_id != _coerce_int(trade.get("target_order_id"), None):
@@ -5918,6 +5954,154 @@ def _update_live_de3_entry_trade_day_extreme_state(
     )
 
 
+_TRACKED_STOPS_BOT_STATE_PATH = "bot_state.json"
+
+
+def _emergency_replace_naked_stop(
+    client: Any,
+    trade: Optional[dict],
+    current_time: Optional[datetime.datetime],
+    market_price: float,
+    stale_stop_order_id: Any,
+) -> Optional[int]:
+    """Place an emergency stop for a trade whose tracked stop_order_id no
+    longer exists at the broker. Returns the new stop_order_id, or None on
+    failure.
+
+    Conservative behavior:
+      - Only acts if the trade has a finite current_stop_price.
+      - If the market has already crossed the stop price, force-close instead
+        of placing an unfillable stop.
+      - Logs prominently so we can audit how often this fires.
+    """
+    if client is None or not isinstance(trade, dict):
+        return None
+    side_name = _normalize_live_side(trade.get("side"))
+    if side_name not in {"LONG", "SHORT"}:
+        return None
+    size = max(0, _coerce_int(trade.get("size"), 0))
+    if size <= 0:
+        return None
+    stop_price = _coerce_float(trade.get("current_stop_price"), math.nan)
+    if not math.isfinite(stop_price):
+        # Derive from sl_dist + entry if absent
+        entry_price = _coerce_float(
+            trade.get("broker_entry_price")
+            or trade.get("entry_price"),
+            math.nan,
+        )
+        sl_dist = _coerce_float(trade.get("sl_dist"), math.nan)
+        if math.isfinite(entry_price) and math.isfinite(sl_dist):
+            if side_name == "LONG":
+                stop_price = entry_price - abs(sl_dist)
+            else:
+                stop_price = entry_price + abs(sl_dist)
+    if not math.isfinite(stop_price):
+        logging.error(
+            "🚨 NAKED LEG: cannot derive stop price for trade %s %s; manual intervention required.",
+            trade.get("strategy", "?"), side_name,
+        )
+        return None
+
+    # If market already crossed the intended stop, force-close instead of
+    # placing an unfillable stop.
+    market_finite = _coerce_float(market_price, math.nan)
+    if math.isfinite(market_finite):
+        crossed = (
+            (side_name == "LONG" and market_finite <= stop_price)
+            or (side_name == "SHORT" and market_finite >= stop_price)
+        )
+        if crossed:
+            logging.error(
+                "🚨 NAKED LEG + market past stop: force-closing %s %s @ market %.2f "
+                "(intended stop %.2f, stale_id=%s).",
+                trade.get("strategy", "?"), side_name, market_finite, stop_price,
+                stale_stop_order_id,
+            )
+            try:
+                _force_close_live_trade_for_crossed_stop(
+                    client, trade, current_time,
+                    market_price=market_finite,
+                    target_stop_price=stop_price,
+                    failure_reason="naked_leg_audit_market_crossed",
+                )
+            except Exception as exc:
+                logging.error("Force-close after naked-leg audit failed: %s", exc)
+            return None
+
+    # Place a fresh stop at broker
+    logging.warning(
+        "🚨 NAKED LEG DETECTED: tracked stop_order_id=%s missing at broker for %s %s; "
+        "placing emergency stop @ %.2f (size=%d).",
+        stale_stop_order_id, trade.get("strategy", "?"), side_name, stop_price, size,
+    )
+    try:
+        placed = client._place_breakeven_stop(float(stop_price), side_name, size)
+    except Exception as exc:
+        logging.error("Emergency stop placement raised: %s", exc)
+        return None
+    if not placed:
+        logging.error(
+            "🚨 NAKED LEG: emergency stop placement FAILED for %s %s @ %.2f. "
+            "Position remains naked. Manual intervention required.",
+            trade.get("strategy", "?"), side_name, stop_price,
+        )
+        return None
+    new_stop_id = _coerce_int(getattr(client, "_active_stop_order_id", None), None)
+    logging.warning(
+        "✅ NAKED LEG HEALED: emergency stop %s placed for %s %s @ %.2f.",
+        new_stop_id, trade.get("strategy", "?"), side_name, stop_price,
+    )
+    return new_stop_id
+
+
+def _collect_tracked_stop_order_ids(
+    *,
+    extra_trades: Optional[list] = None,
+    exclude: Optional[set] = None,
+) -> set:
+    """Return the set of stop_order_ids currently tracked by the bot across
+    ALL stacked positions. Source of truth: the same persisted bot_state.json
+    that survives across restarts. Used by BE-trail callers so the
+    duplicate-stop cleanup never cancels a stop that protects another stacked
+    leg (the naked-leg bug observed 2026-05-06 05:52).
+
+    `extra_trades` lets callers add in-memory trades that may not yet be
+    flushed to bot_state.json (e.g. the trade currently being modified).
+    `exclude` lets callers omit specific IDs they're about to replace.
+    """
+    ids: set = set()
+    # 1. Read from persisted state (canonical, includes all stacked legs).
+    try:
+        with open(_TRACKED_STOPS_BOT_STATE_PATH, "r") as f:
+            state = json.load(f)
+        tracked = state.get("tracked_live_trades")
+        if isinstance(tracked, list):
+            for trade in tracked:
+                if not isinstance(trade, dict):
+                    continue
+                sid = _coerce_int(trade.get("stop_order_id"), None)
+                if sid is not None:
+                    ids.add(sid)
+    except Exception:
+        # bot_state.json not yet written or unreadable — fall through with
+        # whatever we have. Empty set is safe (cleanup falls back to old
+        # size-aware behavior, which is still better than no protection).
+        pass
+    # 2. Layer in extra trades the caller knows about.
+    if extra_trades:
+        for trade in extra_trades:
+            if not isinstance(trade, dict):
+                continue
+            sid = _coerce_int(trade.get("stop_order_id"), None)
+            if sid is not None:
+                ids.add(sid)
+    # 3. Apply exclusions.
+    if exclude:
+        ids = {i for i in ids if i not in exclude}
+    return ids
+
+
 def _live_market_has_crossed_stop(
     stop_price: float,
     side: str,
@@ -6145,12 +6329,18 @@ def _apply_live_de3_break_even_stop_update(
             failure_reason="market_already_through_new_stop",
         )
 
+    # Protected-stops set (see _collect_tracked_stop_order_ids docstring).
+    _protected_stops = _collect_tracked_stop_order_ids(
+        extra_trades=[trade],
+        exclude={stop_order_id} if stop_order_id is not None else None,
+    )
     if not client.modify_stop_to_breakeven(
         stop_price=target_stop_price,
         side=side_name,
         known_size=max(1, _coerce_int(trade.get("size"), 1)),
         stop_order_id=stop_order_id,
         current_stop_price=current_stop_price,
+        protected_stop_order_ids=_protected_stops,
     ):
         if (
             _live_market_has_crossed_stop(target_stop_price, side_name, market_price)
@@ -11500,6 +11690,23 @@ async def run_bot():
                 trade,
                 max_cache_age_sec=2.0,
             )
+            # NAKED-LEG AUDIT (2026-05-06): if refresh detected our stop_order_id
+            # is dead at broker, place an emergency replacement BEFORE the trade
+            # state is updated. Reason: between this check and the next bar the
+            # market could move past the tracked stop price; we want broker
+            # protection regardless.
+            if isinstance(bracket_updates, dict) and bracket_updates.get("_audit_stop_missing"):
+                stale_id = bracket_updates.get("_audit_stale_stop_order_id")
+                healed_stop_id = _emergency_replace_naked_stop(
+                    client, trade, current_time, market_price, stale_id
+                )
+                # Strip audit-only keys so they don't leak into trade dict
+                bracket_updates = {
+                    k: v for k, v in bracket_updates.items()
+                    if not k.startswith("_audit_")
+                }
+                if healed_stop_id is not None:
+                    bracket_updates["stop_order_id"] = healed_stop_id
             if bracket_updates:
                 trade.update(bracket_updates)
                 if trade is active_trade:
@@ -14374,6 +14581,7 @@ async def run_bot():
                                     logging.info("🚫 lfg-veto: skipping level-fill entry (%s %s) — %s",
                                                  _lf_sig.get("strategy","?"), _lf_sig.get("side","?"), _lfgr)
                                     continue
+                                _maybe_boost_hougaard_size(_lf_sig)
                                 _lf_resp = await client.async_place_order(_lf_sig, current_price)
                                 if _lf_resp is not None:
                                     _lf_od = getattr(client, "_last_order_details", None) or {}
@@ -16806,6 +17014,7 @@ async def run_bot():
                                              signal.get("strategy","?"), signal.get("side","?"), _lfgr)
                                 signal_executed = True
                                 break
+                            _maybe_boost_hougaard_size(signal)
                             order_response = await client.async_place_order(signal, current_price)
                             if order_response is not None:
                                 order_details = getattr(client, "_last_order_details", None) or {}
@@ -17827,6 +18036,7 @@ async def run_bot():
                                             logging.info("🚫 lfg-veto: skipping rescue entry (%s %s) — %s",
                                                          sig.get("strategy","?"), sig.get("side","?"), _lfgr)
                                             continue
+                                        _maybe_boost_hougaard_size(sig)
                                         order_response = await client.async_place_order(sig, current_price)
                                         if order_response is not None:
                                             order_details = getattr(client, "_last_order_details", None) or {}

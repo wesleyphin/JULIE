@@ -1,0 +1,72 @@
+
+==============================================================================================================
+REGIME CHARACTERIZATION OF THE TEST PERIOD
+==============================================================================================================
+
+  Period: 2011-01-03 → 2019-12-30
+  Total drift (close): +154.4%
+  Days in bull regime (50d-SMA rising):    73.2%
+  Days in high-vol regime (top-33% 20d):   33.7%
+
+  ⚠ Test window is dominated by uptrending bull market — any 'short-bias' pattern will under-perform vs Hougaard's claim.
+
+==============================================================================================================
+SCENARIO A — Thursday Expansion (Mon high > Tue high AND Mon high > Wed high)
+==============================================================================================================
+
+  Total Thursdays in window: 441
+  Scenario-A triggered: 132 (29.9% of Thursdays)
+
+  Conditional probabilities:
+  Thursday low < Wednesday low                             P|cond= 45.5% (n=132)  baseline= 43.7% (n=309)  lift=1.04x  trigger n=132
+  Thursday close < Wednesday close                         P|cond= 47.7% (n=132)  baseline= 43.7% (n=309)  lift=1.09x  trigger n=132
+  Thursday high < Wednesday high (failed-to-break)         P|cond= 44.7% (n=132)  baseline= 46.6% (n=309)  lift=0.96x  trigger n=132
+  Thursday range > avg of Mon-Wed range                    P|cond= 56.8% (n=132)  baseline= 52.1% (n=309)  lift=1.09x  trigger n=132
+
+  Regime split — Thursday low < Wednesday low:
+    bull (sma50 rising)         : P|cond= 46.9% (n=96)
+    bear (sma50 flat/falling)   : P|cond= 41.7% (n=36)
+    high vol (top 33% 20d)      : P|cond= 42.5% (n=40)
+    low/mid vol                 : P|cond= 46.7% (n=92)
+
+==============================================================================================================
+SCENARIO B — Friday Inertia (Friday high < Thursday high) → Monday weakness
+==============================================================================================================
+
+  Total Mondays in window: 438
+  Scenario-B triggered: 204 (46.6% of Mondays)
+
+  Conditional probabilities:
+  Monday low < Friday low (intraday touch)                 P|cond= 51.0% (n=204)  baseline= 34.6% (n=234)  lift=1.47x  trigger n=204
+  Monday close < Friday close                              P|cond= 47.5% (n=204)  baseline= 44.4% (n=234)  lift=1.07x  trigger n=204
+  Monday close < Friday low (strong day)                   P|cond= 21.1% (n=204)  baseline= 11.5% (n=234)  lift=1.83x  trigger n=204
+  Friday low broken ANY day in next week (broader)         P|cond= 72.5% (n=204)  baseline= 68.8% (n=234)  lift=1.05x  trigger n=204
+
+  Gap-filter conditional (P|trigger AND |gap%|≤0.5%):
+  Monday low < Friday low (intraday touch)                 P|cond= 47.5% (n=122)  baseline= 35.2% (n=176)  lift=1.35x  trigger n=122
+  Monday close < Friday close                              P|cond= 45.9% (n=122)  baseline= 47.2% (n=176)  lift=0.97x  trigger n=122
+  Monday close < Friday low (strong day)                   P|cond= 16.4% (n=122)  baseline= 10.2% (n=176)  lift=1.60x  trigger n=122
+  Friday low broken ANY day in next week (broader)         P|cond= 71.3% (n=122)  baseline= 71.6% (n=176)  lift=1.00x  trigger n=122
+
+  Regime split — Monday low < Friday low:
+    bull (sma50 rising)         : P|cond= 47.2% (n=144)
+    bear (sma50 flat/falling)   : P|cond= 60.0% (n=60)
+    high vol (top 33% 20d)      : P|cond= 64.8% (n=71)
+    low/mid vol                 : P|cond= 43.6% (n=133)
+
+==============================================================================================================
+SCENARIO C — Weekly Pivot (Monday's H or L = week's H or L)
+==============================================================================================================
+
+  Total weeks in window: 456
+
+  Base rates (claim: 60% of weeks, Mon's H or L is week's H/L):
+  Mon high == week high                                    P= 20.0% (n=456)
+  Mon low  == week low                                     P= 29.8% (n=456)
+  Mon EITHER  == week H or L                               P= 49.6% (n=456)
+
+  Conditional bias claim (article's rule):
+  Tue breaks Mon-high → week extends ABOVE Tue high        P|cond= 70.4% (n=257)  baseline=  0.0% (n=199)  lift= infx  trigger n=257
+  Tue breaks Mon-low → week extends BELOW Tue low          P|cond= 65.8% (n=222)  baseline=  0.0% (n=234)  lift= infx  trigger n=222
+    Tue breaks Mon-high: Mon-low STILL holds as week low   P= 44.7% (n=257)
+    Tue breaks Mon-low: Mon-high STILL holds as week high  P= 36.0% (n=222)

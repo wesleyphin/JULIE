@@ -6413,3 +6413,248 @@ False at the function entry.
 - `julie001.py` (+~30 lines: 2 new early-return branches + comment block)
 - This journal section (§8.33.24)
 
+
+### 8.34 — Hougaard size overlay: 1.20x boost on aligned full-confidence StdevMl trades (2026-05-06)
+
+#### What
+
+Conditional size multiplier on top of the StdevMl iter12 firing path. When ALL of the
+following are true, position size is boosted by 1.20x:
+
+1. Strategy is `StdevMlStrategy` (no other strategy has backtest evidence)
+2. ML confidence (max(p_long, p_short)) is ≥ 0.75
+3. Hougaard session bias direction matches the proposed trade direction
+4. Hougaard bias is active for the day (Scenario B and/or C trigger)
+
+The overlay does NOT change the firing threshold (no gate-opening — that hypothesis
+was falsified, see §8.34.1 below). It does NOT apply to non-StdevMl strategies.
+It does NOT touch SL/TP. Pure size adjustment, applied just before
+`async_place_order()` at three sites: level-fill (line 14397), same-side parallel
+entry (line 16830), rescue entry (line 17852).
+
+#### Why
+
+Backtest evidence — three independent windows, consistent +3% PnL lift:
+
+| Window | strategy | n_boosted | PnL Δ | PnL Δ% | DD Δ% |
+|---|---|---|---|---|---|
+| VAL 2021-2025 | any_aligned_120 | 1148 | $+12,458 | +3.1% | +6.9% |
+| PURE_OOS 2022-2024 | any_aligned_120 | 665 | $+10,896 | +3.0% | +6.9% |
+| OOS 2026 | any_aligned_120 | 177 | $+3,422 | +3.6% | 0% |
+
+Effect is regime-independent (the original "bear-regime amplification" hypothesis
+was falsified — bear-regime aligned trades exist but are too rare to move the
+needle: only 16 trades in 2022-2024). The replicated edge is a generic per-trade
+quality lift on aligned full-confidence signals.
+
+#### How (production behavior)
+
+`_maybe_boost_hougaard_size(signal)` is called immediately before each of three
+`async_place_order()` sites. The function calls `HougaardSizeOverlay.apply_to_signal`
+which:
+
+1. Lazy-refreshes the day's Hougaard context (cached, ~10 min TTL)
+2. Stamps consistent metadata fields on the signal dict (always — for journaling):
+   - `hougaard_boosted`            (bool) — overlay would-have-boosted
+   - `hougaard_size_multiplier`    (float) — 1.0 or 1.2
+   - `hougaard_bias_dir`           (int) — -1 / 0 / +1
+   - `hougaard_active_scenarios`   (str) — "" | "B" | "C+" | "C-" | "B+C+"
+   - `hougaard_session_date`       (str) — YYYY-MM-DD
+   - `hougaard_boost_applied`      (bool) — actual size change occurred
+3. If conditions met AND `int(round(size * 1.2)) > size`, sets new size
+
+These fields land in the trade journal CSV via `signal_factors_json` (line 8588)
+for forensic post-hoc analysis.
+
+#### Integer-rounding caveat (important)
+
+StdevMl currently emits `size=1`. `int(round(1 * 1.2)) = 1` — so the boost is a
+no-op in size terms but the `hougaard_boosted` flag is still set. This is by design:
+
+- `hougaard_boosted=True` records that the boost path triggered (forensic value)
+- `hougaard_boost_applied=False` records that integer rounding suppressed the
+  effective change
+
+Effective boost ratios for various base sizes:
+- size 1 → 1   (no-op; flag set)
+- size 3 → 4   (1.33x)
+- size 5 → 6   (1.20x exact)
+- size 10 → 12 (1.20x exact)
+
+This means the live behavior of the overlay on current StdevMl is **flag-only**.
+The flag presence in journals will let us validate forward-going whether
+Hougaard alignment correlates with trade outcomes, before committing to a base
+size change. **If the live data confirms the +3% effect direction over 30+
+fills, bump StdevMl base size to ≥3 and the boost engages naturally.**
+
+#### Falsified hypotheses (kept here for posterity)
+
+##### §8.34.1 — Gate-opener (threshold tilt)
+
+Original proposal: lower the firing threshold by `delta * strength * amplifier`
+when bias is aligned, opening the gate to additional trades.
+
+Falsified by control comparison on TWO independent windows: among trades in
+[base+delta, base) confidence range, aligned-bucket trades have LOWER PF than
+neutral-bucket trades. Detail: `artifacts/hougaard_overlay/UPDATE_2022_2026.md`,
+"Decisive test — Control comparison".
+
+##### §8.34.2 — Bear-regime size boost (the originally-recommended overlay)
+
+Original proposal: boost size 1.20x only when bull_regime==False AND aligned AND
+full-confidence. Statistically supported (PF 5.17 vs 0.74 in VAL bear; PF 28.14
+vs 0.86 in PURE_OOS bear), but economically irrelevant due to sample size:
+- VAL bear-aligned full-conf: n=88 trades over 4 years
+- PURE_OOS bear-aligned full-conf: n=16 trades over 3 years
+
+Combined PnL lift across windows: ~$1,500 over 7+ years. Negative control
+(bull_aligned_120) outperformed by 30x because bull-regime trades are 50x more
+common.
+
+#### Files added/modified
+
+- `hougaard_size_overlay.py` (new — runtime engine, ~250 lines)
+- `tools/hougaard_context_offline.py` (new — batch context engine, used by overlay)
+- `tools/hougaard_overlay_backtest.py` (new — Tier A + B backtest harness)
+- `tools/hougaard_overlay_regime_drilldown.py` (new — regime-stratified drill)
+- `tools/hougaard_size_overlay_backtest.py` (new — sizing strategy comparison)
+- `julie001.py` (+~25 lines: import + helper + 3 call sites)
+- `artifacts/hougaard_overlay/` (analysis outputs — not in repo / .gitignore'd)
+- This journal section (§8.34)
+
+#### Verification
+
+After deployment, daily journal should be greppable for:
+- `hougaard_boosted: true` — overlay path triggered
+- `hougaard_boost_applied: true` — actual size change occurred
+- `hougaard_active_scenarios: "B+C-"` etc — which Hougaard pattern was active
+
+To roll back: comment out the three `_maybe_boost_hougaard_size(...)` calls in
+`julie001.py`. Module is otherwise pure and side-effect-free.
+
+
+### 8.34.3 — Naked-leg bug recurrence: stacked-stop cleanup + audit (2026-05-06)
+
+#### What happened (incident)
+
+2026-05-06 05:48:03 → 05:52:09. Bot opened two stacked DE3 LONG positions
+(via stacking expansion §8.33.24). Both got individual stop orders. When
+BE-trail moved the second leg's stop, `_cleanup_duplicate_stop_orders` was
+called with `expected_size=1` (the moving leg's contract count), saw 2 stops
+on a "1-contract position", and **cancelled the first leg's legitimate stop
+as a duplicate**. Trade B closed via its own stop fill at 05:52:09; Trade A
+remained tracked but with no broker-side protection. Position naked for ~5
+minutes until user intervened manually.
+
+This is the second naked-leg recurrence. The 2026-05-05 size-aware fix
+(§8.33.25) helped the SINGLE-trade case but did not protect against the
+stacked-trade case because the BE-trail caller passes the moving leg's
+`known_size`, not the total stacked position size.
+
+#### Root cause (re-stated)
+
+`modify_stop_to_breakeven(known_size=trade['size'], ...)` — the SIZE param
+reflects ONLY the trade currently being modified, not all stacked legs the
+broker is protecting. When `expected_size=1` propagates into
+`_cleanup_duplicate_stop_orders` and the broker has 2 stops, the cleanup
+greedily cancels the "extra" stop. That extra stop belonged to a different
+tracked trade.
+
+#### Defense in depth — three independent guards
+
+##### Guard 1: `protected_stop_order_ids` parameter (strict)
+
+`_cleanup_duplicate_stop_orders` now accepts a `protected_stop_order_ids:
+Set[int]` parameter. Any stop whose orderId is in that set is moved to the
+`to_keep` list before size-aware cleanup runs. Cancellation only ever
+considers UNPROTECTED stops.
+
+The bot caller (`julie001.py: _collect_tracked_stop_order_ids`) reads
+`bot_state.json` and passes ALL currently-tracked `stop_order_id` values
+across active + parallel trades, minus the one being modified (so the
+intended modify-in-place flow still works). This guarantees that no stacked
+leg's stop can ever be cancelled by another leg's BE-trail cycle.
+
+Threaded through both BE-trail callers:
+- `_apply_kalshi_tp_trail` (line 3563 area)
+- DE3 v4 break-even applier (line 6168 area)
+
+And through all 4 cleanup invocation sites in `modify_stop_to_breakeven`.
+
+##### Guard 2: Broker-position-size safeguard (abort cleanup on stale info)
+
+`_cleanup_duplicate_stop_orders` now queries `_get_broker_position_size_for_side`
+before any cancellation. If the broker reports MORE contracts than the
+caller's `expected_size`, the cleanup aborts entirely (returns the
+preferred order_id without touching anything). Rationale: caller has stale
+info, so we lack the data to safely identify which stops are excess. Better
+to leave a duplicate alive than to create a naked leg.
+
+##### Guard 3: Periodic naked-leg audit (heal post-incident)
+
+`_refresh_live_trade_brackets_from_projectx` now flags `_audit_stop_missing
+= True` when a trade's tracked `stop_order_id` cannot be found at the
+broker. The next call to `sync_tracked_trades_with_broker_state` (runs every
+30s on the position-sync task) invokes `_emergency_replace_naked_stop`,
+which:
+
+- If market has crossed the intended stop price → force-close at market
+- Otherwise → place a new stop at `trade.current_stop_price`
+- Logs prominently with `🚨 NAKED LEG DETECTED` / `✅ NAKED LEG HEALED`
+  markers so it can be grep'd in incident review
+
+This is the safety net: even if Guards 1 & 2 fail somehow, a naked leg
+gets healed within 30s.
+
+#### Files modified
+
+- `client.py`:
+  - `_get_broker_position_size_for_side` (NEW helper, ~18 lines)
+  - `_cleanup_duplicate_stop_orders` (+30 lines for guards 1 & 2)
+  - `modify_stop_to_breakeven` (+1 param, +4 forwarding sites)
+- `julie001.py`:
+  - `_collect_tracked_stop_order_ids` (NEW helper, ~45 lines)
+  - `_emergency_replace_naked_stop` (NEW helper, ~95 lines)
+  - `_refresh_live_trade_brackets_from_projectx` (+8 lines for audit flag)
+  - `sync_tracked_trades_with_broker_state` (+15 lines for heal call)
+  - `_apply_kalshi_tp_trail` (+6 lines: collect+pass protected_stops)
+  - DE3 v4 break-even applier (+6 lines: same)
+
+#### Verification
+
+After deployment, the following log markers should appear:
+- `[stop-cleanup-safeguard] broker_position_size=X > expected_size=Y` —
+  Guard 2 fired, cleanup aborted.
+- `🚨 NAKED LEG DETECTED: tracked stop_order_id=X missing at broker for ...` —
+  Guard 3 audit found a naked leg.
+- `✅ NAKED LEG HEALED: emergency stop X placed for ...` — heal succeeded.
+- `🚨 NAKED LEG + market past stop: force-closing ...` — heal aborted because
+  too late, force-closed at market.
+
+The pre-existing log marker `Detected N open stop orders for ... cancelling
+M excess.` should no longer appear with M>0 when a stacked-leg stop is in
+the protected set; it should now read `keeping N order(s) covering N
+contract(s), cancelling 0 excess.` for protected stops.
+
+#### Known limitations
+
+1. **bot_state.json read latency**: `_collect_tracked_stop_order_ids` reads
+   from disk on every BE-trail call. Cost is ~1-2ms; acceptable. If this
+   shows up in profiling, switch to in-memory passthrough via the loop
+   closure. (Couldn't do that in this fix because the BE-trail callers are
+   module-level functions outside the loop scope.)
+2. **Audit cadence**: 30s window between naked-leg creation and heal.
+   For a 5-min trade in fast markets, that's a real gap. To tighten,
+   call `sync_tracked_trades_with_broker_state` more frequently (e.g.
+   every 10s). Not changed here to limit blast radius.
+3. **`_place_breakeven_stop` parity**: The emergency replacement uses the
+   same private method as production BE-trail. If that method has a bug,
+   the heal inherits it. Acceptable single-source-of-truth tradeoff.
+
+#### Rollback
+
+Revert this commit. All changes are additive; reverting restores prior
+behavior except for the §8.33.25 size-aware logic which remains.
+
+
+

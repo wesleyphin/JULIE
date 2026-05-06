@@ -2491,6 +2491,25 @@ class ProjectXClient:
             cancelled += int(cancelled_now)
         return cancelled
 
+    def _get_broker_position_size_for_side(self, side: str) -> Optional[int]:
+        """Return broker-reported absolute contract count for the given side.
+        Returns None if the broker is reporting flat or the call fails.
+        Side-effect-free, suitable for cleanup-time safeguards."""
+        try:
+            pos = self.get_position(prefer_stream=True, require_open_pnl=False)
+        except Exception:
+            return None
+        if not isinstance(pos, dict):
+            return None
+        broker_side = str(pos.get("side") or "").strip().upper()
+        wanted_side = str(side or "").strip().upper()
+        if broker_side != wanted_side:
+            return 0  # opposite side → no protection needed for OUR side
+        size_val = self._coerce_int(pos.get("size"), None)
+        if size_val is None:
+            return None
+        return abs(int(size_val))
+
     def _cleanup_duplicate_stop_orders(
         self,
         side: str,
@@ -2499,23 +2518,58 @@ class ProjectXClient:
         expected_price: Optional[float],
         prefer_order_id: Optional[int],
         settle_delay_sec: float = 0.35,
+        protected_stop_order_ids: Optional[set] = None,
     ) -> Optional[int]:
         stop_orders = self._list_open_stop_orders(side, expected_size=None, force_refresh=True)
         if not stop_orders:
             return None
 
         # SIZE-AWARE CLEANUP — fix for naked-leg bug observed 2026-05-05 05:27 PT.
-        # Old logic kept exactly ONE stop and cancelled all others as "duplicates",
-        # which broke when a multi-leg position (e.g. size=2 from two separate
-        # entries) had two legitimate stops, each protecting one leg. Cancelling
-        # one left the surviving leg naked.
+        # 2026-05-06 update — second naked-leg incident exposed that size-aware
+        # is insufficient when the BE-trail caller passes `expected_size=1` (the
+        # moving leg's size) but two stacked positions exist. Cleanup then thinks
+        # only 1 stop is needed and cancels the other leg's stop, leaving it naked.
         #
-        # New logic: walk stops in preference order and keep them until cumulative
-        # size meets the position size; only excess (over-protection) gets cancelled.
-        # Falls back to keep-one-cancel-rest when expected_size is unknown so behavior
-        # is unchanged for the single-leg / size=1 case.
+        # Defense in depth (this function):
+        #   1. `protected_stop_order_ids` — if provided, NEVER cancel any stop
+        #      whose orderId is in that set. Bot caller passes the full set of
+        #      stop_order_ids from its tracked-trade list. This is the strict
+        #      guarantee. (See julie001.py: _all_tracked_stop_order_ids().)
+        #   2. Broker-position-size safeguard — if our broker-reported position
+        #      size exceeds `expected_size`, ABORT cleanup entirely (the caller
+        #      has stale info). Better to leave duplicate stops than create a
+        #      naked leg.
+        #   3. Existing size-aware fallback — kept for the case where neither
+        #      defense fires, e.g. when truly cleaning up post-fill duplicates.
         position_size = self._coerce_int(expected_size, None)
         expected_price_val = self._coerce_float(expected_price, None)
+        protected_ids: set = set()
+        if protected_stop_order_ids:
+            for raw in protected_stop_order_ids:
+                coerced = self._coerce_int(raw, None)
+                if coerced is not None:
+                    protected_ids.add(coerced)
+        if prefer_order_id is not None:
+            preferred_int = self._coerce_int(prefer_order_id, None)
+            if preferred_int is not None:
+                protected_ids.add(preferred_int)
+
+        # SAFEGUARD #2: if broker actually has more contracts than caller expects,
+        # caller is operating on stale info. Abort cleanup; better to leave a
+        # duplicate stop alive than to cancel one we'd then have to recreate.
+        if position_size and position_size > 0:
+            try:
+                broker_size = self._get_broker_position_size_for_side(side)
+            except Exception:
+                broker_size = None
+            if broker_size is not None and broker_size > position_size:
+                logging.warning(
+                    "[stop-cleanup-safeguard] broker_position_size=%s > expected_size=%s "
+                    "for %s; ABORTING cleanup to avoid creating a naked leg. "
+                    "stops_open=%d prefer=%s",
+                    broker_size, position_size, side, len(stop_orders), prefer_order_id,
+                )
+                return prefer_order_id
 
         def _stop_pref_key(order: Dict) -> Tuple[float, int, int]:
             order_id = self._coerce_int(order.get("orderId"), None) or 0
@@ -2532,11 +2586,22 @@ class ProjectXClient:
 
         sorted_stops = sorted(stop_orders, key=_stop_pref_key)
 
-        to_keep: List[Dict] = []
+        # SAFEGUARD #1: separate protected stops up front. Never cancel one.
+        protected_orders: List[Dict] = []
+        unprotected_orders: List[Dict] = []
+        for order in sorted_stops:
+            order_id = self._coerce_int(order.get("orderId"), None)
+            if order_id is not None and order_id in protected_ids:
+                protected_orders.append(order)
+            else:
+                unprotected_orders.append(order)
+
+        to_keep: List[Dict] = list(protected_orders)
         to_cancel: List[Dict] = []
         if position_size and position_size > 0:
-            total_kept_size = 0
-            for order in sorted_stops:
+            # Existing size-aware logic, applied only to UNPROTECTED stops
+            total_kept_size = sum((self._coerce_int(o.get("size"), 0) or 0) for o in protected_orders)
+            for order in unprotected_orders:
                 order_size = self._coerce_int(order.get("size"), 0) or 0
                 if total_kept_size < position_size:
                     to_keep.append(order)
@@ -2545,9 +2610,12 @@ class ProjectXClient:
                     to_cancel.append(order)
         else:
             # Unknown position size — preserve old "keep one, cancel rest" behavior
-            if sorted_stops:
-                to_keep = [sorted_stops[0]]
-                to_cancel = list(sorted_stops[1:])
+            # but still respect protected_ids (protected stops are already in to_keep).
+            if not to_keep and unprotected_orders:
+                to_keep = [unprotected_orders[0]]
+                to_cancel = list(unprotected_orders[1:])
+            else:
+                to_cancel = list(unprotected_orders)
 
         if to_cancel:
             logging.warning(
@@ -3505,7 +3573,8 @@ class ProjectXClient:
         side: str,
         known_size: int = None,
         stop_order_id: int = None,
-        current_stop_price: float = None
+        current_stop_price: float = None,
+        protected_stop_order_ids: Optional[set] = None,
     ) -> bool:
         """
         Aggressively modify stop to break-even.
@@ -3513,6 +3582,11 @@ class ProjectXClient:
         1. Removed 'Skipping' logic - Forces update to ensure safety.
         2. Improved Search - Logs exactly what it finds.
         3. Robust Fallback - If modify fails, immediately cancels and places new stop.
+
+        2026-05-06: `protected_stop_order_ids` — set of stop_order_ids the
+        bot is tracking across ALL stacked positions; cleanup will not cancel
+        these. Threaded through to `_cleanup_duplicate_stop_orders` to prevent
+        the "moving leg's BE-trail kills another leg's stop" naked-leg bug.
         """
         # 1. Determine position size
         position_size = known_size if known_size is not None else 1
@@ -3537,6 +3611,7 @@ class ProjectXClient:
                     expected_size=expected_size,
                     expected_price=be_price,
                     prefer_order_id=target_stop_id,
+                    protected_stop_order_ids=protected_stop_order_ids,
                 )
                 self._active_stop_order_id = surviving_stop_id or target_stop_id
                 return True
@@ -3565,6 +3640,7 @@ class ProjectXClient:
                     expected_size=expected_size,
                     expected_price=be_price,
                     prefer_order_id=self._coerce_int(candidate_id, None),
+                    protected_stop_order_ids=protected_stop_order_ids,
                 )
                 self._active_stop_order_id = surviving_stop_id or self._coerce_int(candidate_id, None)
                 return True
@@ -3605,6 +3681,7 @@ class ProjectXClient:
                     expected_size=expected_size,
                     expected_price=be_price,
                     prefer_order_id=retry_order_id,
+                    protected_stop_order_ids=protected_stop_order_ids,
                 )
                 self._active_stop_order_id = surviving_stop_id or retry_order_id
                 return True
@@ -3620,6 +3697,7 @@ class ProjectXClient:
             expected_size=expected_size,
             expected_price=be_price,
             prefer_order_id=self._active_stop_order_id,
+            protected_stop_order_ids=protected_stop_order_ids,
         )
         if surviving_stop_id is not None:
             self._active_stop_order_id = surviving_stop_id
