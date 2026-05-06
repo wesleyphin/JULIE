@@ -9152,11 +9152,34 @@ async def run_bot():
                 mnq_client = ProjectXClient(
                     contract_root="MNQ", target_symbol=mnq_target_symbol
                 )
-                logging.info(
-                    "[cross-market] filterless mode: live MNQ (ProjectX) + "
-                    "VIX (Yahoo) clients enabled for overlay cross-market features."
-                )
-                vix_client = YahooVIXClient(target_symbol="^VIX")
+                # VIX source preference: TastyTrade (real-time, broker-direct)
+                # → fallback to Yahoo (15-min delayed) if TT auth not configured.
+                # Disable TT explicitly with JULIE_USE_TASTYTRADE_VIX=0.
+                vix_client = None
+                if os.environ.get("JULIE_USE_TASTYTRADE_VIX", "1").strip() == "1":
+                    try:
+                        from tastytrade_market_data_client import TastyTradeVIXClient
+                        _tt_vix = TastyTradeVIXClient(target_symbol="VIX")
+                        if _tt_vix.login():
+                            vix_client = _tt_vix
+                            logging.info(
+                                "[cross-market] filterless mode: live MNQ (ProjectX) + "
+                                "VIX (TastyTrade, real-time) clients enabled for "
+                                "overlay cross-market features."
+                            )
+                    except Exception as _tt_exc:
+                        logging.warning(
+                            "[cross-market] TastyTrade VIX init failed (%s); "
+                            "falling back to Yahoo (15-min delayed)",
+                            _tt_exc,
+                        )
+                if vix_client is None:
+                    logging.info(
+                        "[cross-market] filterless mode: live MNQ (ProjectX) + "
+                        "VIX (Yahoo, 15-min delayed) clients enabled for "
+                        "overlay cross-market features."
+                    )
+                    vix_client = YahooVIXClient(target_symbol="^VIX")
             except Exception as _cm_exc:
                 logging.warning(
                     "[cross-market] failed to init live MNQ/VIX clients: %s; "
