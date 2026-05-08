@@ -5956,6 +5956,53 @@ def _update_live_de3_entry_trade_day_extreme_state(
 
 _TRACKED_STOPS_BOT_STATE_PATH = "bot_state.json"
 
+# 2026-05-08 — naked-leg audit safeguards. Two new defenses after the
+# 2026-05-08 11:14 ET incident where the audit fired 3 times in 8s on a
+# stop that had FILLED (not gone missing), each phantom replacement opening
+# a fresh SHORT against the now-FLAT account → ended SHORT 2 instead of
+# closed LONG. Real loss ≈ $100.
+#
+#   1. Verify-before-place: confirm broker still has a position on the
+#      tracked side BEFORE placing replacement stop. If FLAT or opposite,
+#      the original stop FILLED — mark the trade closed via the existing
+#      post-audit fill-detection path; don't place a phantom order.
+#      Toggleable via env JULIE_NAKED_LEG_AUDIT_VERIFY_POSITION (default ON).
+#
+#   2. Per-stop throttle: short window after a heal where the same
+#      stale_stop_order_id is ignored. Prevents the 3-in-8s storm we saw,
+#      where each new heal would itself appear "missing" on the next audit
+#      and trigger another heal on top of it.
+_NAKED_LEG_AUDIT_VERIFY_POSITION = (
+    str(os.environ.get("JULIE_NAKED_LEG_AUDIT_VERIFY_POSITION", "1")).strip().lower()
+    not in {"0", "false", "no", "off"}
+)
+_NAKED_LEG_HEAL_THROTTLE_SEC = 60.0
+_NAKED_LEG_RECENT_HEALS: Dict[int, float] = {}
+
+
+def _naked_leg_recently_healed(stale_id: Any) -> bool:
+    """Return True if the same stale_stop_order_id was healed within the
+    throttle window. Cleans up stale entries as a side effect."""
+    coerced = _coerce_int(stale_id, None)
+    if coerced is None:
+        return False
+    now = time.time()
+    # Garbage-collect stale entries to keep dict bounded
+    expired = [k for k, ts in _NAKED_LEG_RECENT_HEALS.items()
+               if now - ts > _NAKED_LEG_HEAL_THROTTLE_SEC]
+    for k in expired:
+        _NAKED_LEG_RECENT_HEALS.pop(k, None)
+    last = _NAKED_LEG_RECENT_HEALS.get(coerced)
+    if last is None:
+        return False
+    return (now - last) < _NAKED_LEG_HEAL_THROTTLE_SEC
+
+
+def _mark_naked_leg_healed(stale_id: Any) -> None:
+    coerced = _coerce_int(stale_id, None)
+    if coerced is not None:
+        _NAKED_LEG_RECENT_HEALS[coerced] = time.time()
+
 
 def _emergency_replace_naked_stop(
     client: Any,
@@ -5972,6 +6019,10 @@ def _emergency_replace_naked_stop(
       - Only acts if the trade has a finite current_stop_price.
       - If the market has already crossed the stop price, force-close instead
         of placing an unfillable stop.
+      - 2026-05-08: verify broker still has the tracked-side position open
+        before placing replacement. If FLAT/opposite, the original stop
+        FILLED — abort, let the post-audit fill-detection close the trade.
+      - 2026-05-08: throttle repeat heals on same stale_stop_order_id.
       - Logs prominently so we can audit how often this fires.
     """
     if client is None or not isinstance(trade, dict):
@@ -5982,6 +6033,50 @@ def _emergency_replace_naked_stop(
     size = max(0, _coerce_int(trade.get("size"), 0))
     if size <= 0:
         return None
+
+    # Throttle: same stop_order_id healed recently? Skip — likely an audit
+    # storm. The first heal already placed (or aborted via verify); a second
+    # call within 60s is almost certainly the audit re-firing because the
+    # NEW stop hasn't propagated to broker order-list yet.
+    if _naked_leg_recently_healed(stale_stop_order_id):
+        logging.warning(
+            "🚨 NAKED LEG audit suppressed: stale_id=%s already healed within %ds; "
+            "skipping repeat to prevent audit-storm phantom orders.",
+            stale_stop_order_id, int(_NAKED_LEG_HEAL_THROTTLE_SEC),
+        )
+        return None
+
+    # Verify-before-place: if broker is FLAT or on the opposite side, the
+    # original stop FILLED (closing the position). Don't place a replacement
+    # — that would create a phantom new position (this is the 2026-05-08
+    # bug). The fill-detection block downstream of this function will close
+    # the tracked trade on the next iteration.
+    if _NAKED_LEG_AUDIT_VERIFY_POSITION:
+        try:
+            broker_pos = client.get_position(prefer_stream=True, require_open_pnl=False)
+        except Exception as exc:
+            logging.warning(
+                "🚨 NAKED LEG audit: get_position raised (%s); proceeding with "
+                "placement (fail-open since better to risk dup stop than naked).",
+                exc,
+            )
+            broker_pos = None
+        if isinstance(broker_pos, dict):
+            broker_side = _normalize_live_side(broker_pos.get("side"))
+            broker_size = max(0, _coerce_int(broker_pos.get("size"), 0))
+            if broker_side != side_name or broker_size <= 0:
+                logging.warning(
+                    "🚨 NAKED LEG audit ABORTED: tracker says %s %s but broker is "
+                    "%s size=%d. Original stop FILLED — closing tracked trade via "
+                    "fill-detection path; NOT placing replacement (would open phantom "
+                    "%s). stale_id=%s",
+                    side_name, size, broker_side or "FLAT", broker_size,
+                    "SHORT" if side_name == "LONG" else "LONG",
+                    stale_stop_order_id,
+                )
+                # Mark in throttle so repeat audits in the same bar don't re-check
+                _mark_naked_leg_healed(stale_stop_order_id)
+                return None
     stop_price = _coerce_float(trade.get("current_stop_price"), math.nan)
     if not math.isfinite(stop_price):
         # Derive from sl_dist + entry if absent
@@ -6052,6 +6147,12 @@ def _emergency_replace_naked_stop(
         "✅ NAKED LEG HEALED: emergency stop %s placed for %s %s @ %.2f.",
         new_stop_id, trade.get("strategy", "?"), side_name, stop_price,
     )
+    # Mark BOTH the stale id and the new id in the throttle, so the audit
+    # storm pattern (heal → new id → audit re-fires before broker propagates →
+    # new id "missing" → another heal) is broken.
+    _mark_naked_leg_healed(stale_stop_order_id)
+    if new_stop_id is not None:
+        _mark_naked_leg_healed(new_stop_id)
     return new_stop_id
 
 

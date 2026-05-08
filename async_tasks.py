@@ -58,6 +58,17 @@ async def position_sync_task(
 ):
     """
     Independent position sync task that fetches broker position every 'interval' seconds.
+
+    TODO(2026-05-08): Bug #2 from naked-leg incident — this task correctly reads
+    broker truth into ``client._local_position`` and persists to bot_state.json,
+    but does NOT propagate side/size changes to ``tracked_live_trades`` /
+    ``live_position`` in the bar-loop tracker. When broker side flips
+    (e.g. LONG→SHORT after audit-storm phantom orders), the bar-loop tracker
+    stays stale until the next bar-tick reconciliation runs. UI shows
+    hallucinated state in the gap. Fix requires cross-loop access to the
+    bar-loop's tracker mutation — deferred. Bug #1 fix in
+    ``_emergency_replace_naked_stop`` prevents the loss path; this issue
+    is now cosmetic-only.
     """
     sync_count = 0
     last_logged_signature = None
