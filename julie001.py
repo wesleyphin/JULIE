@@ -3451,22 +3451,44 @@ def _apply_kalshi_trade_overlay_to_signal(
         logging.debug("ml kalshi shadow err: %s", _k_exc)
     size_multiplier = _coerce_float(plan.get("size_multiplier"), 1.0)
     base_size = max(1, _coerce_int(signal.get("size"), 1) or 1)
+    # FibH1214 fixed-size skip-guard (2026-05-11): the strategy emits a fixed
+    # size=10 and the user wants that preserved through downstream gates.
+    # We still record the trim that *would* have been applied for telemetry,
+    # but we don't actually shrink the size.
+    _strat_name_lc = str(signal.get("strategy", "")).strip().lower()
+    _fib_fixed_size_guard = _strat_name_lc.startswith("fibh1214")
     if size_multiplier < 0.999:
         trimmed_size = max(1, int(math.floor((float(base_size) * float(size_multiplier)) + 1e-9)))
         if trimmed_size != base_size:
             signal["kalshi_entry_size_before"] = int(base_size)
             signal["kalshi_entry_size_multiplier"] = float(size_multiplier)
-            signal["size"] = int(trimmed_size)
-            logging.info(
-                "Kalshi overlay size trim: %s %s | role=%s | size %s -> %s | score=%.3f thresh=%.3f",
-                signal.get("strategy", "Unknown"),
-                signal.get("side", "?"),
-                signal.get("kalshi_trade_overlay_role", ""),
-                int(base_size),
-                int(trimmed_size),
-                float(_coerce_float(signal.get("kalshi_entry_support_score"), 0.0)),
-                float(_coerce_float(signal.get("kalshi_entry_threshold"), 0.0)),
-            )
+            if _fib_fixed_size_guard:
+                signal["kalshi_entry_size_skip_guard_applied"] = True
+                signal["kalshi_entry_size_would_have_been"] = int(trimmed_size)
+                logging.info(
+                    "Kalshi overlay size trim SKIP-GUARDED (FibH1214 fixed-size): "
+                    "%s %s | role=%s | size %s preserved (would have been %s) | "
+                    "score=%.3f thresh=%.3f",
+                    signal.get("strategy", "Unknown"),
+                    signal.get("side", "?"),
+                    signal.get("kalshi_trade_overlay_role", ""),
+                    int(base_size),
+                    int(trimmed_size),
+                    float(_coerce_float(signal.get("kalshi_entry_support_score"), 0.0)),
+                    float(_coerce_float(signal.get("kalshi_entry_threshold"), 0.0)),
+                )
+            else:
+                signal["size"] = int(trimmed_size)
+                logging.info(
+                    "Kalshi overlay size trim: %s %s | role=%s | size %s -> %s | score=%.3f thresh=%.3f",
+                    signal.get("strategy", "Unknown"),
+                    signal.get("side", "?"),
+                    signal.get("kalshi_trade_overlay_role", ""),
+                    int(base_size),
+                    int(trimmed_size),
+                    float(_coerce_float(signal.get("kalshi_entry_support_score"), 0.0)),
+                    float(_coerce_float(signal.get("kalshi_entry_threshold"), 0.0)),
+                )
 
     adjusted_tp = _coerce_float(plan.get("tp_dist"), math.nan)
     old_tp = _coerce_float(signal.get("tp_dist"), math.nan)
@@ -16440,7 +16462,22 @@ async def run_bot():
                             signal['sl_dist'] = vol_adj['sl_dist']
                             signal['tp_dist'] = vol_adj['tp_dist']
                             if vol_adj.get('adjustment_applied', False):
-                                signal['size'] = vol_adj['size']
+                                # FibH1214 fixed-size skip-guard (2026-05-11): the strategy
+                                # ships FIXED_SIZE=10 and the user wants that preserved through
+                                # the vol filter's low_vol_size_mult (0.67) cut. Keep SL/TP edits
+                                # but suppress the size shrink.
+                                _strat_lc = str(signal.get('strategy', '')).strip().lower()
+                                if _strat_lc.startswith('fibh1214'):
+                                    signal['vol_size_skip_guard_applied'] = True
+                                    signal['vol_size_would_have_been'] = int(vol_adj.get('size', signal.get('size', 1)))
+                                    logging.info(
+                                        "FibH1214 vol-size skip-guard: %s preserved (would have been %d, regime=%s)",
+                                        signal.get('strategy', '?'),
+                                        int(vol_adj.get('size', 0)),
+                                        vol_adj.get('regime', 'UNKNOWN'),
+                                    )
+                                else:
+                                    signal['size'] = vol_adj['size']
                             signal['vol_regime'] = vol_adj.get('regime', 'UNKNOWN')
                             if not ml_vol_regime_ok(signal, base_session, signal['vol_regime'], asia_viable=asia_viable):
                                 log_filter_block("MLVolRegimeGuard", f"regime={signal['vol_regime']}")
@@ -16860,7 +16897,22 @@ async def run_bot():
                             signal['sl_dist'] = vol_adj['sl_dist']
                             signal['tp_dist'] = vol_adj['tp_dist']
                             if vol_adj.get('adjustment_applied', False):
-                                signal['size'] = vol_adj['size']
+                                # FibH1214 fixed-size skip-guard (2026-05-11): the strategy
+                                # ships FIXED_SIZE=10 and the user wants that preserved through
+                                # the vol filter's low_vol_size_mult (0.67) cut. Keep SL/TP edits
+                                # but suppress the size shrink.
+                                _strat_lc = str(signal.get('strategy', '')).strip().lower()
+                                if _strat_lc.startswith('fibh1214'):
+                                    signal['vol_size_skip_guard_applied'] = True
+                                    signal['vol_size_would_have_been'] = int(vol_adj.get('size', signal.get('size', 1)))
+                                    logging.info(
+                                        "FibH1214 vol-size skip-guard: %s preserved (would have been %d, regime=%s)",
+                                        signal.get('strategy', '?'),
+                                        int(vol_adj.get('size', 0)),
+                                        vol_adj.get('regime', 'UNKNOWN'),
+                                    )
+                                else:
+                                    signal['size'] = vol_adj['size']
                             signal['vol_regime'] = vol_adj.get('regime', 'UNKNOWN')
                             if not ml_vol_regime_ok(signal, base_session, signal['vol_regime'], asia_viable=asia_viable):
                                 log_filter_block("MLVolRegimeGuard", f"regime={signal['vol_regime']}")
@@ -17953,13 +18005,25 @@ async def run_bot():
 
                                 # Only apply SIZE adjustment if the regime explicitly demands it (Low Vol)
                                 if vol_adj.get('adjustment_applied', False):
-                                    sig['size'] = vol_adj['size']
-                                    event_logger.log_trade_modified(
-                                        "VolatilityAdjustment",
-                                        sig.get('tp_dist'),
-                                        vol_adj['tp_dist'],
-                                        f"Volatility/Guardrail adjustment (Regime: {vol_adj['regime']})"
-                                    )
+                                    # FibH1214 fixed-size skip-guard (2026-05-11): preserve size=10
+                                    _sig_strat_lc = str(sig.get('strategy', '')).strip().lower()
+                                    if _sig_strat_lc.startswith('fibh1214'):
+                                        sig['vol_size_skip_guard_applied'] = True
+                                        sig['vol_size_would_have_been'] = int(vol_adj.get('size', sig.get('size', 1)))
+                                        logging.info(
+                                            "FibH1214 vol-size skip-guard (loose-sig path): %s preserved (would have been %d, regime=%s)",
+                                            sig.get('strategy', '?'),
+                                            int(vol_adj.get('size', 0)),
+                                            vol_adj.get('regime', 'UNKNOWN'),
+                                        )
+                                    else:
+                                        sig['size'] = vol_adj['size']
+                                        event_logger.log_trade_modified(
+                                            "VolatilityAdjustment",
+                                            sig.get('tp_dist'),
+                                            vol_adj['tp_dist'],
+                                            f"Volatility/Guardrail adjustment (Regime: {vol_adj['regime']})"
+                                        )
 
                                 sig["size"] = _apply_live_execution_size(
                                     sig,
@@ -18771,13 +18835,25 @@ async def run_bot():
 
                                         # Only apply SIZE adjustment if the regime explicitly demands it (Low Vol)
                                         if vol_adj.get('adjustment_applied', False):
-                                            signal['size'] = vol_adj['size']
-                                            event_logger.log_trade_modified(
-                                                "VolatilityAdjustment",
-                                                signal.get('tp_dist'),
-                                                vol_adj['tp_dist'],
-                                                f"Volatility/Guardrail adjustment (Regime: {vol_adj['regime']})"
-                                            )
+                                            # FibH1214 fixed-size skip-guard (2026-05-11): preserve size=10
+                                            _fb_strat_lc = str(signal.get('strategy', '')).strip().lower()
+                                            if _fb_strat_lc.startswith('fibh1214'):
+                                                signal['vol_size_skip_guard_applied'] = True
+                                                signal['vol_size_would_have_been'] = int(vol_adj.get('size', signal.get('size', 1)))
+                                                logging.info(
+                                                    "FibH1214 vol-size skip-guard (fallback path): %s preserved (would have been %d, regime=%s)",
+                                                    signal.get('strategy', '?'),
+                                                    int(vol_adj.get('size', 0)),
+                                                    vol_adj.get('regime', 'UNKNOWN'),
+                                                )
+                                            else:
+                                                signal['size'] = vol_adj['size']
+                                                event_logger.log_trade_modified(
+                                                    "VolatilityAdjustment",
+                                                    signal.get('tp_dist'),
+                                                    vol_adj['tp_dist'],
+                                                    f"Volatility/Guardrail adjustment (Regime: {vol_adj['regime']})"
+                                                )
 
                                         # Log as QUEUED for UI visibility
                                         log_strategy, log_sub = get_log_strategy_info(
