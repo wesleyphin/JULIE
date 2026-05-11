@@ -977,11 +977,15 @@ class HierarchicalVolatilityFilter:
 
 
 # Global instance
+# 2026-05-11: low_vol_size_mult=1.0 disables the silent low-vol size shrink
+# (was 0.67 → cut emitted sizes by 33% in low-vol regime, no log line).
+# Vol filter still widens SL via low_vol_stop_mult=1.5 and skips ultra-low
+# regimes via skip_ultra_low=True. Only the size cut is neutered.
 volatility_filter = HierarchicalVolatilityFilter(
     skip_ultra_low=True,
     adjust_low_vol=True,
     low_vol_stop_mult=1.5,
-    low_vol_size_mult=0.67
+    low_vol_size_mult=1.0
 )
 
 
